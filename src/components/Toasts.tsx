@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useRef } from "react";
+import { useEffect, useLayoutEffect, useRef, type ReactNode } from "react";
 import type { CurrentToast } from "../hooks/useToasts";
 
 interface Props {
@@ -26,20 +26,41 @@ const CloseIcon = () => (
  */
 export function Toasts({ current, onDismiss, onAction, onHold, onOpenList }: Props) {
   if (!current) return null;
-  // Keyed by id *and* time, so a repeat ("×2") restarts its countdown line.
-  return <ToastCard key={`${current.item.id}:${current.item.at}`} current={current} onDismiss={onDismiss} onAction={onAction} onHold={onHold} onOpenList={onOpenList} />;
+  return (
+    <ToastSlot onHold={onHold}>
+      {/* Keyed by id *and* time, so a repeat ("×2") restarts its countdown line. */}
+      <ToastCard key={`${current.item.id}:${current.item.at}`} current={current} onDismiss={onDismiss} onAction={onAction} onHold={onHold} onOpenList={onOpenList} />
+    </ToastSlot>
+  );
+}
+
+/**
+ * Owns the hover hold, outside the keyed card: a repeat or a replacement
+ * remounts the card under a pointer that never left, and a hold the old card
+ * released would not come back until the pointer left and re-entered.
+ * `display: contents`, so the corner's layout still sees the card itself.
+ */
+function ToastSlot({ onHold, children }: { onHold: Props["onHold"]; children: ReactNode }) {
+  // Mouse-leave never fires for an element that unmounts under the pointer,
+  // so the hold is released when the toast goes away entirely.
+  useEffect(() => () => onHold("hover", false), [onHold]);
+  return (
+    <div
+      style={{ display: "contents" }}
+      onMouseEnter={() => onHold("hover", true)}
+      onMouseLeave={() => onHold("hover", false)}
+    >
+      {children}
+    </div>
+  );
 }
 
 function ToastCard({ current, onDismiss, onAction, onHold, onOpenList }: Props & { current: CurrentToast }) {
   const ref = useRef<HTMLDivElement>(null);
   const { item, extra, durationMs, running, leaving } = current;
 
-  // Mouse-leave never fires for an element that unmounts under the pointer,
-  // so a toast releases its holds on the way out.
-  useEffect(() => () => {
-    onHold("hover", false);
-    onHold("focus", false);
-  }, [onHold]);
+  // Whatever had focus inside this card goes with it, so the focus hold does too.
+  useEffect(() => () => onHold("focus", false), [onHold]);
 
   // Shrinking into the bell needs to know where the bell is.
   useLayoutEffect(() => {
@@ -58,8 +79,6 @@ function ToastCard({ current, onDismiss, onAction, onHold, onOpenList }: Props &
       ref={ref}
       className={`toast notice-tone--${item.kind}${leaving ? ` toast--leave-${leaving}` : ""}`}
       role={item.kind === "error" ? "alert" : "status"}
-      onMouseEnter={() => onHold("hover", true)}
-      onMouseLeave={() => onHold("hover", false)}
       onFocus={() => onHold("focus", true)}
       onBlur={(e) => {
         if (!e.currentTarget.contains(e.relatedTarget as Node | null)) onHold("focus", false);

@@ -68,6 +68,14 @@ export function clampToNearestMonitor(
   };
 }
 
+// Whether a full-window geometry is worth saving as the one to reopen at. A
+// minimized window on Windows reports a ~160×28 frame parked at -32000,-32000;
+// saved, the next launch rejected the position, centred the window and kept the
+// size — leaving a 144×19 sliver that then re-saved itself on every launch.
+export function isRestorableFullGeom(g: { w: number; h: number }): boolean {
+  return g.w >= FULL_MIN_WIDTH && g.h >= FULL_MIN_HEIGHT;
+}
+
 /**
  * Fit a full window onto one monitor: shrink it to that monitor's size, then
  * move it so it lies entirely on it. The monitor is the one holding the
@@ -78,14 +86,6 @@ export function clampToNearestMonitor(
  * the laptop with its bottom/right edges (and so every resize handle) out of
  * reach, and with `decorations: false` there is no native zoom button either.
  */
-// Whether a full-window geometry is worth saving as the one to reopen at. A
-// minimized window on Windows reports a ~160×28 frame parked at -32000,-32000;
-// saved, the next launch rejected the position, centred the window and kept the
-// size — leaving a 144×19 sliver that then re-saved itself on every launch.
-export function isRestorableFullGeom(g: { w: number; h: number }): boolean {
-  return g.w >= FULL_MIN_WIDTH && g.h >= FULL_MIN_HEIGHT;
-}
-
 export function fitToMonitor(
   g: { x: number; y: number; w: number; h: number }, monitors: MonitorRect[],
 ): { x: number; y: number; w: number; h: number } {
@@ -860,9 +860,13 @@ export function useMiniMode(
               await win.setPosition(new LogicalPosition(g.x, g.y));
             }
           } else {
-            // A maximized/fullscreen window is the OS's to lay out.
-            const [maximized, fullscreen] = await Promise.all([win.isMaximized(), win.isFullscreen()]);
-            if (maximized || fullscreen) return;
+            // A maximized/fullscreen window is the OS's to lay out, and a
+            // minimized one reports its Dock/taskbar stub — fitted, that stub
+            // would become the size the window restores at.
+            const [maximized, fullscreen, minimized] = await Promise.all([
+              win.isMaximized(), win.isFullscreen(), win.isMinimized(),
+            ]);
+            if (maximized || fullscreen || minimized) return;
             // With nothing saved for this arrangement (e.g. the first time on
             // the laptop alone), fit the window where the OS left it: the
             // evacuation keeps the old size, which can exceed this screen.

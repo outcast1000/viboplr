@@ -13,7 +13,7 @@ import "./base.css";
 import "./design-system.css";
 import "./App.css";
 
-import type { Track, QueueTrack, View, ViewMode, ColumnConfig, SortField, SortDir, Collection, ResolvedTrackSource, Album, Artist, Tag } from "./types";
+import type { Track, QueueTrack, View, ViewMode, ColumnConfig, SortField, SortDir, Collection, ResolvedTrackSource, Album, Artist, Tag, TrackSelection } from "./types";
 import { isVideoTrack, parseSubsonicUrl, trashLabel } from "./utils";
 import { parseLrc, syncedLyricsFitMedia, lyricOffsetKey, clampLyricOffset } from "./utils/lyrics";
 
@@ -283,6 +283,48 @@ const IS_WINDOWS = navigator.platform.startsWith("Win");
 /** How long the same deep link counts as a duplicate delivery, not a new click. */
 const DEEP_LINK_REPEAT_MS = 3000;
 
+/** The open detail page's subject, by name — the same resolution App's render
+ *  uses to title each page. */
+function resolveUiEntity(s: {
+  view: View;
+  selectedArtist: number | null;
+  selectedAlbum: number | null;
+  selectedTag: number | null;
+  selectedTrack: TrackSelection | null;
+  artists: Artist[];
+  albums: Album[];
+  tags: Tag[];
+  fallbackTrackName: { name: string; artistName?: string; albumTitle?: string } | null;
+  fallbackAlbumName: { name: string; artistName?: string } | null;
+  fallbackArtistName: string | null;
+  detailTrack: Track | null;
+}): UiContextEntity | null {
+  const { view, selectedArtist, selectedAlbum, selectedTag } = s;
+  const track = s.selectedTrack !== null ? s.detailTrack : null;
+  if (track) return { kind: "track", name: track.title, artistName: track.artist_name ?? null, albumTitle: track.album_title ?? null };
+  if (s.fallbackTrackName) {
+    const f = s.fallbackTrackName;
+    return { kind: "track", name: f.name, artistName: f.artistName ?? null, albumTitle: f.albumTitle ?? null };
+  }
+  if (s.selectedTrack !== null) return null;
+  if ((view === "albums" || view === "artists") && selectedAlbum !== null) {
+    const album = s.albums.find((a) => a.id === selectedAlbum);
+    return album ? { kind: "album", name: album.title, artistName: album.artist_name ?? null, albumTitle: null } : null;
+  }
+  if (view === "albums" && s.fallbackAlbumName) {
+    return { kind: "album", name: s.fallbackAlbumName.name, artistName: s.fallbackAlbumName.artistName ?? null, albumTitle: null };
+  }
+  if (view === "artists") {
+    const name = s.fallbackArtistName ?? s.artists.find((a) => a.id === selectedArtist)?.name;
+    return name ? { kind: "artist", name, artistName: null, albumTitle: null } : null;
+  }
+  if (view === "tags" && selectedTag !== null) {
+    const name = s.tags.find((t) => t.id === selectedTag)?.name;
+    return name ? { kind: "tag", name, artistName: null, albumTitle: null } : null;
+  }
+  return null;
+}
+
 function App() {
   const restoredRef = useRef(false);
   const handleEnqueueRef = useRef<(tracks: Track[]) => void>(() => {});
@@ -488,23 +530,6 @@ function App() {
   const [resolverSources, setResolverSources] = useState<string[]>([]);
   const transcodeSessionRef = useRef<{ sessionId: string; baseUrl: string; durationSecs: number | null; seekOffset: number } | null>(null);
   const playback = usePlayback(restoredRef, peekNextRef, crossfadeSecsRef, advanceIndexRef, onScrobbleRef, resolveTrackSrcRef, prefetchNextRef, transcodeSessionRef, useNativeEngineRef, useNativeVideoRef, nativeEndedRef, playbackAutoSkipRef);
-  // Filled once `usePlugins` (below) exists; the waveform hook reads it at call time.
-  const waveformPluginsRef = useRef<WaveformPluginBridge | null>(null);
-  const [waveformPluginsReady, setWaveformPluginsReady] = useState(false);
-  const waveformPeaks = useWaveform(playback.currentTrack, {
-    // A stream often has no duration until the player reports one, and a
-    // shared waveform is matched on it. Only a stream borrows the player's: a
-    // local file is analyzed under its own (possibly unknown) length, so a late
-    // metadata event can't restart the analysis under a new cache key.
-    durationSecs: playback.currentTrack?.duration_secs
-      ?? (playback.currentTrack && !isLocalTrack(playback.currentTrack) && playback.durationSecs > 0
-        ? Math.round(playback.durationSecs) : null),
-    isVideo: playback.currentTrack ? isVideoTrack(playback.currentTrack) : false,
-    assetUrl: playback.currentAssetUrl,
-    plugins: waveformPluginsRef,
-    pluginsReady: waveformPluginsReady,
-    isEngineDecoding: playback.isEngineDecoding,
-  });
 
   const [trackRank, setTrackRank] = useState<number | null>(null);
   const [artistRank, setArtistRank] = useState<number | null>(null);
@@ -833,9 +858,23 @@ function App() {
   // single IPC channel. debugMode/devPluginPath are restored before this flips,
   // so the deferred first load already sees their final values.
   const plugins = usePlugins(pluginTrackRef, pluginPlayingRef, pluginPositionRef, pluginQueueRef, pluginPlaybackCallbacks, pluginHostCallbacksRef, debugMode, devPluginPath, !appRestoring);
+  const waveformPluginsRef = useRef<WaveformPluginBridge | null>(null);
   useAssignRef(waveformPluginsRef, plugins.waveformBridge);
-  // State, not a ref read: the waveform hook re-runs when plugins come up.
-  if (plugins.pluginsLoaded !== waveformPluginsReady) setWaveformPluginsReady(plugins.pluginsLoaded);
+  const waveformPeaks = useWaveform(playback.currentTrack, {
+    // A stream often has no duration until the player reports one, and a
+    // shared waveform is matched on it. Only a stream borrows the player's: a
+    // local file is analyzed under its own (possibly unknown) length, so a late
+    // metadata event can't restart the analysis under a new cache key.
+    durationSecs: playback.currentTrack?.duration_secs
+      ?? (playback.currentTrack && !isLocalTrack(playback.currentTrack) && playback.durationSecs > 0
+        ? Math.round(playback.durationSecs) : null),
+    isVideo: playback.currentTrack ? isVideoTrack(playback.currentTrack) : false,
+    assetUrl: playback.currentAssetUrl,
+    plugins: waveformPluginsRef,
+    // State, not a ref read: the waveform hook re-runs when plugins come up.
+    pluginsReady: plugins.pluginsLoaded,
+    isEngineDecoding: playback.isEngineDecoding,
+  });
 
   // The `nowplaying` visualizer slot. resolveSlot returns null when the chosen
   // visualizer isn't available, so a disabled plugin silently frees the slot
@@ -3102,6 +3141,9 @@ function App() {
     function handleDeepLink(urls: string[]) {
       for (const raw of urls) {
         const now = Date.now();
+        // An entry only matters inside the repeat window, so the map holds
+        // just the last few seconds of links.
+        for (const [url, at] of handled) if (now - at >= DEEP_LINK_REPEAT_MS) handled.delete(url);
         const seen = handled.get(raw);
         if (seen !== undefined && now - seen < DEEP_LINK_REPEAT_MS) continue;
         handled.set(raw, now);
@@ -4396,34 +4438,27 @@ function App() {
       }
     }
   };
-  // The open detail page's subject, by name — the same resolution the render
-  // below uses to title each page.
-  const uiEntity: UiContextEntity | null = (() => {
-    const { view, selectedArtist, selectedAlbum, selectedTag, artists, albums, tags } = library;
-    const track = library.selectedTrack !== null ? (detailTrackLocal ?? detailTrack) : null;
-    if (track) return { kind: "track", name: track.title, artistName: track.artist_name ?? null, albumTitle: track.album_title ?? null };
-    if (library.fallbackTrackName) {
-      const f = library.fallbackTrackName;
-      return { kind: "track", name: f.name, artistName: f.artistName ?? null, albumTitle: f.albumTitle ?? null };
-    }
-    if (library.selectedTrack !== null) return null;
-    if ((view === "albums" || view === "artists") && selectedAlbum !== null) {
-      const album = albums.find((a) => a.id === selectedAlbum);
-      return album ? { kind: "album", name: album.title, artistName: album.artist_name ?? null, albumTitle: null } : null;
-    }
-    if (view === "albums" && library.fallbackAlbumName) {
-      return { kind: "album", name: library.fallbackAlbumName.name, artistName: library.fallbackAlbumName.artistName ?? null, albumTitle: null };
-    }
-    if (view === "artists") {
-      const name = library.fallbackArtistName ?? artists.find((a) => a.id === selectedArtist)?.name;
-      return name ? { kind: "artist", name, artistName: null, albumTitle: null } : null;
-    }
-    if (view === "tags" && selectedTag !== null) {
-      const name = tags.find((t) => t.id === selectedTag)?.name;
-      return name ? { kind: "tag", name, artistName: null, albumTitle: null } : null;
-    }
-    return null;
-  })();
+  // Memoized: the lookups scan whole library lists, and App renders on every
+  // playback tick.
+  const uiEntity = useMemo(
+    () => resolveUiEntity({
+      view: library.view,
+      selectedArtist: library.selectedArtist,
+      selectedAlbum: library.selectedAlbum,
+      selectedTag: library.selectedTag,
+      selectedTrack: library.selectedTrack,
+      artists: library.artists,
+      albums: library.albums,
+      tags: library.tags,
+      fallbackTrackName: library.fallbackTrackName,
+      fallbackAlbumName: library.fallbackAlbumName,
+      fallbackArtistName: library.fallbackArtistName,
+      detailTrack: detailTrackLocal ?? detailTrack,
+    }),
+    [library.view, library.selectedArtist, library.selectedAlbum, library.selectedTag, library.selectedTrack,
+      library.artists, library.albums, library.tags, library.fallbackTrackName, library.fallbackAlbumName,
+      library.fallbackArtistName, detailTrackLocal, detailTrack],
+  );
   const uiContext = useUiContext(
     { view: library.view, entity: uiEntity, audioFullscreen, mini: mini.miniMode },
     uiContextRef,

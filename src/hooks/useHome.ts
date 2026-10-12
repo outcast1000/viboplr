@@ -635,6 +635,11 @@ export function useHome(opts: UseHomeOptions) {
 
   const buildBuiltInResolvers = useCallback(
     (recentPlays: RecentPlaySession[]): ShelfResolver[] => {
+      // Made for you and Discover by decade both draw on the playlist table;
+      // one read per refresh serves both (and only once either asks).
+      let playlistRows: Promise<DecadePlaylistRow[]> | null = null;
+      const getPlaylistRows = () =>
+        (playlistRows ??= invoke<DecadePlaylistRow[]>("get_playlists").then(rows => rows ?? []));
       return [
         {
           id: "builtin:recently-played",
@@ -959,8 +964,7 @@ export function useHome(opts: UseHomeOptions) {
           limit: 12,
           fetch: async (limit) => {
             try {
-              const rows = (await invoke<DecadePlaylistRow[]>("get_playlists")) ?? [];
-              const mixes = madeForYouPlaylists(rows).slice(0, limit);
+              const mixes = madeForYouPlaylists(await getPlaylistRows()).slice(0, limit);
               if (mixes.length === 0) return { status: "empty" };
               const items = await Promise.all(mixes.map(async (p): Promise<HomeShelfItem | null> => {
                 const rows = (await invoke<PlaylistTrackRow[]>("get_playlist_tracks", { playlistId: p.id })) ?? [];
@@ -999,8 +1003,7 @@ export function useHome(opts: UseHomeOptions) {
           limit: 10,
           fetch: async (limit) => {
             try {
-              const rows = (await invoke<DecadePlaylistRow[]>("get_playlists")) ?? [];
-              const decades = decadePlaylists(rows).slice(0, limit);
+              const decades = decadePlaylists(await getPlaylistRows()).slice(0, limit);
               if (decades.length === 0) return { status: "empty" };
               const items = await Promise.all(decades.map(async (p): Promise<HomeShelfItem | null> => {
                 const rows = (await invoke<PlaylistTrackRow[]>("get_playlist_tracks", { playlistId: p.id })) ?? [];
