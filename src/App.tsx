@@ -67,6 +67,8 @@ import { createCoalescedRefresh } from "./utils/coalescedRefresh";
 import { useToasts } from "./hooks/useToasts";
 import { useAssistantActivity } from "./hooks/useAssistantActivity";
 import { AssistantActivityPill } from "./components/AssistantActivityPill";
+import { NotificationBell } from "./components/NotificationBell";
+import { NotificationsPanel } from "./components/NotificationsPanel";
 import { useUserPlaylists } from "./hooks/useUserPlaylists";
 import { toPlaylistTrackPayload } from "./utils/playlistPayload";
 import { useProfileSwitch } from "./hooks/useProfileSwitch";
@@ -1103,8 +1105,15 @@ function App() {
   // lifecycle and exposes the render-facing resolution state.
   // Toasts — created before stream resolution and the updater so their
   // failure/fallback paths can surface feedback.
-  const { toasts, notify, dismiss: dismissToast } = useToasts();
-  const assistantActivity = useAssistantActivity(notify);
+  const notifications = useToasts();
+  const { notify } = notifications;
+  // Settings → AI control at the activity log: where the assistant segment's
+  // label and an assistant failure's "Open AI control" both lead.
+  const openAssistantLog = () => {
+    setSettingsScrollTarget("assistant-activity");
+    library.setView("settings");
+  };
+  const assistantActivity = useAssistantActivity(notify, openAssistantLog);
 
   // Bit-perfect mode (native engine, macOS + Windows): session-only overlay
   // the engine applies — see useBitPerfect / mpv_engine/output.rs.
@@ -4055,6 +4064,7 @@ function App() {
     handleNext: () => handleNext(),
     handleToggleQueueCollapsed,
     handleToggleSidebar,
+    toggleNotifications: () => notifications.setListOpen(!notifications.listOpen),
     canFullscreen,
     toggleFullscreenForTrack,
     adjustZoom,
@@ -5865,6 +5875,16 @@ function App() {
           library.setSelectedAlbum(null);
         }}
         minimizeToMiniPlayer={minimizeToMiniPlayer}
+        notificationBell={
+          <NotificationBell
+            // Showcase keeps the bell (it's chrome) but not its dot, which is
+            // transient state a scripted capture must not pick up.
+            unseenCount={showcase ? 0 : notifications.unseenCount}
+            unseenError={notifications.unseenError}
+            open={notifications.listOpen}
+            onToggle={() => notifications.setListOpen(!notifications.listOpen)}
+          />
+        }
       />
 
       {/* Main content */}
@@ -7329,20 +7349,38 @@ function App() {
         />
       )}
 
-      {/* One corner for both: toasts stack above the assistant pill, so the
-          two never overlap (see .notice-corner in App.css). */}
+      {/* One right-anchored row: the toast, then the assistant segment as the
+          rightmost thing, so nothing moves its Pause (see .notice-corner). */}
       <div className="notice-corner">
-        {!showcase && <Toasts toasts={toasts} onDismiss={dismissToast} />}
+        {!showcase && (
+          <Toasts
+            current={notifications.current}
+            onDismiss={notifications.dismiss}
+            onAction={notifications.runAction}
+            onHold={notifications.hold}
+            onOpenList={() => notifications.setListOpen(true)}
+          />
+        )}
         <AssistantActivityPill
           activity={assistantActivity}
           enabled={controlApiEnabled}
           hidden={showcase || mini.miniMode}
           onOpenLog={() => {
-            setSettingsScrollTarget("assistant-activity");
-            library.setView("settings");
+            assistantActivity.dismissFailures();
+            openAssistantLog();
           }}
         />
       </div>
+      {notifications.listOpen && !mini.miniMode && (
+        <NotificationsPanel
+          items={notifications.items}
+          freshIds={notifications.freshIds}
+          onClose={() => notifications.setListOpen(false)}
+          onAction={notifications.runAction}
+          onRemove={notifications.remove}
+          onClearAll={notifications.clearAll}
+        />
+      )}
 
       {fileDragOver && (
         <div className="file-drop-overlay" aria-hidden="true">

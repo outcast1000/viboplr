@@ -1021,7 +1021,9 @@ export function usePlugins(
                   }
                 : undefined;
             const kind = coerceToastKind(options?.kind);
-            if (notify) notify(message, { action, kind });
+            // The host names the plugin (a source line on the toast and in the
+            // notifications list); a plugin can't speak as anyone else.
+            if (notify) notify(message, { action, kind, source: loaded.manifest.name || pluginId });
             else console.info(`[plugin:${pluginId}]`, message);
           },
           navigateToView: (viewId) => {

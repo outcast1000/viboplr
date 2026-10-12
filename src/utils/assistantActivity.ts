@@ -42,12 +42,16 @@ export interface ActivityEntry {
 
 /** The log keeps this many entries; reads are the bulk of them. */
 export const ACTIVITY_LOG_LIMIT = 200;
-/** How long a finished call stays visible in the pill. */
-export const PILL_LINGER_MS = 3000;
-/** How far back the pill's list reaches. */
-export const PANEL_WINDOW_MS = 5 * 60 * 1000;
-/** Rows the pill's list shows. */
-export const PANEL_MAX_ROWS = 8;
+/** A gap longer than this between two changes starts a new session, so the
+ *  segment's count starts again from 1. */
+export const SESSION_GAP_MS = 8000;
+/** "Working" holds this long after the last call ends, so a burst of quick
+ *  calls reads as one session instead of flickering between states. */
+export const PILL_HOLD_MS = 4000;
+/** How long the segment stays once the session is over (with its countdown
+ *  ring), so the one-click Pause is still there right after something
+ *  happened — which is exactly when people reach for it. */
+export const PILL_LINGER_MS = 60_000;
 
 /** Fold one event into the log (newest first, capped). A `start` adds a running
  *  entry; an `end` settles it — or, for a read or a refused call that announced
@@ -106,20 +110,38 @@ export function isPillWorthy(entry: ActivityEntry): boolean {
 export type PillView =
   | { mode: "hidden" }
   | { mode: "paused"; refused: number }
-  | { mode: "running"; label: string; detail?: string; extra: number; outward: boolean }
-  | { mode: "done"; label: string; detail?: string; outward: boolean }
-  | { mode: "failed"; label: string; detail?: string; count: number };
+  | { mode: "working"; count: number; outward: boolean }
+  | { mode: "failed"; label: string; detail?: string; count: number }
+  /** `left` is the share of the linger still to go, 1 → 0, for the ring. */
+  | { mode: "done"; count: number; outward: boolean; left: number };
+
+const endMs = (e: ActivityEntry) => e.startedMs + (e.durationMs ?? 0);
+
+/** The current session, newest first: the newest run of changes in which each
+ *  one started no more than `SESSION_GAP_MS` after the one before it ended. A
+ *  refused call isn't part of it — it changed nothing. */
+export function currentSession(entries: ActivityEntry[]): ActivityEntry[] {
+  const session: ActivityEntry[] = [];
+  for (const e of entries) {
+    if (!isPillWorthy(e) || e.status === "paused") continue;
+    const newer = session[session.length - 1];
+    if (newer && e.status !== "running" && newer.startedMs - endMs(e) > SESSION_GAP_MS) break;
+    session.push(e);
+  }
+  return session;
+}
 
 /**
- * What the pill shows right now.
+ * What the assistant segment shows right now. It describes a **session**, not
+ * the latest call: a burst of five changes reads "Working · 5" with only the
+ * count moving — five labels replacing each other was the flicker this
+ * replaced.
  *
- * Precedence: **paused** (a standing state the user chose, so it never goes
- * away on a timer) → **running** → **failed** (stays until dismissed, since the
- * failure that matters comes from a call nobody watched) → **done** (lingers
- * `PILL_LINGER_MS` so a quick call is still seen) → hidden.
- *
- * `dismissedBefore` is the highest entry id the user has dismissed: failures at
- * or below it no longer count.
+ * Precedence: **paused** (a standing state the user chose, never on a timer)
+ * → **working** (a call running, or the last one ended under `PILL_HOLD_MS`
+ * ago) → **failed** (stays until the user has looked at Settings → AI control:
+ * `dismissedBefore` is the highest entry id they saw, so a newer failure still
+ * speaks up) → **done** (lingers `PILL_LINGER_MS`) → hidden.
  */
 export function pillView(
   entries: ActivityEntry[],
@@ -127,33 +149,27 @@ export function pillView(
   now: number,
   dismissedBefore: number,
 ): PillView {
-  const worthy = entries.filter(isPillWorthy);
-  const refused = worthy.filter((e) => e.status === "paused" && e.id > dismissedBefore).length;
-  if (paused) return { mode: "paused", refused };
-  const running = worthy.filter((e) => e.status === "running");
-  if (running.length > 0) {
-    const latest = running[0];
-    return { mode: "running", label: latest.label, detail: latest.detail, extra: running.length - 1, outward: latest.kind === "outward" };
+  if (paused) {
+    const refused = entries.filter((e) => isPillWorthy(e) && e.status === "paused" && e.id > dismissedBefore).length;
+    return { mode: "paused", refused };
   }
-  const failed = worthy.filter((e) => e.status === "failed" && e.id > dismissedBefore);
+  const session = currentSession(entries);
+  const outward = session.some((e) => e.kind === "outward");
+  const running = session.some((e) => e.status === "running");
+  const lastEnd = session.reduce((max, e) => Math.max(max, endMs(e)), -Infinity);
+  // A failed call is part of the session's timing but changed nothing, so it
+  // isn't counted (the failed state and the notification speak for it).
+  const count = session.filter((e) => e.status !== "failed").length;
+  if (session.length > 0 && (running || now - lastEnd < PILL_HOLD_MS)) {
+    return { mode: "working", count, outward };
+  }
+  const failed = entries.filter((e) => isPillWorthy(e) && e.status === "failed" && e.id > dismissedBefore);
   if (failed.length > 0) return { mode: "failed", label: failed[0].label, detail: failed[0].detail, count: failed.length };
-  const recent = worthy.find((e) => e.status === "ok" && now - (e.startedMs + (e.durationMs ?? 0)) < PILL_LINGER_MS);
-  if (recent) return { mode: "done", label: recent.label, detail: recent.detail, outward: recent.kind === "outward" };
+  const since = now - lastEnd;
+  if (count > 0 && since < PILL_LINGER_MS) {
+    return { mode: "done", count, outward, left: 1 - since / PILL_LINGER_MS };
+  }
   return { mode: "hidden" };
-}
-
-/** The pill's list: the last few minutes of anything that changed something,
- *  newest first. A failure outlives the window until dismissed. */
-export function panelEntries(entries: ActivityEntry[], now: number, dismissedBefore: number): ActivityEntry[] {
-  return entries
-    .filter(isPillWorthy)
-    .filter(
-      (e) =>
-        e.status === "running" ||
-        now - e.startedMs < PANEL_WINDOW_MS ||
-        ((e.status === "failed" || e.status === "paused") && e.id > dismissedBefore),
-    )
-    .slice(0, PANEL_MAX_ROWS);
 }
 
 export type LogFilter = "all" | "writes" | "outward" | "failed";

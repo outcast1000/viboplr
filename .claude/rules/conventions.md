@@ -202,7 +202,7 @@ Cross-cutting rules that apply to all code everywhere.
 - Use `notify()` from `useToasts` for lightweight feedback (searches, saves, fetches)
 - Use loading states / disabled buttons for operations where the user is waiting
 - Use progress indicators for multi-step operations (downloads, syncs, imports)
-- On failure, the user must know something went wrong -- either `notify(message, { kind: "error" })` (which stays up until closed), or error modal for critical failures. Tag the kind on every new `notify` call that isn't plain information: `error` for a failure, `warning` for degraded-but-working, `success` for a completed action — see `frontend.md` → **useToasts.ts**
+- On failure, the user must know something went wrong -- either `notify(message, { kind: "error" })` (which, if it goes unhandled, stays in the notifications list and lights the caption bar's bell), or error modal for critical failures. Tag the kind on every new `notify` call that isn't plain information: `error` for a failure, `warning` for degraded-but-working, `success` for a completed action — see `frontend.md` → **useToasts.ts**
 
 ### Modal Dismiss Behavior
 

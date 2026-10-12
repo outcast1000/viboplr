@@ -82,6 +82,29 @@ describe("useAssistantActivity", () => {
     expect(notify).toHaveBeenCalledWith("Couldn't pause the assistant.", { kind: "error" });
   });
 
+  it("turns a failed change into an error notification that leads to the log", async () => {
+    vi.mocked(invoke).mockResolvedValue(false);
+    const notify = vi.fn();
+    const onOpenLog = vi.fn();
+    const { result } = renderHook(() => useAssistantActivity(notify, onOpenLog));
+    await waitFor(() => expect(handlers.has("assistant-activity")).toBe(true));
+
+    // Reads, successes and refusals are not notifications.
+    fire("assistant-activity", ev({ id: 1, phase: "end", outcome: "failed", kind: "read" }));
+    fire("assistant-activity", ev({ id: 2, phase: "end", outcome: "ok" }));
+    fire("assistant-activity", ev({ id: 3, phase: "end", outcome: "paused" }));
+    expect(notify).not.toHaveBeenCalled();
+
+    fire("assistant-activity", ev({ id: 6, phase: "end", outcome: "failed", label: "Edit tags", detail: "3 tracks", error: "read-only file" }));
+    expect(notify).toHaveBeenCalledTimes(1);
+    const [message, options] = notify.mock.calls[0];
+    expect(message).toBe("Edit tags (3 tracks) failed: read-only file");
+    expect(options).toMatchObject({ kind: "error", source: "Assistant", action: { label: "Open AI control" } });
+    act(() => options.action.run());
+    expect(onOpenLog).toHaveBeenCalled();
+    expect(result.current.dismissedBefore).toBe(6);
+  });
+
   it("dismissing failures covers what is there, not what comes later", async () => {
     vi.mocked(invoke).mockResolvedValue(false);
     const { result } = renderHook(() => useAssistantActivity(vi.fn()));

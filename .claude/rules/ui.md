@@ -109,6 +109,7 @@ Contents left-to-right:
 - Brand logo ("ibo" with gradient)
 - `CentralSearchDropdown` (global search with results preview — library rows, then an on-demand "Search “x” on <plugin>" section per plugin catalog the user hasn't hidden in Extensions → Contributions; see `plugins.md` "Global Search")
 - Spacer (draggable)
+- **Notifications bell** — dim, no count; a dot only for an unhandled error (red) or action (accent); opens the notifications list (Cmd/Ctrl+Shift+N too). The one permanent notification control: the toast and the assistant segment in the content's bottom-right corner exist only while they have something to say. See `frontend.md` → **useToasts.ts**
 - Help button (keyboard shortcuts)
 - Mini player button
 - Window controls (Windows/Linux right)

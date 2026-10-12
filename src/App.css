@@ -1129,42 +1129,38 @@
   color: var(--warning);
 }
 
-/* The bottom-right notice corner: one fixed column holding the toast stack
-   (radio size notices, plugin showNotification) and the assistant activity
-   pill — pill lowest, toasts above it. Being one column is what keeps the two
-   from overlapping; they used to be positioned separately (toasts centred,
-   pill right) and collided in narrow windows or when the pill's panel opened.
-   The column takes no pointer events itself; its children do. */
+/* The bottom-right notice corner, over the content above the now-playing bar:
+   one right-anchored row of [toast][assistant segment]. The segment is the
+   rightmost thing, so a toast arriving or leaving never moves its Pause
+   button; in a narrow window the toast goes above it instead of beside it.
+   Takes no layout and no pointer events itself; its children do. The list
+   these toasts are kept in hangs off the caption bar's bell
+   (NotificationBell.css). */
 .notice-corner {
   position: fixed;
   right: 16px;
-  bottom: 96px;
+  bottom: calc(var(--now-playing-h) + 14px);
   z-index: 1200;
   display: flex;
-  flex-direction: column;
+  flex-direction: row;
   align-items: flex-end;
+  justify-content: flex-end;
   gap: 8px;
   max-width: calc(100vw - 32px);
   pointer-events: none;
 }
 .notice-corner > * { pointer-events: auto; }
-
-/* One surface and one status vocabulary for everything in the corner: toasts
-   (cards), the assistant pill (a capsule) and its panel. The shape says who is
-   talking — a card is the app telling you something once, a capsule is the
-   assistant's standing status — and the tone says how much it matters, the
-   same way in both. Opaque on purpose: the native mpv engine punches a hole
-   through the window and anything translucent reads over it. */
-.notice-surface {
-  background: var(--bg-surface);
-  color: var(--text-primary);
-  border: 1px solid var(--border);
-  box-shadow: 0 6px 20px rgba(var(--overlay-inverse), 0.25);
+@media (max-width: 720px) {
+  .notice-corner { flex-direction: column; }
 }
+
+/* One status vocabulary for the toast, the list rows, the bell's dot and the
+   assistant segment: the dot colour says how much it matters (warning and
+   error also tint a toast's border). */
 .notice-tone--info { --notice-tone: var(--accent); }
 .notice-tone--success { --notice-tone: var(--success); }
-.notice-tone--warning { --notice-tone: var(--warning); border-color: var(--warning); }
-.notice-tone--error { --notice-tone: var(--error); border-color: var(--error); }
+.notice-tone--warning { --notice-tone: var(--warning); }
+.notice-tone--error { --notice-tone: var(--error); }
 .notice-dot {
   flex: none;
   width: 8px;
@@ -1173,50 +1169,114 @@
   background: var(--notice-tone, var(--text-secondary));
 }
 
-.toast-stack {
-  display: flex;
-  flex-direction: column;
-  align-items: flex-end;
-  gap: 8px;
-  pointer-events: none;
-}
-
+/* The toast: a card that shows the whole message — it wraps over as many
+   lines as it needs and an action gets its own line under it. Opaque on
+   purpose: the native mpv engine punches a hole through the window and
+   anything translucent reads over it. */
 .toast {
-  pointer-events: auto;
+  position: relative;
+  overflow: hidden;
   display: grid;
   grid-template-columns: 8px minmax(0, 1fr) auto;
   align-items: start;
   column-gap: 10px;
-  width: min(360px, calc(100vw - 32px));
-  padding: 9px 6px 9px 12px;
-  border-radius: var(--ds-radius);
+  width: min(380px, calc(100vw - 32px));
+  padding: 9px 6px 10px 12px;
+  border-radius: var(--ds-radius-card);
+  background: var(--bg-surface);
+  color: var(--text-primary);
+  border: 1px solid var(--border);
+  box-shadow: 0 6px 20px rgba(var(--overlay-inverse), 0.25);
   font-size: var(--fs-sm);
   animation: toast-in 0.22s var(--ease-out-quart) both;
 }
+.toast.notice-tone--warning { border-color: color-mix(in srgb, var(--warning) 60%, var(--border)); }
+.toast.notice-tone--error { border-color: color-mix(in srgb, var(--error) 65%, var(--border)); }
 /* Centre the dot on the first line of text. */
-.toast > .notice-dot { margin-top: 0.5em; }
-/* Exit is driven by useToasts (TOAST_EXIT_MS); keep the two durations equal. */
-.toast--leaving {
+.toast > .notice-dot { margin-top: 0.45em; }
+/* Exits are timed by useToasts (TOAST_FADE_MS / TOAST_TO_BELL_MS); keep the
+   durations equal. `bell` shrinks it into the caption bar's bell — it left
+   unhandled and lit the dot, so the user sees where it went. */
+.toast--leave-fade {
   pointer-events: none;
   animation: toast-out 0.18s ease-in both;
+}
+.toast--leave-bell {
+  pointer-events: none;
+  animation: toast-to-bell 0.42s cubic-bezier(0.5, 0, 0.75, 0) both;
 }
 @keyframes toast-in {
   from { opacity: 0; transform: translateX(16px); }
 }
 @keyframes toast-out {
-  to { opacity: 0; transform: translateX(16px); }
+  to { opacity: 0; transform: translateY(6px); }
+}
+@keyframes toast-to-bell {
+  to { opacity: 0; transform: translate(var(--to-bell-x, 0), var(--to-bell-y, 0)) scale(0.12); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .toast--leave-bell { animation: toast-out 0.18s ease-in both; }
 }
 
+.toast-body {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
 .toast-message {
   min-width: 0;
-  background: none;
-  border: none;
-  padding: 0;
-  color: inherit;
-  font: inherit;
-  text-align: left;
   overflow-wrap: anywhere;
+  line-height: 1.4;
+  user-select: text;
+  -webkit-user-select: text;
+  cursor: text;
+}
+.toast-source {
+  display: block;
+  color: var(--text-tertiary);
+  font-size: var(--fs-xs);
+  line-height: 1.3;
+}
+.toast-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.toast-more {
+  height: 20px;
+  padding: 0 7px;
+  border: none;
+  border-radius: 999px;
+  background: var(--bg-hover);
+  color: var(--text-secondary);
+  font: inherit;
+  font-size: var(--fs-2xs);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
   cursor: pointer;
+}
+.toast-more:hover { color: var(--text-primary); }
+/* Time left: a hairline along the bottom, paused (and faded) while held. */
+.toast-timer {
+  position: absolute;
+  left: 12px;
+  right: 12px;
+  bottom: 0;
+  height: 2px;
+  border-radius: 1px;
+  background: var(--notice-tone, var(--accent));
+  opacity: 0.5;
+  transform-origin: left;
+  animation: toast-timer linear both;
+}
+.toast-timer--held { animation-play-state: paused; opacity: 0.2; }
+@keyframes toast-timer {
+  from { transform: scaleX(1); }
+  to { transform: scaleX(0); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .toast-timer { display: none; }
 }
 .toast-count {
   margin-left: 6px;
@@ -1251,7 +1311,7 @@
   background: var(--bg-hover);
   color: var(--text-primary);
 }
-.toast-message:focus-visible,
+.toast-more:focus-visible,
 .toast-close:focus-visible {
   outline: 2px solid var(--accent);
   outline-offset: 2px;

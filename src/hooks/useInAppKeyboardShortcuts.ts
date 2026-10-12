@@ -35,6 +35,8 @@ export interface KeyboardShortcutDeps {
   handleNext: () => void;
   handleToggleQueueCollapsed: () => void;
   handleToggleSidebar: () => void;
+  /** Cmd/Ctrl+Shift+N: open/close the notifications list (the caption bell). */
+  toggleNotifications: () => void;
   // Fullscreen, dispatched by track kind inside App (video keeps its own path —
   // it owns the <video> element). The key shares this with the now-playing bar's
   // fullscreen button so the two can't disagree about which surface answers.
@@ -217,6 +219,10 @@ export function useInAppKeyboardShortcuts(deps: KeyboardShortcutDeps) {
         case "b":
           e.preventDefault();
           d.handleToggleSidebar();
+          break;
+        case "N":
+          e.preventDefault();
+          d.toggleNotifications();
           break;
       }
     }

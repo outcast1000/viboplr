@@ -30,6 +30,8 @@ interface CaptionBarProps {
   resyncProgress: ResyncProgress | null;
   resyncComplete: ResyncComplete | null;
   onNavigateToCollections: () => void;
+  /** The notifications bell (`NotificationBell`), right of the spacer. */
+  notificationBell?: React.ReactNode;
 }
 
 export function CaptionBar({
@@ -44,6 +46,7 @@ export function CaptionBar({
   resyncProgress,
   resyncComplete,
   onNavigateToCollections,
+  notificationBell,
 }: CaptionBarProps) {
   return (
     <div className="search-bar" data-tauri-drag-region>
@@ -96,6 +99,7 @@ export function CaptionBar({
           </button>
         )}
         <div className="caption-spacer" />
+        {notificationBell}
         <button
           className="g-btn g-btn-rect"
           onClick={onToggleMiniMode}

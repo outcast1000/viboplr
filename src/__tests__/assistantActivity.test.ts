@@ -1,13 +1,14 @@
 import { describe, it, expect } from "vitest";
 import {
   applyActivityEvent,
-  panelEntries,
+  currentSession,
   pillView,
   filterLog,
   relativeTime,
   ACTIVITY_LOG_LIMIT,
+  PILL_HOLD_MS,
   PILL_LINGER_MS,
-  PANEL_WINDOW_MS,
+  SESSION_GAP_MS,
   type ActivityEntry,
   type ActivityEvent,
 } from "../utils/assistantActivity";
@@ -91,27 +92,41 @@ describe("pillView", () => {
     expect(pillView(reads, false, now, 0)).toEqual({ mode: "hidden" });
   });
 
-  it("shows the running call and counts the others", () => {
+  it("counts the session instead of naming the latest call", () => {
     const log = [
-      entry({ id: 3, status: "running", label: "Edit tags" }),
-      entry({ id: 2, status: "running", label: "Add to the queue" }),
+      entry({ id: 3, status: "running", label: "Edit tags", startedMs: now }),
+      entry({ id: 2, status: "ok", label: "Add to the queue", startedMs: now - 500, durationMs: 100 }),
+      entry({ id: 1, status: "ok", label: "Change a like", startedMs: now - 900, durationMs: 100 }),
     ];
-    expect(pillView(log, false, now, 0)).toEqual({ mode: "running", label: "Edit tags", extra: 1, outward: false });
+    expect(pillView(log, false, now, 0)).toEqual({ mode: "working", count: 3, outward: false });
   });
 
-  it("hands the pill the detail of what is running", () => {
-    const log = [entry({ status: "running", detail: "Liked track “So What” – Miles Davis" })];
-    expect(pillView(log, false, now, 0)).toMatchObject({ mode: "running", detail: "Liked track “So What” – Miles Davis" });
+  it("holds 'working' briefly after the last call, so a burst doesn't flicker", () => {
+    const log = [entry({ startedMs: now - 1_000, durationMs: 100 })];
+    expect(pillView(log, false, now, 0).mode).toBe("working");
+    expect(pillView(log, false, now - 900 + PILL_HOLD_MS + 1, 0).mode).toBe("done");
   });
 
-  it("marks an outward call as such", () => {
+  it("starts a new session after a quiet gap", () => {
+    const log = [
+      entry({ id: 2, status: "running", startedMs: now }),
+      entry({ id: 1, startedMs: now - SESSION_GAP_MS - 5_000, durationMs: 100 }),
+    ];
+    expect(currentSession(log).map((e) => e.id)).toEqual([2]);
+    expect(pillView(log, false, now, 0)).toMatchObject({ mode: "working", count: 1 });
+  });
+
+  it("marks a session with an outward call as such", () => {
     const log = [entry({ kind: "outward", status: "running", label: "Run a plugin tool" })];
-    expect(pillView(log, false, now, 0)).toMatchObject({ mode: "running", outward: true });
+    expect(pillView(log, false, now, 0)).toMatchObject({ mode: "working", outward: true });
   });
 
-  it("lingers briefly after a call ends, then goes away", () => {
-    const fresh = [entry({ startedMs: now - 1_000, durationMs: 100 })];
-    expect(pillView(fresh, false, now, 0).mode).toBe("done");
+  it("lingers after the session with its countdown, then goes away", () => {
+    const ended = now - PILL_HOLD_MS - 1_000;
+    const fresh = [entry({ startedMs: ended - 100, durationMs: 100 })];
+    const done = pillView(fresh, false, now, 0);
+    expect(done).toMatchObject({ mode: "done", count: 1 });
+    expect(done.mode === "done" && done.left).toBeGreaterThan(0.9);
     const stale = [entry({ startedMs: now - PILL_LINGER_MS - 1_000, durationMs: 100 })];
     expect(pillView(stale, false, now, 0).mode).toBe("hidden");
   });
@@ -133,24 +148,9 @@ describe("pillView", () => {
     expect(pillView(log, true, now, 0)).toEqual({ mode: "paused", refused: 1 });
     expect(pillView(log, true, now, 9)).toEqual({ mode: "paused", refused: 0 });
   });
-});
 
-describe("panelEntries", () => {
-  const now = 1_000_000;
-
-  it("lists recent writes only, newest first", () => {
-    const log = [
-      entry({ id: 3, startedMs: now - 1_000 }),
-      entry({ id: 2, kind: "read", startedMs: now - 2_000 }),
-      entry({ id: 1, startedMs: now - PANEL_WINDOW_MS - 1 }),
-    ];
-    expect(panelEntries(log, now, 0).map((e) => e.id)).toEqual([3]);
-  });
-
-  it("keeps an undismissed failure past the window", () => {
-    const log = [entry({ id: 1, status: "failed", startedMs: now - PANEL_WINDOW_MS - 1 })];
-    expect(panelEntries(log, now, 0)).toHaveLength(1);
-    expect(panelEntries(log, now, 1)).toHaveLength(0);
+  it("a refused call is not part of a session", () => {
+    expect(currentSession([entry({ status: "paused" })])).toEqual([]);
   });
 });
 

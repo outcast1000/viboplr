@@ -1,0 +1,128 @@
+/* The bell in the caption bar and the notifications list it opens. Colours
+   are skin tokens throughout; the dot reuses the `notice-tone` vocabulary
+   (App.css) — red for an unseen error, accent otherwise. */
+.notification-bell {
+  position: relative;
+  flex: none;
+  display: inline-grid;
+  place-items: center;
+  width: 30px;
+  height: 28px;
+  padding: 0;
+  border: none;
+  border-radius: var(--ds-radius);
+  background: transparent;
+  color: var(--text-tertiary);
+  cursor: pointer;
+}
+.notification-bell:hover,
+.notification-bell.is-open {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+}
+.notification-bell:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+.notification-bell-dot {
+  position: absolute;
+  top: 5px;
+  right: 6px;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--accent);
+  box-shadow: 0 0 0 2px var(--bg-primary);
+  animation: notification-bell-pop 0.45s var(--ease-out-quart) both;
+}
+.notification-bell-dot.is-error { background: var(--error); }
+@keyframes notification-bell-pop {
+  0% { transform: scale(0); }
+  60% { transform: scale(1.35); }
+}
+
+.notifications-panel {
+  position: fixed;
+  z-index: 1300;
+  width: min(360px, calc(100vw - 20px));
+  max-height: min(480px, calc(100vh - 160px));
+  display: flex;
+  flex-direction: column;
+  background: var(--bg-surface);
+  color: var(--text-primary);
+  border: 1px solid var(--border);
+  border-radius: var(--ds-radius-modal);
+  box-shadow: 0 14px 40px rgba(var(--overlay-inverse), 0.35);
+  font-size: var(--fs-sm);
+  animation: notifications-in 0.16s ease-out both;
+  transform-origin: top right;
+}
+@keyframes notifications-in {
+  from { opacity: 0; transform: scale(0.97); }
+}
+.notifications-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 10px 8px 10px 14px;
+  border-bottom: 1px solid var(--border);
+}
+.notifications-title {
+  font-weight: 600;
+  margin-right: auto;
+}
+.notifications-link {
+  padding: 2px 6px;
+  border: none;
+  border-radius: var(--ds-radius);
+  background: transparent;
+  color: var(--accent);
+  font: inherit;
+  font-size: var(--fs-xs);
+  cursor: pointer;
+}
+.notifications-link:hover { text-decoration: underline; }
+.notifications-link:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.notifications-empty {
+  padding: 22px 16px;
+  color: var(--text-secondary);
+  text-align: center;
+  font-size: var(--fs-xs);
+}
+.notifications-list {
+  list-style: none;
+  margin: 0;
+  padding: 4px 0 6px;
+  overflow-y: auto;
+}
+.notifications-row {
+  display: grid;
+  grid-template-columns: 8px minmax(0, 1fr) auto;
+  gap: 10px;
+  align-items: start;
+  padding: 8px 8px 8px 14px;
+}
+.notifications-row + .notifications-row { border-top: 1px solid var(--border); }
+.notifications-row > .notice-dot { margin-top: 0.45em; }
+.notifications-main {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+.notifications-message {
+  overflow-wrap: anywhere;
+  line-height: 1.4;
+  user-select: text;
+  -webkit-user-select: text;
+}
+.notifications-row.is-fresh .notifications-message { font-weight: 600; }
+.notifications-meta {
+  color: var(--text-tertiary);
+  font-size: var(--fs-xs);
+  font-variant-numeric: tabular-nums;
+}
+.notifications-main .toast-actions { margin-top: 5px; }
+@media (prefers-reduced-motion: reduce) {
+  .notification-bell-dot, .notifications-panel { animation: none; }
+}
