@@ -375,12 +375,20 @@ function activate(api) {
     });
   });
 
-  api.playback.onTrackLiked(function (track, liked) {
-    if (!state.sessionKey || !track) return;
-    var artist = track.artist_name;
-    var title = track.title;
+  // Love / unlove follows the rating change itself (like:changed): becoming
+  // liked is a love, leaving liked — to neutral OR to disliked, which is the
+  // single like button's next step — is an unlove; neutral ↔ disliked means
+  // nothing on Last.fm. Bulk imports (the loved-tracks import below) send no
+  // change, so they are never echoed back.
+  api.library.onLikeChanged(function (change) {
+    if (!state.sessionKey || !change || change.kind !== "track") return;
+    var artist = change.artistName;
+    var title = change.name;
     if (!artist || !title) return;
-    var method = liked ? "track.love" : "track.unlove";
+    var method = change.liked === 1 && change.previous !== 1 ? "track.love"
+      : change.liked !== 1 && change.previous === 1 ? "track.unlove"
+      : null;
+    if (!method) return;
     lastfmSignedPost(method, [["artist", artist], ["track", title]]).catch(function (err) {
       console.warn("[lastfm] " + method + " error:", err.message);
     });
@@ -1017,7 +1025,7 @@ function activate(api) {
   // writes each as a Vibo like via api.library.setTrackLikesBatch. The host
   // merges newer-wins keyed by the Last.fm "loved" timestamp, so re-running is a
   // no-op for anything already applied (idempotent). This is the inbound
-  // counterpart to the outbound track.love push in onTrackLiked below.
+  // counterpart to the outbound track.love push in the onLikeChanged handler above.
 
   function importLovedTracks() {
     if (!canImportLoved) return;

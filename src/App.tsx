@@ -3969,7 +3969,7 @@ function App() {
   const rateDetailTrack = async (track: Track, action: "like" | "dislike", apply: (liked: number) => void) => {
     const next = nextTriState(track.liked, action);
     apply(next);
-    if (!(await likeActions.setTrackRating(track, next, action))) apply(track.liked);
+    if (!(await likeActions.setTrackRating(track, next))) apply(track.liked);
   };
 
   useEffect(() => {

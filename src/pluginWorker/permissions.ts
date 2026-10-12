@@ -94,7 +94,6 @@ export const PERMISSION_TABLE: Record<string, PermissionCheck | null> = {
   "playback.onTrackScrobbled": need("playback:read"),
   // The plugin's own row in Settings → Providers → Scrobblers.
   "playback.reportScrobble": OWN,
-  "playback.onTrackLiked": need("playback:read"),
   "playback.playTrack": need("playback:control"),
   "playback.playTracks": need("playback:control"),
   "playback.insertTrack": need("playback:control"),

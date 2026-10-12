@@ -63,7 +63,6 @@ export type PluginTargetKind = "track" | "album" | "artist" | "multi-track" | "p
 export type PluginEventName =
   | "track:started"
   | "track:scrobbled"
-  | "track:liked"
   | "track:added"
   | "track:removed"
   // Queue contents or current index moved. Coalesced — read the new state back
@@ -846,8 +845,8 @@ export interface PluginLibraryAPI {
   onScanComplete(handler: (result: { collectionId: number; newTracks: number; removedTracks: number }) => void): () => void;
   /**
    * Every like, dislike or un-like the user makes on a track, artist, album or
-   * tag, after it is saved — unlike `playback.onTrackLiked`, which only reports
-   * a track being liked. Not sent for `setTrackLikesBatch` imports. Feature-detect.
+   * tag, after it is saved — the one like event (`track:liked` /
+   * `playback.onTrackLiked` were removed). Not sent for `setTrackLikesBatch` imports. Feature-detect.
    */
   onLikeChanged(handler: (change: LikeChange) => void): () => void;
 }
@@ -938,7 +937,6 @@ export interface PluginPlaybackAPI {
    *  subscribed to `onTrackScrobbled` is heard. Throws on a malformed report.
    *  Feature-detect. */
   reportScrobble?(report: ScrobbleReport): void;
-  onTrackLiked(handler: (track: QueueTrack, liked: boolean) => void): () => void;
   onStreamResolve(
     providerId: string,
     handler: (

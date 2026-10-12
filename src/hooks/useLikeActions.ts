@@ -127,16 +127,10 @@ export function useLikeActions(deps: UseLikeActionsDeps) {
 
   /** Set a track's rating to an absolute tri-state value. The toggle handlers
    *  route through here (with `nextTriState`) so the two paths can't drift;
-   *  the control API calls it directly for idempotent set semantics.
-   *  `source` decides the plugin event: the like button dispatches on both
-   *  transitions (like AND un-like — today's behavior), the dislike button
-   *  never does, and an absolute set dispatches only when the new state is a
-   *  like. Returns whether the write succeeded. */
-  async function setTrackRating(
-    track: Track | QueueTrack,
-    likeState: number,
-    source: "like" | "dislike" | "set" = "set",
-  ): Promise<boolean> {
+   *  the control API calls it directly for idempotent set semantics. The one
+   *  plugin event is `like:changed`, sent from what the store says changed —
+   *  never from which button was pressed. Returns whether the write succeeded. */
+  async function setTrackRating(track: Track | QueueTrack, likeState: number): Promise<boolean> {
     const id = likeIdentity(track);
     if (inFlightRef.current.has(id)) return false;
     const prevLiked = track.liked;
@@ -150,8 +144,6 @@ export function useLikeActions(deps: UseLikeActionsDeps) {
         likeState,
       });
       // Only after the write succeeds — never optimistically.
-      const dispatch = source === "like" || (source === "set" && likeState === 1);
-      if (dispatch) plugins.dispatchEvent("track:liked", track, likeState === 1);
       // `previous` is the store's answer, not this copy's (which can be stale);
       // an idempotent set (control API) that changed nothing is not a change.
       const previous = typeof stored === "number" ? stored : prevLiked ?? 0;
@@ -171,7 +163,7 @@ export function useLikeActions(deps: UseLikeActionsDeps) {
   }
 
   async function applyTrackRating(track: Track | QueueTrack, action: "like" | "dislike") {
-    await setTrackRating(track, nextTriState(track.liked, action), action);
+    await setTrackRating(track, nextTriState(track.liked, action));
   }
 
   async function handleToggleLike(track: Track | QueueTrack) {

@@ -431,7 +431,6 @@ export function usePlugins(
   const eventHandlersRef = useRef<EventHandlers>({
     "track:started": [],
     "track:scrobbled": [],
-    "track:liked": [],
     "track:added": [],
     "track:removed": [],
     "queue:changed": [],
@@ -900,11 +899,6 @@ export function usePlugins(
           onTrackScrobbled: (handler) =>
             subscribeEvent(
               "track:scrobbled",
-              handler as (...args: unknown[]) => void,
-            ),
-          onTrackLiked: (handler) =>
-            subscribeEvent(
-              "track:liked",
               handler as (...args: unknown[]) => void,
             ),
           onStreamResolve(

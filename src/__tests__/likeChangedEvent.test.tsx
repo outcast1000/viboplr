@@ -111,6 +111,24 @@ describe("like:changed", () => {
     expect(changes()).toEqual([entityLikeChange("album", entityLikePayload("Post", "Björk"), 0, 1)]);
   });
 
+  it("is the only like event — nothing else is dispatched, whichever button", async () => {
+    const dispatchEvent = vi.fn();
+    const { result } = renderHook(() =>
+      useLikeActions({
+        library: { tracks: [], artists: [], albums: [], tags: [], setTracks: vi.fn(), setArtists: vi.fn(), setAlbums: vi.fn(), setTags: vi.fn() },
+        playback: { currentTrack: null, setCurrentTrack: vi.fn() },
+        queueHook: { setQueue: vi.fn() },
+        plugins: { dispatchEvent },
+        notify: vi.fn(),
+      }),
+    );
+    await act(() => result.current.handleToggleLike(TRACK));
+    stored["track:Björk:Jóga"] = 1;
+    // The single like button's step from liked: dislike.
+    await act(() => result.current.handleToggleDislike({ ...TRACK, liked: 1 }));
+    expect(dispatchEvent.mock.calls.map(([e]) => e)).toEqual(["like:changed", "like:changed"]);
+  });
+
   it("builds the track change from either track shape", () => {
     expect(trackLikeChange({ ...TRACK, artist_name: null, album_title: null, album_artist_name: undefined }, 1, -1)).toEqual({
       kind: "track", name: "Jóga", artistName: null, albumTitle: null, albumArtistName: null, liked: 1, previous: -1,
