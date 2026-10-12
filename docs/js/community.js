@@ -81,7 +81,12 @@
     var action = card.action && card.action.link
       ? '<div class="gallery-card-actions"><a class="btn btn-primary btn-sm gallery-install" href="' + esc(card.action.link) +
         '" data-track="app-action" data-module="' + esc(m.slug) + '">' +
-        esc(card.action.label) + '</a></div>'
+        esc(card.action.label) + '</a></div>' +
+        // A plugin link reaches nothing in a Vibo without the Community
+        // plugin, so say so and point at the install section.
+        (/^viboplr:\/\/plugin\//.test(card.action.link)
+          ? '<p class="gallery-card-desc"><a href="#plugin">Needs the Community plugin</a></p>'
+          : '')
       : '';
     return (
       '<div class="gallery-card">' +
@@ -258,7 +263,7 @@
     }).filter(function (x) { return x.mods.length; });
     root.innerHTML = areas.map(function (x, i) { return sectionHtml(x.area, x.mods, i); }).join('');
     if (jump) {
-      jump.innerHTML = areas.map(function (x) {
+      jump.innerHTML = '<a href="#plugin" class="btn btn-primary">Get the plugin</a>' + areas.map(function (x) {
         return '<a href="#' + esc(x.area.id) + '" class="btn btn-outline">' + esc(x.area.name) + '</a>';
       }).join('');
     }

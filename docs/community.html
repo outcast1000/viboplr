@@ -57,6 +57,42 @@
     </div>
   </section>
 
+  <!-- Get the plugin. Community lives in the app through the Vibo Community
+       plugin; without it the site's "Open in Vibo" buttons for cue sheets,
+       lyric sheets and mixtapes reach nothing. The button is the app's own
+       viboplr://install-plugin deep link (App.tsx, behind a confirm modal) at
+       the plugin's latest release zip — the same installUrl the gallery lists,
+       so it never needs a bump here. -->
+  <section class="section" id="plugin">
+    <div class="container">
+      <div class="gallery-steps reveal">
+        <h2>Get the Community plugin <span class="feature-tag">plugin</span></h2>
+        <p class="gallery-steps-intro">Community comes into Vibo through the free <strong>Vibo Community</strong> plugin. Install it to import cue sheets, lyric sheets and mixtapes with one click, share your own from the app, and send your plays and likes. Without it, the “Open in Vibo” buttons on those pages have nothing to open them.</p>
+        <div class="hero-buttons" style="margin: 0 0 1.5rem; justify-content: center;">
+          <a class="btn btn-primary" href="viboplr://install-plugin?url=https%3A%2F%2Fgithub.com%2Foutcast1000%2Fviboplr-community-plugin%2Freleases%2Flatest%2Fdownload%2Fcommunity.zip">Install in Vibo</a>
+          <a class="btn btn-outline" href="download.html">Don't have Vibo yet?</a>
+        </div>
+        <div class="gallery-steps-grid">
+          <div class="gallery-step">
+            <span class="gallery-step-num">1</span>
+            <h3>Find it</h3>
+            <p>The button above opens Vibo and asks before installing. Or, in Vibo, open <strong>Extensions → Plugins</strong> and search for <strong>Community</strong> — it is listed under <strong>Experimental</strong>.</p>
+          </div>
+          <div class="gallery-step">
+            <span class="gallery-step-num">2</span>
+            <h3>Install</h3>
+            <p>Click <strong>Install</strong> and approve what it asks for. It needs Vibo 1.0.97 or newer; Vibo tells you when either has an update.</p>
+          </div>
+          <div class="gallery-step">
+            <span class="gallery-step-num">3</span>
+            <h3>Sign in to share</h3>
+            <p>Open the plugin from the sidebar and sign in with GitHub, or with a code. Browsing and importing need no account. Sending plays stays off until you turn Community on in Vibo's scrobbling settings.</p>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
   <!-- One section per area (Music, Mixtapes, Subsonic servers), built by
        js/community.js from the community server's own module list
        (GET /v1/modules, each module naming its area): a new kind of thing to
@@ -79,7 +115,7 @@
           <div class="gallery-step">
             <span class="gallery-step-num">1</span>
             <h3>Sign in</h3>
-            <p>With GitHub, on the website or from the <strong>Vibo Community</strong> plugin in the app. You manage only what you share.</p>
+            <p>With GitHub, on the website or from the <a href="#plugin">Vibo Community plugin</a> in the app. You manage only what you share.</p>
           </div>
           <div class="gallery-step">
             <span class="gallery-step-num">2</span>
