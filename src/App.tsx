@@ -37,6 +37,8 @@ import { builtinQualityOptions } from "./utils/builtinDownloadQualities";
 import { buildPluginOverflowItems } from "./utils/heroOverflow";
 import { applyReduceMotionAttr } from "./utils/reducedMotion";
 import { parseProbeCommand, isProbeProfile, buildProbeDump, type ProbeCommand } from "./utils/probeControl";
+import { parseAppLink, type AppLink } from "./utils/appLinks";
+import { buildExternalQueueTrack } from "./utils/externalTrack";
 import type { NavigateTarget, UiAction, UiStateInput } from "./utils/uiControl";
 import type { UiContext, UiContextEntity } from "./utils/uiContext";
 import { useUiContext } from "./hooks/useUiContext";
@@ -278,6 +280,8 @@ async function resolveFirstAlbumCover(
  *  now (Windows WASAPI exclusive exists in the engine but isn't verified). */
 const IS_MAC = navigator.platform.includes("Mac");
 const IS_WINDOWS = navigator.platform.startsWith("Win");
+/** How long the same deep link counts as a duplicate delivery, not a new click. */
+const DEEP_LINK_REPEAT_MS = 3000;
 
 function App() {
   const restoredRef = useRef(false);
@@ -2847,6 +2851,39 @@ function App() {
     library.setSelectedTrack(null);
   });
 
+  // viboplr://play and viboplr://open — the "Play in Vibo" / "Open in Vibo"
+  // buttons on web pages (utils/appLinks.ts). Names only, so a song resolves
+  // to the library copy when there is one, else a metadata-only entry the
+  // stream resolvers find at play time. Play inserts after the playing entry
+  // instead of replacing the queue: any page can fire the link. A link that
+  // arrives before the restored queue is applied waits in pendingAppLinksRef
+  // — run earlier, the restore would replace what it queued.
+  const pendingAppLinksRef = useRef<AppLink[]>([]);
+  const runAppLinkRef = useRef(async (_link: AppLink) => {});
+  useAssignRef(runAppLinkRef, async (link: AppLink) => {
+    if (link.verb === "open") {
+      // The page exists only in the main window (same as mini search's picks).
+      if (mini.miniModeRef.current) mini.toggleMiniMode();
+      pushStateRef.current();
+      const opened = link.kind === "artist"
+        ? library.navigateToArtistByName(link.name)
+        : library.navigateToAlbumByName(link.name, link.artistName ?? undefined);
+      await opened;
+      return;
+    }
+    const row = await invoke<Track | null>("find_track_by_metadata", {
+      title: link.title, artistName: link.artistName, albumName: link.albumTitle,
+    }).catch((e) => {
+      console.error("Failed to look up a played link's track in the library:", e);
+      return null;
+    });
+    const track = row
+      ? trackToQueueTrack(row)
+      : { ...buildExternalQueueTrack(link.title, link.artistName), album_title: link.albumTitle };
+    const inserted = queueHook.insertNextAndPlay(track);
+    reconcileAddedLikeStates([inserted]);
+  });
+
   // Applies a viboplr://probe command — the remote control that lets
   // scripts/perf-probe.mjs walk every measured scenario unattended. Inert
   // unless the app is running under a `perf` profile (see probeControl.ts for
@@ -3054,13 +3091,20 @@ function App() {
       .catch((e) => console.error("Failed to read profile info for probe gate:", e));
   }, []);
 
-  // Listen for deep link events
+  // Listen for deep link events. The seen-map outlives the effect so a
+  // StrictMode remount's getDeepLinkCurrent can't replay a launch link.
+  const deepLinkSeenRef = useRef(new Map<string, number>());
   useEffect(() => {
-    const handled = new Set<string>();
+    // A cold launch can deliver the same URL twice (the launch event and
+    // getDeepLinkCurrent), so a repeat is dropped — but only briefly: a user
+    // clicking the same "Play in Vibo" again later means it.
+    const handled = deepLinkSeenRef.current;
     function handleDeepLink(urls: string[]) {
       for (const raw of urls) {
-        if (handled.has(raw)) continue;
-        handled.add(raw);
+        const now = Date.now();
+        const seen = handled.get(raw);
+        if (seen !== undefined && now - seen < DEEP_LINK_REPEAT_MS) continue;
+        handled.set(raw, now);
         console.debug("[deep-link] received:", raw);
         // Handle Subsonic deep links
         const parsed = parseSubsonicUrl(raw);
@@ -3110,6 +3154,17 @@ function App() {
         // website's support page (plus a row at the end of Settings > Debug).
         if (raw === "viboplr://quiz" || raw.startsWith("viboplr://quiz?") || raw.startsWith("viboplr://quiz/")) {
           openQuizRef.current();
+          break;
+        }
+        // Public play/open links (web pages' "Play in Vibo" / "Open in Vibo").
+        const appLink = parseAppLink(raw);
+        if (appLink) {
+          if (restoreAppliedRef.current) {
+            runAppLinkRef.current(appLink)
+              .catch((e) => console.error("Failed to follow a viboplr link:", e));
+          } else {
+            pendingAppLinksRef.current.push(appLink);
+          }
           break;
         }
         // Perf-probe remote control. Checked before the plugin forward so a
@@ -3577,6 +3632,10 @@ function App() {
     consumePendingProfileSwitch();
     // Same reasoning for a mixtape the app was launched to open.
     consumePendingMixtapeOpen();
+    // ...and for a play/open link that launched the app.
+    for (const link of pendingAppLinksRef.current.splice(0)) {
+      runAppLinkRef.current(link).catch((e) => console.error("Failed to follow a viboplr link:", e));
+    }
   }, [appRestoring, consumePendingProfileSwitch, consumePendingMixtapeOpen]);
 
   // One-shot Collections-view hint: after the ALBUMARTIST update, local

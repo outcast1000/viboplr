@@ -745,6 +745,22 @@ export function useQueue(
     handlePlay(unique, source);
   }
 
+  /** Insert after the playing entry and start it, keeping the rest of the
+   *  queue — the "Play" a `viboplr://play` link runs (utils/appLinks.ts). An
+   *  empty queue (index -1) puts it at 0. Returns the entry it inserted. */
+  function insertNextAndPlay(track: Track | QueueTrack): QueueTrack {
+    const [unique] = withUniqueKeys(toQueueTracks([track]));
+    const at = Math.min(queueIndexRef.current + 1, queueRef.current.length);
+    setQueue(prev => {
+      const next = [...prev];
+      next.splice(at, 0, unique);
+      return next;
+    });
+    setQueueIndex(at);
+    handlePlay(unique, "user");
+    return unique;
+  }
+
   async function savePlaylist() {
     if (queueRef.current.length === 0) return;
     const filePath = await save({
@@ -804,7 +820,7 @@ export function useQueue(
     holdForBackfillTail,
     playNext, playPrevious,
     removeFromQueue, removeMultiple, removeAndAdvance, updateTrackMetadata, patchTrackFormat, rewritePathPrefix, replaceTrackPath, moveInQueue, moveMultiple, moveToTop, moveToBottom, clearQueue, insertAtPosition,
-    toggleQueueMode, randomizeQueue, playNextInQueue, addToQueue, addToQueueAndPlay,
+    toggleQueueMode, randomizeQueue, playNextInQueue, addToQueue, addToQueueAndPlay, insertNextAndPlay,
     peekNext, advanceIndex, reconcileLibraryIds,
     playlistContext, setPlaylistContext, savePlaylist, loadPlaylist,
     thumbInfo, seedThumbInfo, flushNow,

@@ -69,6 +69,13 @@ Each entry documents the gold standard implementation for a repeated user action
 - Callers outside the queue's own UI (plugin bridge, Cmd+K plugin results, control API) use `utils/queueOps.ts` → `playNow()` / `addToQueue()` / `playWithBackfill()`, which apply the duplicate policy and the like reconcile uniformly — see queue.md "Duplicate Detection".
 - `playTracks()` returns the **play generation** of the session it started — the token `appendToPlaySession()` needs. Ignore it for ordinary plays.
 
+### Play / Open from a web link (`viboplr://play`, `viboplr://open`)
+
+- **Canonical:** `utils/appLinks.ts` → `parseAppLink()` (pure, `__tests__/appLinks.test.ts`), run by App.tsx `runAppLinkRef` from `handleDeepLink`. The links behind the Community site's "Play in Vibo" / "Open in Vibo" buttons, usable by any page: `viboplr://play?title=…&artist=…[&album=…]` (songs only) and `viboplr://open?kind=artist|album&name=…[&artist=…]` (artists and albums only — there is no song open and no `enqueue` verb, by owner decision).
+- **Names, never ids.** Play resolves via `find_track_by_metadata` (library copy wins), else a metadata-only `buildExternalQueueTrack` for the stream resolvers; open goes through `navigateTo*ByName`.
+- **Nothing destructive (hard rule).** Any page can fire these, and the browser stops asking after "always allow". Play therefore runs `useQueue.insertNextAndPlay` — insert after the playing entry and start it, the rest of the queue kept — never `playTracks`. Don't add a verb that replaces, removes or writes.
+- **Startup:** a link that launches the app waits in `pendingAppLinksRef` until the restored queue is applied (same reason as a launch-time mixtape), else the restore would replace it. `handleDeepLink` drops a repeat of the same URL only within `DEEP_LINK_REPEAT_MS` (the launch event + `getDeepLinkCurrent` double delivery) — a second click later is a real request.
+
 ### Start Radio
 
 - **Canonical:** `usePlayActions.ts` -> `startRadio(seed)` -> `invoke("build_radio_station", { seedTitle, seedArtist, targetCount: 30, options })` -> `playTracks(station, 0, { source: "radio" })`. Every radio entry point (context menus, detail heroes — incl. the artist/album/tag hero **Radio** button, which picks a weighted-random seed via `utils/radioSeed.ts` —, Home carousel, the album/artist "Not in library" rows, the control API's `start_radio`) goes through it; none call the command directly.
