@@ -1266,6 +1266,12 @@ p {
   margin: 0 auto;
 }
 
+.page-header .name-pronunciation {
+  margin-top: var(--space-sm);
+  font-size: 0.95rem;
+  color: var(--color-text-light);
+}
+
 /* --- Responsive --- */
 @media (max-width: 1024px) {
   .cards-grid {
