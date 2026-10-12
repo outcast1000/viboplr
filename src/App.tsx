@@ -26,7 +26,6 @@ import { resolveLibraryIds } from "./utils/resolveLibraryIds";
 import { subscribeTrackEvents } from "./trackEvents";
 import { track as trackTelemetry, setTelemetryEnabled as syncTelemetryEnabled, bucketCount, sourceClass } from "./telemetry";
 import { buildManifest, tracksFromManifest, contextFromManifest, contextToExportMetadata, contextFromMixtapeMetadata, playlistContextTitle, type Manifest, type MainPlaylistState } from "./mainPlaylist";
-import { recordVisit, type RecentlyVisitedEntry } from "./utils/recentlyVisited";
 import { collectionAlert } from "./utils/collectionAlert";
 import { buildPlaySession, recordPlaySession, snapshotFor, newSnapshotId, snapshotIdsOf, droppedSnapshotIds, replaysFromSnapshot, type RecentPlaySession } from "./utils/recentPlays";
 import { resolveImageUrl, resolveImageSrc, stripImageVersion } from "./utils/resolveImageUrl";
@@ -308,8 +307,8 @@ function App() {
   // Cached-thumb pairs (`[uri, filename]`) from main_playlist_read, seeded into
   // thumbInfo when the deferred queue is applied so rows paint art immediately.
   const pendingRestoreThumbsRef = useRef<Array<[string, string]>>([]);
-  // "Latest play" ring buffer (things that replaced the queue). Mirrors
-  // recentlyVisitedRef: loaded from the store on mount, written on each play.
+  // "Latest play" ring buffer (things that replaced the queue). Loaded from
+  // the store on mount, written on each play.
   const recentPlaysRef = useRef<RecentPlaySession[]>([]);
   // Serializes Latest play recording. A snapshot write takes a moment (it may
   // resize a cover), so without a queue a quick second play could record
@@ -2772,8 +2771,8 @@ function App() {
     // a synthetic detail page when the entity isn't in the library.
     if (shelf.displayKind === "album-cards") {
       const it = item as { libraryId?: number; name: string; artistName?: string; entityKind?: "album" | "artist" };
-      // Mixed shelves (e.g. builtin:jump-back-in) tag artist items so a single
-      // album-cards shelf can route each card to the correct detail page.
+      // Mixed shelves (a plugin's) tag artist items so a single album-cards
+      // shelf can route each card to the correct detail page.
       if (it.entityKind === "artist") {
         if (it.libraryId) {
           library.handleArtistClick(it.libraryId, it.name);
@@ -3745,13 +3744,8 @@ function App() {
 
   usePersistMirror("rgPreventClip", playback.rgPreventClip, restoredRef);
 
-  // Persist recently visited entities (album/artist detail views)
-  const recentlyVisitedRef = useRef<RecentlyVisitedEntry[]>([]);
-
   useEffect(() => {
     (async () => {
-      const stored = (await store.get<RecentlyVisitedEntry[]>("recentlyVisitedEntities")) ?? [];
-      recentlyVisitedRef.current = stored;
       const plays = (await store.get<RecentPlaySession[]>("recentPlaySessions")) ?? [];
       recentPlaysRef.current = plays;
       // Sweep snapshot files no session names: crash orphans, a reset store.
@@ -3762,26 +3756,6 @@ function App() {
         .catch((e) => console.error("Failed to clean up Latest play snapshots:", e));
     })();
   }, []);
-
-  useEffect(() => {
-    if (!restoredRef.current) return;
-    if (library.selectedAlbum == null) return;
-    const next = recordVisit(recentlyVisitedRef.current, {
-      kind: "album", id: library.selectedAlbum, ts: Date.now(),
-    });
-    recentlyVisitedRef.current = next;
-    store.set("recentlyVisitedEntities", next).catch((e) => console.error("Failed to persist recentlyVisitedEntities:", e));
-  }, [library.selectedAlbum]);
-
-  useEffect(() => {
-    if (!restoredRef.current) return;
-    if (library.selectedArtist == null) return;
-    const next = recordVisit(recentlyVisitedRef.current, {
-      kind: "artist", id: library.selectedArtist, ts: Date.now(),
-    });
-    recentlyVisitedRef.current = next;
-    store.set("recentlyVisitedEntities", next).catch((e) => console.error("Failed to persist recentlyVisitedEntities:", e));
-  }, [library.selectedArtist]);
 
   // Forward frontend errors to the backend log file, the in-memory report
   // buffer, and telemetry. Three destinations because each covers a different

@@ -127,8 +127,8 @@
     "description": "Open Vibo to a curated landing page &mdash; an auto-rotating carousel of radio stations built from your own music, plus shelves that resurface recent plays, your most-played, and albums you'd forgotten you owned.",
     "items": [
       "Radio-station carousel seeded from your library",
-      "&ldquo;Recently played&rdquo; &amp; &ldquo;Most played&rdquo; shelves",
-      "&ldquo;Jump back in&rdquo; &amp; &ldquo;Recently added&rdquo;",
+      "&ldquo;Latest play&rdquo; &amp; &ldquo;Most played&rdquo; shelves",
+      "&ldquo;Made for you&rdquo; mixes &amp; &ldquo;Recently added&rdquo;",
       "Extra shelves contributed by plugins<span class=\"feature-tag\">plugin</span>"
     ],
     "screenshot": "home.webp",

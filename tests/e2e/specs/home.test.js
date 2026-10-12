@@ -47,7 +47,6 @@ test('Customize opens the shelf modal, and shelves render behind it', async ({ p
   await modal.locator('button').filter({ hasText: 'Done' }).click();
   await expect(modal).not.toBeVisible();
 
-  // At least one built-in shelf renders its title (Recently played is fed by
-  // get_history_recent, which the mock returns).
+  // At least one built-in shelf renders its title.
   await expect(page.locator('.home-shelf').first()).toBeVisible({ timeout: 5000 });
 });

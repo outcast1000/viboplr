@@ -7,11 +7,11 @@ import type {
   HomeShelfItem,
   PluginTrack,
 } from "../types/plugin";
-import type { RecentlyVisitedEntry } from "../utils/recentlyVisited";
 import { type RecentPlaySession, sessionKey, sessionSubtitle } from "../utils/recentPlays";
 import { store } from "../store";
 import { isVideoTrack } from "../utils";
 import { isLocalTrack, type PlaylistTrackRow } from "../queueEntry";
+import { isAuto, firstArtist, featuredArtistsFromMetadata, featuredArtistsLabel } from "../utils/autoPlaylist";
 
 import { useAssignRef } from "./useLatestRef";
 import { coerceSeedCooldown, rememberShownSeeds } from "../utils/radioSeedCooldown";
@@ -37,6 +37,9 @@ export const RADIO_SHELF_ID = "builtin:radio";
 // clicks/plays are intercepted by id in App.tsx and re-resolved to a fresh play.
 export const LATEST_PLAY_SHELF_ID = "builtin:latest-play";
 
+// Id of the "Made for you" shelf — the Playlists view's auto mixes.
+export const MADE_FOR_YOU_SHELF_ID = "builtin:made-for-you";
+
 // Canonical built-in shelves in their default order — the single source of truth
 // for the standard shelf set (id + title + default order + default visibility).
 // The Customize Home modal, the default order, and reset all read from here. The
@@ -46,7 +49,7 @@ export const BUILTIN_SHELF_DESCRIPTORS: { id: string; title: string; description
   // Visible by default — the curated Home.
   { id: RADIO_SHELF_ID, title: "Radio", description: "Stations spun from songs you’ll like.", defaultVisible: true },
   { id: LATEST_PLAY_SHELF_ID, title: "Latest play", description: "Jump back into what you last played.", defaultVisible: true },
-  { id: "builtin:jump-back-in", title: "Jump back in", description: "Albums and artists you visited recently.", defaultVisible: true },
+  { id: MADE_FOR_YOU_SHELF_ID, title: "Made for you", description: "Your mixes from the Playlists view.", defaultVisible: true },
   { id: "builtin:recently-added", title: "Recently added albums", description: "The newest albums in your library.", defaultVisible: true },
   { id: "builtin:most-played-30d", title: "Most played · 30 days", description: "Your heavy rotation this month.", defaultVisible: true },
   { id: "builtin:discover-by-decade", title: "Discover by decade", description: "A mix from each era in your collection.", defaultVisible: true },
@@ -54,10 +57,10 @@ export const BUILTIN_SHELF_DESCRIPTORS: { id: string; title: string; description
   // Shuffled, not alphabetical — a 20-card view of an A→Z list showed the same
   // "A" albums on every refresh. "Recently liked albums" covers the by-date view.
   { id: "builtin:liked-albums", title: "Liked albums", description: "A shuffle through albums you’ve hearted.", defaultVisible: true },
-  // Last of the defaults: right under Latest play / Jump back in it read as a
-  // third "recent" shelf in a row.
-  { id: "builtin:recently-played", title: "Recently played", description: "Pick up where you left off.", defaultVisible: true },
   // Off by default — opt in via Customize.
+  // Recently played is History's Recent tab as a shelf; next to Latest play it
+  // read as a second "recent" row, so it's opt-in.
+  { id: "builtin:recently-played", title: "Recently played", description: "Songs you’ve heard most recently.", defaultVisible: false },
   // Track-level counterpart to "Recently added albums": surfaces the newest
   // tracks (including videos, which carry no album_id and so never appear in the
   // album-cards shelf). Opt-in to keep the default Home from double-listing a
@@ -95,13 +98,21 @@ const MIX_SIZE = 25;
 // so there is one "1990s" mix across the app.
 const AUTO_DECADE_KIND_PREFIX = "auto:decade:";
 
-// The slice of a playlist row (`Playlist` in models.rs) the decade shelf reads.
+// The slice of a playlist row (`Playlist` in models.rs) the mix shelves read.
 export interface DecadePlaylistRow {
   id: number;
   name: string;
   image_path: string | null;
   track_count: number;
   system_kind: string | null;
+  metadata?: string | null;
+}
+
+// The Playlists view's "Made for you" mixes for the Home shelf, in the order
+// the backend lists them. Decade mixes are left out: "Discover by decade"
+// already shows each one, and the same card on two shelves is noise.
+export function madeForYouPlaylists<T extends DecadePlaylistRow>(rows: T[]): T[] {
+  return rows.filter((p) => isAuto(p) && !p.system_kind?.startsWith(AUTO_DECADE_KIND_PREFIX));
 }
 
 // The auto decade playlists among `rows`, oldest decade first. The kind is
@@ -112,8 +123,7 @@ export function decadePlaylists<T extends DecadePlaylistRow>(rows: T[]): T[] {
     .filter((p) => p.system_kind?.startsWith(AUTO_DECADE_KIND_PREFIX) && Number.isFinite(decadeOf(p)))
     .sort((a, b) => decadeOf(a) - decadeOf(b));
 }
-// How many "Latest play" cards the shelf shows (and so how many sessions
-// "Jump back in" checks itself against).
+// How many "Latest play" cards the shelf shows.
 const LATEST_PLAY_LIMIT = 12;
 // Recent plays read to fill "Recently played". Repeats are dropped, so reading
 // exactly 20 left a short shelf for anyone who had looped one album.
@@ -152,25 +162,6 @@ export function libraryShelfTrack(t: Track): PluginTrack {
     path: t.path,
     duration_secs: t.duration_secs ?? undefined,
   };
-}
-
-// "Jump back in" leaves out an album or artist the user also played, when that
-// play is on the Latest play shelf: opening a card and pressing play put the
-// same entity on both shelves. Matched by name, case-insensitively — both sides
-// are display names already in hand, not a library lookup.
-export function visitAlreadyInLatestPlay(
-  item: { name: string; artistName?: string; entityKind?: "album" | "artist" },
-  sessions: RecentPlaySession[],
-): boolean {
-  const norm = (s: string | null | undefined) => (s ?? "").trim().toLocaleLowerCase();
-  const name = norm(item.name);
-  return sessions.some((s) => {
-    if (norm(s.name) !== name) return false;
-    if (item.entityKind === "artist") return s.source === "artist";
-    if (s.source !== "album") return false;
-    // An album session without an artist (or a card without one) still matches.
-    return !s.artistName || !item.artistName || norm(s.artistName) === norm(item.artistName);
-  });
 }
 
 // One-line description for a built-in shelf id (shown in the shelf header and the
@@ -643,7 +634,7 @@ export function useHome(opts: UseHomeOptions) {
   }, []);
 
   const buildBuiltInResolvers = useCallback(
-    (recentlyVisited: RecentlyVisitedEntry[], recentPlays: RecentPlaySession[], latestPlayVisible: boolean): ShelfResolver[] => {
+    (recentPlays: RecentPlaySession[]): ShelfResolver[] => {
       return [
         {
           id: "builtin:recently-played",
@@ -958,6 +949,44 @@ export function useHome(opts: UseHomeOptions) {
           },
         },
         {
+          id: MADE_FOR_YOU_SHELF_ID,
+          title: "Made for you",
+          // The Playlists view's auto mixes (daily mix, genre, discovery…), so
+          // Home and Playlists offer the same mixes. Regenerated on their own
+          // 24h cycle (App.tsx, `ensure_auto_playlists`); each card ships its
+          // full list so a click plays at once, as on Discover by decade.
+          displayKind: "playlist-cards",
+          limit: 12,
+          fetch: async (limit) => {
+            try {
+              const rows = (await invoke<DecadePlaylistRow[]>("get_playlists")) ?? [];
+              const mixes = madeForYouPlaylists(rows).slice(0, limit);
+              if (mixes.length === 0) return { status: "empty" };
+              const items = await Promise.all(mixes.map(async (p): Promise<HomeShelfItem | null> => {
+                const rows = (await invoke<PlaylistTrackRow[]>("get_playlist_tracks", { playlistId: p.id })) ?? [];
+                if (rows.length === 0) return null;
+                const lead = rows[0];
+                // Same cover as the Playlists card (the mix's first artist),
+                // then the lead track's album → artist.
+                const coverUrl = p.image_path
+                  ?? (await resolveCover(null, firstArtist(p.metadata)))
+                  ?? (await resolveCover(lead.album_name, lead.artist_name));
+                return {
+                  id: `playlist:${p.id}`,
+                  name: p.name,
+                  subtitle: featuredArtistsLabel(featuredArtistsFromMetadata(p.metadata)) ?? trackCountLabel(rows.length),
+                  coverUrl: coverUrl ?? undefined,
+                  tracks: rows.map(playlistShelfTrack),
+                };
+              }));
+              const cards = items.filter((it): it is HomeShelfItem => it !== null);
+              return cards.length > 0 ? { status: "ok", items: cards } : { status: "empty" };
+            } catch (e) {
+              return { status: "error", message: String(e) };
+            }
+          },
+        },
+        {
           id: "builtin:discover-by-decade",
           title: "Discover by decade",
           // The Playlists view's auto decade mixes, oldest first — one "1990s"
@@ -988,38 +1017,6 @@ export function useHome(opts: UseHomeOptions) {
               }));
               const cards = items.filter((it): it is HomeShelfItem => it !== null);
               return cards.length > 0 ? { status: "ok", items: cards } : { status: "empty" };
-            } catch (e) {
-              return { status: "error", message: String(e) };
-            }
-          },
-        },
-        {
-          id: "builtin:jump-back-in",
-          title: "Jump back in",
-          displayKind: "album-cards",
-          limit: 12,
-          fetch: async (limit) => {
-            try {
-              // Every recorded visit (the ring holds 20), looked up in parallel,
-              // so dropping the ones Latest play already shows can still fill
-              // `limit` cards.
-              const sorted = [...recentlyVisited].sort((a, b) => b.ts - a.ts);
-              const resolved = await Promise.all(sorted.map(async (v) => {
-                if (v.kind === "album") {
-                  const a = await invoke<Album | null>("get_album_by_id", { albumId: v.id });
-                  return a ? { libraryId: a.id, name: a.title, artistName: a.artist_name ?? undefined, entityKind: "album" as const } : null;
-                }
-                const ar = await invoke<Artist | null>("get_artist_by_id", { artistId: v.id });
-                return ar ? { libraryId: ar.id, name: ar.name, entityKind: "artist" as const } : null;
-              }));
-              const shownSessions = latestPlayVisible
-                ? [...recentPlays].sort((a, b) => b.ts - a.ts).slice(0, LATEST_PLAY_LIMIT)
-                : [];
-              const items: HomeShelfItem[] = resolved
-                .filter((it): it is NonNullable<typeof it> => it !== null)
-                .filter((it) => !visitAlreadyInLatestPlay(it, shownSessions))
-                .slice(0, limit);
-              return { status: "ok", items };
             } catch (e) {
               return { status: "error", message: String(e) };
             }
@@ -1068,10 +1065,9 @@ export function useHome(opts: UseHomeOptions) {
     refreshedRevRef.current = libRevRef.current;
     setIsLoading(true);
     try {
-      const recentlyVisited = (await store.get<RecentlyVisitedEntry[]>("recentlyVisitedEntities")) ?? [];
       const recentPlays = (await store.get<RecentPlaySession[]>("recentPlaySessions")) ?? [];
 
-      const builtIns = buildBuiltInResolvers(recentlyVisited, recentPlays, isShelfVisible(LATEST_PLAY_SHELF_ID, visibility));
+      const builtIns = buildBuiltInResolvers(recentPlays);
       const pluginResolvers: ShelfResolver[] = pluginShelves.map(p => ({
         id: shelfKey(p.pluginId, p.shelfId),
         pluginId: p.pluginId,

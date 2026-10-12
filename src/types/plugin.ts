@@ -1435,7 +1435,7 @@ export type HomeShelfItem =
       tracks?: PluginTrack[];
       /** See `partial` on playlist-cards. Ignored when `libraryId` is set. */
       partial?: boolean;
-      // Per-item override for mixed album/artist shelves (e.g. builtin:jump-back-in).
+      // Per-item override for mixed album/artist shelves.
       // When "artist", `libraryId` is an artist id and the card renders, navigates,
       // and plays as an artist. Absent or "album" = album (default, back-compatible).
       entityKind?: "album" | "artist";

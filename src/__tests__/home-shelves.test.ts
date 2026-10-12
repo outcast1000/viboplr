@@ -13,7 +13,7 @@ import {
   decadePlaylists,
   playlistShelfTrack,
   mixCards,
-  visitAlreadyInLatestPlay,
+  madeForYouPlaylists,
   type ShelfResolver,
   type TrackMix,
 } from "../hooks/useHome";
@@ -56,10 +56,13 @@ describe("resolveShelves", () => {
 describe("default shelf set", () => {
   const visibleByDefault = BUILTIN_SHELF_DESCRIPTORS.filter((d) => d.defaultVisible).map((d) => d.id);
 
-  it("keeps the three recent-activity shelves from stacking up in a row", () => {
-    // Latest play and Jump back in open the list; Recently played is last.
-    expect(visibleByDefault.slice(1, 3)).toEqual(["builtin:latest-play", "builtin:jump-back-in"]);
-    expect(visibleByDefault[visibleByDefault.length - 1]).toBe("builtin:recently-played");
+  it("opens with Latest play then Made for you", () => {
+    expect(visibleByDefault.slice(1, 3)).toEqual(["builtin:latest-play", "builtin:made-for-you"]);
+  });
+
+  it("keeps Recently played opt-in and Jump back in gone", () => {
+    expect(visibleByDefault).not.toContain("builtin:recently-played");
+    expect(BUILTIN_SHELF_DESCRIPTORS.map((d) => d.id)).not.toContain("builtin:jump-back-in");
   });
 
   it("has no station shelves besides the Radio carousel", () => {
@@ -135,33 +138,21 @@ describe("Discover by decade reads the Playlists view's decade mixes", () => {
     expect(decadePlaylists([row(1, "?", "auto:decade:")])).toEqual([]);
   });
 
+  it("Made for you takes the other auto mixes in backend order, not decades", () => {
+    const rows = [
+      row(1, "Daily Mix 1", "auto:daily-mix:1"),
+      row(2, "1990s", "auto:decade:1990s"),
+      row(3, "Liked Tracks", "liked"),
+      row(4, "Rock Mix", "auto:genre:rock"),
+      row(5, "Road trip", null),
+    ];
+    expect(madeForYouPlaylists(rows).map((p) => p.name)).toEqual(["Daily Mix 1", "Rock Mix"]);
+  });
+
   it("plays a playlist row from its own source URI", () => {
     expect(playlistShelfTrack({
       title: "T", artist_name: "A", album_name: "Al", duration_secs: 200, source: "file:///m/t.flac", image_path: null,
     })).toEqual({ title: "T", artist_name: "A", album_title: "Al", duration_secs: 200, path: "file:///m/t.flac", image_url: undefined });
-  });
-});
-
-describe("visitAlreadyInLatestPlay", () => {
-  const session = (over: Partial<RecentPlaySession>): RecentPlaySession =>
-    ({ source: "album", name: "Blue", artistName: "Joni Mitchell", imagePath: null, track: null, ts: 1, ...over } as RecentPlaySession);
-
-  it("drops an album the user also played, case-insensitively", () => {
-    expect(visitAlreadyInLatestPlay({ name: "blue", artistName: "joni mitchell", entityKind: "album" }, [session({})])).toBe(true);
-  });
-
-  it("keeps a same-named album by another artist", () => {
-    expect(visitAlreadyInLatestPlay({ name: "Blue", artistName: "Weezer", entityKind: "album" }, [session({})])).toBe(false);
-  });
-
-  it("matches artists only against artist sessions", () => {
-    const artistSession = session({ source: "artist", name: "Björk", artistName: undefined });
-    expect(visitAlreadyInLatestPlay({ name: "Björk", entityKind: "artist" }, [artistSession])).toBe(true);
-    expect(visitAlreadyInLatestPlay({ name: "Björk", entityKind: "artist" }, [session({ name: "Björk" })])).toBe(false);
-  });
-
-  it("never matches a playlist or radio session", () => {
-    expect(visitAlreadyInLatestPlay({ name: "Blue", entityKind: "album" }, [session({ source: "playlist" })])).toBe(false);
   });
 });
 
@@ -214,9 +205,9 @@ describe("findUnattemptedBuiltInKeys", () => {
   });
 
   it("does not flag a built-in that was already attempted last refresh", () => {
-    const attempted = new Set(["builtin:recently-played"]);
-    // recently-played is on by default and was attempted; should not re-trigger.
-    expect(findUnattemptedBuiltInKeys({}, attempted)).not.toContain("builtin:recently-played");
+    const attempted = new Set(["builtin:liked-albums"]);
+    // liked-albums is on by default and was attempted; should not re-trigger.
+    expect(findUnattemptedBuiltInKeys({}, attempted)).not.toContain("builtin:liked-albums");
   });
 
   it("never flags the Radio shelf (its data is fetched independently)", () => {

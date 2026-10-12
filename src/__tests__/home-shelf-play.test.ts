@@ -26,7 +26,7 @@ describe("resolveShelfPlayAction", () => {
     expect(resolveShelfPlayAction("artist-cards", item)).toEqual({ kind: "artist-id", id: 9 });
   });
 
-  it("album-cards item tagged entityKind=artist → artist-id (mixed jump-back-in shelf)", () => {
+  it("album-cards item tagged entityKind=artist → artist-id (mixed album/artist shelf)", () => {
     const item = { libraryId: 9, name: "Artist", entityKind: "artist" } as HomeShelfItem;
     expect(resolveShelfPlayAction("album-cards", item)).toEqual({ kind: "artist-id", id: 9 });
   });

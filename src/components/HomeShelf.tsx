@@ -150,7 +150,7 @@ function renderCard(shelf: ResolvedShelf, item: HomeShelfItem, idx: number, ctx:
 
   if (shelf.displayKind === "album-cards") {
     const it = item as { libraryId?: number; name: string; artistName?: string; coverUrl?: string; entityKind?: "album" | "artist" };
-    // Mixed shelves (e.g. builtin:jump-back-in) tag artist items: render them
+    // Mixed shelves (a plugin's) tag artist items: render them
     // circular with an artist-image lookup, matching the artist-cards look.
     const isArtist = it.entityKind === "artist";
     // Album cards: explicit cover → album image → the album's artist image →
