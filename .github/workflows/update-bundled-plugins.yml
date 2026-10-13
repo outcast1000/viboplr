@@ -1,0 +1,141 @@
+name: Update bundled plugins
+
+# Weekly: has a bundled plugin that lives in its own repo (Last.fm) published a
+# newer release than the one pinned in scripts/bundled-plugins.lock.json? If so,
+# sync it in, run the tests that hold the bundled copy to its release and to the
+# host's contract, and open (or refresh) a pull request. Merging stays a
+# person's call — that review is the point of pinning at all.
+#
+# This only decides what a FRESH install starts with. Existing installs get
+# each plugin release through the app's own update check regardless.
+#
+# Everything is re-derived from main each run, so an open PR is refreshed,
+# never stacked, and re-running is safe.
+
+on:
+  schedule:
+    - cron: "43 6 * * 1" # Mondays, 06:43 UTC (after update-libmpv)
+  workflow_dispatch:
+
+concurrency:
+  group: update-bundled-plugins
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+  pull-requests: write
+
+env:
+  BRANCH: bot/bundled-plugins-update
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Record the current pins
+        run: cp scripts/bundled-plugins.lock.json "$RUNNER_TEMP/lock-before.json"
+
+      # Downloads each entry's latest release, checks its id, version and
+      # signature, and rewrites the folder + lock. Unchanged when already current.
+      - name: Sync every bundled plugin to its latest release
+        run: node scripts/sync-bundled-plugins.mjs
+
+      - name: Did anything move?
+        id: diff
+        run: |
+          if git diff --quiet -- scripts/bundled-plugins.lock.json src-tauri/plugins; then
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+            echo "All bundled plugins are on their latest release."
+          else
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Summarize the update
+        if: steps.diff.outputs.changed == 'true'
+        id: summary
+        run: |
+          node --input-type=module - "$RUNNER_TEMP/lock-before.json" > "$RUNNER_TEMP/summary.md" <<'EOF'
+          import fs from "node:fs";
+          const before = JSON.parse(fs.readFileSync(process.argv[2], "utf8")).plugins;
+          const after = JSON.parse(fs.readFileSync("scripts/bundled-plugins.lock.json", "utf8")).plugins;
+          const appVersion = JSON.parse(fs.readFileSync("package.json", "utf8")).version;
+          const cmp = (a, b) => { const x = a.split(".").map(Number), y = b.split(".").map(Number);
+            for (let i = 0; i < 3; i++) if (x[i] !== y[i]) return x[i] < y[i] ? -1 : 1; return 0; };
+          const moved = [];
+          const lines = ["Newer releases of bundled plugins, synced in by `scripts/sync-bundled-plugins.mjs`.", ""];
+          for (const [id, entry] of Object.entries(after)) {
+            const old = before[id]?.version;
+            if (old === entry.version) continue;
+            moved.push(`${id} ${entry.version}`);
+            const manifest = JSON.parse(fs.readFileSync(`src-tauri/plugins/${id}/manifest.json`, "utf8"));
+            lines.push(`- **${id}**: v${old} → v${entry.version} ([release](https://github.com/${entry.repo}/releases/tag/v${entry.version}), [changes](https://github.com/${entry.repo}/compare/v${old}...v${entry.version}))`);
+            if (manifest.minAppVersion && cmp(manifest.minAppVersion, appVersion) > 0) {
+              lines.push(`  - ⚠ needs app **${manifest.minAppVersion}**; main is ${appVersion}. Bundled now, it would show as incompatible until a release at or above that ships — merge only for that release.`);
+            }
+          }
+          console.log(lines.join("\n"));
+          fs.appendFileSync(process.env.GITHUB_OUTPUT, `title=${moved.join(", ")}\n`);
+          EOF
+          cat "$RUNNER_TEMP/summary.md"
+
+      - name: Install dependencies
+        if: steps.diff.outputs.changed == 'true'
+        run: npm ci
+
+      # The two tests that touch the bundled copy: byte-exact + signed + the
+      # updateUrl (bundledPlugins), and the like/scrobble contract the host
+      # relies on (lastfmLoveSync). Recorded, not fatal, so a failing release
+      # still produces a (draft) PR that says why.
+      - name: Test the bundled copy
+        if: steps.diff.outputs.changed == 'true'
+        id: tests
+        run: |
+          if npx vitest run src/__tests__/bundledPlugins.test.ts src/__tests__/lastfmLoveSync.test.ts; then
+            echo "result=success" >> "$GITHUB_OUTPUT"
+          else
+            echo "result=failure" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Push the update branch
+        if: steps.diff.outputs.changed == 'true'
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git checkout -B "$BRANCH"
+          git add scripts/bundled-plugins.lock.json src-tauri/plugins
+          git commit -m "build(plugins): bundle ${{ steps.summary.outputs.title }}"
+          git push --force origin "$BRANCH"
+
+      - name: Open or refresh the pull request
+        if: steps.diff.outputs.changed == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TESTS: ${{ steps.tests.outputs.result }}
+        run: |
+          mark() { [ "$1" = success ] && echo "✅ $1" || echo "❌ $1"; }
+          {
+            cat "$RUNNER_TEMP/summary.md"
+            echo
+            echo "| Check | Result |"
+            echo "|---|---|"
+            echo "| Bundled copy matches its signed release; host like/scrobble contract | $(mark "$TESTS") |"
+            echo
+            echo "Run log: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+            echo
+            echo "_Opened by a workflow token, so the CI workflow doesn't start on its own — run it from the Actions tab (\"CI\", this branch) if you want the full suite before merging._"
+          } > "$RUNNER_TEMP/body.md"
+          TITLE="Bundle ${{ steps.summary.outputs.title }}"
+          if gh pr view "$BRANCH" --json state --jq .state 2>/dev/null | grep -q OPEN; then
+            gh pr edit "$BRANCH" --title "$TITLE" --body-file "$RUNNER_TEMP/body.md"
+          else
+            DRAFT=""
+            if [ "$TESTS" != success ]; then DRAFT="--draft"; fi
+            gh pr create --base main --head "$BRANCH" --title "$TITLE" --body-file "$RUNNER_TEMP/body.md" $DRAFT
+          fi
