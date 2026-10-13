@@ -49,7 +49,7 @@ impl Database {
         let mut stmt = conn.prepare(
             "SELECT id, type_id, name, display_kind, plugin_id, ttl, sort_order, priority, description
              FROM information_types
-             WHERE entity = ?1 AND active = 1
+             WHERE entity = ?1 AND active = 1 AND enabled = 1
              ORDER BY sort_order, type_id, priority ASC"
         )?;
         let rows = stmt.query_map([entity], |row| {
@@ -148,14 +148,13 @@ impl Database {
     /// Sync the image_providers table from plugin manifests.
     /// Takes vec of (plugin_id, entity, priority).
     /// Deactivates all rows, upserts current providers (preserving user-customized priorities),
-    /// reactivates current providers, then deletes orphaned rows.
+    /// then reactivates current providers. Rows of plugins that aren't loaded
+    /// stay with `active = 0`, keeping their priority and `enabled` switch.
     ///
-    /// **The built-in `core:*` rows are exempt from all three steps.** This
-    /// function reconciles the table against the *installed plugin list*, and
-    /// the built-ins (folder art, embedded artwork) are not plugins — without
-    /// the exemption the deactivate-all would switch them off and the
-    /// orphan DELETE would then remove them outright, on every plugin sync,
-    /// taking the user's ordering with them.
+    /// **The built-in `core:*` rows are exempt.** This function reconciles the
+    /// table against the *loaded plugin list*, and the built-ins (folder art,
+    /// embedded artwork) are not plugins — without the exemption the
+    /// deactivate-all would switch them off on every plugin sync.
     pub fn sync_image_providers(&self, providers: &[(String, String, i64)]) -> SqlResult<()> {
         let conn = self.conn.lock().unwrap();
         conn.execute_batch("BEGIN")?;
@@ -179,18 +178,11 @@ impl Database {
                 activate_stmt.execute(rusqlite::params![p.0, p.1])?;
             }
         }
-        // Delete orphaned rows (plugin_id not in the provided set)
-        if providers.is_empty() {
-            conn.execute("DELETE FROM image_providers WHERE plugin_id NOT LIKE 'core:%'", [])?;
-        } else {
-            let placeholders: Vec<String> = providers.iter().map(|_| "?".to_string()).collect();
-            let sql = format!(
-                "DELETE FROM image_providers WHERE plugin_id NOT LIKE 'core:%' AND plugin_id NOT IN ({})",
-                placeholders.join(", ")
-            );
-            let params: Vec<&dyn rusqlite::types::ToSql> = providers.iter().map(|p| &p.0 as &dyn rusqlite::types::ToSql).collect();
-            conn.execute(&sql, params.as_slice())?;
-        }
+        // Rows of plugins that aren't loaded stay, switched off (active = 0),
+        // like `info_sync_types` does. They used to be DELETEd, which threw
+        // away the user's order and per-source switches every time a plugin
+        // was disabled, failed to start or waited for approval — for the
+        // Artwork plugin that is four sources' settings at once.
         conn.execute_batch("COMMIT")?;
         Ok(())
     }
@@ -201,7 +193,7 @@ impl Database {
         let conn = self.conn.lock().unwrap();
         let mut stmt = conn.prepare(
             "SELECT plugin_id, priority, id FROM image_providers
-             WHERE entity = ?1 AND active = 1
+             WHERE entity = ?1 AND active = 1 AND enabled = 1
              ORDER BY priority ASC"
         )?;
         let rows = stmt.query_map([entity], |row| {
@@ -210,7 +202,10 @@ impl Database {
         Ok(rows)
     }
 
-    /// Get all provider configuration for the Settings UI.
+    /// Get all provider configuration for the Settings UI: the rows a loaded
+    /// plugin (or the core) provides — a disabled plugin's sources don't run,
+    /// so listing them with their switch showing "on" would mislead. The bool
+    /// in each row is the user's `enabled` switch.
     /// Returns (info_types, image_providers) where:
     /// - info_types: vec of (type_id, name, entity, display_kind, sort_order, plugin_id, priority, active)
     /// - image_providers: vec of (plugin_id, entity, priority, active, id)
@@ -224,8 +219,9 @@ impl Database {
 
         // All info types
         let mut info_stmt = conn.prepare(
-            "SELECT type_id, name, entity, display_kind, sort_order, plugin_id, priority, active
+            "SELECT type_id, name, entity, display_kind, sort_order, plugin_id, priority, enabled
              FROM information_types
+             WHERE active = 1
              ORDER BY entity, sort_order, type_id, priority ASC"
         )?;
         let info_types = info_stmt.query_map([], |row| {
@@ -243,8 +239,9 @@ impl Database {
 
         // All image providers
         let mut img_stmt = conn.prepare(
-            "SELECT plugin_id, entity, priority, active, id
+            "SELECT plugin_id, entity, priority, enabled, id
              FROM image_providers
+             WHERE active = 1
              ORDER BY entity, priority ASC"
         )?;
         let image_providers = img_stmt.query_map([], |row| {
@@ -274,7 +271,7 @@ impl Database {
     pub fn update_image_provider_active(&self, plugin_id: &str, entity: &str, active: bool) -> SqlResult<()> {
         let conn = self.conn.lock().unwrap();
         conn.execute(
-            "UPDATE image_providers SET active = ?1 WHERE plugin_id = ?2 AND entity = ?3",
+            "UPDATE image_providers SET enabled = ?1 WHERE plugin_id = ?2 AND entity = ?3",
             rusqlite::params![active, plugin_id, entity],
         )?;
         Ok(())
@@ -294,7 +291,7 @@ impl Database {
     pub fn update_info_type_active(&self, type_id: &str, plugin_id: &str, active: bool) -> SqlResult<()> {
         let conn = self.conn.lock().unwrap();
         conn.execute(
-            "UPDATE information_types SET active = ?1 WHERE type_id = ?2 AND plugin_id = ?3",
+            "UPDATE information_types SET enabled = ?1 WHERE type_id = ?2 AND plugin_id = ?3",
             rusqlite::params![active, type_id, plugin_id],
         )?;
         Ok(())

@@ -103,10 +103,28 @@ export interface PluginManifestInfoType {
   entity: "artist" | "album" | "track" | "tag";
   displayKind: string;
   ttl: number;
+  /** Which of the plugin's `contributes.providers` answers this type, when the
+   *  plugin offers several for it (two lyrics sources in one plugin). Omit for
+   *  the plugin's single provider. See `utils/providerKey.ts`. */
+  provider?: string;
 }
 
 export interface PluginManifestImageProvider {
   entity: string;
+  /** Which of the plugin's `contributes.providers` this is — see
+   *  `PluginManifestInfoType.provider`. */
+  provider?: string;
+}
+
+/**
+ * A named source inside a plugin that offers several of one kind (the Artwork
+ * plugin's Deezer, iTunes, …). Referenced by `imageProviders[].provider` /
+ * `informationTypes[].provider`; each gets its own row, priority and switch in
+ * Settings → Providers, under the key `<pluginId>/<id>`.
+ */
+export interface PluginManifestProvider {
+  id: string;
+  name: string;
 }
 
 export interface PluginManifestStreamResolver {
@@ -173,6 +191,7 @@ export interface PluginManifestContributes {
   eventHooks?: PluginEventName[];
   informationTypes?: PluginManifestInfoType[];
   imageProviders?: PluginManifestImageProvider[];
+  providers?: PluginManifestProvider[];
   streamResolvers?: PluginManifestStreamResolver[];
   downloadProviders?: PluginManifestDownloadProvider[];
   settingsPanel?: PluginManifestSettingsPanel;
@@ -1341,9 +1360,12 @@ export interface InfoValueRead {
 }
 
 export interface PluginInformationTypesAPI {
+  /** `opts.provider` registers the handler for one of the plugin's declared
+   *  `contributes.providers` (see `PluginManifestInfoType.provider`). */
   onFetch(
     infoTypeId: string,
     handler: (entity: import("./informationTypes").InfoEntity) => Promise<import("./informationTypes").InfoFetchResult>,
+    opts?: { provider?: string },
   ): () => void;
   /**
    * Substring-search the values cached in `information_values` across any info
@@ -1730,6 +1752,9 @@ export interface PluginImageProvidersAPI {
   onFetch(
     entity: "artist" | "album" | "tag",
     handler: (name: string, artistName?: string) => Promise<ImageFetchResult>,
+    /** For one of the plugin's declared `contributes.providers` — see
+     *  `PluginManifestImageProvider.provider`. */
+    opts?: { provider?: string },
   ): () => void;
 }
 

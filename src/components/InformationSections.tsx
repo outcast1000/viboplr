@@ -12,6 +12,7 @@ import { buildExternalQueueTrack } from "../utils/externalTrack";
 import { entityIdentity, onDetailTabRequest, takeDetailTab } from "../utils/pendingDetailTab";
 import { useLatestRef } from "../hooks/useLatestRef";
 import { PluginViewSection } from "./renderers/PluginViewSection";
+import { parseProviderKey } from "../utils/providerKey";
 import "./InformationSections.css";
 
 export interface CustomTab {
@@ -395,6 +396,9 @@ export function InformationSections({
           const s = activeEntry.section;
           if (s.displayKind === "plugin_view" && s.state.kind === "loaded") {
             const providerId = s.state.providerId;
+            // Actions go to the plugin that owns the row — the provider key's
+            // plugin half, for a plugin offering several (providerKey.ts).
+            const ownerId = providerId ? parseProviderKey(providerId).pluginId : undefined;
             // Keyed per entity and type: typed text and other node state must
             // not carry over to the next page, where a Post would send it
             // with that page's entity.
@@ -402,8 +406,8 @@ export function InformationSections({
               <PluginViewSection
                 key={`${entityKey}|${s.typeId}`}
                 data={s.state.data}
-                pluginId={providerId}
-                pluginName={(providerId && pluginNames?.get(providerId)) || s.name}
+                pluginId={ownerId}
+                pluginName={(ownerId && pluginNames?.get(ownerId)) || s.name}
                 entity={entity}
               />
             );

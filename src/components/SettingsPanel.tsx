@@ -35,6 +35,7 @@ import {
   imageProviderName,
   isCoreImageProvider,
 } from "../utils/coreImageProviders";
+import { parseProviderKey, providerKey, providerNames } from "../utils/providerKey";
 import { store } from "../store";
 import { PromptModal } from "./PromptModal";
 import { HelpLink } from "./HelpLink";
@@ -96,28 +97,24 @@ function parseProviderConfig(
 ): Map<string, ProviderRow[]> {
   const entityMap = new Map<string, ProviderRow[]>();
 
-  // Look up display name from plugin manifest, fallback to plugin ID
-  const pluginNameMap = new Map<string, string>();
-  if (pluginStates) {
-    for (const ps of pluginStates) {
-      pluginNameMap.set(ps.id, ps.manifest.name);
-    }
-  }
+  // Display names from the manifests: plugin ids, and provider keys for a
+  // plugin offering several (utils/providerKey.ts) — fallback to the raw id.
+  const pluginNameMap = providerNames(pluginStates ?? []);
   function displayName(pluginId: string): string {
     return imageProviderName(pluginId, pluginNameMap);
   }
 
   // Filter out providers whose plugin is no longer installed. The backend
-  // keeps `active = 0` rows around for plugins that are temporarily disabled
-  // (so user settings persist across uninstall/reinstall), but rows for
-  // plugins that no longer exist on disk would otherwise show up as dim
-  // pills the user can't act on.
+  // already lists only rows a loaded plugin provides (`get_all_provider_config`
+  // — disabled plugins' rows are kept, with their order and switches, but not
+  // listed); this is the guard for a plugin removed since the last sync.
   //
   // The built-in `core:*` providers have no manifest and so no entry in that
   // map — without the exemption this filter would hide the folder-art and
   // embedded-artwork rows from the very list they exist to be ordered in.
   const isInstalled = (pluginId: string) =>
-    isCoreImageProvider(pluginId) || (pluginStates ? pluginNameMap.has(pluginId) : true);
+    isCoreImageProvider(pluginId) ||
+    (pluginStates ? pluginNameMap.has(parseProviderKey(pluginId).pluginId) : true);
 
   // Group image providers by entity
   const imagesByEntity = new Map<string, ImageProviderRow[]>();
@@ -457,15 +454,17 @@ function ProviderPrioritySection({
         if (!contributes) continue;
         if (contributes.imageProviders) {
           for (const ip of contributes.imageProviders) {
-            const imgPriority = DEFAULT_IMAGE_PROVIDER_PRIORITY[`${plugin.id}:${ip.entity}`] ?? 999;
-            imageDefaults.push([plugin.id, ip.entity, imgPriority]);
+            const key = providerKey(plugin.id, ip.provider);
+            const imgPriority = DEFAULT_IMAGE_PROVIDER_PRIORITY[`${key}:${ip.entity}`] ?? 999;
+            imageDefaults.push([key, ip.entity, imgPriority]);
           }
         }
         if (contributes.informationTypes) {
           for (const it of contributes.informationTypes) {
-            const priority = DEFAULT_INFO_TYPE_PRIORITY[it.id]?.[plugin.id] ?? 500;
+            const key = providerKey(plugin.id, it.provider);
+            const priority = DEFAULT_INFO_TYPE_PRIORITY[it.id]?.[key] ?? 500;
             const order = DEFAULT_INFO_TYPE_ORDER[it.id] ?? 500;
-            infoDefaults.push([it.id, plugin.id, priority, order]);
+            infoDefaults.push([it.id, key, priority, order]);
           }
         }
       }

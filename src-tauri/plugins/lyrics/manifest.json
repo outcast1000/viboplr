@@ -1,0 +1,52 @@
+{
+  "id": "lyrics",
+  "name": "Lyrics",
+  "version": "1.0.0",
+  "author": "Vibo",
+  "description": "Synced and plain lyrics from LRCLIB, with Lyrics.ovh as a plain-text fallback. Order or switch off each source in Settings → Providers.",
+  "icon": "M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z",
+  "runtime": "worker",
+  "permissions": ["network:lrclib.net", "network:api.lyrics.ovh"],
+  "permissionReasons": {
+    "network:lrclib.net": "Look up synced and plain lyrics on LRCLIB",
+    "network:api.lyrics.ovh": "Look up lyrics on Lyrics.ovh"
+  },
+  "contributes": {
+    "settingsPanel": { "id": "lyrics-status", "label": "Lyrics", "order": 61 },
+    "providers": [
+      { "id": "lrclib", "name": "LRCLIB" },
+      { "id": "lyrics-ovh", "name": "Lyrics.ovh" }
+    ],
+    "assistant": {
+      "instructions": "Web lyrics from two sources: LRCLIB (synced and plain, plus a free-text search) and Lyrics.ovh (plain text only, exact artist+title, no search). For a KNOWN track use GET /v1/lyrics; add pluginId=lyrics/lrclib or pluginId=lyrics/lyrics-ovh (the bare source name also works) to force one source over local files. search_lyrics is for when exact metadata fails or is unknown: a free-text LRCLIB search returning candidate matches to disambiguate from.",
+      "tools": [
+        {
+          "name": "search_lyrics",
+          "readOnly": true,
+          "description": "Free-text search of the LRCLIB catalog (title/artist keywords) — returns candidate tracks with whether synced lyrics exist. Use when an exact title+artist lookup came back empty",
+          "inputSchema": { "type": "object", "properties": { "query": { "type": "string" }, "limit": { "type": "number", "description": "1-20, default 10" } }, "required": ["query"] }
+        }
+      ]
+    },
+    "informationTypes": [
+      {
+        "id": "lyrics",
+        "provider": "lrclib",
+        "name": "Lyrics",
+        "description": "Song lyrics, synced or plain text",
+        "entity": "track",
+        "displayKind": "lyrics",
+        "ttl": 7776000
+      },
+      {
+        "id": "lyrics",
+        "provider": "lyrics-ovh",
+        "name": "Lyrics",
+        "description": "Song lyrics, synced or plain text",
+        "entity": "track",
+        "displayKind": "lyrics",
+        "ttl": 7776000
+      }
+    ]
+  }
+}

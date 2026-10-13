@@ -8,6 +8,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { buildEntityKey } from "../types/informationTypes";
 import type { InfoEntity, InfoFetchResult, FetchProgressEntry } from "../types/informationTypes";
 import { emitInfoValueChanged } from "./infoValueEvents";
+import { matchesProviderRef, parseProviderKey } from "./providerKey";
 
 export const ERROR_TTL = 3600; // 1 hour in seconds
 
@@ -361,7 +362,9 @@ export async function saveOwnInfoValue(opts: { pluginId: string; typeId: string;
   const entityKey = buildEntityKey(entity);
   const types = await invoke<InfoTypeRow[]>("info_get_types_for_entity", { entity: entity.kind });
   const row = types.find(([id]) => id === typeId);
-  const own = row?.[5].find(([pid]) => pid === pluginId);
+  // A plugin offering several providers of this type writes under the first
+  // of them in the user's order (rows are priority-sorted).
+  const own = row?.[5].find(([pid]) => parseProviderKey(pid).pluginId === pluginId);
   if (!own) {
     throw new InfoFetchRequestError(`"${typeId}" is not one of this plugin's information types for ${entity.kind} entities`);
   }
@@ -390,7 +393,9 @@ export async function fetchInfoValue(opts: FetchInfoValueOpts): Promise<FetchInf
   }
   const [, name, displayKind, ttl, , providers] = row;
 
-  const chain = targetPlugin ? providers.filter(([pid]) => pid === targetPlugin) : providers;
+  // A pin names a provider key, a plugin (all its providers, in order) or a
+  // bare provider id — see matchesProviderRef.
+  const chain = targetPlugin ? providers.filter(([pid]) => matchesProviderRef(pid, targetPlugin)) : providers;
   if (targetPlugin && chain.length === 0) {
     throw new InfoFetchRequestError(
       `plugin "${targetPlugin}" is not a provider of "${typeId}" (providers: ${providers.map((p) => p[0]).join(", ") || "none"})`,

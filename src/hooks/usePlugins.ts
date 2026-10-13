@@ -126,6 +126,8 @@ import { networkHosts, pendingPermissions, permissionReasons } from "../pluginWo
 import { isFirstParty, mainRealmVerdict } from "../utils/pluginTrust";
 import { deleteIfSame } from "../utils/registryOps";
 import { abortError, armFetchAbort, isFetchAborted } from "../utils/pluginFetchAbort";
+import { handlerKey, matchesProviderRef, parseProviderKey, providerKey, providerNames } from "../utils/providerKey";
+import { MERGED_PLUGINS_DONE_KEY, migrateMergedPlugins, providerRowsFor } from "../utils/mergedPlugins";
 // Hardcoded defaults for information type tab order and provider priority.
 // Plugins cannot override these — users customize via Settings > Providers.
 export const DEFAULT_INFO_TYPE_ORDER: Record<string, number> = {
@@ -150,28 +152,47 @@ export const DEFAULT_INFO_TYPE_PRIORITY: Record<string, Record<string, number>> 
   // "core:local-lyrics" (50, ahead of every web provider) is seeded by DB
   // migration #13, not by this map — it has no manifest for the sync/reset
   // loops to walk. Listed here as documentation of the full default chain.
-  lyrics: { "core:local-lyrics": 50, lrclib: 100, genius: 200, "lyrics-ovh": 300, google: 400 },
+  // Keys are provider keys (utils/providerKey.ts): the bundled Lyrics plugin
+  // offers LRCLIB and Lyrics.ovh as two providers of one type.
+  lyrics: { "core:local-lyrics": 50, "lyrics/lrclib": 100, genius: 200, "lyrics/lyrics-ovh": 300, google: 400 },
   artist_bio: { lastfm: 100, genius: 200 },
   album_wiki: { lastfm: 100, genius: 200 },
 };
 
-// Internal priority for image providers (keyed by "pluginId:entity")
+// Internal priority for image providers (keyed by "<provider key>:entity")
 export const DEFAULT_IMAGE_PROVIDER_PRIORITY: Record<string, number> = {
   "tidal-browse:artist": 100,
   // TheAudioDB is the most accurate bundled artist source in practice, so it
   // leads the bundled chain. Deezer follows (broad coverage, now name-gated).
   // iTunes contributes no artist images (musicArtist has no artwork field).
-  "audiodb:artist": 200,
-  "deezer:artist": 300,
-  "musicbrainz:artist": 500,
+  // All four are providers of the one bundled Artwork plugin.
+  "artwork/audiodb:artist": 200,
+  "artwork/deezer:artist": 300,
+  "artwork/musicbrainz:artist": 500,
   "google:artist": 900,
   "tidal-browse:album": 100,
-  "itunes:album": 200,
-  "deezer:album": 300,
-  "musicbrainz:album": 500,
+  "artwork/itunes:album": 200,
+  "artwork/deezer:album": 300,
+  "artwork/musicbrainz:album": 500,
   "google:album": 900,
   "google:tag": 900,
 };
+
+/** One image provider's answer, a throw turned into an `error` the chain moves past. */
+async function runImageHandler(
+  key: string,
+  entity: string,
+  handler: (name: string, artistName?: string) => Promise<ImageFetchResult>,
+  name: string,
+  artistName?: string,
+): Promise<ImageFetchResult> {
+  try {
+    return await handler(name, artistName);
+  } catch (e) {
+    console.error(`[plugin:${key}] image fetch error for ${entity}:`, e);
+    return { status: "error", message: e instanceof Error ? e.message : String(e) };
+  }
+}
 
 // Simple semver comparison: returns true if current >= required
 function semverSatisfies(current: string, required: string): boolean {
@@ -1476,10 +1497,12 @@ export function usePlugins(
           onFetch(
             infoTypeId: string,
             handler: (entity: InfoEntity) => Promise<InfoFetchResult>,
+            opts?: { provider?: string },
           ): () => void {
-            loaded.infoFetchHandlers.set(infoTypeId, handler);
+            const key = handlerKey(infoTypeId, opts?.provider);
+            loaded.infoFetchHandlers.set(key, handler);
             const unsub = () => {
-              loaded.infoFetchHandlers.delete(infoTypeId);
+              loaded.infoFetchHandlers.delete(key);
             };
             trackUnsubscribe(unsub);
             return unsub;
@@ -1825,10 +1848,12 @@ export function usePlugins(
           onFetch(
             entity: "artist" | "album" | "tag",
             handler: (name: string, artistName?: string) => Promise<ImageFetchResult>,
+            opts?: { provider?: string },
           ): () => void {
-            loaded.imageFetchHandlers.set(entity, handler);
+            const key = handlerKey(entity, opts?.provider);
+            loaded.imageFetchHandlers.set(key, handler);
             const unsub = () => {
-              loaded.imageFetchHandlers.delete(entity);
+              loaded.imageFetchHandlers.delete(key);
             };
             trackUnsubscribe(unsub);
             return unsub;
@@ -2429,10 +2454,20 @@ export function usePlugins(
       // activate — see the approval gate below.
       permissionGrantsRef.current =
         (await store.get<Record<string, string[]>>(PERMISSION_GRANTS_KEY)) ?? {};
+      // The bundled image and lyrics plugins were merged into Artwork and
+      // Lyrics (utils/mergedPlugins.ts). Applied in memory here — the list
+      // decides which plugins' code gets read — and persisted only after the
+      // per-source switches it implies are written (after the provider sync
+      // below), so a run cut short simply runs again.
+      const mergeMigration =
+        storedEnabled !== null && !(await store.get<boolean>(MERGED_PLUGINS_DONE_KEY))
+          ? migrateMergedPlugins(storedEnabled)
+          : null;
+      if (storedEnabled === null) await store.set(MERGED_PLUGINS_DONE_KEY, true);
       // search-providers is now an external gallery plugin (no longer bundled),
       // so there's no built-in copy to auto-enable here — users install it from
       // the gallery like any other plugin.
-      const enabled = storedEnabled;
+      const enabled = mergeMigration ? mergeMigration.enabled : storedEnabled;
       const enabledSet =
         enabled !== null
           ? new Set(enabled)
@@ -2653,15 +2688,17 @@ export function usePlugins(
           }
           if (contrib.informationTypes) {
             for (const it of contrib.informationTypes) {
+              const key = providerKey(plugin.id, it.provider);
               const order = DEFAULT_INFO_TYPE_ORDER[it.id] ?? 500;
-              const priority = DEFAULT_INFO_TYPE_PRIORITY[it.id]?.[plugin.id] ?? 500;
-              allInfoTypes.push([it.id, it.name, it.entity, it.displayKind, plugin.id, it.ttl, order, priority, it.description ?? ""]);
+              const priority = DEFAULT_INFO_TYPE_PRIORITY[it.id]?.[key] ?? 500;
+              allInfoTypes.push([it.id, it.name, it.entity, it.displayKind, key, it.ttl, order, priority, it.description ?? ""]);
             }
           }
           if (contrib.imageProviders) {
             for (const ip of contrib.imageProviders) {
-              const imgPriority = DEFAULT_IMAGE_PROVIDER_PRIORITY[`${plugin.id}:${ip.entity}`] ?? 999;
-              allImageProviders.push([plugin.id, ip.entity, imgPriority]);
+              const key = providerKey(plugin.id, ip.provider);
+              const imgPriority = DEFAULT_IMAGE_PROVIDER_PRIORITY[`${key}:${ip.entity}`] ?? 999;
+              allImageProviders.push([key, ip.entity, imgPriority]);
             }
           }
           if (contrib.settingsPanel) {
@@ -2774,6 +2811,28 @@ export function usePlugins(
 
       if (allImageProviders.length > 0) {
         await invoke("sync_image_providers", { providers: allImageProviders });
+      }
+
+      // Finish the merged-plugins migration now that the rows exist: switch
+      // off the sources whose old plugin was off, then persist the new list.
+      if (mergeMigration) {
+        try {
+          for (const id of new Set(mergeMigration.disabledProviders.map((k) => parseProviderKey(k).pluginId))) {
+            const plugin = installed.find((p) => p.id === id);
+            if (!plugin) continue;
+            const rows = providerRowsFor(id, plugin.manifest, mergeMigration.disabledProviders);
+            for (const [key, entity] of rows.images) {
+              await invoke("update_image_provider_active", { pluginId: key, entity, active: false });
+            }
+            for (const [typeId, key] of rows.info) {
+              await invoke("update_info_type_active", { typeId, pluginId: key, active: false });
+            }
+          }
+          await store.set("enabledPlugins", mergeMigration.enabled);
+          await store.set(MERGED_PLUGINS_DONE_KEY, true);
+        } catch (e) {
+          console.error("Failed to carry plugin switches over to the merged Artwork / Lyrics plugins:", e);
+        }
       }
 
       // Sort by plugin name for consistent display
@@ -3190,9 +3249,12 @@ export function usePlugins(
         const value = await fetchLocalLyrics(entity, entity.path);
         return value ? { status: "ok", value } : { status: "not_found" };
       }
-      const loaded = loadedPluginsRef.current.get(pluginId);
+      // `pluginId` is a provider row's key: a bare plugin id, or
+      // `<pluginId>/<provider>` for a plugin offering several (providerKey.ts).
+      const { pluginId: owner, provider } = parseProviderKey(pluginId);
+      const loaded = loadedPluginsRef.current.get(owner);
       if (!loaded) return { status: "error" };
-      const handler = loaded.infoFetchHandlers.get(infoTypeId);
+      const handler = loaded.infoFetchHandlers.get(handlerKey(infoTypeId, provider));
       if (!handler) return { status: "error" };
       const prev = fetchUrlCallbackRef.current;
       fetchUrlCallbackRef.current = onFetchUrl ?? null;
@@ -3208,18 +3270,40 @@ export function usePlugins(
 
   const invokeImageFetch = useCallback(
     async (pluginId: string, entity: "artist" | "album" | "tag", name: string, artistName?: string): Promise<ImageFetchResult> => {
-      const loaded = loadedPluginsRef.current.get(pluginId);
+      // `pluginId` is normally a provider row's exact key — the Rust chain names
+      // the row it is walking.
+      const { pluginId: owner, provider } = parseProviderKey(pluginId);
+      const loaded = loadedPluginsRef.current.get(owner);
+      const handler = loaded?.imageFetchHandlers.get(handlerKey(entity, provider));
+      if (handler) return runImageHandler(pluginId, entity, handler, name, artistName);
+      // A full `<plugin>/<source>` key names one row; nothing to resolve. (Also
+      // the common miss: the chain asking before that plugin finished loading.)
+      if (provider) return { status: "error", message: loaded ? "no handler for entity" : "plugin not loaded" };
+
+      // A pin (the control API's `pluginId`) is whatever the caller typed: a
+      // plugin id, a bare source name. Same rule as an info-type pin
+      // (matchesProviderRef), walked in the user's order, first `ok` wins —
+      // so `artwork` tries Artwork's sources and `deezer` reaches its Deezer
+      // provider, deterministically.
+      const rows = await invoke<Array<[string, number, number]>>("get_image_providers", { entity })
+        .catch((e) => {
+          console.error(`Failed to read the ${entity} image providers:`, e);
+          return [] as Array<[string, number, number]>;
+        });
+      let last: ImageFetchResult | null = null;
+      for (const [key] of rows) {
+        if (key === pluginId || !matchesProviderRef(key, pluginId)) continue;
+        const parsed = parseProviderKey(key);
+        const h = loadedPluginsRef.current.get(parsed.pluginId)?.imageFetchHandlers.get(handlerKey(entity, parsed.provider));
+        if (!h) continue;
+        last = await runImageHandler(key, entity, h, name, artistName);
+        if (last.status === "ok") return last;
+      }
+      if (last) return last;
       // Exact text matters: the Rust image chain (lib.rs → is_provider_unavailable)
       // reads it as "couldn't ask" and then doesn't record a day-long failure.
       if (!loaded) return { status: "error", message: "plugin not loaded" };
-      const handler = loaded.imageFetchHandlers.get(entity);
-      if (!handler) return { status: "error", message: "no handler for entity" };
-      try {
-        return await handler(name, artistName);
-      } catch (e) {
-        console.error(`[plugin:${pluginId}] image fetch error for ${entity}:`, e);
-        return { status: "error", message: e instanceof Error ? e.message : String(e) };
-      }
+      return { status: "error", message: "no handler for entity" };
     },
     [],
   );
@@ -3564,7 +3648,9 @@ export function usePlugins(
         // The built-in local-lyrics provider has no manifest to name it; without
         // this the fetch-progress line and the Retrieve modal show the raw id.
         [CORE_LOCAL_LYRICS_PROVIDER, "Local files"],
-        ...pluginStates.map((s): [string, string] => [s.id, s.manifest.name]),
+        // Plugin ids and provider keys alike: a provider row names the
+        // provider ("Deezer"), not the plugin that hosts it ("Artwork").
+        ...providerNames(pluginStates),
       ]),
     [pluginStates],
   );

@@ -183,7 +183,12 @@ At install, `install_gallery_plugin_by_update_url` reads the entry's `updateUrl`
       "ttl": 7776000
     }],
     "imageProviders": [{
-      "entity": "artist|album|tag"
+      "entity": "artist|album|tag",
+      "provider": "source-id"
+    }],
+    "providers": [{
+      "id": "source-id",
+      "name": "Source Name"
     }],
     "streamResolvers": [{
       "id": "resolver-id",
@@ -237,6 +242,8 @@ At install, `install_gallery_plugin_by_update_url` reads the entry's `updateUrl`
 
 `viewHeader` (optional, top-level) sets defaults for the header the host draws on every view of the plugin; a sidebar item's own `header` overrides it per view. See "View header" below.
 
+`providers` + the optional `provider` on `imageProviders[]` / `informationTypes[]` let one plugin offer **several providers of the same thing** — see "Several providers in one plugin" below. Omit both for a plugin with one provider per entity / type, which is every plugin but the bundled Artwork and Lyrics.
+
 `debugOnly: true` hides the plugin unless the app is running in debug mode. Plugins reload automatically when the debug mode setting flips.
 
 `runtime` (optional, top-level) — `"worker"` runs the plugin in its own Web Worker behind the permission gate; absent = the main-realm loader. `permissions` lists what a worker plugin may do and is what the user approves (ignored by the main-realm loader). See "Worker Runtime & Permissions". `permissionReasons` (optional) maps a permission string to one sentence saying why the plugin needs it; the shared `PermissionList` shows it as "Why: …" under the host's own description on every consent surface (detail pane, install dialog, update prompt), and the control API's extension detail returns it per permission. It grants nothing. Cleaned by `permissionReasons()` in `src/pluginWorker/permissions.ts`: keys not in `permissions` and non-string values are dropped, whitespace collapsed, capped at 160 chars, rendered as plain text. The host's description stays first so an author's sentence can't soften what a grant allows. Older hosts ignore the field, so adding it needs no `minAppVersion` bump. `apiUsage` is deprecated (see Trust Model).
@@ -261,7 +268,7 @@ A user can turn off **individual** contributions without disabling the whole plu
 
 | Contribution | Surface | Persisted as |
 |---|---|---|
-| Information types / image providers / stream resolvers | Settings → Providers (on/off + priority) | `*.active` / `*.priority` DB columns, plus `streamResolverOrder` (download providers have **no** priority/enable — the downloader follows the track's source) |
+| Information types / image providers / stream resolvers | Settings → Providers (on/off + priority) | `*.enabled` / `*.priority` DB columns, plus `streamResolverOrder` (download providers have **no** priority/enable — the downloader follows the track's source) |
 | Home shelves | Home → ⚙ Customize, or the shelf's own ⋯ menu (on/off + order, interleaved with built-ins) | `homeShelfVisibility` / `homeShelfOrder` |
 | Now Playing info items | Settings → Playback (on/off + dwell + order) | `nowPlayingInfoSelection` / `…Persistence` / `…Order` |
 | **Context menu items, sidebar views, search providers** | **Extensions → plugin detail → Contributions** | **`pluginContributionVisibility`** |
@@ -449,7 +456,7 @@ Share seek-bar waveforms between installs, so a song computed once need not be c
 - Canonical consumer: the Community plugin (shared waveforms + public format stats).
 
 ### api.informationTypes
-- `onFetch(infoTypeId, handler)` — *provide* a value: handler receives an `InfoEntity`, returns `{ status: "ok", value } | { status: "not_found" } | { status: "error", message? }`.
+- `onFetch(infoTypeId, handler, opts?)` — *provide* a value: handler receives an `InfoEntity`, returns `{ status: "ok", value } | { status: "not_found" } | { status: "error", message? }`. `opts.provider` registers it for one of the plugin's declared `contributes.providers` (see "Several providers in one plugin").
 - `setSectionData(typeId, entity, data)` — replace the value one of **your own** types shows for an entity, with no refetch: `data` is what `onFetch` would return as `value`. Written to the cache under your provider row only (`saveOwnInfoValue` — unlike `api.lyrics.save`, another provider's cached row is untouched) and announced through `infoValueEvents`, so every open view of that entity re-reads it. Refused for a type your plugin doesn't provide. **Pass the `entity` you were given** (`onFetch`'s argument or an action payload's `entity`), unchanged: it is stored under that entity's exact `buildEntityKey`, so a respelled or rebuilt one writes a row no page reads, silently. Non-string `artistName` / `albumTitle` are refused; a missing artist is not (an unknown-artist track's page has none). Built for interactive (`plugin_view`) tabs — redraw after a like or a post — but works for any of your types. No permission. Feature-detect.
 - `searchValues(query, opts?)` — *read* across the cached `information_values` store (any info type — lyrics, bios, reviews, similar lists, …). Case/diacritic-insensitive, whitespace-tolerant phrase search over the value's **readable text** — never its raw JSON: LRC timestamps are stripped and lines joined, so a phrase may run across a lyric's line break; without a `jsonPath` a lyrics value contributes only its `text` and any other value its string fields minus the plumbing ones (`_meta`, `kind`, urls, images — `readable_strings` in `db/search.rs`). At most one match per (type, entity) — the newest provider's — so `limit` counts distinct hits. Ranked by match quality (`MatchTier`): the phrase as whole words inside one line, then as whole words across a line break, then only inside a longer word ("love" in "glove"); newest first within a tier. `opts` (all optional, AND-combined): `typeId` / `displayKind` / `entity` narrow by info type; `jsonPath` scopes matching **and** the returned `snippet` to one JSON field of the stored value (e.g. `"$.text"` for lyrics, `"$.summary"` for bios) — omit to search the whole value's readable text; `resolveTracks` populates `match.track` for `entity: "track"` matches; `limit`. Returns `InfoValueMatch[]`: `{ typeId, pluginId, entity, displayKind, entityKey, value (parsed JSON), status, fetchedAt, snippet, track }` where `track` is the resolved library `Track | null` (only for track entities when `resolveTracks` is set). This runs the scan in the host — the value store is keyed by metadata (`buildEntityKey`), not exposed as a queryable table to JS.
 - `getValuesForEntity(entity)` — read every cached value for an `InfoEntity`: `Array<{ typeId, value (parsed JSON), status, fetchedAt }>`.
@@ -460,7 +467,20 @@ There is still **no** `api.informationTypes.invoke` escape hatch — plugins rea
 
 
 ### api.imageProviders
-- `onFetch(entity, handler)` — entity is `"artist"`, `"album"`, or `"tag"` (matching the manifest's `imageProviders[].entity`). Handler receives `(name, artistName?)` — `artistName` only for albums — and returns `{ status: "ok", url, headers? } | { status: "ok", data } | { status: "not_found" } | { status: "error", message? }`.
+- `onFetch(entity, handler, opts?)` — entity is `"artist"`, `"album"`, or `"tag"` (matching the manifest's `imageProviders[].entity`). Handler receives `(name, artistName?)` — `artistName` only for albums — and returns `{ status: "ok", url, headers? } | { status: "ok", data } | { status: "not_found" } | { status: "error", message? }`. `opts.provider` registers it for one of the plugin's declared `contributes.providers`.
+
+### Several providers in one plugin
+
+A plugin may offer more than one provider for the same entity or info type — the bundled **Artwork** plugin is four image sources (TheAudioDB, Deezer, iTunes, MusicBrainz) and the bundled **Lyrics** plugin two (LRCLIB, Lyrics.ovh). They were six plugins until 2026-10-13; merged, they share their helpers and cost one worker each instead of six (~2.4 MB per worker, measured). The user loses nothing: each source keeps its own row, priority and on/off switch in Settings → Providers.
+
+- **Declare** each source once in `contributes.providers: [{ id, name }]`, point entries at it with `imageProviders[].provider` / `informationTypes[].provider` (one entry per source, so a lyrics plugin lists the `lyrics` type twice), and register each handler with `onFetch(…, { provider: id })`.
+- **Provider keys** (`utils/providerKey.ts`): such a row's `plugin_id` is `<pluginId>/<providerId>`. That column has always meant "which provider", not "which installed plugin" — the built-in `core:folder` / `core:local-lyrics` rows live there with no plugin behind them. `/` can't occur in a plugin id (ids are folder names) and `:` marks core rows, so every key parses one way. A plugin with one provider keeps its bare id, so nothing about existing plugins changes. The chain plumbing carries the key opaquely; only dispatch (`invokeInfoFetch` / `invokeImageFetch` → `handlerKey`), display names (`providerNames`, which feeds `pluginNames`), section routing (a `plugin_view` value goes to the key's plugin half), `setSectionData` (the plugin's first row for the type, in the user's order) and pinning interpret it.
+- **Pinning** (the control API's `pluginId`, `api.informationTypes.fetch`'s `opts.pluginId`) accepts the full key, a plugin id (all of its providers, in order), or a bare provider id — `matchesProviderRef`. The bare form is what keeps `pluginId=deezer` working from before the merge.
+- **The merge migration.** DB migration #15 re-keys the old rows in place (`deezer` → `artwork/deezer`, `lrclib` → `lyrics/lrclib`), so row ids — and every cached info value, including never-expiring synced lyrics — the user's order and switches carry over; it runs once (marker `bundled_providers_merged`), so a gallery plugin installed later under an old id keeps it. The store half (`utils/mergedPlugins.ts`) enables Artwork / Lyrics when any of their old plugins was on, switches off the sources whose plugin was off, and drops the old ids from `enabledPlugins`. MCP tool names moved with the code (`deezer__search_art` → `artwork__search_art`, `lrclib__search_lyrics` → `lyrics__search_lyrics`).
+- **Per-source switch (`enabled`).** The Settings switch writes the rows' `enabled` column; `active` belongs to the plugin syncs ("a loaded plugin provides this row") and the chain reads both. Before #15 the switch wrote `active`, which `info_sync_types` and `sync_image_providers` reset to 1 on every plugin load, so turning a provider off lasted only until the next restart — with sources merged into one plugin that switch is the only way to turn one off, so it had to stick. Pinned by `test_a_provider_switched_off_stays_off_across_plugin_syncs`.
+- **A plugin that isn't loaded keeps its rows.** `sync_image_providers` used to DELETE the rows of every plugin not in the sync, so disabling Artwork (or it failing to start, or waiting for approval) reset four sources' order and switches at once. Its rows now stay at `active = 0`, as `info_sync_types`' always did, and `get_all_provider_config` lists only `active = 1` rows — a disabled plugin's sources don't run, so Settings doesn't show their switch as on. Pinned by `test_a_plugin_that_is_not_loaded_keeps_its_image_provider_settings`.
+- **Pinning an image fetch** goes through the same `matchesProviderRef` as an info pin, walked in the user's order (`get_image_providers`), first `ok` wins; an exact key from the Rust chain still dispatches directly.
+- **Status panels.** Artwork and Lyrics each have a `settingsPanel` (Extensions → plugin → Configuration) showing, per source, a Working / Failing / Not asked yet badge, found / nothing / failed counts, the last failure's reason, and the latest 25 lookups — plus **Test all sources**, which asks every source for a well-known item (Radiohead / OK Computer; "Karma Police") one at a time, so "the network blocks Deezer" can be told apart from "Deezer has no photo of this band". Everything is recorded in the plugin's `provide` wrapper and kept in its own storage (lyrics text is never stored). Failures are also written to the plugin log. Pinned by `bundledMultiProviderPlugins.test.ts`.
 
 ### api.downloads
 - There is **no `enqueue`** — the background download queue (`enqueue_download` + its worker) was removed along with the host's batch menu items. A plugin that wants a download UI opens the host modal via `api.ui.requestAction("download-tracks", { providerId, providerName, tracks })` (single track → `SingleTrackDownload`, several → `MultiTrackDownload`), or downloads itself and lands the files in a local collection (`api.collections.resync`).
@@ -976,9 +996,9 @@ Toggle controls use `checked: boolean`, not `value`. `{ type: "toggle", label, a
 
 ## Database Tables
 
-- **`information_types`** — registered info types with `type_id`, `entity`, `display_kind`, `plugin_id`, `ttl`, `sort_order`, `priority`, `active`. Unique on `(type_id, plugin_id)`.
+- **`information_types`** — registered info types with `type_id`, `entity`, `display_kind`, `plugin_id` (a provider key — see "Several providers in one plugin"), `ttl`, `sort_order`, `priority`, `active` (sync-owned: a loaded plugin provides it), `enabled` (the user's Settings switch). Unique on `(type_id, plugin_id)`.
 - **`information_values`** — cached values with `information_type_id`, `entity_key` (name-based), `value` (JSON), `status`, `fetched_at`. Primary key on `(information_type_id, entity_key)`.
-- **`image_providers`** — registered image providers with `plugin_id`, `entity`, `priority`, `active`.
+- **`image_providers`** — registered image providers with `plugin_id` (a provider key), `entity`, `priority`, `active` (sync-owned), `enabled` (the user's switch).
 - **`stream_resolvers`** — registered stream resolvers with `plugin_id`, `resolver_id`, `priority`, `active`.
 - **`plugin_storage`** — per-plugin key-value store. Primary key on `(plugin_id, key)`.
 - **`plugin_schedules`** — periodic task state.

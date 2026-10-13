@@ -180,7 +180,9 @@ async function main() {
   // off, so the only lyrics on screen are the invented album's sidecar .lrc
   // (the local provider needs no plugin).
   const installed = (await api("GET", "/extensions")).plugins ?? [];
-  for (const id of ["lrclib", "lyrics-ovh", "genius"]) {
+  // `lyrics` is the bundled LRCLIB + Lyrics.ovh plugin; the two old ids are
+  // what a build before that merge still calls them.
+  for (const id of ["lyrics", "lrclib", "lyrics-ovh", "genius"]) {
     if (installed.some((p) => p.id === id && p.enabled)) await api("POST", `/extensions/${id}/enabled`, { enabled: false });
   }
   console.log("✓ online lyrics providers off");

@@ -1110,6 +1110,63 @@ impl Database {
             )?;
         }
 
+        // 15. Provider rows: a user switch that survives, and one plugin with
+        //     several providers.
+        //
+        //     (a) `enabled` — the user's on/off from Settings → Providers.
+        //     `active` used to be both that switch AND "a loaded plugin
+        //     provides this row", and the plugin syncs rewrite `active = 1` on
+        //     every load, so switching a provider off lasted only until the
+        //     next restart. Now the syncs own `active` and only the user
+        //     writes `enabled`; the chain reads both. Core rows are exempt
+        //     from the syncs, so their `active` really was the user's switch:
+        //     it moves to `enabled` (and `active` becomes 1). Schema-presence
+        //     detected, like #8.
+        {
+            let conn = self.conn.lock().unwrap();
+            for table in ["image_providers", "information_types"] {
+                let has: bool = conn
+                    .prepare(&format!("SELECT 1 FROM pragma_table_info('{table}') WHERE name = 'enabled'"))?
+                    .exists([])?;
+                if !has {
+                    conn.execute_batch(&format!(
+                        "ALTER TABLE {table} ADD COLUMN enabled INTEGER NOT NULL DEFAULT 1;
+                         UPDATE {table} SET enabled = active, active = 1 WHERE plugin_id LIKE 'core:%';"
+                    ))?;
+                }
+            }
+        }
+
+        //     (b) The bundled image plugins (Deezer, iTunes, TheAudioDB,
+        //     MusicBrainz) became providers of one Artwork plugin, and LRCLIB
+        //     and Lyrics.ovh of one Lyrics plugin. Their rows are re-keyed in
+        //     place (`<plugin>/<provider>`, src/utils/providerKey.ts), so the
+        //     row ids — and with them every cached info value and the user's
+        //     order and switches — carry over. A data pass, so it is guarded
+        //     by a marker: a gallery plugin later installed under one of the
+        //     old ids must not be renamed. `OR IGNORE`: a row already under
+        //     the new key wins, and the leftover is reaped by the next sync.
+        let already_merged: bool = {
+            let conn = self.conn.lock().unwrap();
+            conn.query_row(
+                "SELECT COUNT(*) FROM plugin_storage WHERE plugin_id = '__core__' AND key = 'bundled_providers_merged'",
+                [], |r| r.get::<_, i64>(0),
+            ).unwrap_or(0) > 0
+        };
+        if !already_merged {
+            let conn = self.conn.lock().unwrap();
+            conn.execute_batch(
+                "BEGIN;
+                 UPDATE OR IGNORE image_providers SET plugin_id = 'artwork/' || plugin_id
+                     WHERE plugin_id IN ('deezer', 'itunes', 'audiodb', 'musicbrainz');
+                 UPDATE OR IGNORE information_types SET plugin_id = 'lyrics/' || plugin_id
+                     WHERE plugin_id IN ('lrclib', 'lyrics-ovh');
+                 INSERT OR REPLACE INTO plugin_storage (plugin_id, key, value)
+                     VALUES ('__core__', 'bundled_providers_merged', '1');
+                 COMMIT;",
+            )?;
+        }
+
         Ok(())
     }
 }

@@ -4709,3 +4709,153 @@ fn test_the_reader_connection_refuses_writes() {
     assert!(err.to_string().to_lowercase().contains("readonly") || err.to_string().contains("read-only")
         || err.to_string().contains("query_only"), "{err}");
 }
+
+#[test]
+fn test_a_provider_switched_off_stays_off_across_plugin_syncs() {
+    // The Settings → Providers switch used to write `active`, which both syncs
+    // rewrite to 1 on every plugin load — so switching a provider off lasted
+    // until the next restart. It now writes `enabled`, which the syncs never
+    // touch, and the chain reads both.
+    let db = test_db();
+    let images = [("artwork/deezer".to_string(), "artist".to_string(), 300)];
+    let lyrics = [(
+        "lyrics".to_string(), "Lyrics".to_string(), "track".to_string(), "lyrics".to_string(),
+        "lyrics/lrclib".to_string(), 7776000, 200, 100, String::new(),
+    )];
+    db.sync_image_providers(&images).unwrap();
+    db.info_sync_types(&lyrics).unwrap();
+
+    db.update_image_provider_active("artwork/deezer", "artist", false).unwrap();
+    db.update_info_type_active("lyrics", "lyrics/lrclib", false).unwrap();
+    // A reload: both syncs run again with the same manifests.
+    db.sync_image_providers(&images).unwrap();
+    db.info_sync_types(&lyrics).unwrap();
+
+    let chain: Vec<String> = db.get_image_providers("artist").unwrap().into_iter().map(|p| p.0).collect();
+    assert!(!chain.contains(&"artwork/deezer".to_string()), "switched-off image provider left the chain: {chain:?}");
+    let types = db.info_get_types_for_entity("track").unwrap();
+    let lyric_chain: Vec<&str> = types.iter().find(|t| t.0 == "lyrics").unwrap().5.iter().map(|(p, _)| p.as_str()).collect();
+    assert_eq!(lyric_chain, vec!["core:local-lyrics"], "switched-off lyrics provider left the chain");
+
+    // Settings reads the switch, not the plugin's presence.
+    let (info, imgs) = db.get_all_provider_config().unwrap();
+    assert!(imgs.iter().any(|r| r.0 == "artwork/deezer" && !r.3));
+    assert!(info.iter().any(|r| r.5 == "lyrics/lrclib" && !r.7));
+
+    // And back on.
+    db.update_image_provider_active("artwork/deezer", "artist", true).unwrap();
+    let chain: Vec<String> = db.get_image_providers("artist").unwrap().into_iter().map(|p| p.0).collect();
+    assert!(chain.contains(&"artwork/deezer".to_string()));
+}
+
+#[test]
+fn test_a_plugin_that_is_not_loaded_keeps_its_image_provider_settings() {
+    // A sync without the plugin (disabled, failed to start, waiting for
+    // approval) used to DELETE its rows, so the user's order and per-source
+    // switches came back as defaults when it returned.
+    let db = test_db();
+    let artwork = [
+        ("artwork/deezer".to_string(), "album".to_string(), 300),
+        ("artwork/itunes".to_string(), "album".to_string(), 200),
+    ];
+    db.sync_image_providers(&artwork).unwrap();
+    db.update_image_provider_priority("artwork/deezer", "album", 50).unwrap();
+    db.update_image_provider_active("artwork/itunes", "album", false).unwrap();
+
+    db.sync_image_providers(&[]).unwrap();
+    let chain: Vec<String> = db.get_image_providers("album").unwrap().into_iter().map(|p| p.0).collect();
+    assert!(!chain.iter().any(|p| p.starts_with("artwork/")), "not loaded, not asked: {chain:?}");
+    let (_, listed) = db.get_all_provider_config().unwrap();
+    assert!(!listed.iter().any(|r| r.0.starts_with("artwork/")), "Settings lists only loaded providers");
+
+    db.sync_image_providers(&artwork).unwrap();
+    let back: Vec<(String, i64)> = db.get_image_providers("album").unwrap()
+        .into_iter().filter(|p| p.0.starts_with("artwork/")).map(|(p, prio, _)| (p, prio)).collect();
+    assert_eq!(back, vec![("artwork/deezer".to_string(), 50)], "order kept, switched-off source still off");
+}
+
+#[test]
+fn test_merged_bundled_plugins_keep_their_rows_and_cached_values() {
+    // The bundled image and lyrics plugins became providers of one Artwork and
+    // one Lyrics plugin. Their rows are re-keyed in place, so the row ids —
+    // which cached info values hang off — and the user's order carry over.
+    let db = test_db();
+    db.sync_image_providers(&[
+        ("deezer".to_string(), "album".to_string(), 300),
+        ("itunes".to_string(), "album".to_string(), 150),
+        ("lastfm".to_string(), "album".to_string(), 900),
+    ]).unwrap();
+    db.info_sync_types(&[(
+        "lyrics".into(), "Lyrics".into(), "track".into(), "lyrics".into(),
+        "lrclib".into(), 7776000, 200, 100, String::new(),
+    )]).unwrap();
+    let lrclib_id: i64 = db.conn.lock().unwrap().query_row(
+        "SELECT id FROM information_types WHERE plugin_id = 'lrclib'", [], |r| r.get(0),
+    ).unwrap();
+    db.info_upsert_value(lrclib_id, "track:artist:song", r#"{"text":"la","kind":"plain"}"#, "ok").unwrap();
+
+    // Rewind the marker: this DB was created after the merge, so #15 already ran.
+    db.conn.lock().unwrap().execute(
+        "DELETE FROM plugin_storage WHERE plugin_id = '__core__' AND key = 'bundled_providers_merged'", [],
+    ).unwrap();
+    db.run_migrations().unwrap();
+
+    let album: Vec<(String, i64)> = db.get_image_providers("album").unwrap()
+        .into_iter().map(|(p, prio, _)| (p, prio)).collect();
+    assert_eq!(
+        album.into_iter().filter(|(p, _)| !p.starts_with("core:")).collect::<Vec<_>>(),
+        vec![
+            ("artwork/itunes".to_string(), 150),
+            ("artwork/deezer".to_string(), 300),
+            ("lastfm".to_string(), 900),
+        ],
+        "renamed in place, order kept, other plugins untouched",
+    );
+    let renamed_id: i64 = db.conn.lock().unwrap().query_row(
+        "SELECT id FROM information_types WHERE plugin_id = 'lyrics/lrclib'", [], |r| r.get(0),
+    ).unwrap();
+    assert_eq!(renamed_id, lrclib_id, "same row, so its cached values follow");
+    assert!(db.info_get_value(renamed_id, "track:artist:song").unwrap().is_some());
+
+    // One time only: a gallery plugin installed later under an old id keeps it.
+    db.sync_image_providers(&[("deezer".to_string(), "album".to_string(), 300)]).unwrap();
+    db.run_migrations().unwrap();
+    assert!(db.get_image_providers("album").unwrap().iter().any(|p| p.0 == "deezer"));
+}
+
+#[test]
+fn test_core_provider_switch_moves_from_active_to_enabled() {
+    // Core rows are exempt from the syncs, so on a pre-#15 profile their
+    // `active` WAS the user's switch. It must land in `enabled`, or upgrading
+    // would quietly switch a disabled built-in back on.
+    let dir = tempfile::tempdir().unwrap();
+    let db_path = dir.path().join("viboplr.db");
+    {
+        let conn = Connection::open(&db_path).unwrap();
+        conn.execute_batch(
+            "CREATE TABLE image_providers (
+                id          INTEGER PRIMARY KEY,
+                plugin_id   TEXT NOT NULL,
+                entity      TEXT NOT NULL,
+                priority    INTEGER NOT NULL DEFAULT 500,
+                active      INTEGER NOT NULL DEFAULT 1,
+                UNIQUE (plugin_id, entity)
+             );
+             INSERT INTO image_providers (plugin_id, entity, priority, active) VALUES ('core:embedded', 'album', 20, 0);
+             INSERT INTO image_providers (plugin_id, entity, priority, active) VALUES ('lastfm', 'album', 100, 0);
+             CREATE TABLE db_version (version INTEGER NOT NULL);
+             INSERT INTO db_version (rowid, version) VALUES (1, 1);",
+        ).unwrap();
+    }
+    let db = Database::new(dir.path()).unwrap();
+    let (_, imgs) = db.get_all_provider_config().unwrap();
+    let embedded = imgs.iter().find(|r| r.0 == "core:embedded").unwrap();
+    assert!(!embedded.3, "the user's off switch carried over");
+    // A plugin row's `active` was the sync's, not the user's: its switch stays on.
+    let lastfm_enabled: bool = db.conn.lock().unwrap().query_row(
+        "SELECT enabled FROM image_providers WHERE plugin_id = 'lastfm'", [], |r| r.get(0),
+    ).unwrap();
+    assert!(lastfm_enabled);
+    let chain: Vec<String> = db.get_image_providers("album").unwrap().into_iter().map(|p| p.0).collect();
+    assert!(!chain.contains(&"core:embedded".to_string()));
+}
