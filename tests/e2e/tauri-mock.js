@@ -204,6 +204,10 @@ window.__TAURI_INTERNALS__.invoke = async function (cmd, args) {
       return null;
     case 'recent_play_gc':
       return 0;
+    // Home snapshot file: nothing cached, so Home fetches its shelves.
+    case 'home_snapshot_read':
+    case 'home_snapshot_write':
+      return null;
     case 'get_collections':
       return TEST_COLLECTIONS;
     case 'get_collection_stats':

@@ -6,9 +6,7 @@ const STORE_DEFAULTS = {
   // lands on Home), the queue lives in main_playlist, and the per-entity
   // sort / section keys predate the unified Library — so none of those are here.
   view: "all",
-  currentTrackEntry: null,
   volume: 1.0,
-  positionSecs: 0,
   crossfadeSecs: 3,
   playbackEngine: "native",
   audioExclusive: false,
@@ -65,9 +63,17 @@ const STORE_DEFAULTS = {
   quizBestScores: {},
 };
 
+// Keys the app once wrote and no longer does; dropped from the profile's store
+// at startup. Both were write-only (the restored track always starts from the
+// top), and positionSecs alone made the store rewrite the whole file every 5s
+// of playback.
+export const RETIRED_STORE_KEYS = ["positionSecs", "currentTrackEntry"] as const;
+
 export interface AppStore {
   get<T>(key: string): Promise<T | undefined>;
   set(key: string, value: unknown): Promise<void>;
+  /** Remove a key; resolves true when it existed. */
+  delete(key: string): Promise<boolean>;
   /** All key-value pairs in one IPC round-trip (vs one `get` per key). */
   entries<T = unknown>(): Promise<Array<[string, T]>>;
   init(): Promise<void>;
@@ -112,6 +118,10 @@ class ProfileStore implements AppStore {
 
   async set(key: string, value: unknown): Promise<void> {
     return (await this.getInner()).set(key, value);
+  }
+
+  async delete(key: string): Promise<boolean> {
+    return (await this.getInner()).delete(key);
   }
 
   async save(): Promise<void> {

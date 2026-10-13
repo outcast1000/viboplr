@@ -9,6 +9,7 @@ import type {
 } from "../types/plugin";
 import { type RecentPlaySession, sessionKey, sessionSubtitle } from "../utils/recentPlays";
 import { store } from "../store";
+import { readHomeSnapshot, writeHomeSnapshot } from "../utils/homeSnapshotFile";
 import { isVideoTrack } from "../utils";
 import { isLocalTrack, type PlaylistTrackRow } from "../queueEntry";
 import { isAuto, firstArtist, featuredArtistsFromMetadata, featuredArtistsLabel } from "../utils/autoPlaylist";
@@ -20,7 +21,6 @@ const PLUGIN_TIMEOUT_MS = 5_000;
 // Coalesce a burst of library changes (e.g. several collections finishing a resync
 // back-to-back at startup) into a single background refresh.
 const LIBRARY_REFRESH_DEBOUNCE_MS = 1_200;
-const SNAPSHOT_KEY = "homeSnapshot";
 // Ring of radio seed ids shown over the last few refreshes (utils/radioSeedCooldown).
 const RADIO_SEED_COOLDOWN_KEY = "radioSeedCooldown";
 // Five familiar + five discovery seeds (the backend splits `count` half/half —
@@ -1150,7 +1150,7 @@ export function useHome(opts: UseHomeOptions) {
         // Persist the snapshot so the next mount can hydrate instantly.
         const savedAt = Date.now();
         savedAtRef.current = savedAt;
-        store.set(SNAPSHOT_KEY, {
+        writeHomeSnapshot<HomeSnapshot>({
           radioStations: radioStationsRef.current,
           shelves: finalShelves,
           savedAt,
@@ -1168,7 +1168,7 @@ export function useHome(opts: UseHomeOptions) {
     let cancelled = false;
     (async () => {
       try {
-        const snap = await store.get<HomeSnapshot>(SNAPSHOT_KEY);
+        const snap = await readHomeSnapshot<HomeSnapshot>();
         if (cancelled) return;
         if (snap?.radioStations?.length) setRadioStations(snap.radioStations);
         if (snap?.shelves?.length) setShelves(dropRetiredBuiltInShelves(snap.shelves));
@@ -1198,23 +1198,28 @@ export function useHome(opts: UseHomeOptions) {
   // persisted attemptedKeys and won't re-fetch it). A shelf whose plugin stays
   // active but which was genuinely unregistered self-heals on the next refresh's
   // final pass (only resolvers that ran OK survive).
+  //
+  // Also gated on `hydrated`, and keyed on `shelves` itself: plugins can finish
+  // loading before the snapshot file has been read, and a prune that ran then
+  // saw an empty list and never ran again — the removed plugin's shelves then
+  // hydrated and stayed. Running on every shelves change is a cheap filter.
+  // The write happens here, not inside a setShelves updater (React may call an
+  // updater twice).
   useEffect(() => {
-    if (!pluginsLoaded) return;
-    setShelves((prev) => {
-      const next = prev.filter((s) => !s.pluginId || activePluginIdsRef.current.has(s.pluginId));
-      if (next.length === prev.length) return prev;
-      // Re-persist the pruned snapshot (keeping the existing savedAt so the 24h
-      // refresh schedule is unaffected) so a removed plugin's shelves don't
-      // re-hydrate and flash on the next cold launch.
-      store.set(SNAPSHOT_KEY, {
-        radioStations: radioStationsRef.current,
-        shelves: next,
-        savedAt: savedAtRef.current,
-        attemptedKeys: Array.from(attemptedKeysRef.current),
-      }).catch((e) => console.error("Failed to persist pruned home snapshot:", e));
-      return next;
-    });
-  }, [pluginsLoaded, pluginShelves]);
+    if (!pluginsLoaded || !hydrated) return;
+    const next = shelves.filter((s) => !s.pluginId || activePluginIdsRef.current.has(s.pluginId));
+    if (next.length === shelves.length) return;
+    setShelves(next);
+    // Re-persist the pruned snapshot (keeping the existing savedAt so the 24h
+    // refresh schedule is unaffected) so a removed plugin's shelves don't
+    // re-hydrate and flash on the next cold launch.
+    writeHomeSnapshot<HomeSnapshot>({
+      radioStations: radioStationsRef.current,
+      shelves: next,
+      savedAt: savedAtRef.current,
+      attemptedKeys: Array.from(attemptedKeysRef.current),
+    }).catch((e) => console.error("Failed to persist pruned home snapshot:", e));
+  }, [pluginsLoaded, hydrated, pluginShelves, shelves]);
 
   // Reorder the already-resolved shelves in place when the user changes the
   // built-in order. Reordering is pure presentation, so this never refetches.

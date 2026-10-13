@@ -15,6 +15,7 @@ function makeStore(pairs: Array<[string, unknown]>) {
   const store: AppStore = {
     get: get as AppStore["get"],
     set: vi.fn(async () => {}),
+    delete: vi.fn(async () => false),
     entries: entries as AppStore["entries"],
     init: vi.fn(async () => {}),
     save: vi.fn(async () => {}),

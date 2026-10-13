@@ -17,9 +17,9 @@ import type { Track, QueueTrack, View, ViewMode, ColumnConfig, SortField, SortDi
 import { isVideoTrack, parseSubsonicUrl, trashLabel } from "./utils";
 import { parseLrc, syncedLyricsFitMedia, lyricOffsetKey, clampLyricOffset } from "./utils/lyrics";
 
-import { store } from "./store";
+import { store, RETIRED_STORE_KEYS } from "./store";
 import { readPersistedSettings } from "./startup/readPersistedSettings";
-import { parseUrlScheme, trackToQueueEntry, trackToQueueTrack, nextQueueKey, isLocalTrack, effectiveLocalPath, pluginTrackToQueueTrack, trackRowToQueueTrack, trackSelection, queueTrackSelection, isPlayingSelection } from "./queueEntry";
+import { parseUrlScheme, trackToQueueTrack, nextQueueKey, isLocalTrack, effectiveLocalPath, pluginTrackToQueueTrack, trackRowToQueueTrack, trackSelection, queueTrackSelection, isPlayingSelection } from "./queueEntry";
 import { partitionTrackIds, buildDeleteConfirmPayload } from "./utils/deleteTracks";
 import { fetchLikeStates, applyLikeState, applyLikeStates, trackLikeId } from "./utils/likeReconcile";
 import { resolveLibraryIds } from "./utils/resolveLibraryIds";
@@ -3357,6 +3357,9 @@ function App() {
           devPluginPath: savedDevPluginPath, autoUpdateManagedDeps: savedAutoUpdateDeps,
           controlApiEnabled: savedControlApiEnabled,
         } = await timeAsync("store.restore", () => readPersistedSettings(store));
+        for (const key of RETIRED_STORE_KEYS) {
+          store.delete(key).catch((e) => console.error(`Failed to drop retired store key ${key}:`, e));
+        }
         zoom.hydrate(savedUiZoom, savedMiniZoom);
         if (vol !== undefined && vol !== null) playback.setVolume(vol);
         if (savedMuted !== undefined && savedMuted !== null) {
@@ -3819,16 +3822,6 @@ function App() {
     });
     return combineUnlisten(stopScan, stopSync);
   }, [appRestoring]);
-
-  // Persist current track as QueueEntry (location + metadata, no DB IDs)
-  useEffect(() => {
-    if (!restoredRef.current) return;
-    if (playback.currentTrack) {
-      store.set("currentTrackEntry", trackToQueueEntry(playback.currentTrack));
-    } else {
-      store.set("currentTrackEntry", null);
-    }
-  }, [playback.currentTrack]);
 
   usePersistMirror("eqEnabled", playback.eqEnabled, restoredRef);
 

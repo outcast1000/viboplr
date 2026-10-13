@@ -10,6 +10,7 @@ mod db;
 pub mod dependencies;
 mod entity_image;
 mod error_chain;
+mod home_snapshot;
 mod image_provider;
 mod local_lyrics;
 mod logging;
@@ -326,6 +327,8 @@ macro_rules! invoke_handler {
             commands::recent_play_read,
             commands::recent_play_delete,
             commands::recent_play_gc,
+            commands::home_snapshot_read,
+            commands::home_snapshot_write,
             commands::main_playlist_set_cover,
             commands::main_playlist_set_thumb,
             commands::main_playlist_set_thumb_from_video,

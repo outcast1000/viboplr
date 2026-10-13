@@ -151,6 +151,8 @@ async function main() {
   console.log(`✓ ${plays.length} plays of history written`);
   // Home caches its shelves for 24h; the copy built during the scan launch
   // predates the history and would show an almost empty page.
+  // (It lives in its own file now; the store key is for profiles that predate it.)
+  rmSync(join(PROFILE_DIR, "home-snapshot.json"), { force: true });
   editStore((s) => { delete s.homeSnapshot; delete s.autoPlaylistsRefreshedAt; });
   // The auto mixes (Playlists → Made for you) are snapshots kept for 24h too,
   // built at the scan launch from the history and library of that moment —

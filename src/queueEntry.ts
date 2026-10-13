@@ -35,8 +35,7 @@ let queueKeyCounter = 1;
  *
  * Keys are session-only by construction: no persisted format carries one back
  * in (the m3u writer emits only EXTINF+location, the main-playlist manifest
- * has no key field, and `currentTrackEntry` — the one store write that embeds
- * a key — has no reader). The only key not minted at the moment of addition is
+ * has no key field, and the store holds no queue entry). The only key not minted at the moment of addition is
  * a SAME-SESSION reuse: `playTracks`' continuation adopting the playing copy's
  * key, and re-adds of entries already in the queue (`withUniqueKeys` keeps a
  * collision-free key).

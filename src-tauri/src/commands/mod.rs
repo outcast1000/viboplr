@@ -24,6 +24,8 @@ mod extensions;
 pub use extensions::*;
 mod history;
 pub use history::*;
+mod home_snapshot;
+pub use home_snapshot::*;
 mod images;
 pub use images::*;
 mod library;
