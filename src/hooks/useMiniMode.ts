@@ -908,26 +908,7 @@ export function useMiniMode(
     // the time the refit can ask for it.
     sizeLoadRef.current = (async () => {
       try {
-        const saved = await store.get<string | null>("miniRestingSize");
-        let value = saved;
-        if (saved === "ultra") {
-          // Old "ultra" (24px) -> new "compact"
-          value = "compact";
-          await store.set("miniRestingSize", value);
-        } else if (saved === "compact") {
-          // Ambiguous: could be old "compact" (52px) or new "compact" (24px).
-          // Check migration flag to distinguish.
-          const migrated = await store.get<boolean>("miniSizeMigrated");
-          if (!migrated) {
-            value = "normal";
-            await store.set("miniRestingSize", value);
-            await store.set("miniSizeMigrated", true);
-          }
-        } else if (saved === "normal") {
-          if (!await store.get<boolean>("miniSizeMigrated")) {
-            await store.set("miniSizeMigrated", true);
-          }
-        }
+        const value = await store.get<string | null>("miniRestingSize");
         if (value === "normal" || value === "compact" || value === "full") {
           setMiniRestingSizeState(value);
           miniRestingSizeRef.current = value;

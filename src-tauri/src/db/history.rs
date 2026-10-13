@@ -2039,7 +2039,7 @@ mod tests {
         }
     }
     /// The batched history album lookup must be served by the
-    /// `idx_tracks_title_norm` expression index (run_migrations #8). Without it
+    /// `idx_tracks_title_norm` expression index (created in `init_tables`). Without it
     /// every History query — including the per-keystroke search — pays a full
     /// tracks scan evaluating two UDFs per row, which is exactly the cost that
     /// made album resolution unaffordable on this surface before. An expression

@@ -176,16 +176,9 @@ export function resolveHeroLook(
   return mode; // a HeroLookId
 }
 
-/**
- * Resolve the persisted preference, migrating the legacy boolean.
- * Precedence: valid stored mode string > legacy boolean > default.
- */
-export function coerceEffectMode(stored: unknown, legacy: unknown): HeroEffectMode {
-  if (isValidMode(stored)) return stored;
-  // Migrate the legacy boolean (true -> by-artist [the new default], false -> disabled).
-  if (legacy === true) return "by-artist";
-  if (legacy === false) return "disabled";
-  return DEFAULT_MODE;
+/** Resolve the persisted preference: a valid stored mode, else the default. */
+export function coerceEffectMode(stored: unknown): HeroEffectMode {
+  return isValidMode(stored) ? stored : DEFAULT_MODE;
 }
 
 export const HERO_EFFECT_DEFAULT_MODE = DEFAULT_MODE;

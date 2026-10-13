@@ -5,7 +5,7 @@ use super::*;
 /// Connection-level find-or-create so in-transaction callers (the scanner's
 /// batched ingest) share one implementation with the locked `&self` method.
 /// The WHERE expression matches `idx_artists_name_norm` verbatim (see
-/// run_migrations #8); statements are prepare_cached for the per-file loop.
+/// created in `init_tables`); statements are prepare_cached for the per-file loop.
 pub(crate) fn get_or_create_artist_conn(conn: &Connection, name: &str) -> SqlResult<i64> {
     let existing: Option<i64> = conn.prepare_cached(
         "SELECT id FROM artists WHERE strip_diacritics(unicode_lower(name)) = strip_diacritics(unicode_lower(?1))",

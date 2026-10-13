@@ -403,82 +403,6 @@ impl Database {
         Ok(())
     }
 
-    /// One-time backfill: populate entity_likes from existing library liked columns.
-    /// `now_ts` is used as updated_at for all backfilled rows.
-    pub fn backfill_entity_likes_from_library(&self, now_ts: i64) -> SqlResult<()> {
-        let conn = self.conn.lock().unwrap();
-
-        // Tracks (join artist/album for keys + metadata).
-        let mut stmt = conn.prepare(
-            "SELECT t.title, ar.name, al.title, t.duration_secs, t.liked
-             FROM tracks t
-             LEFT JOIN artists ar ON t.artist_id = ar.id
-             LEFT JOIN albums al ON t.album_id = al.id
-             WHERE t.liked != 0"
-        )?;
-        let track_rows: Vec<(String, Option<String>, Option<String>, Option<f64>, i32)> = stmt
-            .query_map([], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?)))?
-            .collect::<SqlResult<_>>()?;
-        for (title, artist, album, dur, liked) in track_rows {
-            let key = build_entity_key("track", &title, artist.as_deref());
-            let meta = serde_json::json!({
-                "title": title, "artist_name": artist, "album_title": album, "duration_secs": dur,
-            }).to_string();
-            conn.execute(
-                "INSERT INTO entity_likes (kind, entity_key, liked, metadata, updated_at)
-                 VALUES ('track', ?1, ?2, ?3, ?4) ON CONFLICT(kind, entity_key) DO NOTHING",
-                params![key, liked, meta, now_ts],
-            )?;
-        }
-
-        // Artists.
-        let mut stmt = conn.prepare("SELECT name, liked FROM artists WHERE liked != 0")?;
-        let artist_rows: Vec<(String, i32)> = stmt
-            .query_map([], |r| Ok((r.get(0)?, r.get(1)?)))?.collect::<SqlResult<_>>()?;
-        for (name, liked) in artist_rows {
-            let key = build_entity_key("artist", &name, None);
-            let meta = serde_json::json!({ "name": name }).to_string();
-            conn.execute(
-                "INSERT INTO entity_likes (kind, entity_key, liked, metadata, updated_at)
-                 VALUES ('artist', ?1, ?2, ?3, ?4) ON CONFLICT(kind, entity_key) DO NOTHING",
-                params![key, liked, meta, now_ts],
-            )?;
-        }
-
-        // Albums (join artist for key).
-        let mut stmt = conn.prepare(
-            "SELECT al.title, ar.name, al.liked FROM albums al
-             LEFT JOIN artists ar ON al.artist_id = ar.id WHERE al.liked != 0"
-        )?;
-        let album_rows: Vec<(String, Option<String>, i32)> = stmt
-            .query_map([], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)))?.collect::<SqlResult<_>>()?;
-        for (title, artist, liked) in album_rows {
-            let key = build_entity_key("album", &title, artist.as_deref());
-            let meta = serde_json::json!({ "name": title, "artist_name": artist }).to_string();
-            conn.execute(
-                "INSERT INTO entity_likes (kind, entity_key, liked, metadata, updated_at)
-                 VALUES ('album', ?1, ?2, ?3, ?4) ON CONFLICT(kind, entity_key) DO NOTHING",
-                params![key, liked, meta, now_ts],
-            )?;
-        }
-
-        // Tags.
-        let mut stmt = conn.prepare("SELECT name, liked FROM tags WHERE liked != 0")?;
-        let tag_rows: Vec<(String, i32)> = stmt
-            .query_map([], |r| Ok((r.get(0)?, r.get(1)?)))?.collect::<SqlResult<_>>()?;
-        for (name, liked) in tag_rows {
-            let key = build_entity_key("tag", &name, None);
-            let meta = serde_json::json!({ "name": name }).to_string();
-            conn.execute(
-                "INSERT INTO entity_likes (kind, entity_key, liked, metadata, updated_at)
-                 VALUES ('tag', ?1, ?2, ?3, ?4) ON CONFLICT(kind, entity_key) DO NOTHING",
-                params![key, liked, meta, now_ts],
-            )?;
-        }
-
-        Ok(())
-    }
-
     /// Returns Some("liked"|"disliked") if the playlist is a system playlist.
     pub fn system_playlist_kind(&self, playlist_id: i64) -> SqlResult<Option<String>> {
         let conn = self.conn.lock().unwrap();
@@ -674,30 +598,6 @@ mod tests {
         let dtracks = db.get_playlist_tracks(disliked_id).unwrap();
         assert_eq!(dtracks.len(), 1);
         assert_eq!(dtracks[0].title, "Song3");
-    }
-
-    #[test]
-    fn test_backfill_from_library_likes() {
-        let db = test_db();
-        let artist = db.get_or_create_artist("Björk").unwrap();
-        let cid = db.add_collection("local", "L", Some("/m"), None, None, None, None, None).unwrap().id;
-        let album = db.get_or_create_album("Homogenic", Some(artist), Some(1997)).unwrap();
-        let liked_tid = db.upsert_track("joga.mp3", "Jóga", Some(artist), Some(album), None, Some(180.0), Some("mp3"), None, None, Some(cid), None).unwrap();
-        let disliked_tid = db.upsert_track("hunter.mp3", "Hunter", Some(artist), Some(album), None, Some(200.0), Some("mp3"), None, None, Some(cid), None).unwrap();
-        db.toggle_liked("tracks", liked_tid, 1).unwrap();
-        db.toggle_liked("tracks", disliked_tid, -1).unwrap();
-        db.toggle_liked("artists", artist, 1).unwrap();
-        db.toggle_liked("albums", album, 1).unwrap();
-        let tag = db.get_or_create_tag("Electronic").unwrap();
-        db.toggle_liked("tags", tag, 1).unwrap();
-
-        db.backfill_entity_likes_from_library(1000).unwrap();
-
-        assert_eq!(db.get_entity_like_state("track", "track:bjork:joga").unwrap(), 1);
-        assert_eq!(db.get_entity_like_state("track", "track:bjork:hunter").unwrap(), -1);
-        assert_eq!(db.get_entity_like_state("artist", "artist:bjork").unwrap(), 1);
-        assert_eq!(db.get_entity_like_state("album", "album:bjork:homogenic").unwrap(), 1);
-        assert_eq!(db.get_entity_like_state("tag", "tag:electronic").unwrap(), 1);
     }
 
     #[test]

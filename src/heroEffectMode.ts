@@ -2,13 +2,11 @@ import { useSyncExternalStore } from "react";
 import { store } from "./store";
 import {
   coerceEffectMode,
-  isValidMode,
   HERO_EFFECT_DEFAULT_MODE,
   type HeroEffectMode,
 } from "./heroLooks";
 
 const KEY = "heroEffectMode";
-const LEGACY_KEY = "heroTvEffect";
 
 let mode: HeroEffectMode = HERO_EFFECT_DEFAULT_MODE;
 let loadStarted = false;
@@ -20,7 +18,7 @@ function emit() {
 }
 
 // Coalesce concurrent loads so the subscribe-triggered load and any explicit
-// load share a single store read (and a single legacy migration).
+// load share a single store read.
 function load(): Promise<void> {
   if (!loadPromise) loadPromise = doLoad();
   return loadPromise;
@@ -28,22 +26,7 @@ function load(): Promise<void> {
 
 async function doLoad(): Promise<void> {
   try {
-    const stored = await store.get<unknown>(KEY);
-    let resolved: HeroEffectMode;
-    if (isValidMode(stored)) {
-      resolved = stored;
-    } else {
-      // Migrate the legacy boolean (true -> by-artist, false -> disabled).
-      const legacy = await store.get<unknown>(LEGACY_KEY);
-      resolved = coerceEffectMode(stored, legacy);
-      // Only persist when we actually migrated a legacy value, so a fresh
-      // install doesn't write the default to disk before the user picks anything.
-      if (typeof legacy === "boolean") {
-        store
-          .set(KEY, resolved)
-          .catch((e) => console.error("Failed to persist migrated heroEffectMode:", e));
-      }
-    }
+    const resolved = coerceEffectMode(await store.get<unknown>(KEY));
     if (resolved !== mode) {
       mode = resolved;
       emit();

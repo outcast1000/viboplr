@@ -3558,12 +3558,8 @@ function App() {
             if (ctx) queueHook.setPlaylistContext(ctx);
           }
           if (mpState) {
-            // Migrate legacy persisted modes: "loop" → "repeat-all", "shuffle" → "normal".
             const raw = mpState.queueMode as string | undefined;
-            const mode =
-              raw === "repeat-all" || raw === "repeat-one" || raw === "normal" ? raw :
-              raw === "loop" ? "repeat-all" :
-              "normal";
+            const mode = raw === "repeat-all" || raw === "repeat-one" ? raw : "normal";
             queueHook.setQueueMode(mode);
           }
           // Fire-and-forget gc; not awaited so it never blocks startup.

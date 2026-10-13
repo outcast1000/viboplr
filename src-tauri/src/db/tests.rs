@@ -29,120 +29,6 @@ fn test_both_readers_open_the_real_file_before_migrations_run() {
 }
 
 #[test]
-fn test_existing_db_upgrades_to_system_playlists() {
-    // Simulate a pre-feature DB on disk: a `playlists` table WITHOUT system_kind,
-    // then open it via Database::new (init_tables → run_migrations). Regression
-    // guard: the partial unique index on system_kind must not be created in
-    // init_tables, or this open fails with "no such column: system_kind".
-    let dir = tempfile::tempdir().unwrap();
-    let db_path = dir.path().join("viboplr.db");
-    {
-        let conn = Connection::open(&db_path).unwrap();
-        conn.execute_batch(
-            "CREATE TABLE playlists (
-                id INTEGER PRIMARY KEY, name TEXT NOT NULL, source TEXT,
-                saved_at INTEGER NOT NULL DEFAULT 0, image_path TEXT,
-                description TEXT, metadata TEXT
-             );
-             CREATE TABLE db_version (version INTEGER NOT NULL);
-             INSERT INTO db_version (rowid, version) VALUES (1, 1);",
-        ).unwrap();
-    }
-    // This is what crashes today.
-    let db = Database::new(dir.path()).expect("Database::new on existing DB should succeed");
-    let pls = db.get_playlists().unwrap();
-    assert!(pls.iter().any(|p| p.system_kind.as_deref() == Some("liked")));
-}
-
-#[test]
-fn test_legacy_high_version_db_upgrades() {
-    // Real pre-squash DBs are stamped at high db_version (e.g. 35), which a
-    // `version < 2` migration gate would skip — leaving system_kind missing
-    // and get_playlists crashing. The upgrade must be version-independent.
-    let dir = tempfile::tempdir().unwrap();
-    let db_path = dir.path().join("viboplr.db");
-    {
-        let conn = Connection::open(&db_path).unwrap();
-        conn.execute_batch(
-            "CREATE TABLE artists (id INTEGER PRIMARY KEY, name TEXT NOT NULL UNIQUE, liked INTEGER NOT NULL DEFAULT 0, track_count INTEGER NOT NULL DEFAULT 0);
-             CREATE TABLE playlists (
-                id INTEGER PRIMARY KEY, name TEXT NOT NULL, source TEXT,
-                saved_at INTEGER NOT NULL DEFAULT 0, image_path TEXT,
-                description TEXT, metadata TEXT
-             );
-             CREATE TABLE db_version (version INTEGER NOT NULL);
-             INSERT INTO db_version (rowid, version) VALUES (1, 35);
-             INSERT INTO artists (name, liked) VALUES ('Björk', 1);",
-        ).unwrap();
-    }
-    let db = Database::new(dir.path()).expect("legacy high-version DB should open");
-    // get_playlists must not crash and system playlists must exist.
-    let pls = db.get_playlists().unwrap();
-    assert!(pls.iter().any(|p| p.system_kind.as_deref() == Some("liked")));
-    assert!(pls.iter().any(|p| p.system_kind.as_deref() == Some("disliked")));
-    // The pre-existing library like must have been backfilled.
-    assert_eq!(db.get_entity_like_state("artist", "artist:bjork").unwrap(), 1);
-}
-
-#[test]
-fn test_existing_db_gains_publish_servers_table() {
-    // Simulate a pre-feature DB on disk (no publish_servers table), then open
-    // it via Database::new. Existing installs must come out with the table so
-    // publish-server CRUD works without a fresh profile.
-    let dir = tempfile::tempdir().unwrap();
-    let db_path = dir.path().join("viboplr.db");
-    {
-        let conn = Connection::open(&db_path).unwrap();
-        conn.execute_batch(
-            "CREATE TABLE db_version (version INTEGER NOT NULL);
-             INSERT INTO db_version (rowid, version) VALUES (1, 1);",
-        ).unwrap();
-    }
-    let db = Database::new(dir.path()).expect("pre-feature DB should open");
-    let id = db
-        .add_publish_server("S", "https://h.example.com", "bst_t", "slug")
-        .expect("publish_servers table must exist after upgrade");
-    assert_eq!(db.list_publish_servers().unwrap().len(), 1);
-    db.remove_publish_server(id).unwrap();
-}
-
-#[test]
-fn test_image_providers_check_constraint_dropped() {
-    // Pre-feature DBs created image_providers with CHECK(entity IN ('artist','album')),
-    // which silently rejects 'tag' rows on INSERT OR IGNORE. The migration must
-    // rebuild the table without the CHECK so tag/track providers can register.
-    let dir = tempfile::tempdir().unwrap();
-    let db_path = dir.path().join("viboplr.db");
-    {
-        let conn = Connection::open(&db_path).unwrap();
-        conn.execute_batch(
-            "CREATE TABLE image_providers (
-                id          INTEGER PRIMARY KEY,
-                plugin_id   TEXT NOT NULL,
-                entity      TEXT NOT NULL CHECK(entity IN ('artist', 'album')),
-                priority    INTEGER NOT NULL DEFAULT 500,
-                active      INTEGER NOT NULL DEFAULT 1,
-                UNIQUE (plugin_id, entity)
-             );
-             INSERT INTO image_providers (plugin_id, entity, priority) VALUES ('google', 'artist', 600);
-             CREATE TABLE db_version (version INTEGER NOT NULL);
-             INSERT INTO db_version (rowid, version) VALUES (1, 1);",
-        ).unwrap();
-    }
-    let db = Database::new(dir.path()).expect("DB with stale CHECK should open");
-    // The CHECK must be gone: a tag provider now inserts successfully.
-    db.sync_image_providers(&[
-        ("google".to_string(), "artist".to_string(), 600),
-        ("google".to_string(), "tag".to_string(), 900),
-    ]).expect("syncing a tag image provider must succeed after migration");
-    let tag_providers = db.get_image_providers("tag").unwrap();
-    assert!(
-        tag_providers.iter().any(|(plugin_id, _, _)| plugin_id == "google"),
-        "tag image provider should be registered after the CHECK is dropped",
-    );
-}
-
-#[test]
 fn test_core_image_providers_are_seeded_ahead_of_plugins() {
     // A pre-feature profile already carries plugin rows on the 100-step scale
     // the Settings UI writes. Seeding must land the built-ins ahead of them
@@ -1517,7 +1403,7 @@ fn test_info_sync_types_activates_and_deactivates() {
 fn test_core_local_lyrics_row_is_seeded_and_survives_sync() {
     let db = test_db();
 
-    // Migration #13 seeds the built-in local-lyrics provider on every fresh DB.
+    // `ensure_builtin_rows` seeds the built-in local-lyrics provider on every fresh DB.
     let types = db.info_get_types_for_entity("track").unwrap();
     let lyrics = types.iter().find(|t| t.0 == "lyrics").expect("lyrics type seeded");
     assert_eq!(lyrics.5[0].0, "core:local-lyrics", "core row leads the chain");
@@ -1750,7 +1636,7 @@ fn test_entity_key_fold_matches_the_community_server() {
 }
 
 /// A like stored under a padded name before the fold trimmed moves to the
-/// trimmed key (migration #14); one keyed some other way is left alone, and a
+/// trimmed key (`run_migrations`); one keyed some other way is left alone, and a
 /// collision keeps the newer row.
 #[test]
 fn test_untrimmed_likes_are_rekeyed_once() {
@@ -4498,47 +4384,6 @@ fn test_path_expr_and_track_select_case_match() {
             "TRACK_SELECT must contain {token:?} — check that its inline CASE matches PATH_EXPR"
         );
     }
-}
-
-/// An existing library gets `idx_tracks_album_added` from run_migrations #12,
-/// not from `init_tables` — every user upgrading into the Albums "Added" sort
-/// takes that path, and it is the half a fresh-schema test can't see.
-///
-/// Dropping the index first also proves the covering-index assertion in
-/// `db::tracks::tests::test_album_added_sort_uses_the_covering_index` isn't
-/// vacuous: without the index the same query falls back to a non-covering plan.
-#[test]
-fn test_album_added_index_is_created_by_migration() {
-    let db = test_db();
-
-    let plan = |db: &Database| -> Vec<String> {
-        let sql = format!(
-            "SELECT a.id FROM albums a WHERE a.track_count > 0 ORDER BY {} DESC",
-            album_added_at_sql("a"),
-        );
-        let conn = db.conn.lock().unwrap();
-        let mut stmt = conn.prepare(&format!("EXPLAIN QUERY PLAN {sql}")).unwrap();
-        let rows = stmt.query_map([], |r| r.get::<_, String>(3)).unwrap();
-        rows.collect::<SqlResult<Vec<_>>>().unwrap()
-    };
-
-    {
-        let conn = db.conn.lock().unwrap();
-        conn.execute_batch("DROP INDEX IF EXISTS idx_tracks_album_added;").unwrap();
-    }
-    let without = plan(&db);
-    assert!(
-        !without.iter().any(|d| d.contains("idx_tracks_album_added")),
-        "index should be gone after the drop, got: {without:?}"
-    );
-
-    db.run_migrations().unwrap();
-
-    let with = plan(&db);
-    assert!(
-        with.iter().any(|d| d.contains("COVERING INDEX idx_tracks_album_added")),
-        "migration should restore the covering index, got: {with:?}"
-    );
 }
 
 /// Cost of the Albums "Added" sort, whose ORDER BY is a correlated subquery

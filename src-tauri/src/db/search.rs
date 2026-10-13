@@ -917,54 +917,6 @@ mod tests {
         assert!(tracks.tracks.unwrap().is_empty(), "tracks never match by album artist");
     }
 
-    /// Migration #11: a tracks_fts predating the album_artist column (FTS5 has
-    /// no ALTER ADD COLUMN) is detected by schema presence and rebuilt with the
-    /// current shape, repopulated from the tracks tables.
-    #[test]
-    fn test_migration_rebuilds_a_pre_album_artist_fts_table() {
-        let db = Database::new_in_memory().unwrap();
-        let col = db
-            .add_collection("local", "Music", Some("/music"), None, None, None, None, None)
-            .unwrap();
-        seed_track(&db, col.id, "va/01.mp3", "One", "Various Artists", "Summer Hits");
-        db.recompute_counts().unwrap();
-
-        // Simulate a DB from before the column existed: the old 5-column shape.
-        {
-            let conn = db.conn.lock().unwrap();
-            conn.execute_batch(
-                "DROP TABLE tracks_fts;
-                 CREATE VIRTUAL TABLE tracks_fts USING fts5(
-                     title, artist_name, album_title, tag_names, path,
-                     content='', contentless_delete=1,
-                     tokenize='unicode61 remove_diacritics 2'
-                 );",
-            )
-            .unwrap();
-        }
-
-        db.run_migrations().unwrap();
-
-        let (has_column, rows): (bool, i64) = {
-            let conn = db.conn.lock().unwrap();
-            let has: i64 = conn
-                .query_row(
-                    "SELECT COUNT(*) FROM pragma_table_info('tracks_fts') WHERE name = 'album_artist'",
-                    [], |r| r.get(0),
-                )
-                .unwrap();
-            let rows: i64 = conn
-                .query_row(
-                    "SELECT COUNT(*) FROM tracks_fts WHERE tracks_fts MATCH '{album_artist}:\"various\"*'",
-                    [], |r| r.get(0),
-                )
-                .unwrap();
-            (has > 0, rows)
-        };
-        assert!(has_column, "migration must recreate tracks_fts with album_artist");
-        assert_eq!(rows, 1, "the rebuilt index must be repopulated");
-    }
-
     /// Seed one track with its artist + album, FTS-indexed. Returns the track id.
     fn seed_track(db: &Database, col_id: i64, path: &str, title: &str, artist: &str, album: &str) -> i64 {
         let artist_id = db.get_or_create_artist(artist).unwrap();

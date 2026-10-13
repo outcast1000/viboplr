@@ -150,7 +150,7 @@ const MAX_PLUGIN_LYRICS_CHARS = 200_000;
 
 export const DEFAULT_INFO_TYPE_PRIORITY: Record<string, Record<string, number>> = {
   // "core:local-lyrics" (50, ahead of every web provider) is seeded by DB
-  // migration #13, not by this map — it has no manifest for the sync/reset
+  // `ensure_builtin_rows` (db/mod.rs), not by this map — it has no manifest for the sync/reset
   // loops to walk. Listed here as documentation of the full default chain.
   // Keys are provider keys (utils/providerKey.ts): the bundled Lyrics plugin
   // offers LRCLIB and Lyrics.ovh as two providers of one type.

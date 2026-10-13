@@ -64,10 +64,11 @@ const STORE_DEFAULTS = {
 };
 
 // Keys the app once wrote and no longer does; dropped from the profile's store
-// at startup. Both were write-only (the restored track always starts from the
-// top), and positionSecs alone made the store rewrite the whole file every 5s
-// of playback.
-export const RETIRED_STORE_KEYS = ["positionSecs", "currentTrackEntry"] as const;
+// at startup. positionSecs / currentTrackEntry were write-only (the restored
+// track always starts from the top), and positionSecs alone made the store
+// rewrite the whole file every 5s of playback. heroTvEffect / miniSizeMigrated
+// belonged to 0.9-era migrations that have since been removed.
+export const RETIRED_STORE_KEYS = ["positionSecs", "currentTrackEntry", "heroTvEffect", "miniSizeMigrated"] as const;
 
 export interface AppStore {
   get<T>(key: string): Promise<T | undefined>;

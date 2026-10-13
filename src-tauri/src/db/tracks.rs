@@ -1564,7 +1564,7 @@ mod tests {
     }
 
     /// The diacritic-insensitive lookups must be served by the expression
-    /// indexes from run_migrations #8. Without them each of these is a full
+    /// indexes from `init_tables`. Without them each of these is a full
     /// table scan evaluating two UDFs per row — the scanner calls up to three
     /// per file, so an initial scan cost O(files × entities) (20k files × 3k
     /// artists ≈ 60M UDF evaluations), and find_track_by_metadata paid the
@@ -1612,7 +1612,7 @@ mod tests {
 
     /// `album_added_at_sql` — the ORDER BY behind the Albums "Added" sort and
     /// the "Recently added albums" shelf — must be answered from
-    /// `idx_tracks_album_added` (run_migrations #12) as a **covering** index.
+    /// `idx_tracks_album_added` (created in `init_tables`) as a **covering** index.
     ///
     /// The subquery runs once per album, so the difference is not academic:
     /// served by `idx_tracks_album_id` instead, each album also pays a table
@@ -1632,6 +1632,39 @@ mod tests {
         assert!(
             details.iter().any(|d| d.contains("COVERING INDEX idx_tracks_album_added")),
             "album added_at ordering should be covered by idx_tracks_album_added, got: {details:?}"
+        );
+    }
+
+    /// Proves the covering-index assertion above isn't vacuous: without the
+    /// index the same query falls back to a non-covering plan, and
+    /// `init_tables` (which runs on every open, existing libraries included)
+    /// brings it back.
+    #[test]
+    fn test_album_added_index_is_restored_by_init_tables() {
+        let sql = format!(
+            "SELECT a.id FROM albums a WHERE a.track_count > 0 ORDER BY {} DESC",
+            album_added_at_sql("a"),
+        );
+        let db = Database::new_in_memory().unwrap();
+        let plan = |db: &Database| -> Vec<String> {
+            let conn = db.conn.lock().unwrap();
+            let mut stmt = conn.prepare(&format!("EXPLAIN QUERY PLAN {sql}")).unwrap();
+            let rows = stmt.query_map([], |r| r.get::<_, String>(3)).unwrap();
+            rows.collect::<SqlResult<Vec<_>>>().unwrap()
+        };
+
+        db.conn.lock().unwrap().execute_batch("DROP INDEX idx_tracks_album_added;").unwrap();
+        let without = plan(&db);
+        assert!(
+            !without.iter().any(|d| d.contains("idx_tracks_album_added")),
+            "index should be gone after the drop, got: {without:?}"
+        );
+
+        db.init_tables().unwrap();
+        let with = plan(&db);
+        assert!(
+            with.iter().any(|d| d.contains("COVERING INDEX idx_tracks_album_added")),
+            "init_tables should restore the covering index, got: {with:?}"
         );
     }
 }

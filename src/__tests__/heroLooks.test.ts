@@ -124,30 +124,23 @@ describe("resolveHeroLook", () => {
   });
 });
 
-describe("coerceEffectMode (migration + validation)", () => {
+describe("coerceEffectMode (validation)", () => {
   it("uses a valid stored mode string as-is", () => {
-    expect(coerceEffectMode("silent-film", undefined)).toBe("silent-film");
-    expect(coerceEffectMode("disabled", undefined)).toBe("disabled");
-    expect(coerceEffectMode("random", undefined)).toBe("random");
-    expect(coerceEffectMode("aurora-drift", undefined)).toBe("aurora-drift");
-  });
-  it("migrates legacy boolean true -> by-artist, false -> disabled", () => {
-    expect(coerceEffectMode(undefined, true)).toBe("by-artist");
-    expect(coerceEffectMode(undefined, false)).toBe("disabled");
-  });
-  it("prefers a valid stored mode over the legacy boolean", () => {
-    expect(coerceEffectMode("daydream", false)).toBe("daydream");
+    expect(coerceEffectMode("silent-film")).toBe("silent-film");
+    expect(coerceEffectMode("disabled")).toBe("disabled");
+    expect(coerceEffectMode("random")).toBe("random");
+    expect(coerceEffectMode("aurora-drift")).toBe("aurora-drift");
   });
   it("treats a removed look id as invalid and falls back to default", () => {
-    expect(coerceEffectMode("worn-tape", undefined)).toBe("by-artist");
-    expect(coerceEffectMode("signal-lost", undefined)).toBe("by-artist");
-    expect(coerceEffectMode("channel-surf", undefined)).toBe("by-artist");
-    expect(coerceEffectMode("neon-grid", undefined)).toBe("by-artist");
+    expect(coerceEffectMode("worn-tape")).toBe("by-artist");
+    expect(coerceEffectMode("signal-lost")).toBe("by-artist");
+    expect(coerceEffectMode("channel-surf")).toBe("by-artist");
+    expect(coerceEffectMode("neon-grid")).toBe("by-artist");
   });
   it("falls back to default by-artist when nothing valid is present", () => {
-    expect(coerceEffectMode(undefined, undefined)).toBe("by-artist");
-    expect(coerceEffectMode("nonsense", undefined)).toBe("by-artist");
-    expect(coerceEffectMode(42, undefined)).toBe("by-artist");
+    expect(coerceEffectMode(undefined)).toBe("by-artist");
+    expect(coerceEffectMode("nonsense")).toBe("by-artist");
+    expect(coerceEffectMode(42)).toBe("by-artist");
   });
   it("HERO_EFFECT_DEFAULT_MODE is by-artist", () => {
     expect(HERO_EFFECT_DEFAULT_MODE).toBe("by-artist");

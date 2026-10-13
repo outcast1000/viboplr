@@ -379,7 +379,7 @@ impl Database {
         )?;
 
         // DETERMINISTIC + INNOCUOUS: both flags are load-bearing for the
-        // normalized-name expression indexes (run_migrations #8). Expression
+        // normalized-name expression indexes (created in `init_tables`). Expression
         // indexes may only use deterministic functions, and a function that
         // appears in the schema is rejected under `PRAGMA trusted_schema=off`
         // unless marked innocuous — today's default is on, but SQLite has
@@ -453,6 +453,7 @@ impl Database {
         })?;
         *db.reader.lock().unwrap() = reader;
         *db.query_reader.lock().unwrap() = query_reader;
+        timer.time("db: ensure_builtin_rows", || db.ensure_builtin_rows())?;
         timer.time("db: run_migrations", || db.run_migrations())?;
         // Before the counts: merging a duplicate row changes them.
         timer.time("db: repair_separator_duplicates", || db.repair_separator_duplicates())?;
@@ -460,8 +461,7 @@ impl Database {
         timer.time("db: recompute_counts", || db.recompute_counts())?;
         // Repair any tracks.liked mirror drift from the durable entity_likes
         // store (e.g. a like set while a track was not yet in the library, or a
-        // delete + re-add). Idempotent; runs every startup (NOT gated by the
-        // one-time, opposite-direction backfill marker).
+        // delete + re-add). Idempotent; runs every startup.
         timer.time("db: reconcile_track_likes", || db.reconcile_track_likes_from_entity_likes())?;
         Ok(db)
     }
@@ -529,6 +529,7 @@ impl Database {
             query_reader: Mutex::new(query_reader),
         };
         db.init_tables()?;
+        db.ensure_builtin_rows()?;
         db.run_migrations()?;
         Ok(db)
     }
@@ -710,11 +711,8 @@ impl Database {
                 -- cover); saved_at stays the creation/regeneration time.
                 updated_at  INTEGER
             );
-            -- The partial unique index on system_kind is created in run_migrations,
-            -- NOT here: on an existing pre-feature DB the playlists table already
-            -- exists without system_kind, so CREATE TABLE IF NOT EXISTS is a no-op
-            -- and indexing system_kind here would fail before run_migrations adds
-            -- the column.
+            CREATE UNIQUE INDEX IF NOT EXISTS idx_playlists_system_kind
+                ON playlists(system_kind) WHERE system_kind IS NOT NULL;
 
             CREATE TABLE IF NOT EXISTS playlist_tracks (
                 id            INTEGER PRIMARY KEY,
@@ -768,13 +766,36 @@ impl Database {
 
             CREATE INDEX IF NOT EXISTS idx_tracks_artist_id ON tracks(artist_id);
             CREATE INDEX IF NOT EXISTS idx_tracks_album_id ON tracks(album_id);
-            -- Serves album_added_at_sql (the Albums Added sort / the Recently
-            -- added albums shelf) from the index alone; see run_migrations #12.
+            -- Covering index behind album_added_at_sql (the Albums Added sort /
+            -- the Recently added albums shelf): leading with album_id and
+            -- carrying added_at makes each album's MAX(added_at) the last entry
+            -- of its own index range — one seek, no table access. Measured by
+            -- bench_album_added_sort at 4000 albums / 20k tracks (debug): first
+            -- page 11.5ms → 3.2ms; ~+5% on a 20k-track ingest.
             CREATE INDEX IF NOT EXISTS idx_tracks_album_added ON tracks(album_id, added_at);
             CREATE INDEX IF NOT EXISTS idx_tracks_collection_id ON tracks(collection_id);
             CREATE INDEX IF NOT EXISTS idx_albums_artist_id ON albums(artist_id);
             CREATE INDEX IF NOT EXISTS idx_track_tags_tag_id ON track_tags(tag_id);
             CREATE INDEX IF NOT EXISTS idx_track_tags_track_id ON track_tags(track_id);
+
+            -- Normalized-name expression indexes. Every diacritic-insensitive
+            -- lookup (get_or_create_artist/album/tag per scanned file,
+            -- find_track_by_metadata on every like mirror / tag popover /
+            -- download dedup) filters on strip_diacritics(unicode_lower(col)),
+            -- which no column index can serve — without these it is a full
+            -- scan running two UDFs per row, O(files × entities) on a first
+            -- scan. Indexing the expression serves those queries verbatim.
+            -- Requires both UDFs registered DETERMINISTIC on every connection
+            -- (register_sql_functions runs before this, always). Pinned by
+            -- test_normalized_lookups_use_the_expression_indexes.
+            CREATE INDEX IF NOT EXISTS idx_artists_name_norm
+                ON artists(strip_diacritics(unicode_lower(name)));
+            CREATE INDEX IF NOT EXISTS idx_tags_name_norm
+                ON tags(strip_diacritics(unicode_lower(name)));
+            CREATE INDEX IF NOT EXISTS idx_albums_title_norm
+                ON albums(strip_diacritics(unicode_lower(title)));
+            CREATE INDEX IF NOT EXISTS idx_tracks_title_norm
+                ON tracks(strip_diacritics(unicode_lower(title)));
             ",
         )?;
         // FTS table from the shared DDL — one definition for every creation
@@ -783,213 +804,18 @@ impl Database {
         Ok(())
     }
 
-    /// Schema migrations for upgrading existing databases.
-    ///
-    /// The PoC migration history was squashed into `init_tables`, and real
-    /// pre-squash DBs carry inflated `db_version` values (e.g. 35) that no longer
-    /// map to a meaningful schema generation. New migrations therefore must NOT
-    /// gate on `db_version < N` — detect the needed change by schema presence
-    /// (idempotent) and guard one-time data operations with an explicit marker.
-    /// `recompute_counts()` runs separately at startup.
-    fn run_migrations(&self) -> SqlResult<()> {
-        // Universal Likes upgrade.
-        //
-        // This is intentionally NOT gated on a numeric `db_version < N` comparison.
-        // The PoC migration history was squashed, so fresh DBs start at db_version 1
-        // while real pre-squash DBs are stamped at high versions (e.g. 35). A numeric
-        // gate would skip the upgrade on those legacy DBs, leaving `playlists.system_kind`
-        // missing and `get_playlists` crashing. Instead we detect what's needed by
-        // schema presence (idempotent) and guard the one-time backfill with a marker.
-
-        // 1. Add playlists.system_kind if missing (fresh DBs already have it via init_tables;
-        //    pre-feature DBs whose playlists table predates the column need it added here).
-        let has_system_kind: bool = {
-            let conn = self.conn.lock().unwrap();
-            conn.query_row(
-                "SELECT COUNT(*) FROM pragma_table_info('playlists') WHERE name = 'system_kind'",
-                [], |r| r.get::<_, i64>(0),
-            )? > 0
-        };
-        if !has_system_kind {
-            let conn = self.conn.lock().unwrap();
-            conn.execute("ALTER TABLE playlists ADD COLUMN system_kind TEXT", [])?;
-        }
-
-        // 2. Partial unique index + system playlists. Both idempotent; ensure_system_playlists
-        //    runs every startup so the system playlists self-heal if deleted.
-        {
-            let conn = self.conn.lock().unwrap();
-            conn.execute(
-                "CREATE UNIQUE INDEX IF NOT EXISTS idx_playlists_system_kind
-                 ON playlists(system_kind) WHERE system_kind IS NOT NULL", [],
-            )?;
-        }
+    /// Built-in rows every database must carry, re-asserted on every open.
+    /// Each is idempotent and leaves a user's edits alone, so a deleted system
+    /// playlist comes back and a re-prioritized or disabled built-in provider
+    /// keeps its setting.
+    fn ensure_builtin_rows(&self) -> SqlResult<()> {
+        // The Liked / Disliked system playlists.
         self.ensure_system_playlists()?;
 
-        // 3. One-time backfill of existing library likes into entity_likes, guarded by a
-        //    marker in plugin_storage so we don't resurrect likes the user later cleared.
-        let already_backfilled: bool = {
-            let conn = self.conn.lock().unwrap();
-            conn.query_row(
-                "SELECT COUNT(*) FROM plugin_storage WHERE plugin_id = '__core__' AND key = 'entity_likes_backfilled'",
-                [], |r| r.get::<_, i64>(0),
-            ).unwrap_or(0) > 0
-        };
-        if !already_backfilled {
-            let now_ts: i64 = {
-                let conn = self.conn.lock().unwrap();
-                conn.query_row("SELECT strftime('%s','now')", [], |r| r.get(0)).unwrap_or(0)
-            };
-            self.backfill_entity_likes_from_library(now_ts)?;
-            let conn = self.conn.lock().unwrap();
-            conn.execute(
-                "INSERT OR REPLACE INTO plugin_storage (plugin_id, key, value)
-                 VALUES ('__core__', 'entity_likes_backfilled', '1')", [],
-            )?;
-        }
-
-        // 4. Drop the stale CHECK(entity IN ('artist','album')) constraint on
-        //    image_providers. Pre-feature DBs created the table with that
-        //    constraint, which silently rejects 'tag' (and any future entity)
-        //    rows on INSERT OR IGNORE — so the Google Image Search plugin's tag
-        //    provider never registers and "Tags" never appears in Settings.
-        //    SQLite can't drop a CHECK via ALTER, so rebuild the table. Detected
-        //    by schema presence (idempotent): only runs when the CHECK is found.
-        let has_entity_check: bool = {
-            let conn = self.conn.lock().unwrap();
-            conn.query_row(
-                "SELECT COUNT(*) FROM sqlite_master
-                 WHERE type = 'table' AND name = 'image_providers' AND sql LIKE '%CHECK%'",
-                [], |r| r.get::<_, i64>(0),
-            )? > 0
-        };
-        if has_entity_check {
-            let conn = self.conn.lock().unwrap();
-            conn.execute_batch(
-                "BEGIN;
-                 CREATE TABLE image_providers_new (
-                     id          INTEGER PRIMARY KEY,
-                     plugin_id   TEXT NOT NULL,
-                     entity      TEXT NOT NULL,
-                     priority    INTEGER NOT NULL DEFAULT 500,
-                     active      INTEGER NOT NULL DEFAULT 1,
-                     UNIQUE (plugin_id, entity)
-                 );
-                 INSERT INTO image_providers_new (id, plugin_id, entity, priority, active)
-                     SELECT id, plugin_id, entity, priority, active FROM image_providers;
-                 DROP TABLE image_providers;
-                 ALTER TABLE image_providers_new RENAME TO image_providers;
-                 COMMIT;",
-            )?;
-        }
-
-        // 5. Drop the legacy tracks.youtube_url column. The "save this YouTube
-        //    link" feature was removed; Find-in-YouTube now always searches
-        //    fresh. Detected by schema presence (idempotent): only runs when the
-        //    column still exists. DROP COLUMN needs SQLite >= 3.35 (bundled).
-        let has_youtube_url_col: bool = {
-            let conn = self.conn.lock().unwrap();
-            conn.query_row(
-                "SELECT COUNT(*) FROM pragma_table_info('tracks') WHERE name = 'youtube_url'",
-                [], |r| r.get::<_, i64>(0),
-            )? > 0
-        };
-        if has_youtube_url_col {
-            let conn = self.conn.lock().unwrap();
-            conn.execute("ALTER TABLE tracks DROP COLUMN youtube_url", [])?;
-        }
-
-        // 6. Add tracks.extra_tags (a JSON catch-all for tag keys with no dedicated
-        //    column — ReplayGain values live here). Fresh DBs get it via init_tables;
-        //    pre-feature DBs need it added. Detected by schema presence (idempotent).
-        let has_extra_tags: bool = {
-            let conn = self.conn.lock().unwrap();
-            conn.query_row(
-                "SELECT COUNT(*) FROM pragma_table_info('tracks') WHERE name = 'extra_tags'",
-                [], |r| r.get::<_, i64>(0),
-            )? > 0
-        };
-        if !has_extra_tags {
-            let conn = self.conn.lock().unwrap();
-            conn.execute("ALTER TABLE tracks ADD COLUMN extra_tags TEXT", [])?;
-        }
-
-        // 7. Publish servers (Bandstatic push targets) — see db/publish_servers.rs.
-        //    Fresh DBs get the table via init_tables; pre-feature DBs get it here.
-        //    Detected by schema presence (CREATE TABLE IF NOT EXISTS is self-gating),
-        //    NOT a `db_version < N` gate — pre-squash DBs carry inflated versions
-        //    that a numeric gate would skip (see the note at the top of this fn).
-        //    PAT stored plaintext, matching the collections-credentials precedent;
-        //    acceptable because the token is upload-scoped only (cannot delete
-        //    content or touch the account).
-        {
-            let conn = self.conn.lock().unwrap();
-            conn.execute(
-                "CREATE TABLE IF NOT EXISTS publish_servers (
-                    id          INTEGER PRIMARY KEY,
-                    name        TEXT NOT NULL,
-                    url         TEXT NOT NULL,
-                    token       TEXT NOT NULL,
-                    artist_slug TEXT NOT NULL DEFAULT '',
-                    created_at  INTEGER NOT NULL DEFAULT (strftime('%s', 'now'))
-                )",
-                [],
-            )?;
-        }
-
-        // 8. Normalized-name expression indexes. Every diacritic-insensitive
-        //    lookup — get_or_create_artist/album/tag on each scanned file,
-        //    find_track_by_metadata on every like-mirror / tag-popover /
-        //    download-dedup — filters on `strip_diacritics(unicode_lower(col))`,
-        //    which no column index can serve: it was a full table scan running
-        //    two UDFs per row, O(files × entities) on an initial scan (20k
-        //    files × 3k artists ≈ 60M UDF evaluations). Indexing the expression
-        //    itself serves those queries VERBATIM — no write site changes, no
-        //    stored column to drift. Requires both UDFs registered
-        //    deterministic (they are; see register_sql_functions) on every
-        //    connection that touches these tables (the app registers them at
-        //    open, always). Idempotent; the one-time index build on an
-        //    existing library happens here at startup. Pinned by
-        //    test_normalized_lookups_use_the_expression_indexes.
-        {
-            let conn = self.conn.lock().unwrap();
-            conn.execute_batch(
-                "CREATE INDEX IF NOT EXISTS idx_artists_name_norm
-                     ON artists(strip_diacritics(unicode_lower(name)));
-                 CREATE INDEX IF NOT EXISTS idx_tags_name_norm
-                     ON tags(strip_diacritics(unicode_lower(name)));
-                 CREATE INDEX IF NOT EXISTS idx_albums_title_norm
-                     ON albums(strip_diacritics(unicode_lower(title)));
-                 CREATE INDEX IF NOT EXISTS idx_tracks_title_norm
-                     ON tracks(strip_diacritics(unicode_lower(title)));",
-            )?;
-        }
-
-        // 9. playlists.updated_at — bumped by the incremental playlist
-        //    mutations (append/remove/reorder/meta/cover) so the "Add to
-        //    Playlist ▸" submenu can rank by recent use. Distinct from
-        //    saved_at, which stays the creation (or auto-mix regeneration)
-        //    time shown on the cards. Schema-presence detected, like #1.
-        {
-            let has_updated_at: bool = {
-                let conn = self.conn.lock().unwrap();
-                conn.query_row(
-                    "SELECT COUNT(*) FROM pragma_table_info('playlists') WHERE name = 'updated_at'",
-                    [], |r| r.get::<_, i64>(0),
-                )? > 0
-            };
-            if !has_updated_at {
-                let conn = self.conn.lock().unwrap();
-                conn.execute("ALTER TABLE playlists ADD COLUMN updated_at INTEGER", [])?;
-            }
-        }
-
-        // 10. Seed the built-in image providers (folder art, embedded artwork)
-        //     as ordinary image_providers rows. Embedded artwork used to be
-        //     hardcoded ahead of the whole chain; making it a row is what lets
-        //     the user order it against plugin providers like everything else.
-        //     INSERT OR IGNORE, so a user who has since reordered or disabled
-        //     one keeps their choice across launches.
+        // The built-in image providers (folder art, embedded artwork) as
+        // ordinary image_providers rows, so the user orders them against
+        // plugin providers like everything else. INSERT OR IGNORE keeps a
+        // user's reorder or disable across launches.
         {
             let conn = self.conn.lock().unwrap();
             let mut stmt = conn.prepare(
@@ -1001,80 +827,22 @@ impl Database {
             }
         }
 
-        // 11. tracks_fts album_artist column — what makes "various artists"
-        //     match in Library/central search (the artist_name column holds
-        //     TRACK artists, and no track on a merged compilation carries the
-        //     album artist). FTS5 can't ALTER ADD COLUMN, so a table predating
-        //     the column is dropped and rebuilt — the exact rebuild every scan
-        //     and sync already runs at its end (~0.15s at 20k tracks). Schema-
-        //     presence detected (pragma_table_info works on FTS5 tables), like
-        //     #1 — never `db_version < N`.
-        {
-            let has_fts_album_artist: bool = {
-                let conn = self.conn.lock().unwrap();
-                conn.query_row(
-                    "SELECT COUNT(*) FROM pragma_table_info('tracks_fts') WHERE name = 'album_artist'",
-                    [], |r| r.get::<_, i64>(0),
-                )? > 0
-            };
-            if !has_fts_album_artist {
-                self.rebuild_fts()?;
-            }
-        }
-
-        // 12. Covering index for `album_added_at_sql` — the Albums "Added"
-        //     sort and the Home "Recently added albums" shelf, both of which
-        //     order by MAX(added_at) over an album's tracks because `albums`
-        //     has no date of its own.
+        // Built-in "Local files" lyrics provider — a `core:` row in
+        // information_types, mirroring the image chain's core rows: local
+        // lyrics (embedded tag / sidecar .lrc / Lyrics folder —
+        // `local_lyrics.rs`, answered by the frontend's invokeInfoFetch core
+        // branch via `get_local_lyrics`) are an ordinary provider in the
+        // lyrics chain, which is what makes them reachable by the lyrics
+        // full-text search (`search_information_values`). Priority 50 seeds
+        // it ahead of the bundled plugins (lrclib 100, lyrics-ovh 300).
         //
-        //     `idx_tracks_album_id` alone makes that a per-album index seek
-        //     PLUS a table lookup for every one of its tracks' `added_at`, so
-        //     the sort costs one row read per track in the library. Leading
-        //     with album_id and carrying added_at makes each album's answer the
-        //     last entry in its own index range: one seek, no table access.
-        //     Measured by bench_album_added_sort at 4000 albums / 20k tracks
-        //     (debug): first page 11.5ms → 3.2ms, which takes it from the
-        //     slowest album sort by 10x to level with the Year sort
-        //     (1.1ms first page, 4.4ms deep). It is still the dearest of them
-        //     — a correlated subquery per album is the price of not storing a
-        //     date that would be wrong — but it is no longer an outlier.
-        //     The write side is measured by the same bench: ~+25ms to ingest
-        //     20k tracks (~5%, ~1.4us/track), against a real scan that spends
-        //     seconds per thousand files reading tags off disk.
-        //
-        //     Idempotent and schema-presence detected by IF NOT EXISTS, like
-        //     #8 — never `db_version < N`.
-        {
-            let conn = self.conn.lock().unwrap();
-            conn.execute_batch(
-                "CREATE INDEX IF NOT EXISTS idx_tracks_album_added
-                     ON tracks(album_id, added_at);",
-            )?;
-        }
-
-        // 13. Built-in "Local files" lyrics provider — a `core:` row in
-        //     information_types, mirroring the image chain's core rows
-        //     (image_provider::CORE_IMAGE_PROVIDERS): local lyrics (embedded
-        //     tag / sidecar .lrc / Lyrics folder — `local_lyrics.rs`, answered
-        //     by the frontend's invokeInfoFetch core branch via
-        //     `get_local_lyrics`) are an ordinary provider in the lyrics
-        //     chain, not a privileged pre-cache probe. Being a cached row is
-        //     what makes local lyrics reachable by the lyrics full-text
-        //     search (`search_information_values`) — a live-only probe was
-        //     invisible to it. Priority 50 seeds it ahead of the bundled
-        //     plugins (lrclib 100, lyrics-ovh 300); the user can reorder or
-        //     disable it in Settings → Providers like any other row.
-        //
-        //     The ttl deliberately mirrors the plugin rows' 90 days:
-        //     `info_get_types_for_entity` exposes ONE ttl per type (the
-        //     highest-priority row's) and this row usually sits first, so a
-        //     1-day value here would put every WEB lyrics row — and manual
-        //     edits — on a daily refetch. The effective 1-day TTL for
-        //     locally-sourced cache rows is applied by the frontend
-        //     (`cacheTtlForRow` in utils/infoFetchChain.ts).
-        //
-        //     Idempotent via ON CONFLICT DO NOTHING (so a user's re-priority
-        //     or disable survives every restart) — never `db_version < N`.
+        // The ttl deliberately mirrors the plugin rows' 90 days:
+        // `info_get_types_for_entity` exposes ONE ttl per type (the
+        // highest-priority row's) and this row usually sits first, so a 1-day
+        // value here would put every WEB lyrics row — and manual edits — on a
+        // daily refetch. The effective 1-day TTL for locally-sourced cache
+        // rows is applied by the frontend (`cacheTtlForRow` in
+        // utils/infoFetchChain.ts).
         {
             let conn = self.conn.lock().unwrap();
             conn.execute(
@@ -1086,11 +854,24 @@ impl Database {
                 [],
             )?;
         }
+        Ok(())
+    }
 
-        // 14. Entity keys trim their segments (`likes::norm_segment`), matching
-        //     the Vibo Community server. Likes stored under a padded name
-        //     move to the trimmed key once; a data pass, so it is guarded by a
-        //     marker rather than detected by schema.
+    /// Upgrades for databases created by an older release.
+    ///
+    /// `init_tables` is the baseline every existing database already matches:
+    /// the migrations up to v1.0.95 were retired once every install had run
+    /// them, and a database older than that is not supported. `db_version`
+    /// carries no meaning (pre-squash DBs are stamped with inflated values,
+    /// e.g. 35), so a new migration must NOT gate on `db_version < N` — detect
+    /// the needed change by schema presence (idempotent), and guard a one-time
+    /// data pass with a `__core__` marker in plugin_storage, like the one
+    /// below. `recompute_counts()` runs separately at startup.
+    fn run_migrations(&self) -> SqlResult<()> {
+        // Entity keys trim their segments (`likes::norm_segment`), matching
+        // the Vibo Community server. Likes stored under a padded name move to
+        // the trimmed key once; a data pass, so it is guarded by a marker
+        // rather than detected by schema.
         let already_rekeyed: bool = {
             let conn = self.conn.lock().unwrap();
             conn.query_row(
@@ -1121,7 +902,7 @@ impl Database {
         //     writes `enabled`; the chain reads both. Core rows are exempt
         //     from the syncs, so their `active` really was the user's switch:
         //     it moves to `enabled` (and `active` becomes 1). Schema-presence
-        //     detected, like #8.
+        //     detected.
         {
             let conn = self.conn.lock().unwrap();
             for table in ["image_providers", "information_types"] {

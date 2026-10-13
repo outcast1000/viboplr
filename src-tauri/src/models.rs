@@ -750,7 +750,7 @@ pub struct ExtensionUpdate {
 #[serde(rename_all = "camelCase")]
 pub struct MainPlaylistState {
     pub queue_index: i32,
-    // "normal" | "repeat-all" | "repeat-one"; legacy "loop"/"shuffle" normalized on read (frontend).
+    // "normal" | "repeat-all" | "repeat-one"; anything else reads as "normal" (frontend).
     pub queue_mode: String,
 }
 

@@ -30,7 +30,7 @@ export function isSyncedLyricsValue(raw: string | null | undefined): boolean {
 /** How long a cache row that depends on the user's own disk stays fresh. */
 export const LOCAL_INFO_TTL = 86400; // 1 day in seconds
 
-/** The built-in local-lyrics provider row (seeded by DB migration #13; the
+/** The built-in local-lyrics provider row (seeded by `ensure_builtin_rows` in db/mod.rs; the
  *  frontend answers it in usePlugins.invokeInfoFetch via `get_local_lyrics`).
  *  Mirrors the image chain's `core:` rows — the prefix can never collide with
  *  a plugin id, since `:` isn't legal in a manifest id. */

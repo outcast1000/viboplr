@@ -3,7 +3,7 @@
 // live by the backend (`get_local_lyrics`). This is the fetch behind the
 // built-in `core:local-lyrics` provider row in the lyrics chain (answered in
 // usePlugins.invokeInfoFetch), seeded ahead of the web plugins by DB
-// migration #13. Its answers ride the ordinary info-value cache — which is
+// `ensure_builtin_rows` (db/mod.rs). Its answers ride the ordinary info-value cache — which is
 // what makes local lyrics reachable by the lyrics full-text search
 // (`search_information_values`) — but expire after a day instead of the web
 // TTL (`cacheTtlForRow` in infoFetchChain.ts), since the answer can change on

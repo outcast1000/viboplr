@@ -56,7 +56,7 @@ describe("heroEffectMode store", () => {
   });
 
   it("loads a stored mode string and notifies", async () => {
-    getMock.mockResolvedValueOnce("late-night").mockResolvedValueOnce(undefined);
+    getMock.mockResolvedValueOnce("late-night");
     const cb = vi.fn();
     subscribeHeroEffectMode(cb);
     await loadHeroEffectModeForTest();
@@ -66,34 +66,20 @@ describe("heroEffectMode store", () => {
 
   it("falls back to default when a removed look id is stored", async () => {
     // A user who had `worn-tape` saved before it was removed. The stored value
-    // fails isValidMode, no legacy boolean is present -> default by-artist.
-    getMock.mockResolvedValueOnce("worn-tape").mockResolvedValueOnce(undefined);
+    // fails isValidMode -> default by-artist.
+    getMock.mockResolvedValueOnce("worn-tape");
     await loadHeroEffectModeForTest();
     expect(getHeroEffectModeSnapshot()).toBe("by-artist");
-  });
-
-  it("migrates a legacy boolean true to by-artist and persists it", async () => {
-    getMock.mockResolvedValueOnce(undefined).mockResolvedValueOnce(true);
-    await loadHeroEffectModeForTest();
-    expect(getHeroEffectModeSnapshot()).toBe("by-artist");
-    expect(setMock).toHaveBeenCalledWith("heroEffectMode", "by-artist");
-  });
-
-  it("migrates a legacy boolean false to disabled and persists it", async () => {
-    getMock.mockResolvedValueOnce(undefined).mockResolvedValueOnce(false);
-    await loadHeroEffectModeForTest();
-    expect(getHeroEffectModeSnapshot()).toBe("disabled");
-    expect(setMock).toHaveBeenCalledWith("heroEffectMode", "disabled");
   });
 
   it("keeps default (by-artist) when nothing is stored", async () => {
-    getMock.mockResolvedValueOnce(undefined).mockResolvedValueOnce(undefined);
+    getMock.mockResolvedValueOnce(undefined);
     await loadHeroEffectModeForTest();
     expect(getHeroEffectModeSnapshot()).toBe("by-artist");
   });
 
-  it("does not persist the default on a fresh install (no stored, no legacy)", async () => {
-    getMock.mockResolvedValueOnce(undefined).mockResolvedValueOnce(undefined);
+  it("does not persist the default on a fresh install", async () => {
+    getMock.mockResolvedValueOnce(undefined);
     await loadHeroEffectModeForTest();
     expect(setMock).not.toHaveBeenCalled();
   });
