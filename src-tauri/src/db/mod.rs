@@ -860,7 +860,9 @@ impl Database {
     ///
     /// `init_tables` is the baseline every existing database already matches:
     /// the migrations up to v1.0.95 were retired once every install had run
-    /// them, and a database older than that is not supported. `db_version`
+    /// them. The newest one that changed the schema shipped in v1.0.57, so a
+    /// database last opened before that is not supported (it fails here at
+    /// launch; opening it once with v1.0.104 upgrades it). `db_version`
     /// carries no meaning (pre-squash DBs are stamped with inflated values,
     /// e.g. 35), so a new migration must NOT gate on `db_version < N` — detect
     /// the needed change by schema presence (idempotent), and guard a one-time
