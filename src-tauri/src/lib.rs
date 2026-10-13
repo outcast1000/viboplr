@@ -1131,6 +1131,26 @@ pub fn run() {
                 seed_search_providers_from_legacy(&db, &app_dir);
             });
 
+            // Once per profile: the bundled image and lyrics plugins became
+            // providers of Artwork / Lyrics, so copies of them in this
+            // profile's own plugins folder would load beside those and ask
+            // each source twice. Synchronous because it must land before the
+            // frontend lists plugins; costs a stat per id when there's nothing
+            // to move. The marker means a copy installed on purpose later
+            // is left alone.
+            timer.time("trash_merged_plugin_leftovers", || {
+                const MARKER: &str = "merged_plugin_leftovers_trashed";
+                if db.plugin_storage_get("__core__", MARKER).ok().flatten().is_none() {
+                    let (_, failed) = plugins::trash_merged_plugin_leftovers(&app_dir, plugins::trash_quietly);
+                    // A copy that couldn't be moved is retried next launch.
+                    if failed == 0 {
+                        if let Err(e) = db.plugin_storage_set("__core__", MARKER, "1") {
+                            log::warn!("Could not record the merged-plugin cleanup: {e}");
+                        }
+                    }
+                }
+            });
+
             timer.time("create_image_dirs", || {
                 let _ = std::fs::create_dir_all(app_dir.join("artist_images"));
                 let _ = std::fs::create_dir_all(app_dir.join("album_images"));

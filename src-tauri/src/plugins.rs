@@ -13,6 +13,70 @@ pub fn is_bundled_plugin_id(id: &str) -> bool {
     !id.is_empty() && BUNDLED_PLUGIN_IDS.split(',').any(|b| b == id)
 }
 
+/// Plugins this build no longer ships because they were merged into a bundled
+/// plugin as providers (2026-10-13): `(old id, new home)`. A copy of one left
+/// in a profile's own plugins folder would still load next to its new home and
+/// ask every source twice — see `trash_merged_plugin_leftovers`.
+pub const MERGED_PLUGIN_IDS: &[(&str, &str)] = &[
+    ("audiodb", "artwork"),
+    ("deezer", "artwork"),
+    ("itunes", "artwork"),
+    ("musicbrainz", "artwork"),
+    ("lrclib", "lyrics"),
+    ("lyrics-ovh", "lyrics"),
+];
+
+/// Move a profile's leftover copies of the merged plugins to the OS trash —
+/// to the trash, not deleted, so a copy someone meant to keep can be put
+/// back. Only a folder that really is that plugin (its manifest's `id` is the
+/// folder name) is touched. Returns the ids moved and how many could not be
+/// (each logged; the rest still run) — a caller marking the sweep done should
+/// only do so when that is 0. `trash` is injected so tests don't touch the
+/// real trash.
+pub fn trash_merged_plugin_leftovers(
+    app_dir: &Path,
+    trash: impl Fn(&Path) -> Result<(), String>,
+) -> (Vec<String>, usize) {
+    let dir = app_dir.join("plugins");
+    let mut moved = Vec::new();
+    let mut failed = 0;
+    for (id, into) in MERGED_PLUGIN_IDS {
+        let folder = dir.join(id);
+        let manifest_id = std::fs::read_to_string(folder.join("manifest.json"))
+            .ok()
+            .and_then(|s| serde_json::from_str::<serde_json::Value>(&s).ok())
+            .and_then(|m| m.get("id").and_then(|v| v.as_str()).map(str::to_string));
+        if manifest_id.as_deref() != Some(*id) {
+            continue;
+        }
+        match trash(&folder) {
+            Ok(()) => {
+                log::info!("Moved the leftover '{id}' plugin to the trash — it is now a provider of the bundled '{into}' plugin");
+                moved.push(id.to_string());
+            }
+            Err(e) => {
+                log::warn!("Could not move the leftover '{id}' plugin to the trash: {e}");
+                failed += 1;
+            }
+        }
+    }
+    (moved, failed)
+}
+
+/// `trash::delete` without Finder on macOS: the default goes through
+/// `osascript`, which plays the trash sound and can raise an Automation
+/// permission prompt — neither belongs in a startup sweep.
+pub fn trash_quietly(path: &Path) -> Result<(), String> {
+    #[allow(unused_mut)]
+    let mut ctx = trash::TrashContext::default();
+    #[cfg(target_os = "macos")]
+    {
+        use trash::macos::{DeleteMethod, TrashContextExtMacos};
+        ctx.set_delete_method(DeleteMethod::NsFileManager);
+    }
+    ctx.delete(path).map_err(|e| e.to_string())
+}
+
 pub fn plugins_dir(app_dir: &Path) -> PathBuf {
     let dir = app_dir.join("plugins");
     std::fs::create_dir_all(&dir).ok();
@@ -325,6 +389,51 @@ fn normalize_github_url(url: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn write_plugin(dir: &Path, folder: &str, manifest_id: &str) {
+        let p = dir.join("plugins").join(folder);
+        std::fs::create_dir_all(&p).unwrap();
+        std::fs::write(p.join("manifest.json"), format!(r#"{{"id":"{manifest_id}"}}"#)).unwrap();
+    }
+
+    #[test]
+    fn test_merged_plugin_leftovers_go_to_the_trash_and_nothing_else_does() {
+        let tmp = tempfile::tempdir().unwrap();
+        write_plugin(tmp.path(), "deezer", "deezer");
+        write_plugin(tmp.path(), "lrclib", "lrclib");
+        write_plugin(tmp.path(), "itunes", "something-else"); // not that plugin
+        write_plugin(tmp.path(), "genius", "genius"); // not a merged one
+        let trashed = std::cell::RefCell::new(Vec::new());
+        let (moved, failed) = trash_merged_plugin_leftovers(tmp.path(), |p| {
+            trashed.borrow_mut().push(p.file_name().unwrap().to_string_lossy().to_string());
+            std::fs::remove_dir_all(p).map_err(|e| e.to_string())
+        });
+        assert_eq!(moved, vec!["deezer", "lrclib"]);
+        assert_eq!(failed, 0);
+        assert_eq!(*trashed.borrow(), vec!["deezer", "lrclib"]);
+        assert!(tmp.path().join("plugins/itunes").exists());
+        assert!(tmp.path().join("plugins/genius").exists());
+    }
+
+    #[test]
+    fn test_a_leftover_that_cannot_be_moved_is_reported() {
+        let tmp = tempfile::tempdir().unwrap();
+        write_plugin(tmp.path(), "audiodb", "audiodb");
+        let (moved, failed) = trash_merged_plugin_leftovers(tmp.path(), |_| Err("no trash here".into()));
+        assert!(moved.is_empty());
+        assert_eq!(failed, 1, "so the caller doesn't mark the sweep done");
+        // No plugins folder at all is simply nothing to do.
+        let empty = tempfile::tempdir().unwrap();
+        assert_eq!(trash_merged_plugin_leftovers(empty.path(), |_| unreachable!()), (vec![], 0));
+    }
+
+    #[test]
+    fn test_merged_plugins_are_no_longer_bundled() {
+        for (old, into) in MERGED_PLUGIN_IDS {
+            assert!(!is_bundled_plugin_id(old), "{old} must not ship any more");
+            assert!(is_bundled_plugin_id(into), "{into} must ship");
+        }
+    }
 
     #[test]
     fn test_bundled_ids_match_the_plugins_folder() {
