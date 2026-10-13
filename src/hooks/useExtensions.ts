@@ -486,6 +486,7 @@ export function useExtensions(props: UseExtensionsProps) {
         pendingPermissions: ps.pendingPermissions,
         firstParty: ps.firstParty,
         unverified: ps.unverified,
+        revertsToBuiltin: ps.shadowsBuiltin,
         homepage: ps.manifest.homepage,
         minAppVersion: ps.manifest.minAppVersion,
         updateUrl: ps.manifest.updateUrl,

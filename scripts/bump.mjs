@@ -13,6 +13,7 @@
 //   5. Regenerates screenshots (only with --screenshots, requires Vite dev server)
 //   6. Regenerates docs/features.html from docs/features.json
 //   7. Counts the code and appends to benchmarks/loc-history.json
+//      (7b. warns when a bundled plugin kept in its own repo is behind its latest release)
 //   8. Commits, tags, and pushes (with --autocommit)
 //
 // BETA releases: a hyphenated version (e.g. 0.9.152-beta.1) switches to beta
@@ -414,6 +415,24 @@ try {
   );
 } catch (e) {
   console.error("⚠ Code size step failed (release continues):", e.message);
+}
+
+// ---------------------------------------------------------------------------
+// Step 7b — Are the bundled plugins kept in their own repo (Last.fm) current?
+//
+// The app ships a pinned release of each (scripts/bundled-plugins.lock.json).
+// Users get newer releases through the update check anyway, but a fresh
+// install starts from the pinned one, so say so when it is behind. Never
+// fatal: the copy itself is held to the lock by bundledPlugins.test.ts, which
+// Step 1 already ran.
+// ---------------------------------------------------------------------------
+
+console.log("\nChecking bundled plugins against their releases...\n");
+
+try {
+  console.log(execSync("node scripts/sync-bundled-plugins.mjs --check 2>&1", { cwd: root, encoding: "utf8" }).trim());
+} catch (e) {
+  console.error(`⚠ Bundled plugin check reported a problem (release continues):\n${(e.stdout || e.message).trim()}`);
 }
 
 // ---------------------------------------------------------------------------

@@ -100,18 +100,35 @@ pub fn plugin_list_installed(
     }
 
     // Native/builtin plugins (skipped if dev or user has same id)
+    let mut shadowed = std::collections::HashSet::new();
     if let Some(ref native_dir) = state.native_plugins_dir {
         for p in scan_plugins_dir(native_dir, true, code_filter_ref) {
             if let Some(id) = p.get("id").and_then(|v| v.as_str()) {
                 if seen_ids.contains(id) {
+                    shadowed.insert(id.to_string());
                     continue;
                 }
             }
             plugins.push(p);
         }
     }
+    mark_shadowed_builtins(&mut plugins, &shadowed);
 
     Ok(plugins)
+}
+
+/// Flag each user-installed copy that hides a bundled plugin of the same id
+/// (an update installed over Last.fm, which ships built in). Uninstalling such
+/// a copy brings the built-in back rather than removing the plugin, so the
+/// frontend keeps it switched on and labels the button "Revert to built-in".
+fn mark_shadowed_builtins(plugins: &mut [serde_json::Value], shadowed: &std::collections::HashSet<String>) {
+    for p in plugins.iter_mut() {
+        let is_user = !p["builtin"].as_bool().unwrap_or(false) && !p["dev"].as_bool().unwrap_or(false);
+        let id = p["id"].as_str().unwrap_or_default();
+        if is_user && shadowed.contains(id) {
+            p["shadowsBuiltin"] = serde_json::Value::Bool(true);
+        }
+    }
 }
 
 #[tauri::command]
@@ -838,7 +855,24 @@ pub fn plugin_scheduler_complete(state: State<'_, AppState>, plugin_id: String, 
 
 #[cfg(test)]
 mod tests {
-    use super::{flatten_response_headers, plugin_fetch, plugin_fetch_cancel, resolve_plugin_asset, FETCH_ABORTED, PLUGIN_ASSET_MAX_BYTES};
+    use super::{flatten_response_headers, mark_shadowed_builtins, plugin_fetch, plugin_fetch_cancel, resolve_plugin_asset, FETCH_ABORTED, PLUGIN_ASSET_MAX_BYTES};
+
+    #[test]
+    fn test_only_a_user_copy_over_a_builtin_is_marked_shadowing() {
+        let mut plugins = vec![
+            serde_json::json!({ "id": "lastfm", "builtin": false }),
+            serde_json::json!({ "id": "ytdlp", "builtin": false }),
+            serde_json::json!({ "id": "lyrics", "builtin": true }),
+            serde_json::json!({ "id": "artwork", "builtin": false, "dev": true }),
+        ];
+        let shadowed: std::collections::HashSet<String> =
+            ["lastfm", "artwork"].iter().map(|s| s.to_string()).collect();
+        mark_shadowed_builtins(&mut plugins, &shadowed);
+        assert_eq!(plugins[0]["shadowsBuiltin"], true, "an update installed over a built-in");
+        assert!(plugins[1].get("shadowsBuiltin").is_none(), "an ordinary gallery plugin");
+        assert!(plugins[2].get("shadowsBuiltin").is_none(), "the built-in itself");
+        assert!(plugins[3].get("shadowsBuiltin").is_none(), "a dev folder has no Uninstall");
+    }
 
     /// A server that accepts the connection and never answers — a model mid-reply.
     fn silent_server() -> (std::net::TcpListener, String) {

@@ -1,0 +1,14 @@
+{
+  "plugins": {
+    "lastfm": {
+      "repo": "outcast1000/viboplr-lastfm",
+      "asset": "lastfm.zip",
+      "version": "1.7.0",
+      "files": {
+        "manifest.json": "c98015be7212674b9a259d98ab2884fc93aa384580a3e0df92f00d5e109cfab3",
+        "index.js": "7e998cb9231fb299a392e4ec3c81fd0c65e2d10aca37a2c98adb7e70c56290b4",
+        "signature.sig": "64a2ca4b69d7d633c4dd9046463e89d535baee67b5addc163d55878cef0c6f46"
+      }
+    }
+  }
+}

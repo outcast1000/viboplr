@@ -2841,8 +2841,10 @@ export function usePlugins(
 
       settings.sort((a, b) => a.order - b.order);
 
+      const shadowingIds = new Set(installed.filter((p) => p.shadowsBuiltin).map((p) => p.id));
       for (let i = 0; i < states.length; i++) {
         if (firstPartyIds.has(states[i].id)) states[i] = { ...states[i], firstParty: true };
+        if (shadowingIds.has(states[i].id)) states[i] = { ...states[i], shadowsBuiltin: true };
       }
       pluginStatesRef.current = states;
       setPluginStates(states);
@@ -3175,6 +3177,11 @@ export function usePlugins(
         // Delete on disk FIRST — only mutate enabled-state/deactivate once the
         // backend confirms removal, so a failed delete (e.g. it's a built-in, not
         // a user plugin) leaves the plugin's enabled state and activation intact.
+        // Removing an update installed over a built-in (Last.fm) brings the
+        // built-in back, so the plugin stays switched on: dropping it from the
+        // enabled list would leave the built-in off for good, since built-ins
+        // are only auto-enabled on first launch.
+        const revertsToBuiltin = !!pluginStatesRef.current.find((p) => p.id === pluginId)?.shadowsBuiltin;
         await invoke("delete_user_plugin", { pluginId });
         // An approval belongs to what the user reviewed, not to an id: a
         // different plugin installed later under the same id must be asked
@@ -3184,7 +3191,9 @@ export function usePlugins(
           permissionGrantsRef.current = rest;
           await store.set(PERMISSION_GRANTS_KEY, rest);
         }
-        if (enabledPluginsRef.current.has(pluginId)) {
+        if (revertsToBuiltin) {
+          deactivatePlugin(pluginId);
+        } else if (enabledPluginsRef.current.has(pluginId)) {
           enabledPluginsRef.current.delete(pluginId);
           deactivatePlugin(pluginId);
           await store.set(

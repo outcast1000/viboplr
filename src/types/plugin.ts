@@ -270,6 +270,9 @@ export interface InstalledPlugin {
   // Bundled by `plugin_list_installed` so activation skips a second IPC.
   // May be null if the file couldn't be read.
   code?: string | null;
+  /** A user-installed copy hiding a bundled plugin of the same id (an update
+   *  installed over Last.fm). Uninstalling it reverts to the built-in. */
+  shadowsBuiltin?: boolean;
   /** Main-realm signature check (`plugin_signing.rs`); see utils/pluginTrust.ts. */
   signature?: "verified" | "unsigned" | "invalid" | "builtin";
   /** Why an `invalid` signature failed. */
@@ -303,6 +306,8 @@ export interface PluginState {
   /** Runs in the main realm (full app access) without a Vibo signature —
    *  see utils/pluginTrust.ts. Shown as "Unverified" in Extensions. */
   unverified?: boolean;
+  /** A user copy hiding a bundled plugin (see InstalledPlugin.shadowsBuiltin). */
+  shadowsBuiltin?: boolean;
 }
 
 // -- Plugin-facing context menu target --
@@ -2246,6 +2251,8 @@ export interface ExtensionItem {
   firstParty?: boolean;
   /** Running in the main realm without a Vibo signature — see utils/pluginTrust.ts. */
   unverified?: boolean;
+  /** An update installed over a built-in: uninstalling reverts to the built-in. */
+  revertsToBuiltin?: boolean;
   homepage?: string;
   minAppVersion?: string;
   skinColors?: [string, string, string, string];

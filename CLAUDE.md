@@ -11,6 +11,7 @@ npm run tauri build                  # Production build (run fetch-libmpv first 
 cd src-tauri && cargo check          # Rust compilation check
 cd src-tauri && cargo check --release # Release build check
 node scripts/fetch-libmpv.mjs        # Vendor pinned libmpv — REQUIRED before `tauri build` (bundled); dev/tests load it at runtime; engine tests self-skip without it
+node scripts/sync-bundled-plugins.mjs lastfm  # Re-pin the bundled Last.fm plugin to its latest release (source lives in outcast1000/viboplr-lastfm — never edit src-tauri/plugins/lastfm/; see plugins.md "Bundled, but maintained in its own repo")
 cd src-tauri && cargo test --lib     # All lib tests incl. native engine (engine compiled into every build)
 node scripts/package-engine-component.mjs  # Package the downloadable libmpv engine component + update its lock
 node scripts/publish-engine-components.mjs # Publish those zips (never overwrites a published name) + pin what was published

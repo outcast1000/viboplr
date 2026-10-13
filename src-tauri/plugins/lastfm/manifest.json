@@ -1,11 +1,13 @@
 {
   "id": "lastfm",
   "name": "Last.fm",
-  "version": "1.6.0",
+  "version": "1.7.0",
   "author": "Vibo",
   "description": "Scrobbling, now playing, history import, and metadata from Last.fm",
   "icon": "M17.5 19H9a7 7 0 1 1 6.71-9h1.79a4.5 4.5 0 1 1 0 9z",
-  "minAppVersion": "0.9.4",
+  "homepage": "https://github.com/outcast1000/viboplr-lastfm",
+  "updateUrl": "https://github.com/outcast1000/viboplr-lastfm/releases/latest/download/update.json",
+  "minAppVersion": "1.0.104",
   "runtime": "worker",
   "permissions": ["network:ws.audioscrobbler.com", "system:open", "playback:read", "playback:control", "library:read", "library:write", "env:LASTFM_API_KEY", "env:LASTFM_API_SECRET"],
   "permissionReasons": {

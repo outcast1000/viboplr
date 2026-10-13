@@ -120,6 +120,12 @@ function PluginIcon({ name, icon, large }: { name: string; icon?: string; large?
 
 /** Enabled by the user. A plugin waiting on permission approval counts: the
  *  switch is on, the plugin just isn't running until the user approves. */
+/** An update installed over a built-in (Last.fm) doesn't leave when removed:
+ *  the built-in takes over again, so the button says what really happens. */
+function uninstallLabel(ext: ExtensionItem): string {
+  return ext.revertsToBuiltin ? "Revert to built-in" : "Uninstall";
+}
+
 function isSwitchedOn(status: ExtensionItem["status"]): boolean {
   return status === "active" || status === "needs-approval";
 }
@@ -283,7 +289,7 @@ function PluginCard({
             )}
             {canUninstall && (
               <button className="ds-btn ds-btn--ghost ds-btn--sm ext-pcard-uninstall" onClick={onUninstall}>
-                Uninstall
+                {uninstallLabel(ext)}
               </button>
             )}
           </>
@@ -369,7 +375,7 @@ function PluginRow({
               <button className="ds-btn ds-btn--secondary ds-btn--sm ext-prow-quiet" onClick={onConfig}>Config</button>
             )}
             {canUninstall && (
-              <button className="ds-btn ds-btn--ghost ds-btn--sm ext-prow-quiet" onClick={onUninstall}>Uninstall</button>
+              <button className="ds-btn ds-btn--ghost ds-btn--sm ext-prow-quiet" onClick={onUninstall}>{uninstallLabel(ext)}</button>
             )}
             {ext.source !== "dev" && (
               <button
@@ -582,7 +588,7 @@ function PluginDetail({
                   {isSwitchedOn(ext.status) ? "Disable" : "Enable"}
                 </button>
                 {ext.source !== "builtin" && (
-                  <button className="ds-btn ds-btn--ghost ds-btn--sm" onClick={onUninstall}>Uninstall</button>
+                  <button className="ds-btn ds-btn--ghost ds-btn--sm" onClick={onUninstall}>{uninstallLabel(ext)}</button>
                 )}
               </>
             )}
@@ -863,7 +869,7 @@ export default function ExtensionsView(props: ExtensionsViewProps) {
   // enable-now choice in as its final step (was a separate post-install modal).
   const [installFlow, setInstallFlow] = useState<InstallFlowState | null>(null);
   // Confirmation before uninstalling a plugin (from a card or the detail pane).
-  const [uninstallPrompt, setUninstallPrompt] = useState<{ id: string; name: string } | null>(null);
+  const [uninstallPrompt, setUninstallPrompt] = useState<{ id: string; name: string; revertsToBuiltin?: boolean } | null>(null);
   // Full-page plugin detail navigation (replaces the card grid; back returns).
   // `configMode` scrolls straight to the Configuration section.
   const [detail, setDetail] = useState<{ id: string; configMode: boolean } | null>(null);
@@ -1122,7 +1128,7 @@ export default function ExtensionsView(props: ExtensionsViewProps) {
             onToggleEnabled={() => onToggleEnabled(ext.id, "plugin")}
             onInstall={() => handleInstall(ext)}
             onUpdate={() => onUpdateExtension(ext.id)}
-            onUninstall={() => setUninstallPrompt({ id: ext.id, name: ext.name })}
+            onUninstall={() => setUninstallPrompt({ id: ext.id, name: ext.name, revertsToBuiltin: ext.revertsToBuiltin })}
           />
         ))}
       </div>
@@ -1231,7 +1237,7 @@ export default function ExtensionsView(props: ExtensionsViewProps) {
               busy={busy}
               autoScrollToConfig={detail?.configMode}
               onUpdate={() => onUpdateExtension(detailExt.id)}
-              onUninstall={() => setUninstallPrompt({ id: detailExt.id, name: detailExt.name })}
+              onUninstall={() => setUninstallPrompt({ id: detailExt.id, name: detailExt.name, revertsToBuiltin: detailExt.revertsToBuiltin })}
               onToggleEnabled={() => onToggleEnabled(detailExt.id, "plugin")}
               onInstall={() => handleInstall(detailExt)}
               contributions={contributions}
@@ -1373,9 +1379,13 @@ export default function ExtensionsView(props: ExtensionsViewProps) {
       {uninstallPrompt && (
         <div className="ds-modal-overlay">
           <div className="ds-modal" onClick={(e) => e.stopPropagation()}>
-            <h2 className="ds-modal-title">Uninstall {uninstallPrompt.name}?</h2>
+            <h2 className="ds-modal-title">
+              {uninstallPrompt.revertsToBuiltin ? `Revert ${uninstallPrompt.name} to the built-in version?` : `Uninstall ${uninstallPrompt.name}?`}
+            </h2>
             <p className="delete-confirm-warning">
-              This removes {uninstallPrompt.name} from this device. You can reinstall it from the gallery later.
+              {uninstallPrompt.revertsToBuiltin
+                ? `This removes the update you installed. ${uninstallPrompt.name} keeps running, as the version that came with Vibo, and keeps its settings. Check for updates to get the newer one back.`
+                : `This removes ${uninstallPrompt.name} from this device. You can reinstall it from the gallery later.`}
             </p>
             <div className="ds-modal-actions">
               <button className="ds-btn ds-btn--ghost" onClick={() => setUninstallPrompt(null)}>Cancel</button>
@@ -1384,7 +1394,7 @@ export default function ExtensionsView(props: ExtensionsViewProps) {
                 autoFocus
                 onClick={() => { const id = uninstallPrompt.id; setUninstallPrompt(null); onUninstall(id, "plugin"); }}
               >
-                Uninstall
+                {uninstallPrompt.revertsToBuiltin ? "Revert" : "Uninstall"}
               </button>
             </div>
           </div>
