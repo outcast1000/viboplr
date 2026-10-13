@@ -3713,15 +3713,23 @@ export function usePlugins(
           `plugin "${pluginId}" has no live handler for tool "${name}" — the plugin may be disabled, still loading, or the tool is declared but not wired with api.assistant.onTool`,
         );
       }
-      return Promise.race([
-        Promise.resolve().then(() => handler(args)),
-        new Promise((_, reject) =>
-          setTimeout(
-            () => reject(new Error(`tool "${name}" timed out after ${PLUGIN_SEARCH_TIMEOUT_MS / 1000}s`)),
-            PLUGIN_SEARCH_TIMEOUT_MS,
-          ),
-        ),
-      ]);
+      // The timer is cleared once the race settles: callers that poll (the
+      // setup wizard's Spotify step) would otherwise leave a live 60s timer
+      // behind for every call.
+      let timer: ReturnType<typeof setTimeout> | undefined;
+      try {
+        return await Promise.race([
+          Promise.resolve().then(() => handler(args)),
+          new Promise((_, reject) => {
+            timer = setTimeout(
+              () => reject(new Error(`tool "${name}" timed out after ${PLUGIN_SEARCH_TIMEOUT_MS / 1000}s`)),
+              PLUGIN_SEARCH_TIMEOUT_MS,
+            );
+          }),
+        ]);
+      } finally {
+        clearTimeout(timer);
+      }
     },
     [],
   );

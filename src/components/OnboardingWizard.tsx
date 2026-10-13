@@ -1063,7 +1063,7 @@ function spotifyReadyText(account: string | null, playlists: number): string {
 /** How often the Spotify step re-reads the plugin's status while it is open. */
 const SPOTIFY_POLL_MS = 1500;
 
-function SpotifyStep({
+export function SpotifyStep({
   onSignIn,
   getStatus,
 }: {
@@ -1071,24 +1071,50 @@ function SpotifyStep({
   getStatus: () => Promise<unknown>;
 }) {
   const [conn, setConn] = useState<SpotifyConnection>({ state: "unknown" });
+  // The last read threw, or answered with a status `spotifyConnection` doesn't
+  // know (a plugin build without the `status` tool, or a newer one). `conn`
+  // keeps the last state a read did establish; this only says we can't see
+  // past it. Kept apart from `unknown`, which means "no read has finished".
+  const [unreadable, setUnreadable] = useState(false);
 
   // Poll, not subscribe: the plugin publishes no event for its sync state, and
-  // the step is only ever up for a minute or two.
+  // the step is only ever up for a minute or two. Each read is scheduled after
+  // the previous one settles, so a slow status tool can't stack reads up or
+  // have an older answer land over a newer one.
   useEffect(() => {
     let cancelled = false;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    // Logged once per distinct problem, not once every poll.
+    let lastProblem: string | null = null;
+    function problem(key: string, ...details: unknown[]) {
+      if (key === lastProblem) return;
+      lastProblem = key;
+      console.error(...details);
+    }
     async function read() {
       try {
-        const next = spotifyConnection(await getStatus());
-        if (!cancelled) setConn(next);
+        const status = await getStatus();
+        if (cancelled) return;
+        const next = spotifyConnection(status);
+        if (next.state === "unknown") {
+          problem(`unrecognised:${JSON.stringify(status)}`, "Unrecognised Spotify status:", status);
+          setUnreadable(true);
+        } else {
+          lastProblem = null;
+          setUnreadable(false);
+          setConn(next);
+        }
       } catch (e) {
-        console.error("Failed to read Spotify status:", e);
+        if (cancelled) return;
+        problem(`error:${e instanceof Error ? e.message : String(e)}`, "Failed to read Spotify status:", e);
+        setUnreadable(true);
       }
+      if (!cancelled) timer = setTimeout(read, SPOTIFY_POLL_MS);
     }
     read();
-    const timer = setInterval(read, SPOTIFY_POLL_MS);
     return () => {
       cancelled = true;
-      clearInterval(timer);
+      clearTimeout(timer);
     };
   }, [getStatus]);
 
@@ -1098,7 +1124,13 @@ function SpotifyStep({
     setConn({ state: "signing-in" });
   }
 
-  const busy = conn.state === "checking" || conn.state === "signing-in" || conn.state === "loading";
+  // Unreadable matters while the screen promises a further update — no answer
+  // yet, or a wait (checking / signing in / loading) only a read can end. An
+  // answer that stands on its own (ready, not connected, failed) stays up.
+  const lost =
+    unreadable &&
+    (conn.state === "unknown" || conn.state === "checking" || conn.state === "signing-in" || conn.state === "loading");
+  const busy = !lost && (conn.state === "checking" || conn.state === "signing-in" || conn.state === "loading");
   return (
     <>
       <p className="onboarding-step-desc">
@@ -1106,11 +1138,15 @@ function SpotifyStep({
         up in Vibo. Sign-in happens on Spotify's own page in a separate window —
         your password goes to Spotify, never to Vibo.
       </p>
-      <div className={`onboarding-connect onboarding-connect--${conn.state}`}>
+      <div className={`onboarding-connect onboarding-connect--${lost ? "unreadable" : conn.state}`}>
         <div className="onboarding-connect-status">
           {busy && <span className="ds-spinner ds-spinner--sm" />}
           <span>
-            {conn.state === "ready"
+            {lost
+              ? conn.state === "signing-in"
+                ? "Sign in in the Spotify window. Vibo can't check whether it worked — continue when you're done."
+                : "Couldn't check whether you're signed in — you can still sign in."
+              : conn.state === "ready"
               ? spotifyReadyText(conn.account, conn.playlists)
               : conn.state === "checking"
                 ? "Checking whether you're already signed in…"
@@ -1128,7 +1164,11 @@ function SpotifyStep({
           </span>
         </div>
         {conn.state !== "ready" && (
-          <button className="ds-btn ds-btn--primary" onClick={signIn} disabled={busy || conn.state === "unknown"}>
+          <button
+            className="ds-btn ds-btn--primary"
+            onClick={signIn}
+            disabled={!lost && (busy || conn.state === "unknown")}
+          >
             {conn.state === "failed" ? "Try again" : "Sign in to Spotify"}
           </button>
         )}
