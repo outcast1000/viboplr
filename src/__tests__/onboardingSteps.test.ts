@@ -4,6 +4,8 @@ import {
   ONBOARDING_STEP_ORDER,
   visibleSteps,
   missingPluginDeps,
+  autoInstallableDeps,
+  spotifyConnection,
   stepsForDisplay,
   nextStepId,
   prevStepId,
@@ -30,10 +32,18 @@ function dep(overrides: Partial<DependencyInfo> = {}): DependencyInfo {
 const consumer = { name: "YouTube", reason: "stream", required: true };
 
 describe("visibleSteps", () => {
-  it("shows all steps when deps are missing and lastfm is installed", () => {
+  it("shows all steps when deps are missing and Spotify + Last.fm are there", () => {
     expect(
-      visibleSteps({ missingDepNames: ["yt-dlp"], lastfmInstalled: true, profile: "normal" }),
+      visibleSteps({ missingDepNames: ["yt-dlp"], lastfmInstalled: true, spotifyActive: true, profile: "normal" }),
     ).toEqual([...ONBOARDING_STEP_ORDER]);
+  });
+
+  it("shows the Spotify step only while the plugin is running", () => {
+    // Its sign-in is the plugin's own sync; an inactive plugin can't open it.
+    expect(visibleSteps({ missingDepNames: [], lastfmInstalled: false, profile: "streaming" })).not.toContain("spotify");
+    expect(
+      visibleSteps({ missingDepNames: [], lastfmInstalled: false, spotifyActive: true, profile: "streaming" }),
+    ).toContain("spotify");
   });
 
   it("hides the dependencies step when nothing is missing", () => {
@@ -44,7 +54,7 @@ describe("visibleSteps", () => {
 
   it("hides the lastfm step when the plugin is not installed", () => {
     const steps = visibleSteps({ missingDepNames: [], lastfmInstalled: false, profile: "normal" });
-    expect(steps).toEqual(["profile", "welcome", "music", "plugins", "playback", "finish"]);
+    expect(steps).toEqual(["profile", "welcome", "music", "plugins", "playback"]);
   });
 });
 
@@ -80,7 +90,6 @@ describe("stepsForDisplay", () => {
       "dependencies",
       "lastfm",
       "playback",
-      "finish",
     ]);
   });
 });
@@ -105,7 +114,7 @@ describe("nextStepId / prevStepId", () => {
   });
 
   it("returns null at the ends", () => {
-    expect(nextStepId("finish", all)).toBeNull();
+    expect(nextStepId("playback", all)).toBeNull();
     expect(prevStepId("profile", all)).toBeNull();
   });
 
@@ -144,18 +153,22 @@ describe("onboardingDecision", () => {
 });
 
 describe("profile step visibility", () => {
-  it("hides the lastfm step for the video profile even when installed", () => {
-    const steps = visibleSteps({ missingDepNames: [], lastfmInstalled: true, profile: "video" });
-    expect(steps).not.toContain("lastfm");
+  it("goes straight from the question to the plugins for the no-collection profile", () => {
+    // No skin picker and no folder picker before the first song, and without
+    // a library the playback step would be a lone crossfade slider.
+    const steps = visibleSteps({ missingDepNames: ["yt-dlp"], lastfmInstalled: true, spotifyActive: true, profile: "streaming" });
+    expect(steps).toEqual(["profile", "plugins", "dependencies", "spotify", "lastfm"]);
   });
 
-  it("video hides lastfm and nothing else", () => {
-    const steps = visibleSteps({ missingDepNames: ["yt-dlp"], lastfmInstalled: true, profile: "video" });
-    expect(steps).toEqual(ONBOARDING_STEP_ORDER.filter((id) => id !== "lastfm"));
+  it("keeps the music and playback steps for the own-music profile", () => {
+    const steps = visibleSteps({ missingDepNames: [], lastfmInstalled: false, profile: "normal" });
+    expect(steps).toContain("welcome");
+    expect(steps).toContain("music");
+    expect(steps).toContain("playback");
   });
 
-  it("keeps the lastfm step for every other profile", () => {
-    for (const profile of ["normal", "streaming", "server"] as const) {
+  it("keeps the lastfm step for both profiles", () => {
+    for (const profile of ONBOARDING_PROFILES) {
       expect(visibleSteps({ missingDepNames: [], lastfmInstalled: true, profile })).toContain("lastfm");
     }
   });
@@ -169,9 +182,14 @@ describe("profile step visibility", () => {
 describe("normalizeProfile", () => {
   it("passes valid profiles through", () => {
     expect(normalizeProfile("normal")).toBe("normal");
-    expect(normalizeProfile("video")).toBe("video");
     expect(normalizeProfile("streaming")).toBe("streaming");
-    expect(normalizeProfile("server")).toBe("server");
+  });
+
+  it("folds the retired video and server profiles into own music", () => {
+    // Both were "my own music" with a different first suggestion; a re-run of
+    // the wizard on such a profile preselects the card that now covers them.
+    expect(normalizeProfile("video")).toBe("normal");
+    expect(normalizeProfile("server")).toBe("normal");
   });
 
   it("falls back to normal for unknown or absent values", () => {
@@ -179,6 +197,63 @@ describe("normalizeProfile", () => {
     expect(normalizeProfile(undefined)).toBe("normal");
     expect(normalizeProfile(null)).toBe("normal");
     expect(normalizeProfile(42)).toBe("normal");
+  });
+});
+
+describe("autoInstallableDeps", () => {
+  const optional = { name: "yt-dlp plugin", reason: "merge", required: false };
+
+  it("takes missing, managed tools some plugin requires", () => {
+    const deps = [
+      dep({ name: "yt-dlp", pluginConsumers: [consumer] }),
+      dep({ name: "ffmpeg", pluginConsumers: [optional] }),
+      dep({ name: "rqbit", managedAvailable: false, pluginConsumers: [consumer] }),
+      dep({ name: "roadie", status: "installed", pluginConsumers: [consumer] }),
+      dep({ name: "other", pluginConsumers: [] }),
+    ];
+    // Optional tools stay a click away; a tool with no managed build can't be
+    // fetched; an installed one needs nothing.
+    expect(autoInstallableDeps(deps)).toEqual(["yt-dlp"]);
+  });
+
+  it("counts an errored probe as missing", () => {
+    expect(autoInstallableDeps([dep({ status: "error", pluginConsumers: [consumer] })])).toEqual(["yt-dlp"]);
+  });
+});
+
+describe("spotifyConnection", () => {
+  it("reads the plugin's sync state", () => {
+    expect(spotifyConnection({ syncStatus: "checking", playlistCount: 0 })).toEqual({ state: "checking" });
+    expect(spotifyConnection({ syncStatus: "waiting-login", playlistCount: 0 })).toEqual({ state: "signing-in" });
+    expect(spotifyConnection({ syncStatus: "running", playlistCount: 0 })).toEqual({ state: "loading" });
+    expect(spotifyConnection({ syncStatus: "done", playlistCount: 24 })).toEqual({ state: "ready", playlists: 24, account: null });
+    expect(spotifyConnection({ syncStatus: "idle", playlistCount: 0 })).toEqual({ state: "not-connected", signedOut: false });
+    expect(spotifyConnection({ syncStatus: "error", playlistCount: 0 })).toEqual({ state: "failed" });
+  });
+
+  it("uses the sign-in state when the plugin reports it", () => {
+    // After the plugin's quiet first-run check: signed out, nothing synced.
+    expect(spotifyConnection({ syncStatus: "idle", playlistCount: 0, auth: "signed-out", account: null }))
+      .toEqual({ state: "not-connected", signedOut: true });
+    // A confirmed session is connected even before any playlist landed.
+    expect(spotifyConnection({ syncStatus: "done", playlistCount: 24, auth: "signed-in", account: " Alex " }))
+      .toEqual({ state: "ready", playlists: 24, account: "Alex" });
+    expect(spotifyConnection({ syncStatus: "idle", playlistCount: 0, auth: "signed-in", account: "Alex" }))
+      .toEqual({ state: "ready", playlists: 0, account: "Alex" });
+    // An account is only believed alongside signed-in.
+    expect(spotifyConnection({ syncStatus: "done", playlistCount: 2, auth: "signed-out", account: "Alex" }))
+      .toEqual({ state: "ready", playlists: 2, account: null });
+  });
+
+  it("treats playlists already synced as connected, even after a failed refresh", () => {
+    expect(spotifyConnection({ syncStatus: "idle", playlistCount: 3 })).toEqual({ state: "ready", playlists: 3, account: null });
+    expect(spotifyConnection({ syncStatus: "error", playlistCount: 3 })).toEqual({ state: "ready", playlists: 3, account: null });
+  });
+
+  it("says unknown for an answer it can't read", () => {
+    expect(spotifyConnection(null)).toEqual({ state: "unknown" });
+    expect(spotifyConnection("busy")).toEqual({ state: "unknown" });
+    expect(spotifyConnection({ syncStatus: "something-new" })).toEqual({ state: "unknown" });
   });
 });
 
@@ -195,10 +270,10 @@ describe("joinNames", () => {
 });
 
 describe("PROFILE_PRESETS", () => {
-  it("gives every profile a music-step title", () => {
-    for (const id of ONBOARDING_PROFILES) {
-      expect(PROFILE_PRESETS[id].musicTitle.length).toBeGreaterThan(0);
-    }
+  it("offers exactly two choices: own music, or none", () => {
+    expect([...ONBOARDING_PROFILES]).toEqual(["normal", "streaming"]);
+    expect(PROFILE_PRESETS.normal.hasLocalMusic).toBe(true);
+    expect(PROFILE_PRESETS.streaming.hasLocalMusic).toBe(false);
   });
 
   it("does not advertise sources the plugins step filters out", () => {
@@ -208,12 +283,12 @@ describe("PROFILE_PRESETS", () => {
     expect(PROFILE_PRESETS.streaming.description).not.toMatch(/tidal/i);
   });
 
-  it("marks the music step optional only for the streaming profile", () => {
-    // Streaming users have no folder to add; the other profiles' music step is
-    // the point of the wizard, so it must not read as skippable.
-    expect(PROFILE_PRESETS.streaming.musicTitle).toMatch(/optional/i);
-    expect(PROFILE_PRESETS.normal.musicTitle).not.toMatch(/optional/i);
-    expect(PROFILE_PRESETS.video.musicTitle).not.toMatch(/optional/i);
-    expect(PROFILE_PRESETS.server.musicTitle).not.toMatch(/optional/i);
+  it("does the setup work itself only for the no-collection profile", () => {
+    // With no local music the plugins and their tools are the only route to
+    // sound, so Continue installs them; with a library they stay suggestions.
+    for (const key of ["installPluginsOnContinue", "autoInstallTools"] as const) {
+      expect(PROFILE_PRESETS.streaming[key], key).toBe(true);
+      expect(PROFILE_PRESETS.normal[key], key).toBe(false);
+    }
   });
 });

@@ -190,7 +190,7 @@ import type { PluginVisualizerPlacement } from "./types/pluginVisualizer";
 import { TrackDetailView } from "./components/TrackDetailView";
 import { DownloadModal } from "./components/DownloadModal";
 import { OnboardingWizard } from "./components/OnboardingWizard";
-import { onboardingDecision, normalizeProfile, type OnboardingProfile } from "./components/onboardingSteps";
+import { onboardingDecision, normalizeProfile, SPOTIFY_PLUGIN_ID, type OnboardingProfile } from "./components/onboardingSteps";
 import BulkEditModal, { type BulkEditResult } from "./components/BulkEditModal";
 import PlaybackErrorModal from "./components/PlaybackErrorModal";
 import { PromptModal } from "./components/PromptModal";
@@ -2700,6 +2700,15 @@ function App() {
     [plugins.sidebarItemsUnfiltered],
   );
 
+  // The setup wizard's Spotify step polls this; stable so the poll isn't
+  // restarted on every App render. Reads the plugin's own `status` tool — the
+  // read surface it publishes for assistants — rather than its view data.
+  const { invokeAssistantTool } = plugins;
+  const getSpotifyStatus = useCallback(
+    () => invokeAssistantTool(SPOTIFY_PLUGIN_ID, "status", {}),
+    [invokeAssistantTool],
+  );
+
   // Open a plugin's sidebar view. Shared by the sidebar itself and the empty
   // states above, which offer these views as the way in for a setup whose only
   // sources are plugins. With `query` (the Cmd+K no-match state), the view's
@@ -4747,6 +4756,10 @@ function App() {
 
   function handleOnboardingClose(profile: OnboardingProfile) {
     setShowOnboarding(false);
+    // Setup ends on Home: it is where a fresh setup's music shows up first (a
+    // plugin's shelves, the library's once a scan lands). Startup already lands
+    // there, but the wizard is also re-run from Settings.
+    library.setView("home");
     setOnboardingProfile(profile);
     store.set("onboardingProfile", profile).catch((e) => {
       console.error("Failed to persist onboardingProfile:", e);
@@ -6868,9 +6881,11 @@ function App() {
             trackVideoHistory={videoOnForAll(scrobbleSettings, scrobblerList.map((s) => s.id), scrobbleDefaults)}
             onTrackVideoHistoryChange={handleTrackVideoHistoryChange}
             resyncProgress={resyncProgress}
-            resyncComplete={resyncComplete}
             initialProfile={onboardingProfile}
             onClose={handleOnboardingClose}
+            spotifyActive={plugins.pluginStates.some((p) => p.id === SPOTIFY_PLUGIN_ID && p.status === "active")}
+            onSpotifySignIn={() => plugins.dispatchUIAction(SPOTIFY_PLUGIN_ID, "sync")}
+            getSpotifyStatus={getSpotifyStatus}
           />
         );
       })()}

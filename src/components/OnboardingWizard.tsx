@@ -11,15 +11,17 @@ import type { DependencyInfo, InstallProgress } from "../hooks/useDependencies";
 import { PluginViewRenderer } from "./PluginViewRenderer";
 import { SubsonicServerForm } from "./AddServerModal";
 import { getPlatform, getPlatformLabel, formatBytes } from "./DependencyModal";
-import { computeInitialSelection, computeInstallEntries, filterOnboardingEntries } from "./firstRunSelection";
+import { computeInitialSelection, computeInstallEntries, filterOnboardingEntries, onboardingPluginRows } from "./firstRunSelection";
 import {
   type OnboardingStepId,
   type OnboardingProfile,
-  type ProfilePreset,
   ONBOARDING_PROFILES,
   PROFILE_PRESETS,
   visibleSteps,
   missingPluginDeps,
+  autoInstallableDeps,
+  spotifyConnection,
+  type SpotifyConnection,
   stepsForDisplay,
   nextStepId,
   prevStepId,
@@ -33,13 +35,6 @@ interface ScanActivity {
   kind: "scan" | "sync";
   scanned: number;
   total: number;
-}
-
-interface ScanDone {
-  collectionId: number;
-  collectionName: string;
-  newTracks: number;
-  removedTracks: number;
 }
 
 interface SkinsApi {
@@ -77,11 +72,20 @@ interface OnboardingWizardProps {
   trackVideoHistory: boolean;
   onTrackVideoHistoryChange: (enabled: boolean) => void;
   resyncProgress: ScanActivity | null;
-  resyncComplete: ScanDone | null;
   /** Profile preselected on open (stored choice on re-runs, else "normal"). */
   initialProfile: OnboardingProfile;
-  /** Marks onboarding complete, persists the chosen profile, and closes the wizard. */
+  /** Marks onboarding complete, persists the chosen profile, and closes the
+   *  wizard onto Home — where the shelves the new plugins registered (one per
+   *  section of the user's Spotify home) are the first thing to play. */
   onClose: (profile: OnboardingProfile) => void;
+  /** Whether the Spotify plugin is installed and running. */
+  spotifyActive: boolean;
+  /** Start the Spotify plugin's sync, which opens Spotify's sign-in window
+   *  when the user isn't signed in. */
+  onSpotifySignIn: () => void;
+  /** The Spotify plugin's `status` tool answer (shape read by
+   *  `spotifyConnection`); rejects when the plugin can't answer. */
+  getSpotifyStatus: () => Promise<unknown>;
 }
 
 const STEP_TITLES: Record<OnboardingStepId, string> = {
@@ -90,25 +94,83 @@ const STEP_TITLES: Record<OnboardingStepId, string> = {
   music: "Add your music",
   plugins: "Recommended plugins",
   dependencies: "Companion tools",
+  spotify: "Connect Spotify",
   lastfm: "Connect Last.fm",
   playback: "Playback",
-  finish: "You're all set",
 };
 
 export function OnboardingWizard(props: OnboardingWizardProps) {
   const [stepId, setStepId] = useState<OnboardingStepId>("profile");
   const [profile, setProfile] = useState<OnboardingProfile>(props.initialProfile);
   const [busy, setBusy] = useState(false);
+  // A step may take over Continue (the plugins step installs what is checked
+  // for a profile with no music of its own). The label lives in state so the
+  // button re-renders; the work lives in a ref the step refreshes.
+  const [continueLabel, setContinueLabel] = useState<string | null>(null);
+  const continueRunRef = useRef<(() => Promise<void>) | null>(null);
+  // Set once an overriding Continue has finished its work. The next step is
+  // picked on a *later* render, once `deps` reflects what was just installed:
+  // the click handler saw the old step list and would walk straight past a
+  // "Companion tools" step that only exists now.
+  const [advanceAfterWork, setAdvanceAfterWork] = useState(false);
+  // The last step's button finishes setup — and on the no-collection path the
+  // plugins step can be the last *visible* step until its install lands (the
+  // tools and Spotify steps only exist once their plugin does). So finishing
+  // can follow the work too, and is decided on the same later render.
+  const [finishAfterWork, setFinishAfterWork] = useState(false);
   const { onClose } = props;
+  const preset = PROFILE_PRESETS[profile];
 
   const missingDepNames = useMemo(() => missingPluginDeps(props.deps), [props.deps]);
   const steps = useMemo(
-    () => visibleSteps({ missingDepNames, lastfmInstalled: props.lastfmInstalled, profile }),
-    [missingDepNames, props.lastfmInstalled, profile],
+    () =>
+      visibleSteps({
+        missingDepNames,
+        lastfmInstalled: props.lastfmInstalled,
+        spotifyActive: props.spotifyActive,
+        profile,
+      }),
+    [missingDepNames, props.lastfmInstalled, props.spotifyActive, profile],
   );
   const displaySteps = stepsForDisplay(steps, stepId);
   const next = nextStepId(stepId, steps);
   const prev = prevStepId(stepId, steps);
+
+  function goTo(id: OnboardingStepId) {
+    setContinueLabel(null);
+    continueRunRef.current = null;
+    setStepId(id);
+  }
+
+  // Adjusting state during render (React's documented pattern for state that
+  // follows other state), so the move lands in the same commit as the fresh
+  // step list. A stale `continueRunRef` is harmless: it only runs while
+  // `continueLabel` is set, and that is cleared here.
+  if (advanceAfterWork && !busy) {
+    setAdvanceAfterWork(false);
+    if (next) {
+      setContinueLabel(null);
+      setStepId(next);
+    } else {
+      setFinishAfterWork(true);
+    }
+  }
+
+  // Closing updates App's state, which can't happen during this render.
+  useEffect(() => {
+    if (finishAfterWork) onClose(profile);
+  }, [finishAfterWork, onClose, profile]);
+
+  async function handleContinue() {
+    const run = continueLabel ? continueRunRef.current : null;
+    if (!run) {
+      if (next) goTo(next);
+      else onClose(profile);
+      return;
+    }
+    await run();
+    setAdvanceAfterWork(true);
+  }
 
   // Escape finishes setup, like "Skip setup" — but never mid-install.
   useEffect(() => {
@@ -123,13 +185,7 @@ export function OnboardingWizard(props: OnboardingWizardProps) {
     <div className="ds-modal-overlay">
       <div className="ds-modal ds-modal--xl onboarding-modal" onClick={(e) => e.stopPropagation()}>
         <div className="onboarding-header">
-          {/* The music step's own title is profile-dependent: for a streaming
-              setup local sources really are optional, and a header that just
-              says "Add your music" reads as a required step with no way past
-              it other than a folder picker. */}
-          <h2 className="ds-modal-title">
-            {stepId === "music" ? PROFILE_PRESETS[profile].musicTitle : STEP_TITLES[stepId]}
-          </h2>
+          <h2 className="ds-modal-title">{STEP_TITLES[stepId]}</h2>
           <div className="onboarding-dots">
             {displaySteps.map((id) => {
               const state =
@@ -148,7 +204,6 @@ export function OnboardingWizard(props: OnboardingWizardProps) {
           {stepId === "welcome" && <WelcomeStep skins={props.skins} />}
           {stepId === "music" && (
             <MusicStep
-              preset={PROFILE_PRESETS[profile]}
               collections={props.collections}
               resync={props.resyncProgress}
               onCollectionAdded={props.onCollectionAdded}
@@ -164,6 +219,15 @@ export function OnboardingWizard(props: OnboardingWizardProps) {
               onFetchGallery={props.onFetchGallery}
               onRecheckDeps={props.onRecheckDeps}
               setBusy={setBusy}
+              intro={preset.pluginsDesc}
+              onContinueOverride={
+                preset.installPluginsOnContinue
+                  ? (label, run) => {
+                      setContinueLabel(label);
+                      continueRunRef.current = run;
+                    }
+                  : undefined
+              }
             />
           )}
           {stepId === "dependencies" && (
@@ -173,8 +237,12 @@ export function OnboardingWizard(props: OnboardingWizardProps) {
               onInstallDep={props.onInstallDep}
               onRecheckDeps={props.onRecheckDeps}
               noLocalSources={props.collections.length === 0}
+              autoInstall={preset.autoInstallTools}
               setBusy={setBusy}
             />
+          )}
+          {stepId === "spotify" && (
+            <SpotifyStep onSignIn={props.onSpotifySignIn} getStatus={props.getSpotifyStatus} />
           )}
           {stepId === "lastfm" && (
             <LastfmStep
@@ -190,18 +258,17 @@ export function OnboardingWizard(props: OnboardingWizardProps) {
               onCrossfadeChange={props.onCrossfadeChange}
               autoContinueEnabled={props.autoContinueEnabled}
               onAutoContinueEnabledChange={props.onAutoContinueEnabledChange}
-              showVideoHistoryToggle={PROFILE_PRESETS[profile].showVideoHistoryToggle}
               trackVideoHistory={props.trackVideoHistory}
               onTrackVideoHistoryChange={props.onTrackVideoHistoryChange}
             />
           )}
-          {stepId === "finish" && (
-            <FinishStep resync={props.resyncProgress} resyncDone={props.resyncComplete} />
-          )}
         </div>
 
         <div className="onboarding-footer">
-          {stepId !== "finish" ? (
+          {/* On the last step Skip would just be a second "Start listening" —
+              unless that step's button installs first (the no-collection
+              plugins step, before the steps its install adds exist). */}
+          {next || continueLabel ? (
             <button className="ds-btn ds-btn--ghost" onClick={() => onClose(profile)} disabled={busy}>
               Skip setup
             </button>
@@ -210,19 +277,13 @@ export function OnboardingWizard(props: OnboardingWizardProps) {
           )}
           <div className="onboarding-footer-nav">
             {prev && (
-              <button className="ds-btn ds-btn--ghost" onClick={() => setStepId(prev)} disabled={busy}>
+              <button className="ds-btn ds-btn--ghost" onClick={() => goTo(prev)} disabled={busy}>
                 Back
               </button>
             )}
-            {next ? (
-              <button className="ds-btn ds-btn--primary" onClick={() => setStepId(next)} disabled={busy}>
-                Continue
-              </button>
-            ) : (
-              <button className="ds-btn ds-btn--primary" onClick={() => onClose(profile)} disabled={busy}>
-                Start listening
-              </button>
-            )}
+            <button className="ds-btn ds-btn--primary" onClick={handleContinue} disabled={busy}>
+              {continueLabel ?? (next ? "Continue" : "Start listening")}
+            </button>
           </div>
         </div>
       </div>
@@ -241,7 +302,7 @@ function WelcomeStep({ skins }: { skins: SkinsApi }) {
     <>
       <p className="onboarding-step-desc">
         Pick a look. Hover to preview, click to apply; you can change it anytime
-        in Settings.
+        in Extensions → Skins.
       </p>
       <div className="onboarding-skin-grid">
         {skins.installedSkins.map((skin) => (
@@ -275,26 +336,12 @@ const PROFILE_ICONS: Record<OnboardingProfile, ReactNode> = {
       <circle cx="18" cy="16" r="3" />
     </svg>
   ),
-  video: (
-    <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-      <polygon points="23 7 16 12 23 17 23 7" />
-      <rect x="1" y="5" width="15" height="14" rx="2" ry="2" />
-    </svg>
-  ),
   streaming: (
     <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
       <path d="M5 12.55a11 11 0 0 1 14.08 0" />
       <path d="M1.42 9a16 16 0 0 1 21.16 0" />
       <path d="M8.53 16.11a6 6 0 0 1 6.95 0" />
       <line x1="12" y1="20" x2="12.01" y2="20" />
-    </svg>
-  ),
-  server: (
-    <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-      <rect x="2" y="2" width="20" height="8" rx="2" ry="2" />
-      <rect x="2" y="14" width="20" height="8" rx="2" ry="2" />
-      <line x1="6" y1="6" x2="6.01" y2="6" />
-      <line x1="6" y1="18" x2="6.01" y2="18" />
     </svg>
   ),
 };
@@ -309,10 +356,9 @@ function ProfileStep({
   return (
     <>
       <p className="onboarding-step-desc">
-        Let's set things up — it only takes a minute, and every step is optional.
-        First, how will you use Vibo? Your pick just tailors the suggestions
-        in the next steps — every feature stays available no matter what you
-        choose, and you can change anything later.
+        Let's set things up — it only takes a minute. Do you have music of your
+        own? Your pick only tailors the next steps: every feature stays
+        available either way, and you can add a folder or plugins any time.
       </p>
       <div className="onboarding-profile-grid">
         {ONBOARDING_PROFILES.map((id) => {
@@ -340,20 +386,16 @@ function stripTrailingSlashes(path: string): string {
 }
 
 function MusicStep({
-  preset,
   collections,
   resync,
   onCollectionAdded,
 }: {
-  preset: ProfilePreset;
   collections: Collection[];
   resync: ScanActivity | null;
   onCollectionAdded: () => void;
 }) {
   const [musicDir, setMusicDir] = useState<string | null>(null);
-  const [expanded, setExpanded] = useState<"subsonic" | "manifest" | null>(
-    preset.subsonicAutoExpand ? "subsonic" : null,
-  );
+  const [expanded, setExpanded] = useState<"subsonic" | "manifest" | null>(null);
   const [manifestUrl, setManifestUrl] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [adding, setAdding] = useState(false);
@@ -442,9 +484,12 @@ function MusicStep({
 
   return (
     <>
-      <p className="onboarding-step-desc">{preset.musicDesc}</p>
+      <p className="onboarding-step-desc">
+        Where does your music live? Add a folder of audio or video files, or
+        connect your server — scanning runs in the background while you
+        continue. You can add more sources later under Collections.
+      </p>
       <div className="onboarding-options">
-        {preset.subsonicFirst && subsonicOption}
         {musicDir && !musicDirAdded && (
           <div className="onboarding-option">
             <div className="onboarding-option-header">
@@ -473,7 +518,7 @@ function MusicStep({
             </button>
           </div>
         </div>
-        {!preset.subsonicFirst && subsonicOption}
+        {subsonicOption}
         <div className="onboarding-option">
           <div className="onboarding-option-header">
             <div>
@@ -541,6 +586,8 @@ function PluginsStep({
   onFetchGallery,
   onRecheckDeps,
   setBusy,
+  intro,
+  onContinueOverride,
 }: {
   profile: OnboardingProfile;
   entries: GalleryPluginEntry[];
@@ -550,11 +597,16 @@ function PluginsStep({
   onFetchGallery: () => Promise<GalleryPluginEntry[]>;
   onRecheckDeps: () => Promise<void>;
   setBusy: (busy: boolean) => void;
+  intro: string;
+  /** When given, Continue installs what is checked (label, work) — or, with
+   *  nothing left to install, is plain Continue again (null). */
+  onContinueOverride?: (label: string | null, run: () => Promise<void>) => void;
 }) {
-  // Experimental plugins never surface in the wizard. The raw `entries` prop
-  // stays in scope so the empty state can still tell "gallery unreachable"
-  // (raw empty) from "loaded but nothing to recommend" (filtered empty).
-  const visibleEntries = filterOnboardingEntries(entries);
+  // Only stable plugins recommended for this profile are listed. The raw
+  // `entries` prop stays in scope so the empty state can still tell "gallery
+  // unreachable" (raw empty) from "loaded but nothing to recommend".
+  const visibleEntries = onboardingPluginRows(entries, profile);
+  const moreCount = filterOnboardingEntries(entries).length - visibleEntries.length;
 
   // Recomputed from the current profile on every visit — the step unmounts on
   // navigation, so switching profile and coming back re-seeds the selection.
@@ -644,6 +696,12 @@ function PluginsStep({
     }
   }
 
+  // Every render: the label tracks the checked set, and the ref the wizard
+  // calls must hold this render's `handleInstall` (it closes over `toInstall`).
+  useEffect(() => {
+    onContinueOverride?.(toInstall.length > 0 ? "Install & continue" : null, handleInstall);
+  });
+
   if (entries.length === 0) {
     return (
       <div className="onboarding-empty">
@@ -661,7 +719,7 @@ function PluginsStep({
     );
   }
 
-  // The gallery loaded fine — everything was just filtered out (experimental).
+  // The gallery loaded fine — nothing in it is recommended for this profile.
   if (visibleEntries.length === 0) {
     return (
       <div className="onboarding-empty">
@@ -672,11 +730,7 @@ function PluginsStep({
 
   return (
     <>
-      <p className="onboarding-step-desc">
-        Plugins add streaming sources, lyrics, artwork, scrobbling and more.
-        Recommended ones are pre-selected — adjust the list and install, or skip
-        for now.
-      </p>
+      <p className="onboarding-step-desc">{intro}</p>
       <div className="first-run-list">
         {visibleEntries.map((entry) => {
           const isInstalled = installedIds.has(entry.id) || done.has(entry.id);
@@ -708,10 +762,7 @@ function PluginsStep({
                 <span className="first-run-icon first-run-icon--placeholder" />
               )}
               <span className="first-run-meta">
-                <span className="first-run-name">
-                  {entry.name}
-                  {entry.recommended && <span className="first-run-badge">Recommended</span>}
-                </span>
+                <span className="first-run-name">{entry.name}</span>
                 <span className="first-run-desc">{entry.description}</span>
               </span>
               <span className={`first-run-status${isFailed ? " is-failed" : ""}`}>
@@ -721,19 +772,28 @@ function PluginsStep({
           );
         })}
       </div>
-      <div className="ds-modal-actions">
-        <button
-          className="ds-btn ds-btn--primary"
-          onClick={handleInstall}
-          disabled={running || toInstall.length === 0}
-        >
-          {running
-            ? "Installing…"
-            : toInstall.length > 0
-              ? `Install ${toInstall.length} plugin${toInstall.length === 1 ? "" : "s"}`
-              : "Install"}
-        </button>
-      </div>
+      {moreCount > 0 && (
+        <p className="onboarding-hint">
+          {moreCount} more plugin{moreCount === 1 ? " is" : "s are"} in Extensions whenever you want
+          {moreCount === 1 ? " it" : " them"}.
+        </p>
+      )}
+      {/* When Continue installs, a second install button is the same action twice. */}
+      {!onContinueOverride && (
+        <div className="ds-modal-actions">
+          <button
+            className="ds-btn ds-btn--primary"
+            onClick={handleInstall}
+            disabled={running || toInstall.length === 0}
+          >
+            {running
+              ? "Installing…"
+              : toInstall.length > 0
+                ? `Install ${toInstall.length} plugin${toInstall.length === 1 ? "" : "s"}`
+                : "Install"}
+          </button>
+        </div>
+      )}
     </>
   );
 }
@@ -744,6 +804,7 @@ function DependenciesStep({
   onInstallDep,
   onRecheckDeps,
   noLocalSources,
+  autoInstall,
   setBusy,
 }: {
   deps: DependencyInfo[];
@@ -753,6 +814,9 @@ function DependenciesStep({
   /** No folder or server was added — every source is a plugin, so a missing
    *  required binary means nothing plays at all, not just one feature. */
   noLocalSources: boolean;
+  /** Start installing the required managed tools on arrival
+   *  (`autoInstallableDeps`) instead of waiting for a click per tool. */
+  autoInstall: boolean;
   setBusy: (busy: boolean) => void;
 }) {
   const [installingNames, setInstallingNames] = useState<Set<string>>(new Set());
@@ -770,13 +834,11 @@ function DependenciesStep({
     ? rows.filter((d) => d.status !== "installed" && d.pluginConsumers.some((c) => c.required))
     : [];
 
-  async function handleInstall(name: string) {
+  async function installOne(name: string) {
     setInstallingNames((prev) => new Set(prev).add(name));
     setErrors((prev) => ({ ...prev, [name]: "" }));
-    setBusy(true);
     try {
       await onInstallDep(name);
-      onRecheckDeps();
     } catch (e) {
       console.error(`Failed to install dependency "${name}":`, e);
       setErrors((prev) => ({ ...prev, [name]: String(e) }));
@@ -786,9 +848,43 @@ function DependenciesStep({
         nextSet.delete(name);
         return nextSet;
       });
+    }
+  }
+
+  async function handleInstall(name: string) {
+    setBusy(true);
+    try {
+      await installOne(name);
+      onRecheckDeps();
+    } finally {
       setBusy(false);
     }
   }
+
+  // One pass per visit, sequential (each is a download), all inside one busy
+  // window so Continue can't slip between two installs. A ref, not state: it
+  // survives StrictMode's effect re-run, which would otherwise start each
+  // download twice.
+  const autoStartedRef = useRef(false);
+  const [autoNames, setAutoNames] = useState<string[]>([]);
+  useEffect(() => {
+    if (!autoInstall || autoStartedRef.current) return;
+    const names = autoInstallableDeps(deps);
+    if (names.length === 0) return;
+    autoStartedRef.current = true;
+    setAutoNames(names);
+    setBusy(true);
+    (async () => {
+      try {
+        for (const name of names) await installOne(name);
+        await onRecheckDeps();
+      } finally {
+        setAutoNames([]);
+        setBusy(false);
+      }
+    })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- one pass on arrival
+  }, [autoInstall]);
 
   async function handleCopy(name: string, command: string) {
     try {
@@ -802,7 +898,13 @@ function DependenciesStep({
 
   return (
     <>
-      {blocking.length > 0 ? (
+      {autoNames.length > 0 ? (
+        <p className="onboarding-step-desc">
+          Your plugins reach the web through {joinNames(autoNames)}. Vibo is
+          installing {autoNames.length > 1 ? "them" : "it"} for you now — it
+          only takes a few seconds.
+        </p>
+      ) : blocking.length > 0 ? (
         <p className="onboarding-step-desc">
           You haven't added a folder or a server, so every source here is a
           plugin — and plugins reach the web through{" "}
@@ -952,12 +1054,98 @@ function LastfmStep({
   );
 }
 
+function spotifyReadyText(account: string | null, playlists: number): string {
+  const who = account ? `Connected as ${account}` : "Connected";
+  if (playlists === 0) return `${who}. Your playlists will appear on Home once they've synced.`;
+  return `${who} — ${playlists} playlist${playlists === 1 ? "" : "s"} ready. You'll find them on Home.`;
+}
+
+/** How often the Spotify step re-reads the plugin's status while it is open. */
+const SPOTIFY_POLL_MS = 1500;
+
+function SpotifyStep({
+  onSignIn,
+  getStatus,
+}: {
+  onSignIn: () => void;
+  getStatus: () => Promise<unknown>;
+}) {
+  const [conn, setConn] = useState<SpotifyConnection>({ state: "unknown" });
+
+  // Poll, not subscribe: the plugin publishes no event for its sync state, and
+  // the step is only ever up for a minute or two.
+  useEffect(() => {
+    let cancelled = false;
+    async function read() {
+      try {
+        const next = spotifyConnection(await getStatus());
+        if (!cancelled) setConn(next);
+      } catch (e) {
+        console.error("Failed to read Spotify status:", e);
+      }
+    }
+    read();
+    const timer = setInterval(read, SPOTIFY_POLL_MS);
+    return () => {
+      cancelled = true;
+      clearInterval(timer);
+    };
+  }, [getStatus]);
+
+  function signIn() {
+    onSignIn();
+    // Show the wait at once; the next poll confirms it.
+    setConn({ state: "signing-in" });
+  }
+
+  const busy = conn.state === "checking" || conn.state === "signing-in" || conn.state === "loading";
+  return (
+    <>
+      <p className="onboarding-step-desc">
+        Sign in to Spotify and the playlists and mixes on your Spotify home show
+        up in Vibo. Sign-in happens on Spotify's own page in a separate window —
+        your password goes to Spotify, never to Vibo.
+      </p>
+      <div className={`onboarding-connect onboarding-connect--${conn.state}`}>
+        <div className="onboarding-connect-status">
+          {busy && <span className="ds-spinner ds-spinner--sm" />}
+          <span>
+            {conn.state === "ready"
+              ? spotifyReadyText(conn.account, conn.playlists)
+              : conn.state === "checking"
+                ? "Checking whether you're already signed in…"
+                : conn.state === "signing-in"
+                ? "A Spotify window is open. Sign in there, then come back — this updates by itself."
+                : conn.state === "loading"
+                  ? "Signed in. Loading your playlists…"
+                  : conn.state === "failed"
+                    ? "Sign-in wasn't finished. Try again, or do it later from the Spotify view."
+                    : conn.state === "not-connected"
+                      ? conn.signedOut
+                        ? "You're not signed in to Spotify yet."
+                        : "Not connected yet."
+                      : "Checking…"}
+          </span>
+        </div>
+        {conn.state !== "ready" && (
+          <button className="ds-btn ds-btn--primary" onClick={signIn} disabled={busy || conn.state === "unknown"}>
+            {conn.state === "failed" ? "Try again" : "Sign in to Spotify"}
+          </button>
+        )}
+      </div>
+      <p className="onboarding-hint">
+        Don't use Spotify? Skip this step — YouTube and the other sites work
+        without an account.
+      </p>
+    </>
+  );
+}
+
 function PlaybackStep({
   crossfadeSecs,
   onCrossfadeChange,
   autoContinueEnabled,
   onAutoContinueEnabledChange,
-  showVideoHistoryToggle,
   trackVideoHistory,
   onTrackVideoHistoryChange,
 }: {
@@ -965,15 +1153,14 @@ function PlaybackStep({
   onCrossfadeChange: (secs: number) => void;
   autoContinueEnabled: boolean;
   onAutoContinueEnabledChange: (enabled: boolean) => void;
-  showVideoHistoryToggle: boolean;
   trackVideoHistory: boolean;
   onTrackVideoHistoryChange: (enabled: boolean) => void;
 }) {
   return (
     <>
       <p className="onboarding-step-desc">
-        How should tracks flow into each other? Both settings can be changed
-        later in Settings → General.
+        How should tracks flow into each other? You can change this later in
+        Settings → Playback.
       </p>
       <div className="settings-card">
         <div className="settings-row">
@@ -1014,73 +1201,23 @@ function PlaybackStep({
             <span className="ds-toggle-thumb" />
           </button>
         </div>
-        {showVideoHistoryToggle && (
-          <div className="settings-row">
-            <div className="settings-row-info">
-              <span className="settings-label">Track video history</span>
-              <span className="settings-description">
-                Count video plays in your history and stats, like audio
-              </span>
-            </div>
-            <button
-              className={`ds-toggle ${trackVideoHistory ? "on" : ""}`}
-              role="switch"
-              aria-checked={trackVideoHistory}
-              onClick={() => onTrackVideoHistoryChange(!trackVideoHistory)}
-            >
-              <span className="ds-toggle-thumb" />
-            </button>
+        <div className="settings-row">
+          <div className="settings-row-info">
+            <span className="settings-label">Track video history</span>
+            <span className="settings-description">
+              Count video plays in your history and stats, like audio
+            </span>
           </div>
-        )}
-      </div>
-    </>
-  );
-}
-
-const MOD = navigator.platform.toLowerCase().includes("mac") ? "⌘" : "Ctrl";
-
-const SHORTCUTS: Array<[string, string]> = [
-  ["Space", "Play / pause"],
-  [`${MOD} K`, "Search everything"],
-  [`${MOD} 0`, "Home"],
-  [`${MOD} 1`, "Library"],
-  [`${MOD} 3`, "Now Playing"],
-  [`${MOD} L`, "Like the current track"],
-  [`${MOD} P`, "Toggle the queue panel"],
-  [`${MOD} B`, "Show / hide the sidebar"],
-  [`${MOD} ⇧ M`, "Mini player"],
-];
-
-function FinishStep({ resync, resyncDone }: { resync: ScanActivity | null; resyncDone: ScanDone | null }) {
-  return (
-    <>
-      <p className="onboarding-step-desc">
-        That's it — a few shortcuts worth knowing:
-      </p>
-      <div className="onboarding-kbd-grid">
-        {SHORTCUTS.map(([keys, desc]) => (
-          <span key={keys} style={{ display: "contents" }}>
-            <kbd>{keys}</kbd>
-            <span className="onboarding-kbd-desc">{desc}</span>
-          </span>
-        ))}
-      </div>
-      {resync && (
-        <div className="onboarding-scan-status">
-          <span className="ds-spinner ds-spinner--sm" />
-          {resync.kind === "sync" ? "Syncing" : "Scanning"} “{resync.collectionName}”…{" "}
-          {resync.scanned}
-          {resync.total > 0 ? ` / ${resync.total}` : ""} tracks
+          <button
+            className={`ds-toggle ${trackVideoHistory ? "on" : ""}`}
+            role="switch"
+            aria-checked={trackVideoHistory}
+            onClick={() => onTrackVideoHistoryChange(!trackVideoHistory)}
+          >
+            <span className="ds-toggle-thumb" />
+          </button>
         </div>
-      )}
-      {!resync && resyncDone && (
-        <div className="onboarding-scan-status">
-          “{resyncDone.collectionName}” ready — {resyncDone.newTracks} tracks added
-        </div>
-      )}
-      <p className="onboarding-hint">
-        You can run this setup again anytime from Settings → General.
-      </p>
+      </div>
     </>
   );
 }

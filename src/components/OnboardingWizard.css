@@ -51,14 +51,6 @@
   font-weight: 600;
   color: var(--text-primary);
 }
-.first-run-badge {
-  font-size: var(--fs-2xs);
-  font-weight: 600;
-  color: var(--accent);
-  border: 1px solid var(--accent-dim);
-  border-radius: var(--ds-radius);
-  padding: 1px 6px;
-}
 .first-run-desc {
   font-size: var(--fs-xs);
   color: var(--text-secondary);
@@ -375,34 +367,30 @@
   padding: 12px;
 }
 
-/* Finish step: shortcut cheat sheet + scan status */
-.onboarding-kbd-grid {
-  display: grid;
-  grid-template-columns: auto 1fr;
-  gap: 8px 16px;
+/* Spotify step: one status line and the sign-in button. */
+.onboarding-connect {
+  display: flex;
+  flex-wrap: wrap;
   align-items: center;
-  margin: 12px 0 16px;
-}
-.onboarding-kbd-grid kbd {
-  font-family: inherit;
-  font-size: var(--fs-xs);
-  color: var(--text-primary);
-  background: var(--bg-tertiary);
+  justify-content: space-between;
+  gap: 12px;
+  padding: 16px;
   border: 1px solid var(--border);
-  border-radius: var(--ds-radius);
-  padding: 2px 8px;
-  justify-self: start;
-  white-space: nowrap;
+  border-radius: var(--ds-radius-card);
+  background: var(--bg-secondary);
 }
-.onboarding-kbd-desc {
-  font-size: var(--fs-sm);
-  color: var(--text-secondary);
-}
-.onboarding-scan-status {
+.onboarding-connect-status {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 10px;
+  min-width: 0;
+  flex: 1;
   font-size: var(--fs-sm);
   color: var(--text-secondary);
-  margin-top: 8px;
+}
+.onboarding-connect--ready .onboarding-connect-status {
+  color: var(--success);
+}
+.onboarding-connect--failed .onboarding-connect-status {
+  color: var(--warning);
 }
