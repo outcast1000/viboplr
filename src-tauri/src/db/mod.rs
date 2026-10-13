@@ -454,9 +454,8 @@ impl Database {
         *db.reader.lock().unwrap() = reader;
         *db.query_reader.lock().unwrap() = query_reader;
         timer.time("db: ensure_builtin_rows", || db.ensure_builtin_rows())?;
+        // Before the counts: a migration that merges rows changes them.
         timer.time("db: run_migrations", || db.run_migrations())?;
-        // Before the counts: merging a duplicate row changes them.
-        timer.time("db: repair_separator_duplicates", || db.repair_separator_duplicates())?;
         // Crash safety: keep denormalized counts consistent on every startup.
         timer.time("db: recompute_counts", || db.recompute_counts())?;
         // Repair any tracks.liked mirror drift from the durable entity_likes
@@ -865,31 +864,19 @@ impl Database {
     /// carries no meaning (pre-squash DBs are stamped with inflated values,
     /// e.g. 35), so a new migration must NOT gate on `db_version < N` — detect
     /// the needed change by schema presence (idempotent), and guard a one-time
-    /// data pass with a `__core__` marker in plugin_storage, like the one
-    /// below. `recompute_counts()` runs separately at startup.
+    /// data pass with a `__core__` marker in plugin_storage (`run_once`), like
+    /// the ones below. `recompute_counts()` runs separately at startup.
     fn run_migrations(&self) -> SqlResult<()> {
         // Entity keys trim their segments (`likes::norm_segment`), matching
         // the Vibo Community server. Likes stored under a padded name move to
-        // the trimmed key once; a data pass, so it is guarded by a marker
-        // rather than detected by schema.
-        let already_rekeyed: bool = {
-            let conn = self.conn.lock().unwrap();
-            conn.query_row(
-                "SELECT COUNT(*) FROM plugin_storage WHERE plugin_id = '__core__' AND key = 'entity_keys_trimmed'",
-                [], |r| r.get::<_, i64>(0),
-            ).unwrap_or(0) > 0
-        };
-        if !already_rekeyed {
+        // the trimmed key once.
+        self.run_once("entity_keys_trimmed", || {
             let moved = self.rekey_untrimmed_entity_likes()?;
             if moved > 0 {
                 log::info!("Re-keyed {moved} like(s) stored under untrimmed names");
             }
-            let conn = self.conn.lock().unwrap();
-            conn.execute(
-                "INSERT OR REPLACE INTO plugin_storage (plugin_id, key, value)
-                 VALUES ('__core__', 'entity_keys_trimmed', '1')", [],
-            )?;
-        }
+            Ok(())
+        })?;
 
         // 15. Provider rows: a user switch that survives, and one plugin with
         //     several providers.
@@ -948,6 +935,40 @@ impl Database {
             )?;
         }
 
+        // Windows: merge the duplicate rows a replace/move created by writing
+        // `/` paths (fixed at the source in v1.0.88). It used to run on every
+        // launch, full-scanning `tracks` with an unindexable `instr(path,'/')`;
+        // nothing writes such paths any more, so once is enough. Elsewhere the
+        // repair is a no-op, and the marker is set all the same.
+        self.run_once("separator_paths_repaired", || {
+            self.repair_separator_duplicates()?;
+            Ok(())
+        })?;
+
+        Ok(())
+    }
+
+    /// Run a one-time data pass unless its `__core__` marker is already set,
+    /// then set it. The marker is written only after `pass` succeeds, so a
+    /// failed pass is retried on the next launch.
+    fn run_once(&self, marker: &str, pass: impl FnOnce() -> SqlResult<()>) -> SqlResult<()> {
+        let done: bool = {
+            let conn = self.conn.lock().unwrap();
+            conn.query_row(
+                "SELECT COUNT(*) FROM plugin_storage WHERE plugin_id = '__core__' AND key = ?1",
+                [marker], |r| r.get::<_, i64>(0),
+            ).unwrap_or(0) > 0
+        };
+        if done {
+            return Ok(());
+        }
+        pass()?;
+        let conn = self.conn.lock().unwrap();
+        conn.execute(
+            "INSERT OR REPLACE INTO plugin_storage (plugin_id, key, value)
+             VALUES ('__core__', ?1, '1')",
+            [marker],
+        )?;
         Ok(())
     }
 }

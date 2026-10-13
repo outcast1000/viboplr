@@ -4704,3 +4704,27 @@ fn test_core_provider_switch_moves_from_active_to_enabled() {
     let chain: Vec<String> = db.get_image_providers("album").unwrap().into_iter().map(|p| p.0).collect();
     assert!(!chain.contains(&"core:embedded".to_string()));
 }
+
+#[test]
+fn test_run_once_runs_a_pass_once_and_retries_a_failed_one() {
+    let db = test_db();
+    let runs = std::cell::Cell::new(0);
+
+    // A failed pass leaves no marker, so the next launch tries again.
+    let failed = db.run_once("test_marker", || {
+        runs.set(runs.get() + 1);
+        Err(rusqlite::Error::InvalidQuery)
+    });
+    assert!(failed.is_err());
+    assert!(db.plugin_storage_get("__core__", "test_marker").unwrap().is_none());
+
+    db.run_once("test_marker", || { runs.set(runs.get() + 1); Ok(()) }).unwrap();
+    db.run_once("test_marker", || { runs.set(runs.get() + 1); Ok(()) }).unwrap();
+    assert_eq!(runs.get(), 2, "the pass after the failure runs, the one after success does not");
+    assert!(db.plugin_storage_get("__core__", "test_marker").unwrap().is_some());
+
+    // Both real one-time passes have stamped their markers on a fresh database.
+    for marker in ["entity_keys_trimmed", "separator_paths_repaired"] {
+        assert!(db.plugin_storage_get("__core__", marker).unwrap().is_some(), "{marker}");
+    }
+}

@@ -826,7 +826,8 @@ impl Database {
     /// the duplicate is deleted, and the path is put in the stored form. A `/`
     /// path with no twin is normalized too. Local collections only, and only
     /// where `\` is the separator (elsewhere it is a legal filename character).
-    /// Idempotent; returns how many rows it repaired.
+    /// Idempotent; returns how many rows it repaired. Run once per database by
+    /// `run_migrations` (marker `separator_paths_repaired`).
     pub fn repair_separator_duplicates(&self) -> SqlResult<usize> {
         if std::path::MAIN_SEPARATOR != '\\' {
             return Ok(0);
