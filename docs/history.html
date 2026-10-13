@@ -61,6 +61,47 @@
       <div class="timeline" id="timeline">
         <div class="timeline-entry reveal">
         <div class="timeline-header">
+          <span class="timeline-version">Viboplr v1.0.105</span>
+          <span class="timeline-date">October 13, 2026</span>
+        </div>
+        <div class="timeline-body">
+          <h4>Features</h4>
+          <ul>
+          <li><strong>plugins</strong>: Last.fm source moves to its own repo; the app bundles its releases</li>
+          <li><strong>plugins</strong>: several providers per plugin; merge bundled image + lyrics plugins</li>
+          <li><strong>onboarding</strong>: two profiles, an easier no-collection path, ends on Home</li>
+          </ul>
+          <h4>Bug Fixes</h4>
+          <ul>
+          <li><strong>onboarding</strong>: Spotify step stays usable when the plugin's status can't be read</li>
+          <li><strong>plugins</strong>: trash leftover copies of the merged image/lyrics plugins</li>
+          </ul>
+          <h4>Performance</h4>
+          <ul>
+          <li><strong>db</strong>: run the Windows separator repair once, not every launch</li>
+          <li><strong>store</strong>: move the Home snapshot out of app-state.json; stop persisting position</li>
+          </ul>
+          <h4>Refactoring</h4>
+          <ul>
+          <li>retire migrations every install has already run</li>
+          </ul>
+          <h4>Documentation</h4>
+          <ul>
+          <li><strong>db</strong>: the unsupported-database cutoff is v1.0.57, not v1.0.95</li>
+          </ul>
+          <h4>CI</h4>
+          <ul>
+          <li><strong>plugins</strong>: weekly PR when a bundled plugin has a newer release</li>
+          </ul>
+        </div>
+        <div class="timeline-assets">
+            <a href="https://github.com/outcast1000/viboplr/releases/download/v1.0.105/Viboplr_1.0.105_aarch64.dmg" class="timeline-asset-link"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg> Viboplr_1.0.105_aarch64.dmg</a>
+            <a href="https://github.com/outcast1000/viboplr/releases/download/v1.0.105/Viboplr_1.0.105_x64-setup.exe" class="timeline-asset-link"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg> Viboplr_1.0.105_x64-setup.exe</a>
+        </div>
+      </div>
+      
+        <div class="timeline-entry reveal">
+        <div class="timeline-header">
           <span class="timeline-version">Viboplr v1.0.104</span>
           <span class="timeline-date">October 13, 2026</span>
         </div>
