@@ -247,6 +247,92 @@ export function SearchView({
 
   const restoredRef = useRef(false);
 
+  const refetchTracks = useCallback(async () => {
+    if (!searched) return;
+    const q = queryRef.current;
+    const filters = getTrackFilterParams();
+    const trackRes = await invoke<SearchEntityResult>("search_entity", {
+      query: q, entity: "tracks", limit: TRACK_PAGE_SIZE, offset: 0, ...filters,
+    });
+    const tracks = trackRes.tracks ?? [];
+    setResults(prev => ({ ...prev, tracks }));
+    setCounts(prev => ({ ...prev, tracks: trackRes.total }));
+    setHasMore(prev => ({ ...prev, tracks: tracks.length < trackRes.total }));
+  }, [searched]);
+
+  const refetchArtists = useCallback(async () => {
+    if (!searched) return;
+    const q = queryRef.current;
+    const filters = getArtistFilterParams();
+    const artistRes = await invoke<SearchEntityResult>("search_entity", {
+      query: q, entity: "artists", limit: ENTITY_PAGE_SIZE, offset: 0, ...filters,
+    });
+    const artists = artistRes.artists ?? [];
+    setResults(prev => ({ ...prev, artists }));
+    setCounts(prev => ({ ...prev, artists: artistRes.total }));
+    setHasMore(prev => ({ ...prev, artists: artists.length < artistRes.total }));
+  }, [searched]);
+
+  const refetchAlbums = useCallback(async () => {
+    if (!searched) return;
+    const q = queryRef.current;
+    const filters = getAlbumFilterParams();
+    const albumRes = await invoke<SearchEntityResult>("search_entity", {
+      query: q, entity: "albums", limit: ENTITY_PAGE_SIZE, offset: 0, ...filters,
+    });
+    const albums = albumRes.albums ?? [];
+    setResults(prev => ({ ...prev, albums }));
+    setCounts(prev => ({ ...prev, albums: albumRes.total }));
+    setHasMore(prev => ({ ...prev, albums: albums.length < albumRes.total }));
+  }, [searched]);
+
+  const refetchTags = useCallback(async () => {
+    if (!searched) return;
+    const q = queryRef.current;
+    const filters = getTagFilterParams();
+    const tagRes = await invoke<SearchEntityResult>("search_entity", {
+      query: q, entity: "tags", limit: ENTITY_PAGE_SIZE, offset: 0, ...filters,
+    });
+    const tags = tagRes.tags ?? [];
+    setResults(prev => ({ ...prev, tags }));
+    setCounts(prev => ({ ...prev, tags: tagRes.total }));
+    setHasMore(prev => ({ ...prev, tags: tags.length < tagRes.total }));
+  }, [searched]);
+
+  const doSearch = useCallback(async (q: string) => {
+    setSearched(true);
+    const trackFilters = getTrackFilterParams();
+    const artistFilters = getArtistFilterParams();
+    const albumFilters = getAlbumFilterParams();
+    const tagFilters = getTagFilterParams();
+
+    const [trackRes, albumRes, artistRes, tagRes] = await Promise.all([
+      invoke<SearchEntityResult>("search_entity", { query: q, entity: "tracks", limit: TRACK_PAGE_SIZE, offset: 0, ...trackFilters }),
+      invoke<SearchEntityResult>("search_entity", { query: q, entity: "albums", limit: ENTITY_PAGE_SIZE, offset: 0, ...albumFilters }),
+      invoke<SearchEntityResult>("search_entity", { query: q, entity: "artists", limit: ENTITY_PAGE_SIZE, offset: 0, ...artistFilters }),
+      invoke<SearchEntityResult>("search_entity", { query: q, entity: "tags", limit: ENTITY_PAGE_SIZE, offset: 0, ...tagFilters }),
+    ]);
+
+    if (queryRef.current !== q) return;
+
+    const tracks = trackRes.tracks ?? [];
+    const albums = albumRes.albums ?? [];
+    const artists = artistRes.artists ?? [];
+    const tags = tagRes.tags ?? [];
+
+    setResults({ tracks, albums, artists, tags });
+    setCounts({ tracks: trackRes.total, albums: albumRes.total, artists: artistRes.total, tags: tagRes.total });
+    setHasMore({
+      tracks: tracks.length < trackRes.total,
+      albums: albums.length < albumRes.total,
+      artists: artists.length < artistRes.total,
+      tags: tags.length < tagRes.total,
+    });
+    // New query results replace the list — scroll back to top (all tabs share
+    // this container). Load-more appends via handleLoadMore and never hits this.
+    if (resultsRef.current) resultsRef.current.scrollTop = 0;
+  }, []);
+
   useEffect(() => {
     inputRef.current?.focus();
     store.get<SearchSettings>("searchSettings").then(saved => {
@@ -411,92 +497,6 @@ export function SearchView({
   }, [activeTab, mediaTypeFilter,
       trackSortChain, artistSortChain, albumSortChain, tagSortChain,
       sortBarCollapsed]);
-
-  const refetchTracks = useCallback(async () => {
-    if (!searched) return;
-    const q = queryRef.current;
-    const filters = getTrackFilterParams();
-    const trackRes = await invoke<SearchEntityResult>("search_entity", {
-      query: q, entity: "tracks", limit: TRACK_PAGE_SIZE, offset: 0, ...filters,
-    });
-    const tracks = trackRes.tracks ?? [];
-    setResults(prev => ({ ...prev, tracks }));
-    setCounts(prev => ({ ...prev, tracks: trackRes.total }));
-    setHasMore(prev => ({ ...prev, tracks: tracks.length < trackRes.total }));
-  }, [searched]);
-
-  const refetchArtists = useCallback(async () => {
-    if (!searched) return;
-    const q = queryRef.current;
-    const filters = getArtistFilterParams();
-    const artistRes = await invoke<SearchEntityResult>("search_entity", {
-      query: q, entity: "artists", limit: ENTITY_PAGE_SIZE, offset: 0, ...filters,
-    });
-    const artists = artistRes.artists ?? [];
-    setResults(prev => ({ ...prev, artists }));
-    setCounts(prev => ({ ...prev, artists: artistRes.total }));
-    setHasMore(prev => ({ ...prev, artists: artists.length < artistRes.total }));
-  }, [searched]);
-
-  const refetchAlbums = useCallback(async () => {
-    if (!searched) return;
-    const q = queryRef.current;
-    const filters = getAlbumFilterParams();
-    const albumRes = await invoke<SearchEntityResult>("search_entity", {
-      query: q, entity: "albums", limit: ENTITY_PAGE_SIZE, offset: 0, ...filters,
-    });
-    const albums = albumRes.albums ?? [];
-    setResults(prev => ({ ...prev, albums }));
-    setCounts(prev => ({ ...prev, albums: albumRes.total }));
-    setHasMore(prev => ({ ...prev, albums: albums.length < albumRes.total }));
-  }, [searched]);
-
-  const refetchTags = useCallback(async () => {
-    if (!searched) return;
-    const q = queryRef.current;
-    const filters = getTagFilterParams();
-    const tagRes = await invoke<SearchEntityResult>("search_entity", {
-      query: q, entity: "tags", limit: ENTITY_PAGE_SIZE, offset: 0, ...filters,
-    });
-    const tags = tagRes.tags ?? [];
-    setResults(prev => ({ ...prev, tags }));
-    setCounts(prev => ({ ...prev, tags: tagRes.total }));
-    setHasMore(prev => ({ ...prev, tags: tags.length < tagRes.total }));
-  }, [searched]);
-
-  const doSearch = useCallback(async (q: string) => {
-    setSearched(true);
-    const trackFilters = getTrackFilterParams();
-    const artistFilters = getArtistFilterParams();
-    const albumFilters = getAlbumFilterParams();
-    const tagFilters = getTagFilterParams();
-
-    const [trackRes, albumRes, artistRes, tagRes] = await Promise.all([
-      invoke<SearchEntityResult>("search_entity", { query: q, entity: "tracks", limit: TRACK_PAGE_SIZE, offset: 0, ...trackFilters }),
-      invoke<SearchEntityResult>("search_entity", { query: q, entity: "albums", limit: ENTITY_PAGE_SIZE, offset: 0, ...albumFilters }),
-      invoke<SearchEntityResult>("search_entity", { query: q, entity: "artists", limit: ENTITY_PAGE_SIZE, offset: 0, ...artistFilters }),
-      invoke<SearchEntityResult>("search_entity", { query: q, entity: "tags", limit: ENTITY_PAGE_SIZE, offset: 0, ...tagFilters }),
-    ]);
-
-    if (queryRef.current !== q) return;
-
-    const tracks = trackRes.tracks ?? [];
-    const albums = albumRes.albums ?? [];
-    const artists = artistRes.artists ?? [];
-    const tags = tagRes.tags ?? [];
-
-    setResults({ tracks, albums, artists, tags });
-    setCounts({ tracks: trackRes.total, albums: albumRes.total, artists: artistRes.total, tags: tagRes.total });
-    setHasMore({
-      tracks: tracks.length < trackRes.total,
-      albums: albums.length < albumRes.total,
-      artists: artists.length < artistRes.total,
-      tags: tags.length < tagRes.total,
-    });
-    // New query results replace the list — scroll back to top (all tabs share
-    // this container). Load-more appends via handleLoadMore and never hits this.
-    if (resultsRef.current) resultsRef.current.scrollTop = 0;
-  }, []);
 
   const handleInputChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
     const val = e.target.value;

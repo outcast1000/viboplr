@@ -238,6 +238,8 @@ fn parse_ytdlp_version(output: &str) -> Option<String> {
     output.lines().next().map(|l| l.trim().to_string())
 }
 
+// Used only by the debug-only `fictional-tool` registry entry below.
+#[cfg(debug_assertions)]
 fn parse_fictional_version(output: &str) -> Option<String> {
     output.lines().next().map(|l| l.trim().to_string())
 }

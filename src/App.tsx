@@ -226,7 +226,7 @@ const NO_SEEK_MARKERS: SeekMarker[] = [];
 
 function VideoFrameQueueRefBridge({ refOut }: { refOut: React.MutableRefObject<VideoFrameQueue | null> }) {
   const queue = useVideoFrameQueue();
-  useEffect(() => { refOut.current = queue; }, [queue, refOut]);
+  useAssignRef(refOut, queue);
   return null;
 }
 
@@ -1098,7 +1098,7 @@ function App() {
     onReorder: setNowPlayingInfoOrder,
     onReset: resetNowPlayingInfo,
   }), [nowPlayingInfoAvailable, nowPlayingInfoSelection, nowPlayingInfoPersistence, setNowPlayingInfoDwell, resetNowPlayingInfo]);
-  if (import.meta.env.DEV) (window as any).__dependencies = dependencies;
+  if (import.meta.env.DEV) (window as unknown as { __dependencies?: typeof dependencies }).__dependencies = dependencies;
 
   // Host-owned "missing required dependency" indicator: cross-reference each
   // enabled plugin's manifest binaryDependencies (required) against the host's

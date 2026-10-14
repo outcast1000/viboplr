@@ -90,8 +90,8 @@ function playlistTrackToMinimalTrack(t: PlaylistTrack): QueueTrack {
 interface PlaylistsViewProps {
   searchQuery: string;
   onSearchChange: (query: string) => void;
-  onPlayTracks: (tracks: any[], startIndex: number, context?: PlaylistContext | null) => void;
-  onEnqueueTracks: (tracks: any[]) => void;
+  onPlayTracks: (tracks: QueueTrack[], startIndex: number, context?: PlaylistContext | null) => void;
+  onEnqueueTracks: (tracks: QueueTrack[]) => void;
   onStartRadio?: (seed: { title: string; artistName: string | null; coverPath: string | null }) => void;
   onLocateTrack?: (title: string, artistName: string | null, albumName: string | null) => void;
   onExportAsMixtape?: (tracks: ExportTrack[], defaultTitle?: string, coverPath?: string | null, metadata?: Record<string, string> | null) => void;

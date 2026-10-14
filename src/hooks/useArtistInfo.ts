@@ -58,7 +58,7 @@ export function useArtistInfo(deps: {
         try {
           const result = await deps.invokeInfoFetch(pluginId, typeId, entity);
           if (cancelled || result.status !== "ok") continue;
-          const items = (result.value as any)?.items as Array<{ name: string; value: number }> | undefined;
+          const items = (result.value as { items?: Array<{ name: string; value: number }> } | null | undefined)?.items;
           if (!items) continue;
           const popMap: Record<number, number> = {};
           for (const item of items) {
@@ -96,7 +96,7 @@ export function useArtistInfo(deps: {
         try {
           const result = await deps.invokeInfoFetch(pluginId, typeId, entity);
           if (cancelled || result.status !== "ok") continue;
-          const items = (result.value as any)?.items as Array<{ name: string; value: number }> | undefined;
+          const items = (result.value as { items?: Array<{ name: string; value: number }> } | null | undefined)?.items;
           if (!items) continue;
           const popMap: Record<number, number> = {};
           for (const item of items) {

@@ -174,44 +174,47 @@ export function MusicQuizView({ onPauseMainPlayback, volume }: MusicQuizViewProp
   }, [phase, timeLeft, finishGame]);
 
   const loadQuestion = useCallback(async () => {
-    const currentMode = modeRef.current;
-    if (!currentMode) return;
-    const gen = ++genRef.current;
-    setPhase("loading");
-    setSelected(null);
-    setEliminated([]);
-    setSnippetProgress(0);
-    setSnippetPlaying(false);
+    // A snippet that fails to resolve is retried with a fresh question, up to 3 times.
+    for (;;) {
+      const currentMode = modeRef.current;
+      if (!currentMode) return;
+      const gen = ++genRef.current;
+      setPhase("loading");
+      setSelected(null);
+      setEliminated([]);
+      setSnippetProgress(0);
+      setSnippetPlaying(false);
 
-    const q = buildQuestion(poolRef.current, currentMode, usedIdsRef.current, Math.random);
-    if (!q) {
-      // Pool went dry mid-game — end the run with what's scored.
-      finishGame("error");
-      return;
-    }
-    usedIdsRef.current.add(q.correct.id!);
-
-    try {
-      const src = await resolveQuizSrc(q.correct);
-      if (gen !== genRef.current) return;
-      windowRef.current = { start: q.snippetStart, len: q.snippetLen };
-      setQuestion(q);
-      setPhase("question");
-      onPauseMainPlayback();
-      const audio = audioRef.current;
-      if (audio) {
-        audio.src = src;
-        audio.load();
+      const q = buildQuestion(poolRef.current, currentMode, usedIdsRef.current, Math.random);
+      if (!q) {
+        // Pool went dry mid-game — end the run with what's scored.
+        finishGame("error");
+        return;
       }
-    } catch (e) {
-      console.error("Failed to resolve quiz snippet source:", e);
-      if (gen !== genRef.current) return;
-      if (retriesRef.current < 3) {
-        retriesRef.current++;
-        void loadQuestion();
-      } else {
+      usedIdsRef.current.add(q.correct.id!);
+
+      try {
+        const src = await resolveQuizSrc(q.correct);
+        if (gen !== genRef.current) return;
+        windowRef.current = { start: q.snippetStart, len: q.snippetLen };
+        setQuestion(q);
+        setPhase("question");
+        onPauseMainPlayback();
+        const audio = audioRef.current;
+        if (audio) {
+          audio.src = src;
+          audio.load();
+        }
+      } catch (e) {
+        console.error("Failed to resolve quiz snippet source:", e);
+        if (gen !== genRef.current) return;
+        if (retriesRef.current < 3) {
+          retriesRef.current++;
+          continue;
+        }
         finishGame("error");
       }
+      return;
     }
   }, [finishGame, onPauseMainPlayback]);
 

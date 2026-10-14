@@ -90,7 +90,7 @@ export function useEventListeners(opts: EventListenerOptions) {
       loadLibrary();
       loadTracks();
       onLibraryChanged?.();
-      opts.dispatchPluginEvent?.("scan:complete" as any, {
+      opts.dispatchPluginEvent?.("scan:complete", {
         collectionId: event.payload.collectionId,
         newTracks: event.payload.newTracks ?? 0,
         removedTracks: event.payload.removedTracks ?? 0,
@@ -138,7 +138,7 @@ export function useEventListeners(opts: EventListenerOptions) {
       loadLibrary();
       loadTracks();
       onLibraryChanged?.();
-      opts.dispatchPluginEvent?.("scan:complete" as any, {
+      opts.dispatchPluginEvent?.("scan:complete", {
         collectionId: event.payload.collectionId,
         newTracks: event.payload.newTracks ?? 0,
         removedTracks: event.payload.removedTracks ?? 0,
@@ -181,13 +181,13 @@ export function useEventListeners(opts: EventListenerOptions) {
     const stopAdded = subscribe<{ trackId: number; path: string; title: string; artistName: string | null; albumTitle: string | null; collectionId: number }>(
       "track-added",
       (event) => {
-        opts.dispatchPluginEvent?.("track:added" as any, event.payload);
+        opts.dispatchPluginEvent?.("track:added", event.payload);
       }
     );
     const stopRemoved = subscribe<{ trackId: number; path: string }>(
       "track-removed",
       (event) => {
-        opts.dispatchPluginEvent?.("track:removed" as any, event.payload);
+        opts.dispatchPluginEvent?.("track:removed", event.payload);
       }
     );
 

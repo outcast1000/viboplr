@@ -120,41 +120,6 @@ export function useExtensions(props: UseExtensionsProps) {
   >(null);
   const dismissResult = useCallback(() => setResultModal(null), []);
 
-  // Listen for background update events
-  useEffect(() => {
-    const stopUpdates = subscribe<ExtensionUpdate[]>(
-      "extensions-updates-available",
-      (event) => {
-        setUpdates(event.payload);
-        setLastChecked(Date.now());
-      },
-    );
-    const stopInstalled = subscribe<string>("extension-update-installed", (event) => {
-      // Only re-check for installs we did NOT initiate (i.e. the background
-      // auto-updater). Our own updates already prune `updates` locally, and
-      // re-checking per install made "Update All" quadratic: N installs × a
-      // check that is itself N sequential network round-trips.
-      if (selfInitiatedRef.current.delete(event.payload)) return;
-      checkForUpdates({ silent: true });
-    });
-    const stopProgress = subscribe<{
-      pluginId: string;
-      phase: ExtensionProgress["phase"];
-      downloaded: number;
-      total: number | null;
-    }>("plugin-install-progress", ({ payload }) => {
-      setProgress((prev) => ({
-        ...prev,
-        [payload.pluginId]: {
-          phase: payload.phase,
-          downloaded: payload.downloaded,
-          total: payload.total,
-        },
-      }));
-    });
-    return combineUnlisten(stopUpdates, stopInstalled, stopProgress);
-  }, []);
-
   /** Drop any progress row for `id` — call when its operation settles. */
   const clearProgress = useCallback((id: string) => {
     setProgress((prev) => {
@@ -227,6 +192,41 @@ export function useExtensions(props: UseExtensionsProps) {
     },
     [],
   );
+
+  // Listen for background update events
+  useEffect(() => {
+    const stopUpdates = subscribe<ExtensionUpdate[]>(
+      "extensions-updates-available",
+      (event) => {
+        setUpdates(event.payload);
+        setLastChecked(Date.now());
+      },
+    );
+    const stopInstalled = subscribe<string>("extension-update-installed", (event) => {
+      // Only re-check for installs we did NOT initiate (i.e. the background
+      // auto-updater). Our own updates already prune `updates` locally, and
+      // re-checking per install made "Update All" quadratic: N installs × a
+      // check that is itself N sequential network round-trips.
+      if (selfInitiatedRef.current.delete(event.payload)) return;
+      checkForUpdates({ silent: true });
+    });
+    const stopProgress = subscribe<{
+      pluginId: string;
+      phase: ExtensionProgress["phase"];
+      downloaded: number;
+      total: number | null;
+    }>("plugin-install-progress", ({ payload }) => {
+      setProgress((prev) => ({
+        ...prev,
+        [payload.pluginId]: {
+          phase: payload.phase,
+          downloaded: payload.downloaded,
+          total: payload.total,
+        },
+      }));
+    });
+    return combineUnlisten(stopUpdates, stopInstalled, stopProgress);
+  }, []);
 
   // Installs a single update; returns whether it succeeded. No busy/result UI —
   // callers own the user-facing feedback so single-update and Update-All can

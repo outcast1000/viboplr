@@ -51,6 +51,20 @@ function getSkinColors(canvas: HTMLCanvasElement) {
   };
 }
 
+/** Draw on the next frame, and keep drawing while `draw` reports that the grow
+ *  animation is still running. The loop lives here rather than inside `draw`
+ *  so the callback never has to schedule itself. Returns a cancel that stops
+ *  whichever frame is pending by then — the loop reschedules, so that is the
+ *  latest id in `frameRef`, not the one this call started with. */
+function scheduleDraw(frameRef: { current: number }, draw: () => boolean): () => void {
+  cancelAnimationFrame(frameRef.current);
+  const tick = () => {
+    if (draw()) frameRef.current = requestAnimationFrame(tick);
+  };
+  frameRef.current = requestAnimationFrame(tick);
+  return () => cancelAnimationFrame(frameRef.current);
+}
+
 export function WaveformSeekBar({ peaks, progress, hoverPct = null, bufferedPct = null }: WaveformSeekBarProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const frameRef = useRef<number>(0);
@@ -63,12 +77,12 @@ export function WaveformSeekBar({ peaks, progress, hoverPct = null, bufferedPct 
   const STAGGER_PER_BAR = 2; // ms per bar
   const MAX_STAGGER_SPAN = 600; // ms — cap total stagger so high bar counts still reveal promptly
 
-  const draw = useCallback(() => {
+  const draw = useCallback((): boolean => {
     const canvas = canvasRef.current;
-    if (!canvas || peaks.length === 0) return;
+    if (!canvas || peaks.length === 0) return false;
 
     const ctx = canvas.getContext("2d");
-    if (!ctx) return;
+    if (!ctx) return false;
 
     const dpr = window.devicePixelRatio || 1;
     const w = canvas.clientWidth;
@@ -159,10 +173,10 @@ export function WaveformSeekBar({ peaks, progress, hoverPct = null, bufferedPct 
     const totalDuration = GROW_DURATION + barCount * stagger;
     if (elapsed < totalDuration) {
       growRef.current = elapsed / totalDuration;
-      frameRef.current = requestAnimationFrame(draw);
-    } else {
-      growRef.current = 1;
+      return true;
     }
+    growRef.current = 1;
+    return false;
   }, [peaks, progress, hoverPct, bufferedPct]);
 
   // Detect peak data change and trigger grow animation
@@ -176,9 +190,7 @@ export function WaveformSeekBar({ peaks, progress, hoverPct = null, bufferedPct 
   }, [peaksKey]);
 
   useEffect(() => {
-    cancelAnimationFrame(frameRef.current);
-    frameRef.current = requestAnimationFrame(draw);
-    return () => cancelAnimationFrame(frameRef.current);
+    return scheduleDraw(frameRef, draw);
   }, [draw]);
 
   // Re-fit the bar count to the canvas width on any layout-driven resize — not
@@ -188,8 +200,7 @@ export function WaveformSeekBar({ peaks, progress, hoverPct = null, bufferedPct 
     const canvas = canvasRef.current;
     if (!canvas) return;
     const observer = new ResizeObserver(() => {
-      cancelAnimationFrame(frameRef.current);
-      frameRef.current = requestAnimationFrame(draw);
+      scheduleDraw(frameRef, draw);
     });
     observer.observe(canvas);
     return () => observer.disconnect();

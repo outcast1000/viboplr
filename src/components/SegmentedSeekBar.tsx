@@ -52,6 +52,20 @@ function roundRect(ctx: CanvasRenderingContext2D, x: number, y: number, w: numbe
   }
 }
 
+/** Draw on the next frame, and keep drawing while `draw` reports that the grow
+ *  animation is still running. The loop lives here rather than inside `draw`
+ *  so the callback never has to schedule itself. Returns a cancel that stops
+ *  whichever frame is pending by then — the loop reschedules, so that is the
+ *  latest id in `frameRef`, not the one this call started with. */
+function scheduleDraw(frameRef: { current: number }, draw: () => boolean): () => void {
+  cancelAnimationFrame(frameRef.current);
+  const tick = () => {
+    if (draw()) frameRef.current = requestAnimationFrame(tick);
+  };
+  frameRef.current = requestAnimationFrame(tick);
+  return () => cancelAnimationFrame(frameRef.current);
+}
+
 export function SegmentedSeekBar({ progress, durationSecs, bufferedPct = null }: SegmentedSeekBarProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const frameRef = useRef<number>(0);
@@ -59,12 +73,12 @@ export function SegmentedSeekBar({ progress, durationSecs, bufferedPct = null }:
   const growStartRef = useRef(0);
   const prevDurationRef = useRef(0);
 
-  const draw = useCallback(() => {
+  const draw = useCallback((): boolean => {
     const canvas = canvasRef.current;
-    if (!canvas || durationSecs <= 0) return;
+    if (!canvas || durationSecs <= 0) return false;
 
     const ctx = canvas.getContext("2d");
-    if (!ctx) return;
+    if (!ctx) return false;
 
     const dpr = window.devicePixelRatio || 1;
     const w = canvas.clientWidth;
@@ -155,10 +169,10 @@ export function SegmentedSeekBar({ progress, durationSecs, bufferedPct = null }:
     const totalDuration = GROW_DURATION + segCount * STAGGER_PER_BAR;
     if (elapsed < totalDuration) {
       growRef.current = elapsed / totalDuration;
-      frameRef.current = requestAnimationFrame(draw);
-    } else {
-      growRef.current = 1;
+      return true;
     }
+    growRef.current = 1;
+    return false;
   }, [progress, durationSecs, bufferedPct]);
 
   // Re-trigger grow animation on track change
@@ -171,15 +185,12 @@ export function SegmentedSeekBar({ progress, durationSecs, bufferedPct = null }:
   }, [durationSecs]);
 
   useEffect(() => {
-    cancelAnimationFrame(frameRef.current);
-    frameRef.current = requestAnimationFrame(draw);
-    return () => cancelAnimationFrame(frameRef.current);
+    return scheduleDraw(frameRef, draw);
   }, [draw]);
 
   useEffect(() => {
     const onResize = () => {
-      cancelAnimationFrame(frameRef.current);
-      frameRef.current = requestAnimationFrame(draw);
+      scheduleDraw(frameRef, draw);
     };
     window.addEventListener("resize", onResize);
     return () => window.removeEventListener("resize", onResize);

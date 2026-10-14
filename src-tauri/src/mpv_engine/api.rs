@@ -182,7 +182,9 @@ impl GetData for String {
 // Events
 // ---------------------------------------------------------------------------
 
-#[allow(non_upper_case_globals)]
+// Mirrors mpv's `mpv_end_file_reason` enum in full; the engine only branches on
+// `Eof`, the rest document what the other values mean.
+#[allow(non_upper_case_globals, dead_code)]
 pub mod mpv_end_file_reason {
     pub const Eof: u32 = 0;
     pub const Stop: u32 = 2;
@@ -193,7 +195,11 @@ pub mod mpv_end_file_reason {
 
 /// Owned event data — copied out of mpv's per-handle event storage inside
 /// `wait_event` (the raw struct is only valid until the next call).
+// One variant per mpv property format we observe. Some payloads are only ever
+// matched with `_` (the property changing is the signal), which rustc's
+// dead-code pass reports as "never read".
 #[derive(Debug)]
+#[allow(dead_code)]
 pub enum PropertyData {
     Str(String),
     OsdStr(String),
@@ -219,7 +225,7 @@ pub enum Event {
         reply_userdata: u64,
     },
     /// Any event kind the engine doesn't consume.
-    Other(i32),
+    Other(#[allow(dead_code)] i32),
 }
 
 // ---------------------------------------------------------------------------

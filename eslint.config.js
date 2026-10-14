@@ -116,7 +116,7 @@ export default tseslint.config(
 
       // ---- Warning backlog -------------------------------------------------
       // Real signal, but each is a class too large to clear in one pass. Counts
-      // as of 2026-10-13 (239 in all). They are a ratchet, and the total is
+      // as of 2026-10-14 (220 in all). They are a ratchet, and the total is
       // enforced: `npm run lint` passes `--max-warnings` at that total, so a
       // change that adds one fails. When you clear some, lower the cap in
       // package.json (and these counts) in the same change.
@@ -145,8 +145,15 @@ export default tseslint.config(
       //                                     genuine render-phase ref reads.
       //   react-hooks/set-state-in-effect 70 Derive-state-in-effect. A real
       //                                     architectural backlog, kept visible.
-      //   react-hooks/immutability      11  Mostly "accessed before declared"
-      //                                     (function hoisting).
+      //   react-hooks/immutability       1  usePlayback's onMediaPlaying writes
+      //                                     a ref an effect also reads. The ten
+      //                                     "accessed before declared" hits were
+      //                                     cleared 2026-10-14 by declaring
+      //                                     callbacks above the effects that
+      //                                     call them, and by moving two
+      //                                     self-scheduling rAF loops and one
+      //                                     self-recursive retry out of their
+      //                                     own useCallback.
       //   react-hooks/purity             4  KEEP. Highest signal here: its two
       //                                     original hits were Math.random()
       //                                     during render, and one was a real
@@ -168,7 +175,7 @@ export default tseslint.config(
       "react-hooks/immutability": "warn",
       "react-hooks/purity": "warn",
       "react-hooks/static-components": "warn",
-      // `any` is rare and every production hit is a plugin-payload cast.
+      // Production code has no `any` (0 since 2026-10-14) — keep it there.
       "@typescript-eslint/no-explicit-any": "warn",
     },
   },
