@@ -11,15 +11,23 @@ const PATH_LOOKUP_CHUNK: usize = 500;
 /// One statement for both insert and refresh, `RETURNING id` in either path —
 /// shared by the single-file `upsert_track` and the scanner's batched ingest
 /// so the two can't drift.
+///
+/// `?12` is a source-supplied `added_at` (unix seconds) — the Subsonic
+/// server's `created` date. NULL (every local scan) keeps the old contract:
+/// a new row is stamped "now" and an existing row keeps its stamp. A value
+/// wins on conflict too, so a server added before this existed converges on
+/// its real dates at the next sync instead of keeping "the day Vibo first
+/// synced", which dated a whole first sync to one second and left the
+/// Recently added shelf in title order.
 const UPSERT_TRACK_SQL: &str =
-    "INSERT INTO tracks (path, title, artist_id, album_id, track_number, duration_secs, format, file_size, modified_at, collection_id, year)
-     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)
+    "INSERT INTO tracks (path, title, artist_id, album_id, track_number, duration_secs, format, file_size, modified_at, collection_id, year, added_at)
+     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, COALESCE(?12, strftime('%s', 'now')))
      ON CONFLICT(collection_id, path) DO UPDATE SET
         title=excluded.title, artist_id=excluded.artist_id, album_id=excluded.album_id,
         track_number=excluded.track_number,
         duration_secs=excluded.duration_secs, format=excluded.format,
         file_size=excluded.file_size, modified_at=excluded.modified_at,
-        year=excluded.year
+        year=excluded.year, added_at=COALESCE(?12, tracks.added_at)
      RETURNING id";
 
 /// Everything the scanner learned about one media file, ready for the DB —
@@ -83,13 +91,37 @@ impl Database {
         collection_id: Option<i64>,
         year: Option<i32>,
     ) -> SqlResult<i64> {
+        self.upsert_track_with_added_at(
+            path, title, artist_id, album_id, track_number, duration_secs, format,
+            file_size, modified_at, collection_id, year, None,
+        )
+    }
+
+    /// `upsert_track` with a source-supplied `added_at` (see `UPSERT_TRACK_SQL`).
+    /// `None` behaves exactly like `upsert_track`.
+    #[allow(clippy::too_many_arguments)]
+    pub fn upsert_track_with_added_at(
+        &self,
+        path: &str,
+        title: &str,
+        artist_id: Option<i64>,
+        album_id: Option<i64>,
+        track_number: Option<i32>,
+        duration_secs: Option<f64>,
+        format: Option<&str>,
+        file_size: Option<i64>,
+        modified_at: Option<i64>,
+        collection_id: Option<i64>,
+        year: Option<i32>,
+        added_at: Option<i64>,
+    ) -> SqlResult<i64> {
         let conn = self.conn.lock().unwrap();
         // RETURNING covers both the insert and the conflict-update path, so the
         // id comes back from the one statement instead of a follow-up SELECT
         // (this runs once per scanned file). SQLite ≥3.35, already required.
         let id: i64 = conn.query_row(
             UPSERT_TRACK_SQL,
-            params![path, title, artist_id, album_id, track_number, duration_secs, format, file_size, modified_at, collection_id, year],
+            params![path, title, artist_id, album_id, track_number, duration_secs, format, file_size, modified_at, collection_id, year, added_at],
             |row| row.get(0),
         )?;
         Ok(id)
@@ -130,7 +162,8 @@ impl Database {
                 let track_id: i64 = tx.prepare_cached(UPSERT_TRACK_SQL)?.query_row(
                     params![
                         f.relative_path, f.title, artist_id, album_id, f.track_number,
-                        f.duration_secs, f.format, f.file_size, f.modified_at, collection_id, f.year
+                        f.duration_secs, f.format, f.file_size, f.modified_at, collection_id, f.year,
+                        None::<i64>
                     ],
                     |row| row.get(0),
                 )?;

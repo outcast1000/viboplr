@@ -90,7 +90,7 @@ pub fn sync_collection(
             let path = track.id.clone();
             seen_paths.insert(path.clone());
 
-            if let Ok(track_db_id) = db.upsert_track(
+            if let Ok(track_db_id) = db.upsert_track_with_added_at(
                 &path,
                 &track.title,
                 track_artist_id,
@@ -102,6 +102,9 @@ pub fn sync_collection(
                 None,
                 Some(collection_id),
                 album.year,
+                // The server's date, so Recently added reflects when music
+                // reached the server rather than when Vibo first synced it.
+                track.created.or(album.created),
             ) {
                 // Tag from track genre or album genre
                 let genre = track.genre.as_deref().or(album.genre.as_deref());

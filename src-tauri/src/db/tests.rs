@@ -387,6 +387,48 @@ fn test_get_albums_sort_added_desc() {
     assert_eq!(albums[1].title, "Old Album");
 }
 
+/// A source-supplied `added_at` (the Subsonic server's `created`) is stored on
+/// insert AND wins on resync — so a server first synced before this existed,
+/// whose rows all carry the sync's own timestamp, converges on its real dates.
+/// `None` (every local scan) keeps the old contract: stamp on insert, keep on
+/// conflict.
+#[test]
+fn test_upsert_track_source_added_at() {
+    let db = test_db();
+    let collection_id = test_collection(&db);
+    let added_at = |path: &str| -> i64 {
+        let conn = db.conn.lock().unwrap();
+        conn.query_row("SELECT added_at FROM tracks WHERE path = ?1", params![path], |r| r.get(0))
+            .unwrap()
+    };
+    let upsert = |path: &str, at: Option<i64>| {
+        db.upsert_track_with_added_at(
+            path, "Song", None, None, None, None, None, None, None, Some(collection_id), None, at,
+        )
+        .unwrap()
+    };
+
+    // Insert with the server's date.
+    let id = upsert("sub-1", Some(1_000));
+    assert_eq!(added_at("sub-1"), 1_000);
+
+    // A resync carrying a (corrected) server date replaces it, same row.
+    assert_eq!(upsert("sub-1", Some(2_000)), id);
+    assert_eq!(added_at("sub-1"), 2_000);
+
+    // A resync without one keeps what's stored.
+    assert_eq!(upsert("sub-1", None), id);
+    assert_eq!(added_at("sub-1"), 2_000);
+
+    // No date at all: stamped "now" on insert, kept by a plain upsert.
+    upsert("local-1", None);
+    let stamped = added_at("local-1");
+    assert!(stamped > 1_600_000_000, "expected a now-ish stamp, got {stamped}");
+    db.upsert_track("local-1", "Song", None, None, None, None, None, None, None, Some(collection_id), None)
+        .unwrap();
+    assert_eq!(added_at("local-1"), stamped);
+}
+
 /// The Library's Albums tab "Added" sort. It shares `album_added_at_sql` with
 /// the Home shelf above, and covers BOTH album query paths — the browse list
 /// and the FTS-filtered search, which resolve their sort columns separately

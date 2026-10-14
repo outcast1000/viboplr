@@ -32,6 +32,9 @@ pub struct SubsonicAlbum {
     pub album_artist: Option<String>,
     pub year: Option<i32>,
     pub genre: Option<String>,
+    /// When the album entered the server (`created`, unix seconds). Fallback
+    /// for a song that carries no `created` of its own.
+    pub created: Option<i64>,
 }
 
 pub struct SubsonicTrack {
@@ -43,11 +46,36 @@ pub struct SubsonicTrack {
     pub size: Option<i64>,
     pub suffix: Option<String>,
     pub genre: Option<String>,
+    /// When the song entered the server (`created`, unix seconds) — stored as
+    /// the track's `added_at`, so "Recently added" follows the server's order.
+    pub created: Option<i64>,
     // OpenSubsonic ReplayGain (absent on legacy servers). Folded into extra_tags on sync.
     pub rg_track_gain: Option<f64>,
     pub rg_track_peak: Option<f64>,
     pub rg_album_gain: Option<f64>,
     pub rg_album_peak: Option<f64>,
+}
+
+/// A Subsonic `created` timestamp as unix seconds. The spec types it
+/// `xs:dateTime`: Navidrome/OpenSubsonic send RFC 3339 (`…Z`, often with
+/// millis), older servers a bare zone-less `2013-05-01T19:22:09`, read as UTC.
+/// Anything else — missing, unparseable, before 1970 — is `None`, and the
+/// track falls back to being stamped when it was synced. A date in the future
+/// (a server with a wrong clock) is clamped to now, or that album would sit at
+/// the front of Recently added until the calendar caught up.
+pub(crate) fn parse_created(value: &Value) -> Option<i64> {
+    let raw = value.as_str()?.trim();
+    let secs = chrono::DateTime::parse_from_rfc3339(raw)
+        .map(|d| d.timestamp())
+        .or_else(|_| {
+            chrono::NaiveDateTime::parse_from_str(raw, "%Y-%m-%dT%H:%M:%S%.f")
+                .map(|d| d.and_utc().timestamp())
+        })
+        .ok()?;
+    if secs <= 0 {
+        return None;
+    }
+    Some(secs.min(chrono::Utc::now().timestamp()))
 }
 
 fn generate_salt() -> String {
@@ -202,6 +230,7 @@ impl SubsonicClient {
                     album_artist: a["albumArtist"].as_str().map(|s| s.to_string()),
                     year: a["year"].as_i64().map(|y| y as i32),
                     genre: a["genre"].as_str().map(|s| s.to_string()),
+                    created: parse_created(&a["created"]),
                 });
             }
         }
@@ -218,6 +247,7 @@ impl SubsonicClient {
             album_artist: a["albumArtist"].as_str().map(|s| s.to_string()),
             year: a["year"].as_i64().map(|y| y as i32),
             genre: a["genre"].as_str().map(|s| s.to_string()),
+            created: parse_created(&a["created"]),
         };
 
         let mut tracks = Vec::new();
@@ -232,6 +262,7 @@ impl SubsonicClient {
                     size: s["size"].as_i64(),
                     suffix: s["suffix"].as_str().map(|s| s.to_string()),
                     genre: s["genre"].as_str().map(|s| s.to_string()),
+                    created: parse_created(&s["created"]),
                     rg_track_gain: s["replayGain"]["trackGain"].as_f64(),
                     rg_track_peak: s["replayGain"]["trackPeak"].as_f64(),
                     rg_album_gain: s["replayGain"]["albumGain"].as_f64(),
@@ -280,6 +311,34 @@ mod tests {
             Some("salty"),
             "token",
         )
+    }
+
+    #[test]
+    fn test_parse_created_reads_every_server_shape() {
+        use serde_json::json;
+        // Navidrome / OpenSubsonic: RFC 3339 with millis and Z.
+        assert_eq!(parse_created(&json!("2023-04-12T10:22:33.000Z")), Some(1_681_294_953));
+        // An offset names the same instant.
+        assert_eq!(parse_created(&json!("2023-04-12T12:22:33+02:00")), Some(1_681_294_953));
+        // Legacy Subsonic: no zone, read as UTC.
+        assert_eq!(parse_created(&json!("2023-04-12T10:22:33")), Some(1_681_294_953));
+    }
+
+    #[test]
+    fn test_parse_created_rejects_what_is_not_a_date() {
+        use serde_json::json;
+        assert_eq!(parse_created(&Value::Null), None);
+        assert_eq!(parse_created(&json!("")), None);
+        assert_eq!(parse_created(&json!("yesterday")), None);
+        assert_eq!(parse_created(&json!(1_681_294_953)), None);
+        assert_eq!(parse_created(&json!("1969-12-31T00:00:00Z")), None);
+    }
+
+    #[test]
+    fn test_parse_created_clamps_a_future_date_to_now() {
+        let now = chrono::Utc::now().timestamp();
+        let got = parse_created(&serde_json::json!("2999-01-01T00:00:00Z")).unwrap();
+        assert!(got >= now && got <= now + 5, "expected ~now, got {got}");
     }
 
     #[test]
