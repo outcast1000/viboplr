@@ -1103,6 +1103,9 @@ export function usePlayback(
     preloadPromiseRef.current = { key: nextTrack.key, promise: resolvePromise };
     try {
       const resolved = await resolvePromise;
+      // Nothing to arm — the resolver is holding off after a recent failure
+      // (useStreamResolution's RESOLVE_FAILURE_TTL_MS).
+      if (!resolved.src) return;
       logPlayback(`Preload: resolved "${nextTrack.title}"`);
 
       // Resolution can reveal that a path-less/remote next track is actually a

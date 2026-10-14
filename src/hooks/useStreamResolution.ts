@@ -22,6 +22,22 @@ const TRANSCODE_VIDEO_FORMATS = ["mkv", "avi", "wmv"];
 const RESOLVE_CACHE_TTL_MS = 12000;
 const RESOLVE_CACHE_MAX = 64;
 
+/** After a resolve throws, PRELOADS of the same entry fail fast for this long
+ *  instead of re-running the chain. Failures weren't cached at all, and the
+ *  progress machine re-asks for a preload on every tick of its 45s lead window
+ *  while nothing is armed — so one unplayable next track meant ~25 back-to-back
+ *  yt-dlp searches. Time-bounded rather than reset by hand: no hand-off
+ *  (gapless, crossfade, engine swap) has to remember to clear it, and a
+ *  transient failure still gets another try inside the window. A real play
+ *  never reads it. */
+const RESOLVE_FAILURE_TTL_MS = 15000;
+
+/** Identity of a failed resolve: the queue key plus the metadata the resolvers
+ *  search by, so an "Edit info…" fix to the entry earns a fresh try at once. */
+function resolveFailureId(track: QueueTrack): string {
+  return [track.key, track.title, track.artist_name ?? "", track.album_title ?? ""].join("\u0000");
+}
+
 /** How long one metadata stream resolver gets before the chain moves on. */
 const RESOLVER_TIMEOUT_MS = 60000;
 const RESOLVER_TIMED_OUT = Symbol("resolver-timed-out");
@@ -318,6 +334,9 @@ export function useStreamResolution({
   // engine-error → handlePlay fallback replay).
   const inFlightResolvesRef = useRef<Map<string, Promise<ResolvedTrackSource>>>(new Map());
   const resolveCacheRef = useRef<Map<string, { at: number; resolved: ResolvedTrackSource; meta: ResolvedSource | null }>>(new Map());
+  // Negative counterpart, read by preloads only — see RESOLVE_FAILURE_TTL_MS.
+  // Keyed by QueueTrack.key; the entry's `id` carries the metadata it failed with.
+  const resolveFailedRef = useRef<Map<string, { at: number; id: string }>>(new Map());
   // "The last source for this key failed to play", and how far down the stream
   // ladder to pick next, both live in the shared `playbackRetry` store (written
   // by usePlayback on its way into the replay — see that module for why it isn't
@@ -775,7 +794,19 @@ export function useStreamResolution({
       // One-shot: consumed here so the retry re-resolves and a third attempt
       // (which would be re-answering an error we never saw) doesn't.
       const fresh = consumeResolveStale(key);
-      if (fresh) resolveCacheRef.current.delete(key);
+      if (fresh) {
+        resolveCacheRef.current.delete(key);
+        resolveFailedRef.current.delete(key);
+      }
+
+      if (preload) {
+        const failed = resolveFailedRef.current.get(key);
+        if (failed && failed.id === resolveFailureId(track) && Date.now() - failed.at < RESOLVE_FAILURE_TTL_MS) {
+          // Empty src, not a throw: every preload caller already treats it as
+          // "nothing to arm" quietly, and this answers ~4×/s for the whole TTL.
+          return { src: "" };
+        }
+      }
 
       const cached = fresh ? undefined : resolveCacheRef.current.get(key);
       if (cached) {
@@ -805,7 +836,15 @@ export function useStreamResolution({
       if (existing) return existing;
 
       const promise = (async () => {
-        const out = await doResolve(track, preload, fresh);
+        let out: Awaited<ReturnType<typeof doResolve>>;
+        try {
+          out = await doResolve(track, preload, fresh);
+        } catch (e) {
+          if (resolveFailedRef.current.size >= RESOLVE_CACHE_MAX) resolveFailedRef.current.clear();
+          resolveFailedRef.current.set(key, { at: Date.now(), id: resolveFailureId(track) });
+          throw e;
+        }
+        resolveFailedRef.current.delete(key);
         // Tell the queue entry its real container (see onTrackFormatResolved).
         // Preloads count too — the next row learning it is a video early is
         // exactly the point.
