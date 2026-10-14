@@ -892,6 +892,14 @@ export interface PluginSeekMarker {
   label?: string;
 }
 
+/** One reading of `api.playback.onLevel`. Arrays are per channel (one entry
+ *  for mono, two for stereo, more for surround), in dBFS, floored at -90 for
+ *  digital silence; a clipped lossy master can read slightly above 0. */
+export interface PluginPlaybackLevel {
+  peakDb: number[];
+  rmsDb: number[];
+}
+
 export interface PluginPlaybackAPI {
   /** Draw ticks on the seek bar for the playing track (both bars and
    *  fullscreen). `trackKey` is the current track's `key` (from
@@ -912,6 +920,21 @@ export interface PluginPlaybackAPI {
    *  This is a coalesced notification, not a per-frame one: read the new state
    *  with `getQueue()` when it fires. */
   onQueueChanged(handler: () => void): () => void;
+  /** Live output level of the playing track: per-channel peak and RMS in
+   *  dBFS, ~10×/sec while it plays and only when a value moves. Measured after
+   *  the EQ and **before** ReplayGain and the volume, so neither moves it.
+   *  The handler gets `null` when the reading stops being true — paused,
+   *  stopped, track change, Bit-perfect mode — and drops any level it holds.
+   *  **Native (mpv) engine only:** on the browser engine it never fires.
+   *  A reading describes the latest decoded chunk, not every sample, so treat
+   *  it as a meter to draw with decay, not a true-peak measurement.
+   *
+   *  The host measures only while some plugin is subscribed and shares one
+   *  meter among all of them, so unsubscribe when you stop drawing (e.g. on a
+   *  visualizer's unmount). Returns an unsubscriber; subscriptions are also
+   *  dropped when the plugin unloads. Permission `playback:read`.
+   *  Feature-detect. */
+  onLevel?(handler: (level: PluginPlaybackLevel | null) => void): () => void;
   playTrack(track: PluginTrack): void;
   playTracks(tracks: PluginTrack[], startIndex?: number, context?: PluginPlayContext): void;
   insertTrack(track: PluginTrack, position: number): void;

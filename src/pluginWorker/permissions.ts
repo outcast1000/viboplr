@@ -90,6 +90,7 @@ export const PERMISSION_TABLE: Record<string, PermissionCheck | null> = {
   "playback.getPosition": need("playback:read"),
   "playback.getQueue": need("playback:read"),
   "playback.onQueueChanged": need("playback:read"),
+  "playback.onLevel": need("playback:read"),
   "playback.onTrackStarted": need("playback:read"),
   "playback.onTrackScrobbled": need("playback:read"),
   // The plugin's own row in Settings → Playback → Scrobbling.

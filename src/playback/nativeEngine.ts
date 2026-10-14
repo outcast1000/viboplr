@@ -71,6 +71,16 @@ export interface EngineBufferEvent {
   cacheEndSecs: number | null;
 }
 
+/** Live level meter readout (see levelStore.ts), sent only while the meter is
+ * on and only when a value moves by ~0.5 dB. Null arrays mark the end of a
+ * readout: paused, meter off, Bit-perfect on, or the track changed. */
+export interface EngineLevelEvent {
+  trackKey: string;
+  /** Per channel, dBFS, floored at -90. */
+  peakDb: number[] | null;
+  rmsDb: number[] | null;
+}
+
 /** mpv media-title updates — ICY StreamTitle for live radio streams. Local
  * files emit their tag title once; consumers drop titles equal to the
  * track's own. */
@@ -203,6 +213,12 @@ export const nativeEngine = {
    *  gapless run doesn't snap back to 1.0. */
   setSpeed(speed: number): Promise<void> {
     return whenCapable(() => invoke("engine_set_speed", { speed }));
+  },
+  /** Live level meter (`engine-level` events) on or off. Callers go through
+   *  levelStore's ref count, never directly. Cached backend-side until the
+   *  engine runs. */
+  setMeter(enabled: boolean): Promise<void> {
+    return whenCapable(() => invoke("engine_set_meter", { enabled }));
   },
   clearPreload(): Promise<void> {
     return whenCapable(() => invoke("engine_clear_preload"));

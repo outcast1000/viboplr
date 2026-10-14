@@ -27,7 +27,8 @@
 //! `engine-position` (~4 Hz while playing), `engine-duration`,
 //! `engine-track-changed {reason}`, `engine-ended`, `engine-state`,
 //! `engine-error {code}`, `engine-buffer` (demuxer cache state — see
-//! `BufferSnapshot`).
+//! `BufferSnapshot`), `engine-level` (live per-channel peak/RMS, only while
+//! the meter is on — see `meter.rs`).
 
 mod af;
 mod api;
@@ -35,6 +36,7 @@ pub mod output;
 pub mod component;
 pub mod ffi;
 mod http_headers;
+mod meter;
 #[cfg(target_os = "macos")]
 mod video_layer;
 #[cfg(windows)]
@@ -50,6 +52,7 @@ pub use api::libmpv_available;
 pub use ffi::set_component_dir;
 
 use af::{build_af_graph, replaygain_mode_value};
+use meter::{af_chain, meter_fingerprint, parse_meter, round_db, MeterFingerprint};
 use api::{mpv_end_file_reason, Event, Format, Mpv};
 use http_headers::mpv_http_header_lines;
 use serde_json::json;
@@ -92,6 +95,8 @@ struct DspSettings {
     /// top of the settings above, which are kept so turning it off restores
     /// them exactly. See `output.rs`.
     bit_perfect: Option<output::DevicePin>,
+    /// The level meter (`meter.rs`): on while some consumer is subscribed.
+    meter: bool,
 }
 
 /// Live media-stream facts read off the active deck — what's actually being
@@ -224,6 +229,14 @@ impl EngineHandle {
         let engine = Engine::new(sink, None, Some(app_for_engine))?;
         let dsp = self.pending_dsp.lock().unwrap().clone();
         engine.apply_eq(&dsp.eq)?;
+        // A meter that can't be built must not cost the engine (apply_meter
+        // reverts to the EQ-only chain on failure).
+        if dsp.meter {
+            if let Err(e) = engine.apply_meter(true, &dsp.eq) {
+                log::error!("mpv-engine: level meter unavailable: {e}");
+                self.pending_dsp.lock().unwrap().meter = false;
+            }
+        }
         engine.apply_replaygain(&dsp.rg)?;
         engine.apply_audio_exclusive(dsp.exclusive)?;
         if let Some(ref bg) = dsp.video_bg {
@@ -260,6 +273,25 @@ impl EngineHandle {
             Some(engine) => engine.apply_eq(&eq),
             None => Ok(()),
         }
+    }
+
+    /// Level meter on/off. The frontend ref-counts its consumers and sends only
+    /// the transitions; cached like EQ, since the af chain carries both.
+    pub fn set_meter(&self, enabled: bool) -> Result<(), String> {
+        let eq = {
+            let mut dsp = self.pending_dsp.lock().unwrap();
+            dsp.meter = enabled;
+            dsp.eq.clone()
+        };
+        let result = match self.get() {
+            Some(engine) => engine.apply_meter(enabled, &eq),
+            None => Ok(()),
+        };
+        if result.is_err() {
+            // Not wanted after all: a later engine creation mustn't retry it.
+            self.pending_dsp.lock().unwrap().meter = false;
+        }
+        result
     }
 
     pub fn set_replaygain(&self, rg: ReplayGainParams) -> Result<(), String> {
@@ -445,6 +477,9 @@ struct EngineState {
     bit_perfect: Option<output::DevicePin>,
     /// Bumped on every bit-perfect toggle; a watchdog whose generation is stale exits.
     bit_perfect_gen: u64,
+    /// The level meter is wanted (see `DspSettings::meter`). Bit-perfect mode
+    /// suspends it without clearing this, like the EQ it rides beside.
+    meter: bool,
     /// What the active deck was asked to load for the current track (URL +
     /// external audio track) — what a busy-device retry reloads.
     current_load: Option<(String, Option<String>)>,
@@ -550,7 +585,7 @@ impl Engine {
             decks.push(Deck { mpv: Arc::new(mpv) });
         }
 
-        let state = Arc::new(Mutex::new(EngineState { volume: 1.0, ..Default::default() }));
+            let state = Arc::new(Mutex::new(EngineState { volume: 1.0, ..Default::default() }));
         let engine = Arc::new(Engine {
             decks,
             state,
@@ -1203,15 +1238,52 @@ impl Engine {
         Ok(())
     }
 
+    /// The whole `af` chain: the EQ graph, then the level meter when it's on.
+    /// One writer for both, so changing either can't drop the other. Bit-perfect
+    /// mode clears the chain entirely, so the meter is off there too (its flag
+    /// is kept, and it comes back with the mode off).
     pub fn apply_eq(&self, eq: &EqParams) -> Result<(), String> {
-        let graph = if self.bit_perfect_on() { String::new() } else { build_af_graph(eq) };
-        let af = if graph.is_empty() { String::new() } else { format!("lavfi=[{graph}]") };
+        let (bit_perfect, meter) = {
+            let st = self.state.lock().unwrap();
+            (st.bit_perfect.is_some(), st.meter)
+        };
+        let af = if bit_perfect { String::new() } else { af_chain(&build_af_graph(eq), meter) };
         for deck in &self.decks {
             deck.mpv
                 .set_property("af", af.as_str())
-                .map_err(|e| format!("mpv af (EQ) failed: {e}"))?;
+                .map_err(|e| format!("mpv af (EQ / meter) failed: {e}"))?;
         }
         Ok(())
+    }
+
+    /// Level meter on/off: record the flag, then rebuild the af chain with the
+    /// current EQ (which the engine doesn't keep, hence the parameter).
+    ///
+    /// Refused up front when the loaded libmpv's ffmpeg predates the astats
+    /// options the filter uses (`meter::ffmpeg_supports_meter`). That check is
+    /// load-bearing: mpv accepts an `af` whose lavfi graph it can't build and
+    /// only fails when the chain is next initialized — the next track then
+    /// plays no audio at all (measured: `engine-error` "no audio or video data
+    /// played"), so a missing option would cost native playback, not just the
+    /// meter. If mpv rejects the chain when it is set, the flag is dropped and
+    /// the EQ-only chain restored before the error is returned; left set, every
+    /// later EQ change would fail with it.
+    pub fn apply_meter(&self, enabled: bool, eq: &EqParams) -> Result<(), String> {
+        if enabled {
+            let version = self.decks[0].mpv.get_property::<String>("ffmpeg-version").unwrap_or_default();
+            if !meter::ffmpeg_supports_meter(&version) {
+                return Err(format!("the level meter needs FFmpeg 4.4 or newer (this libmpv has {version:?})"));
+            }
+        }
+        self.state.lock().unwrap().meter = enabled;
+        let result = self.apply_eq(eq);
+        if result.is_err() && enabled {
+            self.state.lock().unwrap().meter = false;
+            if let Err(e) = self.apply_eq(eq) {
+                log::error!("mpv-engine: restoring the EQ after a failed meter: {e}");
+            }
+        }
+        result
     }
 
     /// Letterbox / uncovered-window fill for native video. mpv paints black
@@ -1483,6 +1555,74 @@ fn is_busy_device_failure(e: &api::Error, deck: usize, state: &Mutex<EngineState
     true
 }
 
+/// Emit the active deck's level reading, unless it rounds to the last one.
+/// Must be called with no lock on `state` held — it takes one.
+///
+/// Reads only while the deck is actually producing audio (`core-idle` false):
+/// paused, stalled or idle, mpv keeps reporting the last frame's numbers, which
+/// would hold a lit meter over silence. The readout is ended then (see
+/// `end_level_readout`), so the first reading after a resume always goes out.
+///
+/// Returns whether the deck is producing audio, so the caller can stop waking
+/// up at the poll rate while it isn't.
+fn emit_level_if_changed(
+    client: &Mpv,
+    deck: usize,
+    state: &Mutex<EngineState>,
+    sink: &EventSink,
+    last: &mut Option<(String, MeterFingerprint)>,
+) -> bool {
+    let key = {
+        let st = state.lock().unwrap();
+        if deck != st.active { None } else { st.current_key.clone() }
+    };
+    let Some(key) = key else {
+        end_level_readout(sink, last);
+        return false;
+    };
+    if client.get_property::<bool>("core-idle").unwrap_or(true) {
+        end_level_readout(sink, last);
+        return false;
+    }
+    if last.as_ref().is_some_and(|(k, _)| *k != key) {
+        // A gapless transition: the previous track's readout is over.
+        end_level_readout(sink, last);
+    }
+    let Some(reading) = client
+        .get_property::<String>(&format!("af-metadata/{}", meter::METER_LABEL))
+        .ok()
+        .and_then(|json| parse_meter(&json))
+    else {
+        return true;
+    };
+    let fingerprint = meter_fingerprint(&reading);
+    if last.as_ref().is_some_and(|(_, f)| *f == fingerprint) {
+        return true;
+    }
+    *last = Some((key.clone(), fingerprint));
+    let round = |v: &[f64]| v.iter().copied().map(round_db).collect::<Vec<_>>();
+    sink(
+        "engine-level",
+        json!({
+            "trackKey": key,
+            "peakDb": round(&reading.peak_db),
+            "rmsDb": round(&reading.rms_db),
+        }),
+    );
+    true
+}
+
+/// The meter has stopped describing the track it last reported for (paused,
+/// meter off, bit-perfect on, deck no longer active, track changed): say so
+/// once, with null readings, so a consumer drops a level that is no longer
+/// true rather than holding it. Keyed by the track the readings were for, so
+/// the frontend's session guard drops it when that track is already gone.
+fn end_level_readout(sink: &EventSink, last: &mut Option<(String, MeterFingerprint)>) {
+    if let Some((key, _)) = last.take() {
+        sink("engine-level", json!({ "trackKey": key, "peakDb": null, "rmsDb": null }));
+    }
+}
+
 fn emit_buffer_if_changed(
     client: &Mpv,
     deck: usize,
@@ -1531,11 +1671,38 @@ fn run_event_loop(
     let mut last_position_emit = Instant::now() - POSITION_EMIT_INTERVAL;
     let mut last_buffer_poll = Instant::now() - BUFFER_POLL_INTERVAL;
     let mut last_buffer: Option<BufferFingerprint> = None;
+    let mut last_meter_poll = Instant::now() - meter::METER_POLL_INTERVAL;
+    let mut last_level: Option<(String, MeterFingerprint)> = None;
+    // Whether the last meter poll found the deck producing audio. While it
+    // isn't (paused, stalled), polling every 66ms would wake the loop for
+    // nothing; the `pause` / `paused-for-cache` events wake it on resume.
+    let mut meter_live = true;
     // Playback has (re)started on the current file — a `vo-configured` that
     // flips true after this is a late video output still to be revealed.
     let mut restarted = false;
     loop {
-        let event = client.wait_event(0.5);
+        // Only the active deck's loop reads the meter, and it wakes when the
+        // next read is due: between events the loop would otherwise sleep up
+        // to half a second, capping the meter at whatever wakes it.
+        let metering = {
+            let st = state.lock().unwrap();
+            st.meter && st.bit_perfect.is_none() && deck == st.active
+        };
+        let timeout = if metering && meter_live {
+            meter::METER_POLL_INTERVAL
+                .saturating_sub(last_meter_poll.elapsed())
+                .as_secs_f64()
+                .max(0.005)
+        } else {
+            0.5
+        };
+        let event = client.wait_event(timeout);
+        if !metering {
+            end_level_readout(&sink, &mut last_level);
+        } else if last_meter_poll.elapsed() >= meter::METER_POLL_INTERVAL {
+            last_meter_poll = Instant::now();
+            meter_live = emit_level_if_changed(&client, deck, &state, &sink, &mut last_level);
+        }
         // Sample the cache on every pass, whatever woke us (including the 0.5s
         // timeout, which is *all* we get while paused). The fingerprint guard
         // keeps a settled cache silent, so this costs three property reads per
@@ -2320,9 +2487,11 @@ mod tests {
         engine.apply_replaygain(&dsp.rg).unwrap();
         engine.apply_speed(1.5).unwrap();
         engine.apply_volume(0.4, false).unwrap();
+        engine.apply_meter(true, &dsp.eq).unwrap();
         let deck = |i: usize| engine.decks[i].mpv.clone();
         let s = |i: usize, p: &str| deck(i).get_property::<String>(p).unwrap_or_default();
         assert!(!s(0, "af").is_empty(), "EQ graph applied before the mode");
+        assert!(s(0, "af").contains(meter::METER_LABEL), "meter applied before the mode");
 
         let pin = output::DevicePin { uid: "TestDevice".into(), name: "Test".into(), has_volume: false };
         engine.apply_bit_perfect(Some(&pin), &dsp).expect("bit-perfect on");
@@ -2350,6 +2519,7 @@ mod tests {
             assert_eq!(s(i, "gapless-audio"), "yes", "deck {i}");
             assert_eq!(s(i, "audio-device"), "auto", "deck {i}");
             assert!(!s(i, "af").is_empty(), "deck {i}: EQ restored");
+            assert!(s(i, "af").contains(meter::METER_LABEL), "deck {i}: meter restored");
             assert_eq!(s(i, "replaygain"), "track", "deck {i}: ReplayGain restored");
             assert_eq!(deck(i).get_property::<f64>("speed").unwrap(), 1.5, "deck {i}: speed restored");
             assert!(!deck(i).get_property::<bool>("audio-exclusive").unwrap(), "deck {i}: exclusive restored");
@@ -2756,5 +2926,285 @@ mod tests {
 
         let err = wait_for(&rx, "engine-error", Duration::from_secs(10));
         assert_eq!(err["trackKey"], "trk:bad");
+    }
+
+    /// A stereo 440 Hz sine, 44.1 kHz 16-bit, the left channel at `amp(t)`
+    /// (0..1 of full scale) and the right at half of it (6 dB lower).
+    fn write_sine_wav(path: &std::path::Path, secs: f64, amp: impl Fn(f64) -> f64) {
+        let sample_rate = 44100u32;
+        let samples = (secs * sample_rate as f64) as u32;
+        let data_len = samples * 4;
+        let mut f = std::io::BufWriter::new(std::fs::File::create(path).unwrap());
+        f.write_all(b"RIFF").unwrap();
+        f.write_all(&(36 + data_len).to_le_bytes()).unwrap();
+        f.write_all(b"WAVEfmt ").unwrap();
+        f.write_all(&16u32.to_le_bytes()).unwrap();
+        f.write_all(&1u16.to_le_bytes()).unwrap(); // PCM
+        f.write_all(&2u16.to_le_bytes()).unwrap(); // stereo
+        f.write_all(&sample_rate.to_le_bytes()).unwrap();
+        f.write_all(&(sample_rate * 4).to_le_bytes()).unwrap();
+        f.write_all(&4u16.to_le_bytes()).unwrap();
+        f.write_all(&16u16.to_le_bytes()).unwrap();
+        f.write_all(b"data").unwrap();
+        f.write_all(&data_len.to_le_bytes()).unwrap();
+        for i in 0..samples {
+            let t = i as f64 / sample_rate as f64;
+            let s = (2.0 * std::f64::consts::PI * 440.0 * t).sin() * amp(t) * 32767.0;
+            f.write_all(&(s as i16).to_le_bytes()).unwrap();
+            f.write_all(&((s * 0.5) as i16).to_le_bytes()).unwrap();
+        }
+    }
+
+    /// The next `engine-level` with readings (not a readout end).
+    fn wait_for_level(rx: &mpsc::Receiver<(String, serde_json::Value)>) -> serde_json::Value {
+        let deadline = Instant::now() + Duration::from_secs(10);
+        loop {
+            let ev = wait_for(rx, "engine-level", deadline.saturating_duration_since(Instant::now()));
+            if !ev["peakDb"].is_null() {
+                return ev;
+            }
+        }
+    }
+
+    fn db_values(v: &serde_json::Value) -> Vec<f64> {
+        v.as_array().expect("array of dB").iter().map(|x| x.as_f64().unwrap()).collect()
+    }
+
+    fn af_of(engine: &Engine, deck: usize) -> String {
+        engine.decks[deck].mpv.get_property::<String>("af").unwrap_or_default()
+    }
+
+    #[test]
+    fn test_meter_reports_per_channel_levels() {
+        let dir = tempfile::tempdir().unwrap();
+        let wav = dir.path().join("sine.wav");
+        write_sine_wav(&wav, 3.0, |_| 0.5); // L -6.02 dBFS, R -12.04 dBFS
+
+        let (sink, rx) = collect_events();
+        let Some(engine) = try_test_engine(sink) else { return };
+        engine.apply_meter(true, &EqParams::default()).expect("meter on");
+        engine
+            .play(wav.to_str().unwrap(), None, "trk:sine", None, 1.0, false, false)
+            .expect("play");
+
+        let level = wait_for_level(&rx);
+        assert_eq!(level["trackKey"], "trk:sine");
+        let peak = db_values(&level["peakDb"]);
+        let rms = db_values(&level["rmsDb"]);
+        assert_eq!(peak.len(), 2, "one value per channel");
+        assert!((peak[0] + 6.02).abs() < 0.15, "left peak {peak:?}");
+        assert!((peak[1] + 12.04).abs() < 0.15, "right peak {peak:?}");
+        // A sine's RMS sits 3.01 dB under its peak.
+        assert!((rms[0] + 9.03).abs() < 0.15, "left rms {rms:?}");
+        assert!((rms[1] + 15.05).abs() < 0.15, "right rms {rms:?}");
+        // Pre-fader: the user's volume doesn't move the meter.
+        engine.apply_volume(0.1, false).unwrap();
+        std::thread::sleep(Duration::from_millis(300));
+        let after: Vec<_> = rx.try_iter().filter(|(n, p)| n == "engine-level" && !p["peakDb"].is_null()).collect();
+        assert!(after.is_empty(), "a steady tone at any volume sends nothing new: {after:?}");
+        engine.stop().expect("stop");
+    }
+
+    /// The meter is pre-ReplayGain: mpv applies ReplayGain together with the
+    /// volume, as one output gain after the `af` chain.
+    #[test]
+    fn test_meter_reads_before_replaygain() {
+        let dir = tempfile::tempdir().unwrap();
+        let wav = dir.path().join("sine.wav");
+        write_sine_wav(&wav, 3.0, |_| 0.5); // L -6.02 dBFS
+
+        let (sink, rx) = collect_events();
+        let Some(engine) = try_test_engine(sink) else { return };
+        engine
+            .apply_replaygain(&ReplayGainParams { mode: "track".into(), preamp_db: 0.0, prevent_clip: false })
+            .unwrap();
+        // The file has no ReplayGain tags, so the fallback gain is what applies.
+        for deck in &engine.decks {
+            deck.mpv.set_property("replaygain-fallback", -20.0).unwrap();
+        }
+        engine.apply_meter(true, &EqParams::default()).expect("meter on");
+        engine
+            .play(wav.to_str().unwrap(), None, "trk:rg", None, 1.0, false, false)
+            .expect("play");
+        let level = wait_for_level(&rx);
+        let peak = db_values(&level["peakDb"]);
+        assert!((peak[0] + 6.02).abs() < 0.15, "-20 dB of ReplayGain must not reach the meter: {peak:?}");
+        engine.stop().expect("stop");
+    }
+
+    #[test]
+    fn test_meter_follows_a_moving_level_at_its_poll_rate() {
+        let dir = tempfile::tempdir().unwrap();
+        let wav = dir.path().join("sweep.wav");
+        // -40 dB to 0 dB over 3s (~13 dB/s): every poll crosses the 0.5 dB gate,
+        // so the event count measures the achieved cadence.
+        write_sine_wav(&wav, 3.0, |t| 10f64.powf((-40.0 + t / 3.0 * 40.0) / 20.0));
+
+        let (sink, rx) = collect_events();
+        let Some(engine) = try_test_engine(sink) else { return };
+        engine.apply_meter(true, &EqParams::default()).expect("meter on");
+        engine
+            .play(wav.to_str().unwrap(), None, "trk:sweep", None, 1.0, false, false)
+            .expect("play");
+        let first = wait_for_level(&rx);
+        let start = Instant::now();
+        let mut readings = vec![db_values(&first["peakDb"])[0]];
+        while start.elapsed() < Duration::from_millis(1500) {
+            if let Ok((name, p)) = rx.recv_timeout(Duration::from_millis(50)) {
+                if name == "engine-level" && !p["peakDb"].is_null() {
+                    readings.push(db_values(&p["peakDb"])[0]);
+                }
+            }
+        }
+        eprintln!("[meter-test] {} readings in 1.5s: {readings:?}", readings.len());
+        // ~11 Hz measured (mpv's filter bursts, see the probe below); well above
+        // the 2 Hz the loop's 0.5s wait would give.
+        assert!(readings.len() >= 10, "only {} readings in 1.5s", readings.len());
+        assert!(readings.last() > readings.first(), "the sweep rises: {readings:?}");
+        engine.stop().expect("stop");
+    }
+
+    #[test]
+    fn test_meter_readout_ends_on_pause_and_stays_quiet() {
+        let dir = tempfile::tempdir().unwrap();
+        let wav = dir.path().join("sine.wav");
+        write_sine_wav(&wav, 4.0, |_| 0.5);
+
+        let (sink, rx) = collect_events();
+        let Some(engine) = try_test_engine(sink) else { return };
+        engine.apply_meter(true, &EqParams::default()).expect("meter on");
+        engine
+            .play(wav.to_str().unwrap(), None, "trk:pause", None, 1.0, false, false)
+            .expect("play");
+        wait_for_level(&rx);
+
+        engine.decks[engine.state.lock().unwrap().active].mpv.set_property("pause", true).unwrap();
+        let ended = wait_for(&rx, "engine-level", Duration::from_secs(2));
+        assert_eq!(ended["trackKey"], "trk:pause");
+        assert!(ended["peakDb"].is_null() && ended["rmsDb"].is_null(), "readout ended: {ended}");
+        std::thread::sleep(Duration::from_millis(500));
+        assert!(
+            rx.try_iter().all(|(n, _)| n != "engine-level"),
+            "mpv's frozen last frame must not be reported while paused"
+        );
+
+        // Resuming into the same level re-lights it (the gate forgot it).
+        engine.decks[engine.state.lock().unwrap().active].mpv.set_property("pause", false).unwrap();
+        let back = wait_for_level(&rx);
+        assert!((db_values(&back["peakDb"])[0] + 6.02).abs() < 0.15);
+        engine.stop().expect("stop");
+    }
+
+    #[test]
+    fn test_meter_off_measures_and_emits_nothing() {
+        let dir = tempfile::tempdir().unwrap();
+        let wav = dir.path().join("sine.wav");
+        write_sine_wav(&wav, 0.8, |_| 0.5);
+
+        let (sink, rx) = collect_events();
+        let Some(engine) = try_test_engine(sink) else { return };
+        assert_eq!(af_of(&engine, 0), "", "no filter until someone asks");
+        engine
+            .play(wav.to_str().unwrap(), None, "trk:off", None, 1.0, false, false)
+            .expect("play");
+        let mut saw_level = false;
+        let deadline = Instant::now() + Duration::from_secs(10);
+        while let Ok((name, _)) = rx.recv_timeout(deadline.saturating_duration_since(Instant::now())) {
+            saw_level |= name == "engine-level";
+            if name == "engine-ended" {
+                break;
+            }
+        }
+        assert!(!saw_level, "engine-level while the meter is off");
+    }
+
+    /// How often the meter's source actually updates, under the real audio
+    /// output (silent: started at volume 0, which is after the meter, so the
+    /// readings are unaffected). `#[ignore]`d because it opens the machine's
+    /// default device. Run with:
+    /// `cargo test --lib probe_meter_update_rate_real_ao -- --ignored --nocapture`
+    ///
+    /// Measured 2026-10-14 (macOS, CoreAudio, a WAV sweep): ~17 changes in 1.5s,
+    /// i.e. ~11 Hz, the same as under `ao=null`. mpv runs the filter chain in
+    /// ~90ms bursts and `af-metadata` holds the last frame of each, so that is
+    /// the ceiling; polling faster only reads duplicates the gate drops.
+    #[test]
+    #[ignore]
+    fn probe_meter_update_rate_real_ao() {
+        let dir = tempfile::tempdir().unwrap();
+        let wav = dir.path().join("sweep.wav");
+        write_sine_wav(&wav, 3.0, |t| 10f64.powf((-40.0 + t / 3.0 * 40.0) / 20.0));
+        if super::ffi::libmpv().is_err() {
+            eprintln!("[probe] SKIPPED — libmpv not available");
+            return;
+        }
+        let (sink, rx) = collect_events();
+        let engine = Engine::new(sink, None, None).expect("engine");
+        engine.apply_meter(true, &EqParams::default()).unwrap();
+        engine.play(wav.to_str().unwrap(), None, "k", None, 0.0, false, false).unwrap();
+        wait_for_level(&rx);
+        let m = engine.decks[0].mpv.clone();
+        let label = format!("af-metadata/{}", meter::METER_LABEL);
+        let (mut last, mut changes, t0) = (String::new(), 0, Instant::now());
+        while t0.elapsed() < Duration::from_millis(1500) {
+            let v = m.get_property::<String>(&label).unwrap_or_default();
+            if v != last {
+                changes += 1;
+                last = v;
+            }
+            std::thread::sleep(Duration::from_millis(2));
+        }
+        eprintln!(
+            "[probe] af-metadata changes in 1.5s: {changes} (ao={:?})",
+            m.get_property::<String>("current-ao")
+        );
+        engine.stop().unwrap();
+    }
+
+    #[test]
+    fn test_a_rejected_meter_keeps_the_eq_working() {
+        let (sink, _rx) = collect_events();
+        let Some(engine) = try_test_engine(sink) else { return };
+        let eq = EqParams {
+            enabled: true,
+            mode: "advanced".into(),
+            gains: vec![3.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
+            ..Default::default()
+        };
+        // An unknown filter *name* is rejected when set. (An unknown lavfi
+        // option is not — that case is what `ffmpeg_supports_meter` guards.)
+        meter::FILTER_OVERRIDE.with(|o| *o.borrow_mut() = Some("@vibometer:no_such_filter".into()));
+        let result = engine.apply_meter(true, &eq);
+        meter::FILTER_OVERRIDE.with(|o| *o.borrow_mut() = None);
+        assert!(result.is_err(), "mpv must reject the bogus filter");
+        assert!(!engine.state.lock().unwrap().meter, "the flag is dropped");
+        assert!(af_of(&engine, 0).contains("equalizer"), "the EQ is restored: {}", af_of(&engine, 0));
+        // And later EQ changes still apply.
+        engine.apply_eq(&EqParams::default()).expect("EQ still works after a failed meter");
+    }
+
+    #[test]
+    fn test_meter_and_eq_share_the_af_chain() {
+        let (sink, _rx) = collect_events();
+        let Some(engine) = try_test_engine(sink) else { return };
+        let eq = EqParams {
+            enabled: true,
+            mode: "advanced".into(),
+            gains: vec![3.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
+            ..Default::default()
+        };
+        engine.apply_eq(&eq).unwrap();
+        engine.apply_meter(true, &eq).unwrap();
+        for i in 0..2 {
+            let af = af_of(&engine, i);
+            assert!(af.contains("equalizer") && af.contains(meter::METER_LABEL), "deck {i}: {af}");
+        }
+        // An EQ change keeps the meter, and turning the meter off keeps the EQ.
+        engine.apply_eq(&EqParams::default()).unwrap();
+        assert!(af_of(&engine, 0).contains(meter::METER_LABEL));
+        assert!(!af_of(&engine, 0).contains("equalizer"));
+        engine.apply_meter(false, &eq).unwrap();
+        let af = af_of(&engine, 0);
+        assert!(af.contains("equalizer") && !af.contains(meter::METER_LABEL), "{af}");
     }
 }

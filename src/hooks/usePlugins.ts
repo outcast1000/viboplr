@@ -129,6 +129,7 @@ import { deleteIfSame } from "../utils/registryOps";
 import { abortError, armFetchAbort, isFetchAborted } from "../utils/pluginFetchAbort";
 import { handlerKey, matchesProviderRef, parseProviderKey, providerKey, providerNames } from "../utils/providerKey";
 import { MERGED_PLUGINS_DONE_KEY, migrateMergedPlugins, providerRowsFor } from "../utils/mergedPlugins";
+import { watchPlaybackLevel } from "../playback/levelStore";
 // Hardcoded defaults for information type tab order and provider priority.
 // Plugins cannot override these — users customize via Settings > Providers.
 export const DEFAULT_INFO_TYPE_ORDER: Record<string, number> = {
@@ -899,6 +900,24 @@ export function usePlugins(
           getQueue: () => queueRef.current ?? { tracks: [], index: 0 },
           onQueueChanged: (handler) =>
             subscribeEvent("queue:changed", handler as (...args: unknown[]) => void),
+          onLevel: (handler) => {
+            // One shared meter for every subscriber (levelStore ref-counts it).
+            // Tracked like the other subscriptions so an unload releases the
+            // hold — a forgotten one would keep the engine measuring all session.
+            const fail = (e: unknown) => console.error(`[plugin:${pluginId}] onLevel handler failed:`, e);
+            const unsub = watchPlaybackLevel((level) => {
+              try {
+                // A worker plugin's handler is an RPC stub returning a
+                // (callable) promise, so a throw there arrives as a rejection.
+                const ret: unknown = handler(level ? { peakDb: [...level.peakDb], rmsDb: [...level.rmsDb] } : null);
+                if (ret && typeof (ret as Promise<unknown>).catch === "function") (ret as Promise<unknown>).catch(fail);
+              } catch (e) {
+                fail(e);
+              }
+            });
+            trackUnsubscribe(unsub);
+            return unsub;
+          },
           playTrack: (track) => {
             playbackCallbacksRef.current?.playTrack(track);
           },

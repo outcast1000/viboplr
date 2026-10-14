@@ -231,6 +231,18 @@ pub fn engine_set_eq(
     state.mpv_engine.set_eq(eq)
 }
 
+/// Live level meter (`engine-level` events) on or off. The frontend ref-counts
+/// its consumers and sends only the first-on / last-off transitions; nothing is
+/// measured or emitted while it's off.
+#[tauri::command]
+pub fn engine_set_meter(
+    state: tauri::State<'_, super::AppState>,
+    enabled: bool,
+) -> Result<(), String> {
+    // Cached on the handle when the engine isn't running; applied at creation.
+    state.mpv_engine.set_meter(enabled)
+}
+
 /// Playback rate. 1.0 is normal; the host clamps before it reaches here.
 #[tauri::command]
 pub fn engine_set_speed(

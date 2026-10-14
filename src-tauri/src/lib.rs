@@ -361,6 +361,7 @@ macro_rules! invoke_handler {
             commands::engine_set_volume,
             commands::engine_set_eq,
             commands::engine_set_speed,
+            commands::engine_set_meter,
             commands::engine_set_replaygain,
             commands::engine_start_crossfade,
             commands::engine_set_video_bounds,

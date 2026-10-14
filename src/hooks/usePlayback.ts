@@ -21,9 +21,11 @@ import {
   type EngineErrorEvent,
   type EngineIcyTitleEvent,
   type EngineBufferEvent,
+  type EngineLevelEvent,
 } from "../playback/nativeEngine";
 import { bufferedEndAt } from "../playback/bufferState";
 import { updatePlaybackBuffer, clearPlaybackBuffer } from "../playback/bufferStore";
+import { setPlaybackLevel, clearPlaybackLevel } from "../playback/levelStore";
 import { subscribe, combineUnlisten } from "../utils/tauriEvents";
 import { setPlaybackPosition, getPlaybackPosition } from "../playback/positionStore";
 import { noteNativeFailure, clearNativeRetries, streamLadderStep } from "../playback/playbackRetry";
@@ -356,6 +358,7 @@ export function usePlayback(
   function clearStreamReadouts() {
     setIcyTitle(null);
     clearPlaybackBuffer();
+    clearPlaybackLevel();
     browserPlaybackStartedRef.current = false;
   }
 
@@ -1328,6 +1331,11 @@ export function usePlayback(
           readaheadSecs: payload.readaheadSecs,
           bufferedToSecs: payload.cacheEndSecs,
         });
+      }),
+      subscribe<EngineLevelEvent>("engine-level", ({ payload }) => {
+        if (nativeSessionRef.current?.key !== payload.trackKey) return;
+        const { peakDb, rmsDb } = payload;
+        setPlaybackLevel(peakDb && rmsDb ? { peakDb, rmsDb } : null);
       }),
       subscribe<EngineIcyTitleEvent>("engine-icy-title", ({ payload }) => {
         if (nativeSessionRef.current?.key !== payload.trackKey) return;
