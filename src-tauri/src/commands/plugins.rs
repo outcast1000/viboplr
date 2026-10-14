@@ -99,10 +99,12 @@ pub fn plugin_list_installed(
         plugins.push(p);
     }
 
-    // Native/builtin plugins (skipped if dev or user has same id)
+    // Native/builtin plugins (skipped if dev or user has same id), then the
+    // test-only plugins debug builds load from src-tauri/dev-plugins.
     let mut shadowed = std::collections::HashSet::new();
-    if let Some(ref native_dir) = state.native_plugins_dir {
-        for p in scan_plugins_dir(native_dir, true, code_filter_ref) {
+    let builtin_dirs = state.native_plugins_dir.iter().cloned().chain(crate::plugins::dev_plugins_dir());
+    for native_dir in builtin_dirs {
+        for p in scan_plugins_dir(&native_dir, true, code_filter_ref) {
             if let Some(id) = p.get("id").and_then(|v| v.as_str()) {
                 if seen_ids.contains(id) {
                     shadowed.insert(id.to_string());
@@ -143,15 +145,12 @@ pub fn plugin_read_file(state: State<'_, AppState>, plugin_id: String, path: Str
 
     // Try user plugins first, then native plugins
     let user_plugins_dir = state.app_dir.join("plugins");
-    let dirs: Vec<&std::path::Path> = {
-        let mut d = vec![user_plugins_dir.as_path()];
-        if let Some(ref native) = state.native_plugins_dir {
-            d.push(native.as_path());
-        }
-        d
-    };
+    let dirs: Vec<std::path::PathBuf> = std::iter::once(user_plugins_dir)
+        .chain(state.native_plugins_dir.iter().cloned())
+        .chain(crate::plugins::dev_plugins_dir())
+        .collect();
 
-    for plugins_dir in dirs {
+    for plugins_dir in &dirs {
         let file_path = plugins_dir.join(&plugin_id).join(&path);
         if !file_path.exists() {
             continue;

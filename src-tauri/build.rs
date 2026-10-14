@@ -18,16 +18,13 @@ fn main() {
     // disk forever — and was then loaded as a "built-in": stuck at its old
     // version, no Uninstall, never updated. See commands::scan_plugins_dir.
     println!("cargo:rerun-if-changed=plugins");
-    let mut bundled: Vec<String> = std::fs::read_dir("plugins")
-        .map(|rd| {
-            rd.filter_map(|e| e.ok())
-                .filter(|e| e.path().join("manifest.json").is_file())
-                .filter_map(|e| e.file_name().into_string().ok())
-                .collect()
-        })
-        .unwrap_or_default();
-    bundled.sort();
-    println!("cargo:rustc-env=VIBOPLR_BUNDLED_PLUGINS={}", bundled.join(","));
+    println!("cargo:rustc-env=VIBOPLR_BUNDLED_PLUGINS={}", plugin_ids("plugins"));
+
+    // Test-only plugins (mock-info, mock-download) live in dev-plugins/, which
+    // is not a bundle resource, so no release ships them. Debug builds load
+    // them from the source tree — see plugins::dev_plugins_dir.
+    println!("cargo:rerun-if-changed=dev-plugins");
+    println!("cargo:rustc-env=VIBOPLR_DEV_PLUGINS={}", plugin_ids("dev-plugins"));
 
     // libmpv is no longer linked at build time — the engine loads it at
     // runtime (src/mpv_engine/ffi.rs), so no link-search path or rpaths are
@@ -43,4 +40,18 @@ fn main() {
     if let Ok(out_dir) = std::env::var("OUT_DIR") {
         println!("cargo:rustc-link-search=native={out_dir}");
     }
+}
+
+/// Sorted, comma-joined names of the folders in `dir` that hold a manifest.
+fn plugin_ids(dir: &str) -> String {
+    let mut ids: Vec<String> = std::fs::read_dir(dir)
+        .map(|rd| {
+            rd.filter_map(|e| e.ok())
+                .filter(|e| e.path().join("manifest.json").is_file())
+                .filter_map(|e| e.file_name().into_string().ok())
+                .collect()
+        })
+        .unwrap_or_default();
+    ids.sort();
+    ids.join(",")
 }

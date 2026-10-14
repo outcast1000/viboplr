@@ -13,6 +13,26 @@ pub fn is_bundled_plugin_id(id: &str) -> bool {
     !id.is_empty() && BUNDLED_PLUGIN_IDS.split(',').any(|b| b == id)
 }
 
+/// Ids of the test-only plugins in `src-tauri/dev-plugins/<id>/`, baked in by
+/// build.rs. They are never bundled: that folder is not a bundle resource.
+pub const DEV_PLUGIN_IDS: &str = env!("VIBOPLR_DEV_PLUGINS");
+
+/// Is `id` a test-only plugin this build loads? Always false in a release
+/// build, so a mock-* folder an older install left in its resources (they
+/// shipped in the bundle until 2026-10-14) is skipped like any other leftover.
+pub fn is_dev_plugin_id(id: &str) -> bool {
+    cfg!(debug_assertions) && !id.is_empty() && DEV_PLUGIN_IDS.split(',').any(|b| b == id)
+}
+
+/// Where debug builds load the test-only plugins from; `None` in release.
+pub fn dev_plugins_dir() -> Option<PathBuf> {
+    if cfg!(debug_assertions) {
+        Some(Path::new(env!("CARGO_MANIFEST_DIR")).join("dev-plugins"))
+    } else {
+        None
+    }
+}
+
 /// Plugins this build no longer ships because they were merged into a bundled
 /// plugin as providers (2026-10-13): `(old id, new home)`. A copy of one left
 /// in a profile's own plugins folder would still load next to its new home and
@@ -451,6 +471,23 @@ mod tests {
         assert_eq!(BUNDLED_PLUGIN_IDS, on_disk.join(","));
         for id in &on_disk {
             assert!(is_bundled_plugin_id(id), "{id}");
+        }
+    }
+
+    #[test]
+    fn test_mock_plugins_load_in_debug_builds_but_never_ship() {
+        // They used to sit in plugins/, so every release bundled them and a
+        // user who turned on Debug mode found "Mock Download" in Extensions.
+        for id in ["mock-info", "mock-download"] {
+            assert!(!is_bundled_plugin_id(id), "{id} must not be bundled");
+            assert!(DEV_PLUGIN_IDS.split(',').any(|d| d == id), "{id}");
+            // Tests are debug builds, so this is the debug-build answer.
+            assert!(is_dev_plugin_id(id), "{id}");
+        }
+        let dir = dev_plugins_dir().expect("debug builds have a dev-plugins dir");
+        assert!(dir.join("mock-info/manifest.json").is_file());
+        for id in BUNDLED_PLUGIN_IDS.split(',') {
+            assert!(!is_dev_plugin_id(id), "{id} is bundled, not dev-only");
         }
     }
 

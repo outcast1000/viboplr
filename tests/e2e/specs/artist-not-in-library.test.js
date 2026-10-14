@@ -14,7 +14,7 @@ import { fileURLToPath } from 'url';
 
 const __dirname = fileURLToPath(new URL('.', import.meta.url));
 const tauriMockPath = path.resolve(__dirname, '..', 'tauri-mock.js');
-const pluginDir = path.resolve(__dirname, '..', '..', '..', 'src-tauri', 'plugins', 'mock-info');
+const pluginDir = path.resolve(__dirname, '..', '..', '..', 'src-tauri', 'dev-plugins', 'mock-info');
 
 const PLUGIN = {
   id: 'mock-info',

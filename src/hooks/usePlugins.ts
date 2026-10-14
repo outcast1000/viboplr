@@ -2546,6 +2546,13 @@ export function usePlugins(
           continue;
         }
 
+        // Before the enabled check: a debug-only plugin is hidden whenever
+        // debug mode is off, switched on or not. Checked after it, a disabled
+        // one was still listed (as "disabled") in a normal session.
+        if (m.debugOnly && !debugMode) {
+          continue;
+        }
+
         if (!enabledSet.has(plugin.id)) {
           states.push({
             id: plugin.id,
@@ -2570,10 +2577,6 @@ export function usePlugins(
             dev: plugin.dev,
             devPath: plugin.devPath,
           });
-          continue;
-        }
-
-        if (m.debugOnly && !debugMode) {
           continue;
         }
 

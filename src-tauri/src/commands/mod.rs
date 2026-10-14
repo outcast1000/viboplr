@@ -753,7 +753,10 @@ fn scan_plugins_dir(
                         // Windows, years after it moved to its own repo). Skipping
                         // it lets the user's installed copy — or a gallery
                         // install — take the id as an ordinary plugin.
-                        if builtin && !crate::plugins::is_bundled_plugin_id(&dir_name) {
+                        if builtin
+                            && !crate::plugins::is_bundled_plugin_id(&dir_name)
+                            && !crate::plugins::is_dev_plugin_id(&dir_name)
+                        {
                             log::info!(
                                 "Ignoring stale bundled plugin '{}' at {} — this build does not ship it",
                                 dir_name,
