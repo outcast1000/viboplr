@@ -3,6 +3,9 @@
 
 function activate(api) {
   var BASE_URL = "https://ws.audioscrobbler.com/2.0/";
+  // The host's default User-Agent is browser-style, which some filtering
+  // proxies block from a non-browser client; name ourselves instead.
+  var CLIENT_HEADERS = { "User-Agent": "Vibo" };
   var CACHE_TTL = 24 * 60 * 60 * 1000; // 24 hours in ms
   var AUTO_IMPORT_TASK = "auto-import";
   var AUTO_LOVED_TASK = "auto-import-loved";
@@ -196,7 +199,7 @@ function activate(api) {
           query += "&" + encodeURIComponent(params[i][0]) + "=" + encodeURIComponent(params[i][1]);
         }
       }
-      return api.network.fetch(BASE_URL + "?" + query).then(function (resp) {
+      return api.network.fetch(BASE_URL + "?" + query, { headers: CLIENT_HEADERS }).then(function (resp) {
         return resp.json();
       }).then(function (data) {
         if (data.error) {
@@ -228,7 +231,7 @@ function activate(api) {
     body += "&api_sig=" + encodeURIComponent(sig) + "&format=json";
     return api.network.fetch(BASE_URL, {
       method: "POST",
-      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      headers: { "Content-Type": "application/x-www-form-urlencoded", "User-Agent": CLIENT_HEADERS["User-Agent"] },
       body: body,
     }).then(function (resp) {
       return resp.json();
@@ -288,7 +291,7 @@ function activate(api) {
       + "&token=" + encodeURIComponent(token)
       + "&api_sig=" + encodeURIComponent(sig)
       + "&format=json";
-    return api.network.fetch(BASE_URL + "?" + query).then(function (resp) {
+    return api.network.fetch(BASE_URL + "?" + query, { headers: CLIENT_HEADERS }).then(function (resp) {
       return resp.json();
     }).then(function (data) {
       if (data.error) {
