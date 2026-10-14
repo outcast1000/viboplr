@@ -13,6 +13,20 @@ fn plugin_download_client(scope: Option<crate::plugin_worker::NetworkScope>) -> 
     builder.build().map_err(|e| e.to_string())
 }
 
+/// GET with the plugin's own headers on top. The client's browser-style
+/// `User-Agent` is only a default — a plugin's header replaces it.
+fn plugin_download_request(
+    client: &reqwest::Client,
+    url: &str,
+    headers: Option<std::collections::HashMap<String, String>>,
+) -> reqwest::RequestBuilder {
+    let mut req = client.get(url);
+    for (k, v) in headers.into_iter().flatten() {
+        req = req.header(k, v);
+    }
+    req
+}
+
 /// A download that ended on a non-success status. Under a scope a redirect
 /// means the scope stopped it (an unscoped client follows redirects itself),
 /// so say so rather than surfacing a bare "HTTP 302". Without one — a
@@ -34,6 +48,7 @@ pub async fn plugin_cache_image(
     subdir: String,
     filename: String,
     url: String,
+    headers: Option<std::collections::HashMap<String, String>>,
     allowed_hosts: Option<Vec<String>>,
 ) -> Result<String, String> {
     validate_plugin_cache_path(&plugin_id, &subdir, Some(&filename))?;
@@ -63,7 +78,7 @@ pub async fn plugin_cache_image(
     let scoped = scope.is_some();
     let client = plugin_download_client(scope)?;
 
-    let resp = client.get(&url).send().await.map_err(|e| format!("Download failed: {}", e))?;
+    let resp = plugin_download_request(&client, &url, headers).send().await.map_err(|e| format!("Download failed: {}", e))?;
 
     if !resp.status().is_success() {
         return Err(download_status_error(&resp, scoped));
@@ -213,6 +228,7 @@ pub async fn plugin_files_download(
     plugin_id: String,
     path: Vec<String>,
     url: String,
+    headers: Option<std::collections::HashMap<String, String>>,
     allowed_hosts: Option<Vec<String>>,
 ) -> Result<String, String> {
     if !url.starts_with("http://") && !url.starts_with("https://") {
@@ -230,7 +246,7 @@ pub async fn plugin_files_download(
 
     let scoped = scope.is_some();
     let client = plugin_download_client(scope)?;
-    let resp = client.get(&url).send().await.map_err(|e| format!("Download failed: {}", e))?;
+    let resp = plugin_download_request(&client, &url, headers).send().await.map_err(|e| format!("Download failed: {}", e))?;
     if !resp.status().is_success() {
         return Err(download_status_error(&resp, scoped));
     }
@@ -395,4 +411,56 @@ pub fn plugin_files_move(
     ensure_within_root(&root, &dst_path)?;
     std::fs::rename(&src_path, &dst_path).map_err(|e| format!("Move failed: {}", e))?;
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Against a real socket: a plugin's `User-Agent` replaces the client's
+    /// browser-style default instead of being sent alongside it, and without
+    /// one the default still goes out.
+    #[test]
+    fn a_plugin_user_agent_replaces_the_default() {
+        use std::io::{Read, Write};
+        use std::net::TcpListener;
+
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = listener.local_addr().unwrap().port();
+        std::thread::spawn(move || {
+            for stream in listener.incoming().take(2) {
+                let mut stream = stream.unwrap();
+                let mut buf = [0u8; 4096];
+                let n = stream.read(&mut buf).unwrap_or(0);
+                let req = String::from_utf8_lossy(&buf[..n]).to_string();
+                let agents: Vec<&str> = req
+                    .lines()
+                    .filter(|l| l.to_ascii_lowercase().starts_with("user-agent:"))
+                    .collect();
+                let body = agents.join("\n");
+                let resp = format!(
+                    "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+                    body.len(),
+                    body
+                );
+                let _ = stream.write_all(resp.as_bytes());
+            }
+        });
+
+        let rt = tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap();
+        rt.block_on(async {
+            let client = plugin_download_client(None).unwrap();
+            let url = format!("http://127.0.0.1:{port}/");
+
+            let mut headers = std::collections::HashMap::new();
+            headers.insert("User-Agent".to_string(), "Vibo".to_string());
+            let sent = plugin_download_request(&client, &url, Some(headers))
+                .send().await.unwrap().text().await.unwrap();
+            assert_eq!(sent.to_ascii_lowercase(), "user-agent: vibo", "exactly one User-Agent, the plugin's");
+
+            let default = plugin_download_request(&client, &url, None)
+                .send().await.unwrap().text().await.unwrap();
+            assert!(default.contains("Safari"), "no plugin header keeps the default: {default}");
+        });
+    }
 }

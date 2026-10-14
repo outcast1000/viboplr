@@ -67,6 +67,7 @@ import type {
   PluginCollectionSource,
   PluginWaveformLookupHandler,
   PluginWaveformShareHandler,
+  PluginDownloadInit,
 } from "../types/plugin";
 import { sanitizePluginRms, type WaveformPluginBridge } from "../waveform/pluginProvider";
 import type { UiContext } from "../utils/uiContext";
@@ -1108,8 +1109,8 @@ export function usePlugins(
           async delete(key: string): Promise<void> {
             await invoke("plugin_storage_delete", { pluginId, key });
           },
-          async cacheFile(subdir: string, filename: string, url: string): Promise<string> {
-            return invoke<string>("plugin_cache_image", { pluginId, subdir, filename, url, allowedHosts });
+          async cacheFile(subdir: string, filename: string, url: string, init?: PluginDownloadInit): Promise<string> {
+            return invoke<string>("plugin_cache_image", { pluginId, subdir, filename, url, headers: init?.headers ?? null, allowedHosts });
           },
           async getCachePath(subdir: string, filename: string): Promise<string | null> {
             return invoke<string | null>("plugin_cache_get_path", { pluginId, subdir, filename });
@@ -1140,8 +1141,8 @@ export function usePlugins(
               const raw = await invoke<string | null>("plugin_files_read_text", { pluginId, path });
               return raw ?? null;
             },
-            async download(path: string[], url: string): Promise<string> {
-              return invoke<string>("plugin_files_download", { pluginId, path, url, allowedHosts });
+            async download(path: string[], url: string, init?: PluginDownloadInit): Promise<string> {
+              return invoke<string>("plugin_files_download", { pluginId, path, url, headers: init?.headers ?? null, allowedHosts });
             },
             async getPath(path: string[]): Promise<string | null> {
               return invoke<string | null>("plugin_files_get_path", { pluginId, path });

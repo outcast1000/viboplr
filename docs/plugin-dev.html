@@ -386,10 +386,10 @@ return { activate: activate, deactivate: deactivate };</pre>
             <table class="api-table">
               <tbody>
                 <tr><td>get(key) / set(key, value) / delete(key)</td><td>JSON key-value store.</td></tr>
-                <tr><td>cacheFile(subdir, filename, url)</td><td>Download a URL into the plugin cache; returns the local path.</td></tr>
+                <tr><td>cacheFile(subdir, filename, url, init?)</td><td>Download a URL into the plugin cache; returns the local path. <code>init.headers</code> as on <code>fetch</code>.</td></tr>
                 <tr><td>getCachePath / listCacheDirs / deleteCacheDir</td><td>Inspect and prune the flat file cache.</td></tr>
                 <tr><td>files.writeJson / readJson / writeText / readText</td><td>Nested file I/O; paths are string arrays of segments.</td></tr>
-                <tr><td>files.download(path, url)</td><td>Fetch a URL through the host and write it to disk.</td></tr>
+                <tr><td>files.download(path, url, init?)</td><td>Fetch a URL through the host and write it to disk. <code>init.headers</code> as on <code>fetch</code>.</td></tr>
                 <tr><td>files.getPath / exists / list / remove / copy / move</td><td>File management inside the plugin's directory.</td></tr>
               </tbody>
             </table>
@@ -402,7 +402,7 @@ return { activate: activate, deactivate: deactivate };</pre>
           <div class="api-table-wrap">
             <table class="api-table">
               <tbody>
-                <tr><td>fetch(url, init?)</td><td>HTTP request proxied through Rust; returns <code>{ status, text(), json() }</code>.</td></tr>
+                <tr><td>fetch(url, init?)</td><td>HTTP request proxied through Rust; returns <code>{ status, text(), json() }</code>. The host's default <code>User-Agent</code> is browser-style; a <code>User-Agent</code> in <code>init.headers</code> replaces it, and a plugin calling an API should send its own (the first-party plugins send <code>"Vibo"</code>).</td></tr>
                 <tr><td>openUrl(url)</td><td>Open a URL in the system browser.</td></tr>
                 <tr><td>onDeepLink(handler)</td><td>Receive deep links (e.g. OAuth callbacks) delivered to the app.</td></tr>
                 <tr><td>openBrowseWindow(url, opts?)</td><td>Embedded browser window with <code>eval</code> / messaging — for services without an API.</td></tr>

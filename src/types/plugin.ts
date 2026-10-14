@@ -1253,11 +1253,18 @@ export interface PluginStorageAPI {
   get<T>(key: string): Promise<T | undefined>;
   set(key: string, value: unknown): Promise<void>;
   delete(key: string): Promise<void>;
-  cacheFile(subdir: string, filename: string, url: string): Promise<string>;
+  cacheFile(subdir: string, filename: string, url: string, init?: PluginDownloadInit): Promise<string>;
   getCachePath(subdir: string, filename: string): Promise<string | null>;
   listCacheDirs(): Promise<string[]>;
   deleteCacheDir(subdir: string): Promise<void>;
   files: PluginFileAPI;
+}
+
+/** Request options for the host downloading a URL on a plugin's behalf
+ *  (`storage.cacheFile`, `storage.files.download`). `headers` replace the
+ *  host's defaults, including its browser-style `User-Agent`. */
+export interface PluginDownloadInit {
+  headers?: Record<string, string>;
 }
 
 export interface PluginFileAPI {
@@ -1265,7 +1272,7 @@ export interface PluginFileAPI {
   readJson<T>(path: string[]): Promise<T | null>;
   writeText(path: string[], content: string): Promise<string>;
   readText(path: string[]): Promise<string | null>;
-  download(path: string[], url: string): Promise<string>;
+  download(path: string[], url: string, init?: PluginDownloadInit): Promise<string>;
   getPath(path: string[]): Promise<string | null>;
   exists(path: string[]): Promise<boolean>;
   list(path: string[]): Promise<{ name: string; isDir: boolean; size?: number; modifiedAt?: number }[]>;

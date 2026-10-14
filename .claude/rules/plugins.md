@@ -419,7 +419,7 @@ Contributes a searchable catalog to the global search (Cmd+K). Mirrors the `api.
 
 ### api.storage
 - `get<T>(key)` / `set(key, value)` / `delete(key)` — SQLite-backed key-value storage per plugin
-- `cacheFile(subdir, filename, url)` / `getCachePath(subdir, filename)` / `listCacheDirs()` / `deleteCacheDir(subdir)` — flat file cache (legacy)
+- `cacheFile(subdir, filename, url, init?)` / `getCachePath(subdir, filename)` / `listCacheDirs()` / `deleteCacheDir(subdir)` — flat file cache (legacy). `init.headers` as on `files.download` below.
 - `files` — nested plugin file storage (see below)
 
 ### api.storage.files
@@ -427,13 +427,14 @@ Contributes a searchable catalog to the global search (Cmd+K). Mirrors the `api.
 Nested file I/O rooted inside the plugin's data directory. `path` is a string array (path segments joined safely by the backend).
 - `writeJson(path, data)` / `readJson<T>(path)`
 - `writeText(path, content)` / `readText(path)`
-- `download(path, url)` — fetch URL through Rust and write to disk
+- `download(path, url, init?)` — fetch URL through Rust and write to disk. `init.headers` (`Record<string, string>`) are sent with the request and replace the host's defaults, its `User-Agent` included (see `api.network.fetch`). Older hosts ignore `init` and send their defaults.
 - `getPath(path)` / `exists(path)`
 - `list(path)` — returns `[{ name, isDir }]`
 - `remove(path)` / `copy(src, dst)` / `move(src, dst)`
 
 ### api.network
 - `fetch(url, init?)` — HTTP requests proxied through Rust (bypasses CORS). `init` is `{ method?, headers?, body?, insecure?, timeoutMs?, signal? }`. Returns `{ status, headers, getSetCookie(), text(), json() }`.
+  - **The plugin decides the `User-Agent`.** The host's default is a desktop-Safari string (kept for page scrapers), and a `User-Agent` in `init.headers` replaces it. A plugin talking to an **API** should send its own — the bundled and first-party plugins send `"Vibo"` — because some filtering proxies block a browser-looking string from a non-browser client (Zscaler 403s it on nearly every host), and API terms often ask for an identifying client anyway. The same rule applies to `storage.files.download` / `storage.cacheFile` (`init.headers`) and to the `headers` an image provider returns.
   - **`headers`** is the response's headers, names lowercased, repeats joined with `", "` exactly as `Headers.get()` does. **`getSetCookie()`** returns every `Set-Cookie` value separately, in send order — needed because that join is not reversible (a cookie's `Expires` attribute contains a comma of its own), and because a session API may set several cookies at once. This is what makes cookie-authenticated APIs reachable at all: the backend sends ordered `[name, value]` pairs rather than a map precisely so a repeated `Set-Cookie` can't be collapsed to the last one. A header whose value isn't valid UTF-8 is **dropped**, not emitted as `""` — an unreadable header is one a plugin can't use, and an empty string reads like a real value.
   - **`url`** (on the response) is the final URL after reqwest followed any redirects — absent on older backends, so feature-detect. It exists because an ISP block page is invisible without it: national blocking (e.g. Greece's edppi.gr) 302s a request to a notice page that answers HTTP 200 from a *different host*, which otherwise reads exactly like the target site answering with no content. The qBittorrent plugin's web-indexer sweep uses it to report "redirected to <host> — the site looks blocked on your network" instead of "no results".
   - **`timeoutMs`** aborts the request after N ms. There is **no default**, deliberately: reqwest imposes none, so an unreachable host hangs the promise until the OS gives up — set one on anything that polls, and leave it off for a call that may legitimately run for minutes. Racing a `setTimeout` is not a substitute: the abandoned request keeps running and a poll loop leaks them — abort it with `signal` instead.

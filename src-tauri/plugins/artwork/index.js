@@ -34,8 +34,13 @@ function activate(api) {
   // A 404 is "nothing here" (the handlers turn null into not_found); any other
   // non-2xx is a failure worth naming — before this a blocked or rate-limited
   // source surfaced as a JSON parse error of its HTML error page.
+  // Sent on every request, including the image downloads the host makes for
+  // our answers: the host's default is a browser-style User-Agent, which some
+  // filtering proxies block from a non-browser client, and archive.org serves
+  // an HTML page instead of the image to it.
+  var CLIENT_HEADERS = { "User-Agent": "Vibo" };
   async function getJson(url) {
-    var resp = await api.network.fetch(url);
+    var resp = await api.network.fetch(url, { headers: CLIENT_HEADERS });
     if (resp.status === 404) return null;
     if (resp.status < 200 || resp.status >= 300) throw new Error("HTTP " + resp.status + " from " + hostOf(url));
     var data;
@@ -61,7 +66,12 @@ function activate(api) {
   function provide(entity, provider, handler) {
     handlers[provider + ":" + entity] = handler;
     api.imageProviders.onFetch(entity, function (name, artistName) {
-      return track(provider, entity, name, artistName, false);
+      return Promise.resolve(track(provider, entity, name, artistName, false)).then(function (result) {
+        if (result && result.status === "ok" && result.url && !result.headers) {
+          return Object.assign({}, result, { headers: CLIENT_HEADERS });
+        }
+        return result;
+      });
     }, { provider: provider });
   }
 
@@ -230,13 +240,11 @@ function activate(api) {
     if (!mbid) return { status: "not_found" };
 
     await sleep(1000);
-    // CAA redirects to archive.org, which serves an HTML page instead of the
-    // image to the host's default browser-style User-Agent. An honest client
-    // UA gets the JPEG.
+    // CAA redirects to archive.org; CLIENT_HEADERS (added in `provide`) is what
+    // gets the JPEG rather than an HTML page.
     return {
       status: "ok",
       url: "https://coverartarchive.org/release-group/" + mbid + "/front-500",
-      headers: { "User-Agent": "Viboplr" },
     };
   });
 

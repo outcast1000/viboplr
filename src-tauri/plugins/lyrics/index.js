@@ -13,6 +13,9 @@ function activate(api) {
   function errorText(e) {
     return e && e.message ? e.message : String(e);
   }
+  // The host's default User-Agent is browser-style, which some filtering
+  // proxies block from a non-browser client; name ourselves instead.
+  var FETCH_INIT = { headers: { "User-Agent": "Vibo" } };
 
   // Every source's answer goes through `track`, which is what the status
   // panel (Extensions → Lyrics → Configuration) reports from.
@@ -29,7 +32,7 @@ function activate(api) {
   var LRCLIB_META = { providerName: "LRCLIB", homepageUrl: "https://lrclib.net" };
 
   function lrclibFetch(url) {
-    return api.network.fetch(url).then(function (resp) {
+    return api.network.fetch(url, FETCH_INIT).then(function (resp) {
       if (resp.status === 404) return null;
       if (resp.status !== 200) throw new Error("HTTP " + resp.status + " from lrclib.net");
       return resp.json();
@@ -65,7 +68,7 @@ function activate(api) {
       + encodeURIComponent(entity.artistName)
       + "/" + encodeURIComponent(entity.name);
 
-    return api.network.fetch(url).then(function (resp) {
+    return api.network.fetch(url, FETCH_INIT).then(function (resp) {
       if (resp.status === 404) return { status: "not_found" };
       if (resp.status !== 200) throw new Error("HTTP " + resp.status + " from api.lyrics.ovh");
       return resp.json().then(function (data) {
