@@ -1316,19 +1316,10 @@ pub fn run() {
                     }
                 }
 
-                // Make window background transparent for rounded mini player corners
-                #[cfg(target_os = "macos")]
-                {
-                    #[allow(deprecated)]
-                    {
-                        use cocoa::appkit::{NSColor, NSWindow};
-                        use cocoa::base::{id, nil};
-                        let ns_window = window.ns_window().unwrap() as id;
-                        unsafe {
-                            ns_window.setBackgroundColor_(NSColor::clearColor(nil));
-                        }
-                    }
-                }
+                // The window background is already clear (the rounded mini player
+                // corners rely on it): tao sets `NSColor::clearColor` itself when it
+                // builds a `transparent: true` window with no `backgroundColor`
+                // (tauri.conf.json). Setting a `backgroundColor` there would undo it.
 
                 // Tell the frontend when displays are plugged/unplugged/rearranged,
                 // so it can restore the geometry saved for the new arrangement.

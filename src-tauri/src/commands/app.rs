@@ -559,13 +559,13 @@ pub fn write_probe_dump(state: State<'_, AppState>, contents: String) -> Result<
 pub fn window_native_id(window: tauri::WebviewWindow) -> Option<u64> {
     #[cfg(target_os = "macos")]
     {
-        use objc::{msg_send, sel, sel_impl};
-        #[allow(deprecated)]
-        let ns = window.ns_window().ok()? as *mut objc::runtime::Object;
+        let ns = window.ns_window().ok()? as *const objc2_app_kit::NSWindow;
         if ns.is_null() {
             return None;
         }
-        let number: isize = unsafe { msg_send![ns, windowNumber] };
+        // SAFETY: a sync command runs on the main thread, the only place an
+        // NSWindow may be touched, and tao keeps the window alive.
+        let number = unsafe { &*ns }.windowNumber();
         if number > 0 { Some(number as u64) } else { None }
     }
     #[cfg(not(target_os = "macos"))]

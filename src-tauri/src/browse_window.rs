@@ -120,15 +120,16 @@ fn mute_webview(window: &tauri::WebviewWindow) {
         let inner_label = label.clone();
         let res = window.with_webview(move |wv| unsafe {
             let label = inner_label;
-            use objc::runtime::{BOOL, NO};
-            use objc::{msg_send, sel, sel_impl};
-            let wk = wv.inner() as *mut objc::runtime::Object;
+            use objc2::runtime::AnyObject;
+            use objc2::{msg_send, sel};
+            // A private WebKit method has no typed binding, hence the raw send.
+            let wk = wv.inner() as *mut AnyObject;
             if wk.is_null() {
                 log::warn!("browse window {label}: no WKWebView handle, audio not muted");
                 return;
             }
-            let responds: BOOL = msg_send![wk, respondsToSelector: sel!(_setPageMuted:)];
-            if responds == NO {
+            let responds: bool = msg_send![wk, respondsToSelector: sel!(_setPageMuted:)];
+            if !responds {
                 log::warn!(
                     "browse window {label}: WKWebView lacks _setPageMuted:, relying on the JS autoplay gate"
                 );

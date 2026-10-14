@@ -16,10 +16,21 @@
 //! keeping the borrow valid for the thread's lifetime (see `Engine::
 //! ensure_video_layer`).
 
-use cocoa::base::{id, nil, NO, YES};
-use cocoa::foundation::{NSPoint, NSRect, NSSize};
-use objc::{class, msg_send, sel, sel_impl};
+//!
+//! Apple deprecated OpenGL in macOS 10.14 and `objc2-app-kit` marks every
+//! NSOpenGL item accordingly; mpv's render API still needs a GL context, so
+//! the functions that touch one carry a scoped `#[allow(deprecated)]`.
+
+use objc2::encode::{Encoding, RefEncode};
+use objc2::{msg_send, AllocAnyThread, MainThreadMarker, MainThreadOnly};
+#[allow(deprecated)] // NSOpenGL* — see the module doc.
+use objc2_app_kit::{
+    NSOpenGLContext, NSOpenGLContextParameter, NSOpenGLPixelFormat, NSView, NSWindow,
+    NSWindowOrderingMode,
+};
+use objc2_foundation::{NSPoint, NSRect, NSSize};
 use std::ffi::{c_char, c_int, c_void, CString};
+use std::ptr::NonNull;
 use std::sync::mpsc;
 use std::sync::{Arc, Condvar, Mutex};
 use std::time::{Duration, Instant};
@@ -42,9 +53,33 @@ const NSOPENGL_PFA_DOUBLE_BUFFER: u32 = 5;
 const NSOPENGL_PFA_ACCELERATED: u32 = 73;
 const NSOPENGL_PFA_OPENGL_PROFILE: u32 = 99;
 const NSOPENGL_PROFILE_VERSION_3_2_CORE: u32 = 0x3200;
-const NSOPENGL_CP_SWAP_INTERVAL: i32 = 222;
-/// NSWindowOrderingMode: below all sibling views.
-const NSWINDOW_BELOW: isize = -1;
+
+/// Opaque `CGLContextObject`, only ever handled by pointer. Declared with its
+/// real encoding because objc2 checks a message's return type against the
+/// method's in debug builds, and `void *` does not match
+/// `^{_CGLContextObject=}`. (The typed `CGLContextObj()` binding needs the
+/// `objc2-open-gl` crate, which nothing else here uses.)
+#[repr(C)]
+struct CGLContextObject {
+    _private: [u8; 0],
+}
+
+unsafe impl RefEncode for CGLContextObject {
+    const ENCODING_REF: Encoding = Encoding::Pointer(&Encoding::Struct("_CGLContextObject", &[]));
+}
+
+/// The layer's view. `ptr` comes from `Retained::into_raw` in
+/// `create_native_layer` and is never released, so it lives for the app's
+/// lifetime. Main thread only.
+unsafe fn view_at<'a>(ptr: usize) -> &'a NSView {
+    &*(ptr as *const NSView)
+}
+
+/// The layer's GL context; same lifetime rule as `view_at`.
+#[allow(deprecated)]
+unsafe fn glctx_at<'a>(ptr: usize) -> &'a NSOpenGLContext {
+    &*(ptr as *const NSOpenGLContext)
+}
 
 /// The OpenGL framework handle `get_proc_address` resolves symbols from.
 pub struct GlLibrary(*mut c_void);
@@ -137,30 +172,29 @@ impl VideoLayer {
     pub fn set_bounds(&self, x: f64, y: f64, width: f64, height: f64) {
         let ptrs = self.ptrs;
         let state = self.state.clone();
+        #[allow(deprecated)] // NSOpenGLContext::update — see the module doc.
         let run = self.app.run_on_main_thread(move || unsafe {
-            let view = ptrs.view as id;
-            let superview: id = msg_send![view, superview];
-            if superview == nil {
+            let Some(mtm) = MainThreadMarker::new() else {
+                log::error!("mpv-engine: set_bounds ran off the main thread");
                 return;
-            }
-            let bounds: NSRect = msg_send![superview, bounds];
+            };
+            let view = view_at(ptrs.view);
+            let Some(superview) = view.superview() else {
+                return;
+            };
+            let bounds = superview.bounds();
             let frame = NSRect::new(
                 NSPoint::new(x, bounds.size.height - y - height),
                 NSSize::new(width.max(1.0), height.max(1.0)),
             );
-            let _: () = msg_send![view, setFrame: frame];
-            let win: id = msg_send![view, window];
-            let scale: f64 = if win != nil {
-                msg_send![win, backingScaleFactor]
-            } else {
-                1.0
-            };
+            view.setFrame(frame);
+            let scale = view.window().map_or(1.0, |win| win.backingScaleFactor());
             // `-[NSOpenGLContext update]` must run on the MAIN thread (it traps
-            // off-main on modern AppKit); serialize against the render thread
-            // via the CGL lock.
+            // off-main on modern AppKit — the binding takes a MainThreadMarker
+            // for that reason); serialize against the render thread via the
+            // CGL lock.
             CGLLockContext(ptrs.cgl as *mut c_void);
-            let ctx = ptrs.glctx as id;
-            let _: () = msg_send![ctx, update];
+            glctx_at(ptrs.glctx).update(mtm);
             CGLUnlockContext(ptrs.cgl as *mut c_void);
             let (lock, cv) = &*state;
             let mut st = lock.lock().unwrap();
@@ -199,8 +233,7 @@ impl VideoLayer {
     pub fn set_visible(&self, visible: bool) {
         let ptrs = self.ptrs;
         let run = self.app.run_on_main_thread(move || unsafe {
-            let view = ptrs.view as id;
-            let _: () = msg_send![view, setHidden: if visible { NO } else { YES }];
+            view_at(ptrs.view).setHidden(!visible);
         });
         if let Err(e) = run {
             log::error!("mpv-engine: set_visible main-thread dispatch failed: {e}");
@@ -232,12 +265,11 @@ impl VideoLayer {
     }
 }
 
+#[allow(deprecated)] // NSOpenGL* — see the module doc.
 unsafe fn create_native_layer(ns_window: usize) -> Result<NativePtrs, String> {
-    let ns_window = ns_window as id;
-    let content_view: id = msg_send![ns_window, contentView];
-    if content_view == nil {
-        return Err("window has no content view".into());
-    }
+    let mtm = MainThreadMarker::new().ok_or("the video layer must be created on the main thread")?;
+    let ns_window = &*(ns_window as *const NSWindow);
+    let content_view = ns_window.contentView().ok_or("window has no content view")?;
 
     let attrs: [u32; 6] = [
         NSOPENGL_PFA_OPENGL_PROFILE,
@@ -247,34 +279,41 @@ unsafe fn create_native_layer(ns_window: usize) -> Result<NativePtrs, String> {
         0,
         0,
     ];
-    let pixfmt: id = msg_send![class!(NSOpenGLPixelFormat), alloc];
-    let pixfmt: id = msg_send![pixfmt, initWithAttributes: attrs.as_ptr()];
-    if pixfmt == nil {
-        return Err("failed to create NSOpenGLPixelFormat".into());
-    }
-    let glctx: id = msg_send![class!(NSOpenGLContext), alloc];
-    let glctx: id = msg_send![glctx, initWithFormat: pixfmt shareContext: nil];
-    if glctx == nil {
-        return Err("failed to create NSOpenGLContext".into());
-    }
+    let pixfmt = NSOpenGLPixelFormat::initWithAttributes(
+        NSOpenGLPixelFormat::alloc(),
+        NonNull::from(&attrs).cast(),
+    )
+    .ok_or("failed to create NSOpenGLPixelFormat")?;
+    // The context retains its pixel format, so `pixfmt` is released on return.
+    let glctx = NSOpenGLContext::initWithFormat_shareContext(NSOpenGLContext::alloc(), &pixfmt, None)
+        .ok_or("failed to create NSOpenGLContext")?;
 
     let frame = NSRect::new(NSPoint::new(0.0, 0.0), NSSize::new(1.0, 1.0));
-    let view: id = msg_send![class!(NSView), alloc];
-    let view: id = msg_send![view, initWithFrame: frame];
-    let _: () = msg_send![view, setWantsBestResolutionOpenGLSurface: YES];
-    let _: () = msg_send![view, setHidden: YES];
-    let _: () = msg_send![content_view, addSubview: view positioned: NSWINDOW_BELOW relativeTo: nil];
-    let _: () = msg_send![glctx, setView: view];
-    let swap: i32 = 1; // vsync
-    let _: () = msg_send![glctx, setValues: &swap forParameter: NSOPENGL_CP_SWAP_INTERVAL];
-    let cgl: *mut c_void = msg_send![glctx, CGLContextObj];
+    let view = NSView::initWithFrame(NSView::alloc(mtm), frame);
+    view.setWantsBestResolutionOpenGLSurface(true);
+    view.setHidden(true);
+    content_view.addSubview_positioned_relativeTo(&view, NSWindowOrderingMode::Below, None);
+    glctx.setView(Some(&view), mtm);
+    // vsync. The parameter is an NSInteger: passing a bare `i32` here (as the
+    // cocoa-era code did) leaves the upper half of the register unspecified
+    // on arm64, so the swap interval could silently go unset.
+    let swap: i32 = 1;
+    let _: () = msg_send![
+        &*glctx,
+        setValues: &swap as *const i32,
+        forParameter: NSOpenGLContextParameter::SwapInterval
+    ];
+    let cgl: *mut CGLContextObject = msg_send![&*glctx, CGLContextObj];
     if cgl.is_null() {
         return Err("NSOpenGLContext has no CGL context".into());
     }
 
+    // Both live for the app's lifetime, as before: the view stays in the
+    // window's hierarchy and the render thread addresses the context by
+    // pointer (`view_at` / `glctx_at`), so hand our references over for good.
     Ok(NativePtrs {
-        view: view as usize,
-        glctx: glctx as usize,
+        view: objc2::rc::Retained::into_raw(view) as usize,
+        glctx: objc2::rc::Retained::into_raw(glctx) as usize,
         cgl: cgl as usize,
     })
 }
@@ -316,9 +355,11 @@ pub fn run_render_loop(
         if let Err(e) = render(width, height) {
             log::error!("mpv-engine: video render failed: {e}");
         }
+        // `flushBuffer` is safe off the main thread (unlike `update`, its
+        // binding takes no MainThreadMarker).
+        #[allow(deprecated)]
         unsafe {
-            let ctx = glctx as id;
-            let _: () = msg_send![ctx, flushBuffer];
+            glctx_at(glctx).flushBuffer();
             CGLUnlockContext(cgl as *mut c_void);
         }
         // The swap (flushBuffer, vsync'd) is done — tell mpv when it landed so

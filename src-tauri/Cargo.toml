@@ -71,8 +71,13 @@ tauri-plugin-aptabase = "1.0.0"
 libc = "0.2"
 
 [target.'cfg(target_os = "macos")'.dependencies]
-cocoa = "0.26"
-objc = "0.2"
+# AppKit for the native mpv video surface (mpv_engine/video_layer.rs), the
+# window number (commands/app.rs) and the browse-window mute
+# (browse_window.rs). Already in the build through tao/wry — declared, not
+# added. Replaced cocoa + objc 0.2, whose whole API was deprecated.
+objc2 = "0.6"
+objc2-foundation = { version = "0.3", default-features = false, features = ["std", "NSGeometry", "objc2-core-foundation"] }
+objc2-app-kit = { version = "0.3", default-features = false, features = ["std", "NSResponder", "NSView", "NSWindow", "NSEvent", "NSGraphics", "NSOpenGL", "NSOpenGLView"] }
 # Trust-settings walk for trust_store.rs. Already in the build through
 # native-tls / rustls-platform-verifier — declared, not added.
 security-framework = { version = "3.7", default-features = false }
