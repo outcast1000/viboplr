@@ -160,11 +160,16 @@ export function useExtensions(props: UseExtensionsProps) {
             ? ` ${report.unchecked.length} declare${report.unchecked.length === 1 ? "s" : ""} no update source (${report.unchecked.join(", ")}) — reinstall from the gallery to enable update checks.`
             : "";
           const caveats = `${failedNote}${uncheckedNote}`;
+          // Updates found announce themselves: the view's badges and "Update
+          // All" are the feedback, so no dialog — only the caveats, if any,
+          // still need saying, since the list can't show what wasn't checked.
           if (n > 0) {
-            setResultModal({
-              title: "Updates Available",
-              message: `${n} extension update${n !== 1 ? "s are" : " is"} available. Use "Update All" or open an extension to install.${caveats}`,
-            });
+            if (caveats) {
+              setResultModal({
+                title: "Check Incomplete",
+                message: caveats.trim(),
+              });
+            }
           } else if (report.failed.length || report.unchecked.length) {
             setResultModal({
               title: "Check Incomplete",
