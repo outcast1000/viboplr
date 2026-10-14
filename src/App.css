@@ -87,6 +87,11 @@
 .caption-brand > * {
   pointer-events: none;
 }
+/* App-icon tile beside the wordmark, as in the website's nav lockup. */
+.caption-brand-mark {
+  display: block;
+  flex: none;
+}
 
 /* Wordmark at title-bar size: gradient text only. The echo repeat turns to mud
    below ~20px, so the full echo wordmark lives on the website and About panel. */

@@ -106,7 +106,7 @@ Dynamic states: `.sidebar-collapsed` (56px), `.queue-open` (adds col 3), `.queue
 
 Contents left-to-right:
 - Window controls (macOS left; Windows/Linux right — the maximize button swaps to the "restore down" glyph and label while the window is maximized, tracked off `onResized` rather than a local toggle. See `frontend.md` → **WindowControls.tsx**)
-- Brand logo ("ibo" with gradient)
+- Brand logo: the app-icon tile (`AppLogoMark`, shared with Settings → About) + the gradient "Vibo" wordmark, as in the website nav
 - `CentralSearchDropdown` (global search with results preview — library rows, then an on-demand "Search “x” on <plugin>" section per plugin catalog the user hasn't hidden in Extensions → Contributions; see `plugins.md` "Global Search")
 - Spacer (draggable)
 - **Notifications bell** — dim, no count; a dot only for an unhandled error (red) or action (accent); opens the notifications list (Cmd/Ctrl+Shift+N too). The one permanent notification control: the toast and the assistant segment in the content's bottom-right corner exist only while they have something to say. See `frontend.md` → **useToasts.ts**

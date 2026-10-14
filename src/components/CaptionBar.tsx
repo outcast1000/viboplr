@@ -1,4 +1,5 @@
 import { WindowControls } from "./WindowControls";
+import { AppLogoMark } from "./AppLogoMark";
 import { CentralSearchDropdown } from "./CentralSearchDropdown";
 import type { ResyncProgress, ResyncComplete } from "../hooks/useEventListeners";
 import type { PluginSearchSection } from "../utils/centralSearchPlugins";
@@ -52,6 +53,7 @@ export function CaptionBar({
     <div className="search-bar" data-tauri-drag-region>
       <WindowControls position="left" minimizeToMiniPlayer={minimizeToMiniPlayer} onMinimizeToMini={onToggleMiniMode} />
         <div className="caption-brand" data-tauri-drag-region>
+          <AppLogoMark className="caption-brand-mark" />
           <span className="caption-brand-text">Vibo</span>
         </div>
         <CentralSearchDropdown

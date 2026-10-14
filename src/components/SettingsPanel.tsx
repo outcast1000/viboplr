@@ -39,6 +39,7 @@ import { parseProviderKey, providerKey, providerNames } from "../utils/providerK
 import { store } from "../store";
 import { PromptModal } from "./PromptModal";
 import { HelpLink } from "./HelpLink";
+import { AppLogoMark } from "./AppLogoMark";
 import { getPlatform } from "./DependencyModal";
 import { ToggleSwitch } from "./ToggleSwitch";
 import { NowPlayingInfoSettings, type NowPlayingInfoSettingsProps } from "./NowPlayingInfoSettings";
@@ -1584,12 +1585,7 @@ export function SettingsPanel({
                   <div className="settings-card">
                     <div className="settings-about-content">
                     <div className="settings-about-logo" style={{ cursor: "pointer" }} onClick={() => openUrl(LINKS.homepage).catch(console.error)}>
-                      <svg width="32" height="32" viewBox="0 0 512 512" fill="none">
-                        <defs><linearGradient id="aboutTileGrad" x1="0" y1="0" x2="1" y2="1"><stop offset="0%" stopColor="#FF6B6B"/><stop offset="100%" stopColor="#E91E8A"/></linearGradient></defs>
-                        <rect x="36" y="36" width="440" height="440" rx="99" fill="url(#aboutTileGrad)"/>
-                        <path d="M140.0 124.0 L241.0 348.0 L271.0 348.0 L372.0 124.0 L298.0 124.0 L256.0 217.1 L214.0 124.0 Z" transform="translate(0 40)" fill="#fff" stroke="#fff" strokeWidth="10" strokeLinejoin="round" opacity="0.4"/>
-                        <path d="M140.0 124.0 L241.0 348.0 L271.0 348.0 L372.0 124.0 L298.0 124.0 L256.0 217.1 L214.0 124.0 Z" fill="#fff" stroke="#fff" strokeWidth="10" strokeLinejoin="round"/>
-                      </svg>
+                      <AppLogoMark size={28} />
                     </div>
                     <div className="settings-about-info">
                       <span className="settings-about-name">Vibo</span>
