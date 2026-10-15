@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { PermissionList } from "./PermissionList";
 import type {
   ExtensionItem,
@@ -1366,6 +1367,10 @@ export default function ExtensionsView(props: ExtensionsViewProps) {
         </div>
       )}
 
+      {/* Portaled to <body>: this view renders inside the content column's
+          stacking context, so a fixed overlay here — whatever its z-index —
+          paints under the queue panel beside it. */}
+      {createPortal(<>
       {installFlow && (
         <PluginInstallModal
           flow={installFlow}
@@ -1421,6 +1426,7 @@ export default function ExtensionsView(props: ExtensionsViewProps) {
           </div>
         </div>
       )}
+      </>, document.body)}
     </div>
   );
 }
