@@ -5,7 +5,7 @@
   height: 100%;
   object-fit: cover;
   opacity: 0;
-  transition: opacity 0.3s ease;
+  transition: opacity var(--dur-slow) ease;
 }
 
 .video-frame-card-img.active {
@@ -47,7 +47,7 @@
   height: 5px;
   border-radius: 50%;
   background: rgba(var(--overlay-base), 0.4);
-  transition: background 0.2s, transform 0.15s;
+  transition: background var(--dur-base), transform var(--dur-fast);
 }
 
 .video-frame-card.clickable .video-frame-card-dot {

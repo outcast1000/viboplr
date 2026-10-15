@@ -161,7 +161,7 @@
   color: var(--text-primary);
   font-size: var(--fs-sm);
   cursor: pointer;
-  transition: background 0.15s;
+  transition: background var(--dur-fast);
 }
 
 .mixtape-action-btn:hover {
@@ -221,7 +221,7 @@
 
 .mixtape-disclosure-arrow {
   display: inline-block;
-  transition: transform 0.15s;
+  transition: transform var(--dur-fast);
 }
 
 .mixtape-disclosure-arrow.open {
@@ -249,7 +249,7 @@
 .mixtape-progress-fill {
   height: 100%;
   background: var(--accent);
-  transition: width 0.3s;
+  transition: width var(--dur-slow);
 }
 
 .mixtape-progress-text {
@@ -405,7 +405,8 @@
   color: var(--text-secondary);
   font-size: var(--fs-sm);
   cursor: pointer;
-  transition: all 0.15s;
+  transition-property: background-color, color;
+  transition-duration: var(--dur-fast);
 }
 
 .mixtape-mode-btn + .mixtape-mode-btn {

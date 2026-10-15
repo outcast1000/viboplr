@@ -7,6 +7,7 @@ import type { PlaylistContext } from "./useQueue";
 import { useQueueDragToInsert, type PendingEnqueue } from "./useQueueDragToInsert";
 import { trashLabel } from "../utils";
 import { emitTracksDeleted } from "../trackEvents";
+import { fadeOutTrackRows } from "../utils/rowRemoval";
 import { resolveLibraryIds } from "../utils/resolveLibraryIds";
 
 import { useAssignRef } from "./useLatestRef";
@@ -414,26 +415,37 @@ export function useContextMenuActions(deps: UseContextMenuActionsDeps) {
       const result: { deletedIds: number[]; deletedPaths: string[]; failures: { title: string; reason: string }[] } = await invoke("delete_tracks", { trackIds });
       const deletedPaths = new Set(result.deletedPaths as string[]);
       if (result.deletedIds.length > 0) {
-        library.setTracks(prev => prev.filter(t => t.id == null || !new Set(result.deletedIds).has(t.id)));
-        emitTracksDeleted(result.deletedIds);
-        const queueIndicesToRemove: number[] = [];
-        queueHook.queue.forEach((t, i) => {
-          if (t.path && deletedPaths.has(t.path)) queueIndicesToRemove.push(i);
-        });
-        const currentDeleted = !!(playback.currentTrack?.path && deletedPaths.has(playback.currentTrack.path));
-        if (currentDeleted && onCurrentTrackDeleted) {
-          // Deleting the playing track shouldn't dead-stop the player: advance to
-          // the next surviving track (or auto-continue / previous / stop) AND drop
-          // the deleted entries from the queue in one consistent step.
-          onCurrentTrackDeleted(queueIndicesToRemove);
-        } else {
-          if (currentDeleted) playback.handleStop();
-          if (queueIndicesToRemove.length > 0) {
-            queueHook.removeMultiple(queueIndicesToRemove);
+        // The rows vanishing is the only success feedback, so let them fade out
+        // and the list close up visibly (160ms, then a slide) rather than snap.
+        const settleRows = await fadeOutTrackRows(result.deletedIds);
+        // settleRows arms the slide and the safety net that un-hides a row a list
+        // kept; it must run even if a step below throws, or a faded row would stay
+        // invisible.
+        try {
+          const deleted = new Set(result.deletedIds);
+          library.setTracks(prev => prev.filter(t => t.id == null || !deleted.has(t.id)));
+          emitTracksDeleted(result.deletedIds);
+          const queueIndicesToRemove: number[] = [];
+          queueHook.queue.forEach((t, i) => {
+            if (t.path && deletedPaths.has(t.path)) queueIndicesToRemove.push(i);
+          });
+          const currentDeleted = !!(playback.currentTrack?.path && deletedPaths.has(playback.currentTrack.path));
+          if (currentDeleted && onCurrentTrackDeleted) {
+            // Deleting the playing track shouldn't dead-stop the player: advance to
+            // the next surviving track (or auto-continue / previous / stop) AND drop
+            // the deleted entries from the queue in one consistent step.
+            onCurrentTrackDeleted(queueIndicesToRemove);
+          } else {
+            if (currentDeleted) playback.handleStop();
+            if (queueIndicesToRemove.length > 0) {
+              queueHook.removeMultiple(queueIndicesToRemove);
+            }
           }
+          library.loadLibrary();
+          onTracksDeleted?.(result.deletedIds);
+        } finally {
+          settleRows();
         }
-        library.loadLibrary();
-        onTracksDeleted?.(result.deletedIds);
       }
       if (result.failures.length === trackIds.length) {
         setDeleteError({ message: `Failed to move ${title} to ${trashLabel}`, failures: result.failures });

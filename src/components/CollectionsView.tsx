@@ -146,7 +146,7 @@ export function CollectionsView({
                   <div className="collection-resync-status">
                     <div className={`collection-progress-bar-track${resyncComplete?.error ? " collection-progress-error" : resyncComplete ? " collection-progress-done" : ""}`}>
                       <div
-                        className={`collection-progress-bar-fill${resyncProgress && resyncProgress.total === 0 ? " collection-progress-indeterminate" : ""}`}
+                        className={`collection-progress-bar-fill ds-motion-essential${resyncProgress && resyncProgress.total === 0 ? " collection-progress-indeterminate" : ""}`}
                         style={{ width: resyncComplete ? "100%" : resyncProgress && resyncProgress.total > 0 ? `${Math.round((resyncProgress.scanned / resyncProgress.total) * 100)}%` : undefined }}
                       />
                     </div>

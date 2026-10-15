@@ -165,8 +165,8 @@ export function PluginInstallModal({ flow, onCancel, onEnable, onClose, onRetry,
               </div>
               <div className="plugin-install-track">
                 <div
-                  className={`plugin-install-fill${pct == null ? " plugin-install-fill--indeterminate" : ""}`}
-                  style={{ width: pct == null ? "100%" : `${pct}%` }}
+                  className={`plugin-install-fill ds-motion-essential${pct == null ? " plugin-install-fill--indeterminate" : ""}`}
+                  style={pct == null ? undefined : { width: `${pct}%` }}
                 />
               </div>
             </div>

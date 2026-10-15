@@ -166,7 +166,7 @@ export function PluginLoadingModal({ message, progress }: PluginLoadingModalProp
     <div className="ds-modal-overlay">
       <div className="loading-card">
         <div className="loading-card-icon">
-          <div className="loading-card-spinner" />
+          <div className="loading-card-spinner ds-motion-essential" />
         </div>
         <div className="loading-card-text">
           <div className="loading-card-title">Loading...</div>
@@ -175,7 +175,7 @@ export function PluginLoadingModal({ message, progress }: PluginLoadingModalProp
             <>
               <div className="loading-card-bar">
                 <div
-                  className={`loading-card-fill${pct === null ? " is-indeterminate" : ""}`}
+                  className={`loading-card-fill ds-motion-essential${pct === null ? " is-indeterminate" : ""}`}
                   style={pct === null ? undefined : { width: `${pct}%` }}
                 />
               </div>

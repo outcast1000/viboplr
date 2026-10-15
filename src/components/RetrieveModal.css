@@ -87,10 +87,8 @@
   border: 2px solid var(--border);
   border-top-color: var(--accent);
   border-radius: 50%;
-  animation: rm-spin 0.7s linear infinite;
+  animation: ds-spin 0.7s linear infinite;
 }
-
-@keyframes rm-spin { to { transform: rotate(360deg); } }
 
 /* ── Preview ── */
 

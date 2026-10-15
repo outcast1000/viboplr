@@ -188,7 +188,7 @@
   gap: 2px;
   margin-top: -4px;
   opacity: 0.55;
-  transition: opacity 0.15s;
+  transition: opacity var(--dur-fast);
 }
 
 .plugin-chat-msg--assistant:hover .plugin-chat-msg-actions,
@@ -266,7 +266,7 @@
 .plugin-chat-steps-chevron {
   display: inline-flex;
   flex: none;
-  transition: transform 0.15s var(--ease-out-quart);
+  transition: transform var(--dur-fast) var(--ease-out-quart);
 }
 
 .plugin-chat-steps.is-open .plugin-chat-steps-chevron {
@@ -339,7 +339,7 @@
   border-radius: 50%;
   border: 2px solid rgba(var(--accent-rgb), 0.25);
   border-top-color: var(--accent);
-  animation: plugin-chat-spin 0.8s linear infinite;
+  animation: ds-spin 0.8s linear infinite;
 }
 
 /* ---- approval ---- */
@@ -390,15 +390,11 @@
 }
 
 .plugin-chat-status .plugin-chat-spark {
-  animation: plugin-chat-spin 2.4s linear infinite;
+  animation: ds-spin 2.4s linear infinite;
 }
 
 .plugin-chat-status-elapsed {
   font-variant-numeric: tabular-nums;
-}
-
-@keyframes plugin-chat-spin {
-  to { transform: rotate(360deg); }
 }
 
 /* ---- empty state + notice ---- */
@@ -479,7 +475,7 @@
   border-radius: 18px;
   background: var(--bg-secondary);
   box-shadow: 0 2px 10px rgba(var(--overlay-inverse), 0.12);
-  transition: border-color 0.15s;
+  transition: border-color var(--dur-fast);
 }
 
 .plugin-chat-composer:focus-within {
@@ -553,7 +549,7 @@
   background: var(--accent);
   color: var(--accent-text);
   cursor: pointer;
-  transition: opacity 0.15s;
+  transition: opacity var(--dur-fast);
 }
 
 .plugin-chat-send:disabled {

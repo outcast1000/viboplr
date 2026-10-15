@@ -156,7 +156,7 @@
   padding-top: 40px;
   opacity: 0;
   pointer-events: none;
-  transition: opacity 0.3s;
+  transition: opacity var(--dur-slow);
   z-index: 10;
   display: none;
 }
@@ -234,7 +234,7 @@
   height: 6px;
   cursor: row-resize;
   z-index: 7;
-  transition: background 0.15s;
+  transition: background var(--dur-fast);
 }
 .video-queue-resize:hover {
   background: var(--accent);
@@ -258,7 +258,7 @@
   gap: 8px;
   opacity: 0;
   pointer-events: none;
-  transition: opacity 0.15s;
+  transition: opacity var(--dur-fast);
 }
 .video-container:hover .video-dock-actions {
   opacity: 1;
@@ -278,7 +278,7 @@
   -webkit-backdrop-filter: blur(8px);
   color: var(--text-primary);
   cursor: pointer;
-  transition: background 0.15s;
+  transition: background var(--dur-fast);
 }
 .video-dock-btn:hover {
   background: rgba(var(--overlay-inverse), 0.72);
@@ -354,7 +354,7 @@
   display: flex;
   align-items: center;
   overflow: hidden;
-  transition: filter 0.15s, height 0.18s var(--ease-out-quart);
+  transition: filter var(--dur-fast), height 0.18s var(--ease-out-quart);
 }
 .fs-seek-bar:hover {
   filter: brightness(1.15);
@@ -566,7 +566,7 @@
   color: var(--text-tertiary);
   cursor: pointer;
   padding: 5px 6px;
-  transition: color 0.15s, background 0.15s;
+  transition: color var(--dur-fast), background var(--dur-fast);
 }
 
 .splitter-collapse-btn:hover {
@@ -641,7 +641,7 @@
   display: inline-flex;
   vertical-align: middle;
   opacity: 0.8;
-  transition: opacity 0.15s;
+  transition: opacity var(--dur-fast);
 }
 
 .track-detail-lastfm-link:hover {
@@ -670,7 +670,7 @@
   padding: 1px;
   flex-shrink: 0;
   opacity: 0.6;
-  transition: opacity 0.15s, color 0.15s;
+  transition: opacity var(--dur-fast), color var(--dur-fast);
 }
 
 .track-detail-path-btn:hover {
@@ -717,7 +717,7 @@
   font-size: var(--fs-sm);
   line-height: 1;
   color: var(--text-tertiary);
-  transition: opacity 0.15s, color 0.15s;
+  transition: opacity var(--dur-fast), color var(--dur-fast);
   padding: 0 2px;
 }
 

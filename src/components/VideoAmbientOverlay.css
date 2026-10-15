@@ -85,7 +85,7 @@
   backdrop-filter: blur(8px);
   cursor: pointer;
   max-width: 280px;
-  transition: background 0.15s;
+  transition: background var(--dur-fast);
 }
 .video-ambient-chip-row:hover {
   background: rgba(var(--overlay-inverse), 0.72);
@@ -152,7 +152,7 @@
   backdrop-filter: blur(8px);
   color: var(--text-primary);
   cursor: pointer;
-  transition: background 0.15s;
+  transition: background var(--dur-fast);
 }
 .video-ambient-fs:hover {
   background: rgba(var(--overlay-inverse), 0.72);
@@ -176,7 +176,7 @@
   backdrop-filter: blur(8px);
   color: var(--text-primary);
   cursor: pointer;
-  transition: background 0.15s, opacity 0.15s;
+  transition: background var(--dur-fast), opacity var(--dur-fast);
 }
 .video-ambient-lyrics-toggle:hover {
   background: rgba(var(--overlay-inverse), 0.72);

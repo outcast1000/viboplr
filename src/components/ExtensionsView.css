@@ -124,7 +124,7 @@
   padding: 10px 12px;
   border-radius: var(--ds-radius);
   border: 1px solid transparent;
-  transition: background 0.1s, border-color 0.1s;
+  transition: background var(--dur-instant), border-color var(--dur-instant);
 }
 /* Hairline separators between resting rows; the hovered row gets a full card-like
    outline instead, so its top border and the next row's separator are suppressed. */
@@ -712,7 +712,7 @@
   gap: 4px;
   padding: 0 9px 9px;
   opacity: 0.75;
-  transition: opacity 0.15s ease;
+  transition: opacity var(--dur-fast) ease;
 }
 .ext-skin-card:hover .ext-skin-actions,
 .ext-skin-card:focus-within .ext-skin-actions { opacity: 1; }
@@ -727,7 +727,7 @@
   background: var(--bg-surface);
   color: var(--text-secondary);
   cursor: pointer;
-  transition: color 0.15s ease, border-color 0.15s ease, background 0.15s ease;
+  transition: color var(--dur-fast) ease, border-color var(--dur-fast) ease, background var(--dur-fast) ease;
 }
 .ext-skin-act:hover:not(:disabled) {
   color: var(--accent);

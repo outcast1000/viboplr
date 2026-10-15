@@ -128,7 +128,7 @@
   z-index: 100;
   pointer-events: none;
   opacity: 0;
-  transition: opacity 150ms ease;
+  transition: opacity var(--dur-fast) ease;
   transition-delay: 0ms;
 }
 
@@ -223,7 +223,7 @@
   flex-shrink: 0;
   cursor: pointer;
   opacity: 0.4;
-  transition: opacity 0.15s ease;
+  transition: opacity var(--dur-fast) ease;
 }
 
 .info-sections-refresh:hover {

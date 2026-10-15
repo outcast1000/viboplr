@@ -156,7 +156,7 @@
   cursor: pointer;
   border-radius: 8px;
   overflow: hidden;
-  transition: background 0.15s;
+  transition: background var(--dur-fast);
 }
 
 .plugin-card:hover {
@@ -210,7 +210,7 @@
   border-radius: 4px;
   line-height: 1;
   opacity: 0;
-  transition: opacity 0.15s;
+  transition: opacity var(--dur-fast);
 }
 
 .plugin-card:hover .plugin-card-more {
@@ -426,7 +426,7 @@
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-  transition: background 0.1s ease, color 0.1s ease;
+  transition: background var(--dur-instant) ease, color var(--dur-instant) ease;
 }
 
 /* Mouse hover: subtle grey, distinct from the keyboard-highlighted row. */
@@ -567,11 +567,7 @@
   border: 2px solid var(--border);
   border-top-color: var(--accent);
   border-radius: 50%;
-  animation: plugin-spin 0.8s linear infinite;
-}
-
-@keyframes plugin-spin {
-  to { transform: rotate(360deg); }
+  animation: ds-spin 0.8s linear infinite;
 }
 
 
@@ -679,7 +675,7 @@
   border-bottom: none;
   border-radius: var(--ds-radius);
   cursor: default;
-  transition: background 0.15s;
+  transition: background var(--dur-fast);
 }
 
 /* Open-on-click lists (see rowClickOpens): the row is a link to somewhere, so
@@ -992,7 +988,7 @@
   height: 100%;
   background: var(--accent);
   border-radius: 3px;
-  transition: width 0.3s;
+  transition: width var(--dur-slow);
 }
 
 .plugin-progress-label {
@@ -1054,7 +1050,7 @@
   min-width: 2px;
   background: var(--accent);
   border-radius: 5px;
-  transition: width 0.3s;
+  transition: width var(--dur-slow);
 }
 
 .plugin-bar-value {
@@ -1100,7 +1096,7 @@
   min-height: 2px;
   background: var(--accent);
   border-radius: 4px 4px 0 0;
-  transition: height 0.3s;
+  transition: height var(--dur-slow);
 }
 
 /* Value sits just above the bar top and rises with it. */

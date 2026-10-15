@@ -1,4 +1,4 @@
-import { memo, useState, useEffect, useRef, useMemo, useId } from "react";
+import { Fragment, memo, useState, useEffect, useRef, useMemo, useId } from "react";
 import type { Track, QueueTrack, SortField, TrackColumnId, ColumnConfig } from "../types";
 import { isVideoTrack, formatDuration, formatFileSize } from "../utils";
 import { formatCompactCount } from "../utils/formatCount";
@@ -579,7 +579,12 @@ export function TrackList({
             handlers={rowHandlersRef}
           />
         ));
-        if (t === null) return missingHere ?? null;
+        // Each slot is a keyed Fragment, not a bare `[...missing, row]` array:
+        // React matches unkeyed nested arrays by position, so deleting a row above
+        // a "Not in library" group used to remount the whole group (losing its
+        // DOM identity — the delete slide in utils/rowRemoval.ts needs it — and
+        // replaying its entrance fade).
+        if (t === null) return missingHere ? <Fragment key="trailing">{missingHere}</Fragment> : null;
         const isCurrent = isPlayingLibraryRow(t, currentTrack);
         const row = (
           <TrackRow
@@ -599,7 +604,7 @@ export function TrackList({
             handlers={rowHandlersRef}
           />
         );
-        return missingHere ? [...missingHere, row] : row;
+        return <Fragment key={t.id}>{missingHere}{row}</Fragment>;
       })}
       {hasMore && (
         <div ref={sentinelRef} className="track-list-sentinel">
@@ -776,6 +781,7 @@ const TrackRow = memo(function TrackRow({
     <div
       role="option"
       id={optId}
+      data-track-id={t.id}
       aria-selected={isSelected}
       className={`track-row ${isCurrent ? "playing" : ""} ${isHighlighted ? "highlighted" : ""} ${isActive ? "active" : ""} ${isSelected ? "selected" : ""}`}
       onMouseDown={(e) => handlers.current.mouseDown(e, index)}

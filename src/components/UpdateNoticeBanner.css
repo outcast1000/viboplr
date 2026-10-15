@@ -72,7 +72,7 @@
 }
 .update-notice-caret {
   display: flex;
-  transition: transform 0.15s var(--ease-out-quart);
+  transition: transform var(--dur-fast) var(--ease-out-quart);
 }
 .update-notice-caret.is-open {
   transform: rotate(180deg);

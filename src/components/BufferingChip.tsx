@@ -35,7 +35,7 @@ export function BufferingChip({ buffer }: BufferingChipProps) {
           : "Waiting for the stream to catch up"
       }
     >
-      <span className="buffering-chip-spinner" aria-hidden="true" />
+      <span className="buffering-chip-spinner ds-motion-essential" aria-hidden="true" />
       <span>{readahead ? `Buffering… ${readahead}` : "Buffering…"}</span>
     </div>
   );

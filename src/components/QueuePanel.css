@@ -104,7 +104,7 @@
   padding-top: 8px;
   cursor: pointer;
   gap: 8px;
-  transition: background 0.15s;
+  transition: background var(--dur-fast);
 }
 
 /* Queue mode · auto-continue at the top of the rail: the bar's pill
@@ -306,7 +306,7 @@
   border: none;
   cursor: pointer;
   opacity: 0;
-  transition: opacity 0.15s, background 0.15s;
+  transition: opacity var(--dur-fast), background var(--dur-fast);
 }
 
 .queue-context-banner:hover .queue-context-info-btn,
@@ -324,7 +324,7 @@
   align-items: center;
   padding: 8px 12px 8px 8px;
   cursor: pointer;
-  transition: background 0.1s;
+  transition: background var(--dur-instant);
   font-size: var(--fs-sm);
   gap: 6px;
   /* Skip layout/paint for offscreen rows so very large queues stay cheap; the
@@ -441,12 +441,8 @@
   border: 2px solid rgba(var(--accent-rgb), 0.25);
   border-top-color: var(--accent);
   border-radius: 50%;
-  animation: queue-resolver-spin 0.7s linear infinite;
+  animation: ds-spin 0.7s linear infinite;
   cursor: help;
-}
-
-@keyframes queue-resolver-spin {
-  to { transform: rotate(360deg); }
 }
 
 /* Leading row shown while "Prefer video" is on. The mode changes what every

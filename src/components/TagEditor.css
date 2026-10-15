@@ -87,7 +87,7 @@
   font-size: var(--fs-sm);
   line-height: 1;
   color: var(--text-tertiary);
-  transition: opacity 0.15s, color 0.15s;
+  transition: opacity var(--dur-fast), color var(--dur-fast);
   padding: 0 2px;
 }
 
@@ -134,7 +134,7 @@
   line-height: 1;
   color: var(--accent);
   opacity: 0;
-  transition: opacity 0.15s, color 0.15s;
+  transition: opacity var(--dur-fast), color var(--dur-fast);
   padding: 0 2px;
 }
 
@@ -181,7 +181,7 @@
   color: var(--text-secondary);
   border: 1px dashed var(--border);
   cursor: pointer;
-  transition: background 0.15s, color 0.15s, border-color 0.15s;
+  transition: background var(--dur-fast), color var(--dur-fast), border-color var(--dur-fast);
 }
 
 .tag-editor-suggested-pill:hover {

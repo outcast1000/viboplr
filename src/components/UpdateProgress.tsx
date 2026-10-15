@@ -22,7 +22,7 @@ export function UpdateProgress({ progress }: { progress: { downloaded: number; t
     <div className="update-progress" role="status" aria-live="polite">
       <div className="update-progress-bar">
         <div
-          className={`update-progress-fill ${pct === null ? "is-indeterminate" : ""}`}
+          className={`update-progress-fill ds-motion-essential ${pct === null ? "is-indeterminate" : ""}`}
           style={pct === null ? undefined : { width: `${pct}%` }}
         />
       </div>

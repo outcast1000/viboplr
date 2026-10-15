@@ -37,7 +37,7 @@
   padding: 8px 36px;
   color: inherit;
   font-size: var(--fs-sm);
-  transition: border-color 0.15s;
+  transition: border-color var(--dur-fast);
 }
 
 .view-search-input-wrap input:focus {

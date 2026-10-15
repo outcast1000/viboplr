@@ -15,7 +15,7 @@
   color: var(--text-tertiary);
   cursor: pointer;
   border-radius: var(--ds-radius);
-  transition: color 0.15s, background 0.15s;
+  transition: color var(--dur-fast), background var(--dur-fast);
   flex: 0 0 auto;
 }
 
@@ -55,7 +55,7 @@
   color: var(--text-secondary);
   cursor: pointer;
   border-radius: 50%;
-  transition: color 0.15s, background 0.15s, border-color 0.15s;
+  transition: color var(--dur-fast), background var(--dur-fast), border-color var(--dur-fast);
 }
 
 .tag-edit-modal-close:hover {

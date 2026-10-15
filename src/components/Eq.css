@@ -58,7 +58,7 @@
   border: none;
   border-radius: var(--ds-radius, 6px);
   cursor: pointer;
-  transition: background 0.15s, color 0.15s;
+  transition: background var(--dur-fast), color var(--dur-fast);
 }
 
 .eq-popover-close:hover {
@@ -136,7 +136,7 @@
   border: 1px solid var(--border);
   border-radius: var(--ds-radius, 6px);
   cursor: pointer;
-  transition: background 0.15s, color 0.15s;
+  transition: background var(--dur-fast), color var(--dur-fast);
 }
 
 .eq-icon-btn:hover {
@@ -323,7 +323,7 @@
   border-radius: 999px;
   padding: 4px 12px;
   cursor: pointer;
-  transition: background 0.15s, color 0.15s, border-color 0.15s;
+  transition: background var(--dur-fast), color var(--dur-fast), border-color var(--dur-fast);
 }
 
 .eq-preset-chip:hover {
@@ -404,7 +404,7 @@
   border-radius: calc(var(--ds-radius, 6px) - 2px);
   padding: 4px 12px;
   cursor: pointer;
-  transition: background 0.15s, color 0.15s;
+  transition: background var(--dur-fast), color var(--dur-fast);
 }
 
 .eq-mode-seg-btn:hover {

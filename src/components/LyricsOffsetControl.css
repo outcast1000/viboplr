@@ -37,7 +37,7 @@
   color: inherit;
   cursor: pointer;
   border-radius: var(--ds-radius);
-  transition: background 0.15s ease, color 0.15s ease;
+  transition: background var(--dur-fast) ease, color var(--dur-fast) ease;
 }
 
 .lyric-offset-btn {

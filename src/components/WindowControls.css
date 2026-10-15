@@ -14,7 +14,7 @@
   border: none;
   cursor: pointer;
   padding: 0;
-  transition: opacity 0.15s;
+  transition: opacity var(--dur-fast);
 }
 .traffic-light:hover {
   opacity: 0.8;
@@ -51,7 +51,7 @@
   align-items: center;
   justify-content: center;
   cursor: pointer;
-  transition: background 0.1s;
+  transition: background var(--dur-instant);
 }
 .window-control-btn:hover {
   background: var(--bg-hover);

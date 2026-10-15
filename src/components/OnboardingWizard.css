@@ -92,7 +92,7 @@
   height: 8px;
   border-radius: 50%;
   background: var(--bg-tertiary);
-  transition: background 0.15s ease, transform 0.15s ease;
+  transition: background var(--dur-fast) ease, transform var(--dur-fast) ease;
 }
 .onboarding-dot.done {
   background: var(--accent-dim);
@@ -357,7 +357,7 @@
 .onboarding-progress-fill {
   height: 100%;
   background: var(--accent);
-  transition: width 0.2s;
+  transition: width var(--dur-base);
 }
 
 /* Last.fm step: embedded plugin settings panel */

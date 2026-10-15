@@ -427,7 +427,7 @@
   font-weight: 600;
   letter-spacing: 0.02em;
   cursor: pointer;
-  transition: color 0.15s ease, border-color 0.15s ease;
+  transition: color var(--dur-fast) ease, border-color var(--dur-fast) ease;
 }
 .np-about-tab:hover,
 .np-about-tab:focus-visible {
@@ -703,7 +703,7 @@
      :hover could still beat it. One less thing to get wrong. */
   opacity: 0.85;
   cursor: pointer;
-  transition: opacity 0.2s ease, background 0.15s ease, color 0.15s ease;
+  transition: opacity var(--dur-base) ease, background var(--dur-fast) ease, color var(--dur-fast) ease;
 }
 .np-action-btn:hover,
 .np-action-btn:focus-visible {

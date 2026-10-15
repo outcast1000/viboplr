@@ -19,7 +19,8 @@
   border: 1px solid transparent;
   background: none;
   color: var(--text-primary);
-  transition: all 0.15s;
+  transition-property: background-color, color, border-color, filter, opacity;
+  transition-duration: var(--dur-fast);
   white-space: nowrap;
   flex-shrink: 0;
 }
@@ -103,7 +104,7 @@
   font-size: var(--fs-sm);
   font-family: inherit;
   cursor: pointer;
-  transition: color 0.15s;
+  transition: color var(--dur-fast);
   margin-bottom: -1px;
   white-space: nowrap;
 }
@@ -120,7 +121,7 @@
   height: 2px;
   background: var(--accent);
   transform: scaleX(0);
-  transition: transform 0.2s var(--ease-out-quart);
+  transition: transform var(--dur-base) var(--ease-out-quart);
   pointer-events: none;
 }
 
@@ -196,7 +197,7 @@
   border-radius: var(--ds-radius-card);
   overflow: hidden;
   cursor: pointer;
-  transition: background 0.15s;
+  transition: background var(--dur-fast);
 }
 
 .ds-card:hover {
@@ -241,7 +242,7 @@
   justify-content: center;
   opacity: 0;
   transform: translateY(6px);
-  transition: opacity 0.2s, transform 0.2s, box-shadow 0.2s, filter 0.2s;
+  transition: opacity var(--dur-base), transform var(--dur-base), box-shadow var(--dur-base), filter var(--dur-base);
   box-shadow: 0 4px 16px rgba(var(--accent-rgb), 0.45);
   z-index: 1;
   pointer-events: none; /* hidden FAB must not intercept card clicks */
@@ -287,7 +288,7 @@
   font-size: 18px;
   opacity: 0;
   transform: translateY(6px);
-  transition: opacity 0.2s, transform 0.2s 0.03s;
+  transition: opacity var(--dur-base), transform var(--dur-base) 0.03s;
   z-index: 1;
 }
 
@@ -314,7 +315,7 @@
   color: var(--text-tertiary);
   padding: 4px;
   border-radius: 4px;
-  transition: color 0.15s;
+  transition: color var(--dur-fast);
   vertical-align: middle;
 }
 
@@ -349,7 +350,7 @@
   padding: 0;
   width: 20px;
   text-align: center;
-  transition: color 0.15s;
+  transition: color var(--dur-fast);
   flex-shrink: 0;
 }
 
@@ -394,7 +395,7 @@
   /* Hidden when neutral to keep cards uncluttered — revealed on card hover
      (below) and kept visible whenever a like/dislike value is set. */
   opacity: 0;
-  transition: opacity 0.15s, background 0.15s, color 0.15s, transform 0.15s;
+  transition: opacity var(--dur-fast), background var(--dur-fast), color var(--dur-fast), transform var(--dur-fast);
 }
 
 .ds-card:hover .ds-like-overlay,
@@ -452,7 +453,7 @@
   border-radius: 4px;
   line-height: 1;
   opacity: 0;
-  transition: opacity 0.15s;
+  transition: opacity var(--dur-fast);
 }
 
 .ds-card:hover .ds-card-more {
@@ -506,7 +507,7 @@
   color: var(--text-primary);
   font-size: var(--fs-sm);
   font-family: inherit;
-  transition: border-color 0.15s;
+  transition: border-color var(--dur-fast);
 }
 
 .ds-input:focus {
@@ -543,7 +544,7 @@
   cursor: pointer;
   padding: 0;
   flex-shrink: 0;
-  transition: background 0.2s;
+  transition: background var(--dur-base);
 }
 
 .ds-toggle.on {
@@ -558,7 +559,7 @@
   height: 14px;
   border-radius: 50%;
   background: var(--text-primary);
-  transition: transform 0.2s;
+  transition: transform var(--dur-base);
   pointer-events: none;
 }
 
@@ -574,7 +575,7 @@
   color: var(--text-primary);
   font-size: var(--fs-sm);
   font-family: inherit;
-  transition: border-color 0.15s;
+  transition: border-color var(--dur-fast);
 }
 
 .ds-search:focus {
@@ -736,7 +737,7 @@
   max-width: 350px;
   pointer-events: none;
   opacity: 0;
-  transition: opacity 0.15s;
+  transition: opacity var(--dur-fast);
   box-shadow: 0 4px 16px rgba(var(--overlay-base), 0.15), 0 1px 3px rgba(var(--overlay-base), 0.1);
   overflow: hidden;
 }
@@ -836,8 +837,21 @@
   border-width: 3px;
 }
 
+/* The app's one rotation keyframe — every spinner uses it with its own
+   duration. Don't add a per-component copy. (The SpinningDisc / FilmReel
+   playback icons are not CSS-animated: useSpin drives them so they can slow to
+   a stop.) A new busy indicator also needs the `ds-motion-essential`
+   class in its markup (see the reduced-motion guard in base.css), or it freezes
+   for users with that setting. */
 @keyframes ds-spin {
   to { transform: rotate(360deg); }
+}
+
+/* Indeterminate progress: a fill of ~35–40% width swept across its track,
+   used when the operation reports no total (no Content-Length, unknown count). */
+@keyframes ds-sweep {
+  0%   { transform: translateX(-100%); }
+  100% { transform: translateX(350%); }
 }
 
 /* Single cycling like control — one button advances neutral → like → dislike. */

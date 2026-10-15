@@ -314,7 +314,7 @@
 .quiz-snippet-progress > div {
   height: 100%;
   background: var(--accent);
-  transition: width 0.2s linear;
+  transition: width var(--dur-base) linear;
 }
 
 .quiz-player-caption {
@@ -346,7 +346,7 @@
   font-size: var(--fs-xs);
   font-weight: 700;
   cursor: pointer;
-  transition: background 0.15s, opacity 0.15s;
+  transition: background var(--dur-fast), opacity var(--dur-fast);
 }
 .quiz-lifeline--wide {
   border-radius: 26px;
@@ -428,7 +428,7 @@
   color: var(--text-primary);
   font: inherit;
   cursor: pointer;
-  transition: transform 0.12s var(--ease-out-quart, ease-out), border-color 0.15s;
+  transition: transform 0.12s var(--ease-out-quart, ease-out), border-color var(--dur-fast);
 }
 .quiz-mode-card:not(:disabled):hover {
   transform: translateY(-3px);

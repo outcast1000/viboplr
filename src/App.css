@@ -123,7 +123,7 @@
   font-size: var(--fs-xs);
   cursor: pointer;
   border-radius: 4px;
-  transition: color 0.15s, opacity 0.2s;
+  transition: color var(--dur-fast), opacity var(--dur-base);
   animation: fade-in 0.2s ease;
   -webkit-app-region: no-drag;
   flex-shrink: 0;
@@ -156,12 +156,7 @@
 }
 
 .caption-sync-spin {
-  animation: caption-sync-spin 1s linear infinite;
-}
-
-@keyframes caption-sync-spin {
-  from { transform: rotate(0deg); }
-  to { transform: rotate(360deg); }
+  animation: ds-spin 1s linear infinite;
 }
 
 .content {
@@ -272,7 +267,7 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  transition: opacity 0.2s, transform 0.2s, background 0.15s;
+  transition: opacity var(--dur-base), transform var(--dur-base), background var(--dur-fast);
   line-height: 1;
   z-index: 1;
 }
@@ -292,7 +287,7 @@
   border-radius: 4px;
   padding: 2px 6px 2px 2px;
   margin-left: -2px;
-  transition: background 0.15s;
+  transition: background var(--dur-fast);
 }
 
 .section-header:hover {
@@ -306,7 +301,7 @@
   justify-content: center;
   width: 16px;
   height: 16px;
-  transition: transform 0.2s ease;
+  transition: transform var(--dur-base) ease;
   color: var(--text-secondary);
   flex-shrink: 0;
 }
@@ -429,7 +424,7 @@
   border-radius: 8px;
   overflow: hidden;
   cursor: pointer;
-  transition: background 0.15s;
+  transition: background var(--dur-fast);
   position: relative;
 }
 
@@ -463,6 +458,45 @@
   cursor: pointer;
 }
 
+/* Album tiles: on hover the sleeve (the cover) eases left and shrinks a little,
+   and the record slides out of its right edge. Transform-only, hover-only — the
+   disc is a static pseudo-element painted once and moved on the compositor.
+   Album surfaces opt in with the modifier because `.album-card` is shared with
+   track tiles (TrackCard). The disc paints on the card, not on a skin surface,
+   so it uses the never-flipped --scrim-rgb / --on-image-rgb pair. Geometry:
+   cover scales to 84% from its left edge; the 84%-wide disc, centred
+   vertically behind it, travels 17.9% of its own width so its right edge stops
+   1% short of the card edge, showing a 15%-wide arc of vinyl. */
+.album-card-art-wrapper--record {
+  isolation: isolate;
+}
+.album-card-art-wrapper--record::before {
+  content: "";
+  position: absolute;
+  top: 8%;
+  left: 0;
+  width: 84%;
+  aspect-ratio: 1;
+  border-radius: 50%;
+  background:
+    radial-gradient(circle, transparent 0 30%, rgba(var(--on-image-rgb), 0.1) 30.5% 31%, transparent 31.5%),
+    repeating-radial-gradient(circle, rgba(var(--on-image-rgb), 0.06) 0 1px, transparent 1px 3px),
+    rgb(var(--scrim-rgb));
+  box-shadow: inset 0 0 0 1px rgba(var(--on-image-rgb), 0.08);
+  transition: transform var(--dur-slow) var(--ease-out-quart);
+}
+.album-card-art-wrapper--record .album-card-art {
+  position: relative;
+  transform-origin: left center;
+  transition: transform var(--dur-slow) var(--ease-out-quart);
+}
+.album-card:hover .album-card-art-wrapper--record .album-card-art {
+  transform: scale(0.84);
+}
+.album-card:hover .album-card-art-wrapper--record::before {
+  transform: translateX(17.9%);
+}
+
 /* Tile play FAB is the shared .ds-card-play (design-system.css); these card
    parents only trigger its reveal on hover. */
 .album-card:hover .ds-card-play,
@@ -490,7 +524,7 @@
   font-size: 18px;
   opacity: 0;
   transform: translateY(6px);
-  transition: opacity 0.2s, transform 0.2s 0.03s;
+  transition: opacity var(--dur-base), transform var(--dur-base) 0.03s;
   z-index: 1;
 }
 
@@ -516,7 +550,7 @@
   max-height: 200px;
   opacity: 1;
   overflow: hidden;
-  transition: max-height 200ms ease, opacity 200ms ease;
+  transition: max-height var(--dur-base) ease, opacity var(--dur-base) ease;
 }
 
 .sort-bar-wrapper.collapsed {
@@ -577,7 +611,8 @@
   padding: 4px 8px;
   border-radius: 4px;
   cursor: pointer;
-  transition: all 0.15s;
+  transition-property: background-color, color, border-color, opacity;
+  transition-duration: var(--dur-fast);
   white-space: nowrap;
   flex-shrink: 0;
 }
@@ -645,7 +680,8 @@
   padding: 2px 6px;
   border-radius: 4px;
   cursor: pointer;
-  transition: all 0.15s;
+  transition-property: background-color, color, border-color;
+  transition-duration: var(--dur-fast);
   line-height: 1;
 }
 
@@ -706,7 +742,7 @@
   padding: 8px 16px;
   border-radius: 6px;
   cursor: default;
-  transition: background 0.15s;
+  transition: background var(--dur-fast);
   font-size: var(--fs-sm);
 }
 
@@ -806,7 +842,7 @@
   padding: 6px 16px;
   border-radius: 6px;
   cursor: default;
-  transition: background 0.15s;
+  transition: background var(--dur-fast);
   font-size: var(--fs-base);
 }
 
@@ -978,11 +1014,7 @@
   border: 2px solid var(--border);
   border-top-color: var(--accent);
   border-radius: 50%;
-  animation: loading-card-spin 0.8s linear infinite;
-}
-
-@keyframes loading-card-spin {
-  to { transform: rotate(360deg); }
+  animation: ds-spin 0.8s linear infinite;
 }
 
 .loading-card-title {
@@ -1009,16 +1041,12 @@
   height: 100%;
   border-radius: 2px;
   background: var(--accent);
-  transition: width 0.2s var(--ease-out-quart);
+  transition: width var(--dur-base) var(--ease-out-quart);
 }
 /* No Content-Length: sweep rather than claim a percentage we don't have. */
 .loading-card-fill.is-indeterminate {
   width: 35%;
-  animation: loading-card-sweep 1.2s ease-in-out infinite;
-}
-@keyframes loading-card-sweep {
-  0% { transform: translateX(-100%); }
-  100% { transform: translateX(340%); }
+  animation: ds-sweep 1.2s ease-in-out infinite;
 }
 .loading-card-bytes {
   margin-top: 4px;
@@ -1074,14 +1102,14 @@
   height: 100%;
   background: var(--accent);
   border-radius: 3px;
-  transition: width 0.2s ease;
+  transition: width var(--dur-base) ease;
 }
+/* No Content-Length: sweep rather than claim a percentage we don't have. It
+   used to pulse a 100%-wide bar, which reduced motion froze into what looked
+   like a finished download. */
 .plugin-install-fill--indeterminate {
-  animation: plugin-install-pulse 1.1s ease-in-out infinite;
-}
-@keyframes plugin-install-pulse {
-  0%, 100% { opacity: 0.35; }
-  50% { opacity: 0.7; }
+  width: 35%;
+  animation: ds-sweep 1.2s ease-in-out infinite;
 }
 .plugin-install-title-icon {
   display: flex;
@@ -1536,7 +1564,7 @@
 .save-playlist-image-preview > .artist-image-menu-wrapper .artist-image-menu-trigger {
   opacity: 0;
   transform: translateY(6px);
-  transition: opacity 0.2s, transform 0.2s 0.03s;
+  transition: opacity var(--dur-base), transform var(--dur-base) 0.03s;
 }
 
 .save-playlist-image-preview:hover > .artist-image-menu-wrapper .artist-image-menu-trigger {
@@ -1568,7 +1596,7 @@
   white-space: nowrap;
   pointer-events: none;
   opacity: 0;
-  transition: opacity 0.15s;
+  transition: opacity var(--dur-fast);
   z-index: 1000;
   box-shadow: 0 4px 16px rgba(var(--overlay-base), 0.15), 0 1px 3px rgba(var(--overlay-base), 0.1);
 }
@@ -1643,7 +1671,7 @@
   border-radius: var(--ds-radius-card);
   overflow: hidden;
   cursor: pointer;
-  transition: background 0.15s;
+  transition: background var(--dur-fast);
 }
 
 .playlist-shortcut:hover {
@@ -1712,7 +1740,7 @@
   justify-content: center;
   opacity: 0;
   transform: translateX(6px);
-  transition: opacity 0.2s, transform 0.2s, box-shadow 0.2s;
+  transition: opacity var(--dur-base), transform var(--dur-base), box-shadow var(--dur-base);
   box-shadow: 0 4px 16px rgba(var(--accent-rgb), 0.45);
 }
 
@@ -1736,7 +1764,7 @@
   cursor: pointer;
   border-radius: 8px;
   overflow: hidden;
-  transition: background 0.15s;
+  transition: background var(--dur-fast);
 }
 
 .playlist-card:hover {
@@ -1812,7 +1840,7 @@
   font-size: 18px;
   opacity: 0;
   transform: translateY(6px);
-  transition: opacity 0.2s, transform 0.2s 0.03s;
+  transition: opacity var(--dur-base), transform var(--dur-base) 0.03s;
   z-index: 1;
 }
 
@@ -1879,7 +1907,7 @@
   padding: 8px 36px;
   color: var(--text-primary);
   font-size: var(--fs-sm);
-  transition: border-color 0.15s;
+  transition: border-color var(--dur-fast);
 }
 
 .search-view-input:focus {
@@ -1903,7 +1931,7 @@
   justify-content: center;
   border-radius: 4px;
   opacity: 0.6;
-  transition: opacity 0.15s;
+  transition: opacity var(--dur-fast);
 }
 
 .search-view-clear:hover {

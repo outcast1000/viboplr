@@ -263,7 +263,7 @@ export function SearchAlbumResults({
           <div className="entity-grid">
             {albums.map((a, i) => (
               <div key={a.id} className={`album-card${selectedIds.has(a.id) ? " selected" : ""}`} onClick={e => handleClick(e, i)} onMouseDown={e => handleMouseDown(e, a.id)} onContextMenu={e => handleCtxMenu(e, a)}>
-                <div className="album-card-art-wrapper" onClick={e => { e.stopPropagation(); onAlbumClick(a.id, a.artist_id); }}>
+                <div className="album-card-art-wrapper album-card-art-wrapper--record" onClick={e => { e.stopPropagation(); onAlbumClick(a.id, a.artist_id); }}>
                   <AlbumCardArt album={a} imagePath={getAlbumImage(a.title, a.artist_name)} />
                   <LikeDislikeButtons liked={a.liked} onToggleLike={() => onToggleLike(a.id)} onToggleDislike={() => onToggleDislike(a.id)} variant="overlay" size={12} />
                   <button className="album-card-menu-btn" onClick={e => { e.stopPropagation(); handleCtxMenu(e, a); }} title="More options">&#x22EF;</button>

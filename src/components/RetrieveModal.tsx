@@ -26,7 +26,7 @@ function StatusIcon({ status }: { status: ProviderStatus }) {
       </svg>
     );
   }
-  if (status === "fetching") return <span className="rm-row-icon rm-row-spinner" aria-hidden />;
+  if (status === "fetching") return <span className="rm-row-icon rm-row-spinner ds-motion-essential" aria-hidden />;
   return <span className="rm-row-icon rm-row-dot" aria-hidden />;
 }
 

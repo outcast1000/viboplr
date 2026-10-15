@@ -494,7 +494,7 @@ export function PublishSourceModal({ trackIds, collectionId, defaultName, trackC
                             height: "100%",
                             width: `${Math.min(100, (progress.current / Math.max(1, progress.total)) * 100)}%`,
                             background: "var(--accent)",
-                            transition: "width 0.2s",
+                            transition: "width var(--dur-base)",
                           }}
                         />
                       </div>

@@ -158,6 +158,16 @@
   font-size: var(--fs-xs);
 }
 
+/* The play counting is otherwise invisible, so the ✓ pops in (same keyframe as
+   the play/pause glyph) the moment the scrobble threshold is crossed. It mounts
+   only then, so this runs once per play. inline-block: transforms don't apply
+   to inline boxes. Shared with the fullscreen bar's .fs-scrobbled. */
+.now-scrobbled,
+.fs-scrobbled {
+  display: inline-block;
+  animation: play-icon-pop var(--dur-slow) var(--ease-out-quint);
+}
+
 .now-info {
   flex: 1 1 0;
   max-width: calc(50% - 100px);
@@ -183,7 +193,7 @@
   z-index: -1;
   opacity: 0.3;
   will-change: opacity;
-  transition: opacity 0.5s ease;
+  transition: opacity var(--dur-slower) ease;
 }
 
 .now-art-wrapper.playing::before {
@@ -259,7 +269,7 @@
   background: rgba(var(--accent-rgb), 0.12);
   color: var(--accent);
   cursor: pointer;
-  transition: background 0.15s, border-color 0.15s, transform 0.1s;
+  transition: background var(--dur-fast), border-color var(--dur-fast), transform var(--dur-instant);
   padding: 0;
   margin-left: 6px;
   vertical-align: middle;
@@ -700,7 +710,7 @@
   height: 100%;
   background: var(--accent);
   border-radius: 2px;
-  transition: width 0.1s ease-out;
+  transition: width var(--dur-instant) ease-out;
 }
 
 .mini-volume-pct {
@@ -935,7 +945,7 @@
   display: inline-grid;
   grid-template-columns: 1fr;
   vertical-align: bottom;
-  transition: grid-template-columns 250ms var(--ease-out-quart), opacity 200ms ease;
+  transition: grid-template-columns 250ms var(--ease-out-quart), opacity var(--dur-base) ease;
 }
 .mini-ultra-lead.is-yielded {
   grid-template-columns: 0fr;

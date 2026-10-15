@@ -102,7 +102,7 @@ export function DependencyModal({ dep, feature, installProgress, onInstall, onDi
                   height: "100%",
                   width: progressPct !== null ? `${progressPct}%` : "100%",
                   background: "var(--accent)",
-                  transition: "width 0.2s",
+                  transition: "width var(--dur-base)",
                   opacity: progressPct !== null ? 1 : 0.4,
                 }}
               />

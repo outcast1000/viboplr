@@ -1,8 +1,10 @@
+import { useRef } from "react";
+import { useSpin } from "../hooks/useSpin";
 import "./FilmReel.css";
 
 /**
  * Video sibling of {@link SpinningDisc}: a film reel that rotates while playing
- * and freezes when paused. Round + rotating, so it reads as the vinyl disc's
+ * and slows to a stop when paused (useSpin). Round + rotating, so it reads as the vinyl disc's
  * matched pair (audio = record, video = reel) while staying clearly distinct via
  * the reel rim + ring of sprocket holes.
  *
@@ -22,8 +24,11 @@ export function FilmReel({
   playing?: boolean;
   className?: string;
 }) {
+  const svgRef = useRef<SVGSVGElement>(null);
+  useSpin(svgRef, playing, 1900);
   return (
     <svg
+      ref={svgRef}
       className={`film-reel${playing ? " playing" : ""}${className ? ` ${className}` : ""}`}
       width={size}
       height={size}

@@ -11,7 +11,7 @@
 
 .spinning-disc-svg {
   transform-origin: 50% 50%;
-  transition: color 0.2s ease;
+  transition: color var(--dur-base) ease;
 }
 
 /* Sheen + grooves, painted ON the disc body rather than on a skin surface — the
@@ -30,11 +30,6 @@
   stroke: rgba(var(--scrim-rgb), 0.25);
 }
 
-.spinning-disc.playing .spinning-disc-svg {
-  animation: spinning-disc-spin 1.8s linear infinite;
-}
+/* Rotation is not CSS: useSpin animates this svg's transform (with a
+   turntable spin-down on pause), and honours reduced motion itself. */
 
-@keyframes spinning-disc-spin {
-  from { transform: rotate(0deg); }
-  to { transform: rotate(360deg); }
-}

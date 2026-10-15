@@ -306,7 +306,7 @@
   height: 100%;
   background: var(--accent);
   border-radius: 3px;
-  transition: width 0.3s ease;
+  transition: width var(--dur-slow) ease;
 }
 
 .dl-progress-pct {

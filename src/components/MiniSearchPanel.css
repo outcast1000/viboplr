@@ -59,7 +59,7 @@
 
 .mini-result-info { min-width: 0; flex: 1; }
 /* Row heart — shown on hover/highlight, or always when the row carries a rating. */
-.mini-result-like { display: inline-flex; flex: 0 0 auto; opacity: 0; transition: opacity 0.15s; }
+.mini-result-like { display: inline-flex; flex: 0 0 auto; opacity: 0; transition: opacity var(--dur-fast); }
 .mini-result:hover .mini-result-like,
 .mini-result.highlighted .mini-result-like,
 .mini-result-like:has(.liked),

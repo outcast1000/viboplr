@@ -8,7 +8,7 @@
   padding: 10px 16px;
   border-radius: 6px;
   cursor: pointer;
-  transition: background 0.15s;
+  transition: background var(--dur-fast);
   font-size: var(--fs-sm);
   display: flex;
   justify-content: space-between;
@@ -305,7 +305,7 @@
 /* Sortable column headers */
 .track-header .sortable {
   cursor: pointer;
-  transition: color 0.15s;
+  transition: color var(--dur-fast);
 }
 
 .track-header .sortable:hover {
@@ -344,7 +344,7 @@
 /* Clickable artist/album links in track rows */
 .track-link {
   cursor: pointer;
-  transition: color 0.15s;
+  transition: color var(--dur-fast);
 }
 
 .track-link:hover {

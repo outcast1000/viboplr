@@ -1353,7 +1353,7 @@ function RowProgress({ item }: { item: TrackRowItem }) {
 export function PluginLoading({ message }: { message?: string }) {
   return (
     <div className="plugin-loading">
-      <div className="plugin-loading-spinner" />
+      <div className="plugin-loading-spinner ds-motion-essential" />
       {message && <div>{message}</div>}
     </div>
   );

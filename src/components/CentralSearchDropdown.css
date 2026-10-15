@@ -22,7 +22,7 @@
   padding: 8px 36px 8px 36px;
   border-radius: 20px;
   font-size: var(--fs-base);
-  transition: border-color 0.15s;
+  transition: border-color var(--dur-fast);
 }
 
 .search-bar input:focus {
@@ -42,7 +42,7 @@
   justify-content: center;
   border-radius: 4px;
   opacity: 0.6;
-  transition: opacity 0.15s;
+  transition: opacity var(--dur-fast);
 }
 
 .search-clear-btn:hover {
@@ -149,7 +149,7 @@
   display: inline-flex;
   flex-shrink: 0;
   opacity: 0;
-  transition: opacity 0.15s;
+  transition: opacity var(--dur-fast);
 }
 
 .central-search-result:hover .result-like,
@@ -163,7 +163,7 @@
   font-size: var(--fs-xs);
   color: var(--text-tertiary);
   opacity: 0;
-  transition: opacity 0.15s;
+  transition: opacity var(--dur-fast);
   flex-shrink: 0;
 }
 
@@ -176,7 +176,7 @@
   font-size: var(--fs-sm);
   color: var(--text-tertiary);
   opacity: 0;
-  transition: opacity 0.15s;
+  transition: opacity var(--dur-fast);
   flex-shrink: 0;
 }
 

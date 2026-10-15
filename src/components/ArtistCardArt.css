@@ -4,7 +4,7 @@
   border-radius: 8px;
   overflow: hidden;
   cursor: pointer;
-  transition: background 0.15s;
+  transition: background var(--dur-fast);
   position: relative;
 }
 

@@ -4,7 +4,7 @@
   vertical-align: middle;
   color: var(--text-tertiary);
   transform-origin: 50% 50%;
-  transition: color 0.2s ease;
+  transition: color var(--dur-base) ease;
 }
 
 .film-reel.playing {
@@ -12,16 +12,5 @@
 }
 
 /* The reel rotates while playing — same motion language as the vinyl disc, so the
-   audio/video pair reads as intentional. Frozen otherwise. */
-.film-reel.playing {
-  animation: film-reel-spin 1.9s linear infinite;
-}
-
-@keyframes film-reel-spin {
-  from { transform: rotate(0deg); }
-  to { transform: rotate(360deg); }
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .film-reel.playing { animation: none; }
-}
+   audio/video pair reads as intentional. The rotation (and its spin-down on
+   pause, and reduced motion) lives in useSpin, not here. */

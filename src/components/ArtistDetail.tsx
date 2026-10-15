@@ -451,7 +451,7 @@ export function ArtistDetail({ name }: ArtistDetailProps) {
               <div className="album-scroll">
                 {albums.map((a) => (
                   <div key={a.id} className="album-card" onClick={() => actions.navigateToAlbum(a.id)} onContextMenu={(e) => actions.handleAlbumContextMenu(e, a.id)}>
-                    <div className="album-card-art-wrapper">
+                    <div className="album-card-art-wrapper album-card-art-wrapper--record">
                       <AlbumCardArt album={a} imagePath={actions.getAlbumImage(a.title, a.artist_name)} />
                       <LikeDislikeButtons
                         liked={a.liked}

@@ -243,7 +243,7 @@
   background: rgba(var(--bg-primary-rgb), 0.55);
   color: var(--text-primary);
   cursor: pointer;
-  transition: background 0.15s;
+  transition: background var(--dur-fast);
 }
 
 .detail-hero-back svg {
@@ -269,7 +269,7 @@
   font-size: var(--fs-xs);
   cursor: pointer;
   opacity: 0;
-  transition: opacity 0.15s ease;
+  transition: opacity var(--dur-fast) ease;
 }
 
 /* Hover-reveal: show while pointer is over the hero, or when focused for a11y. */

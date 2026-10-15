@@ -112,11 +112,21 @@
   --fs-xl: 23px;
   --fs-2xl: 30px;
 
-  /* Motion — shared easing curves. Natural deceleration, no bounce/elastic.
-     Durations follow the 100/300/500 rule per-component; these set the feel. */
+  /* Motion — shared easing curves. Natural deceleration, no bounce/elastic. */
   --ease-out-quart: cubic-bezier(0.25, 1, 0.5, 1);
   --ease-out-quint: cubic-bezier(0.22, 1, 0.36, 1);
   --ease-out-expo: cubic-bezier(0.16, 1, 0.3, 1);
+
+  /* Motion — shared durations. instant: press/active feedback; fast: hover and
+     colour state changes (the default for controls); base: small reveals and
+     list entrances; slow: panels and larger surfaces; slower: hero-scale
+     entrances. Use these rather than literal seconds so the app's pace can be
+     tuned in one place; an odd literal should be a deliberate exception. */
+  --dur-instant: 100ms;
+  --dur-fast: 150ms;
+  --dur-base: 200ms;
+  --dur-slow: 300ms;
+  --dur-slower: 500ms;
 }
 
 [data-skin-type="light"] {
@@ -208,7 +218,8 @@ body.window-transparent {
   display: flex;
   align-items: center;
   justify-content: center;
-  transition: all 0.15s;
+  transition-property: background-color, color, border-color, box-shadow, opacity, transform;
+  transition-duration: var(--dur-fast);
   flex-shrink: 0;
   padding: 0;
   font-family: inherit;
@@ -421,7 +432,8 @@ body.window-transparent {
 
 /* Universal press feedback for glass buttons: a quick scale-down on press
    gives every transport/like/toggle control tactile acknowledgement. The base
-   .g-btn already carries `transition: all 0.15s`, so this rides that curve. */
+   .g-btn lists `transform` in its transitioned properties, so this rides that
+   curve. */
 .g-btn:active:not(:disabled) {
   transform: scale(0.93);
 }
@@ -431,22 +443,42 @@ body.window-transparent {
    near-instant so motion-sensitive users get state changes without movement.
    Triggered by EITHER the OS "reduce motion" setting OR the in-app toggle
    (which sets `data-reduce-motion` on the root — see utils/reducedMotion.ts).
-   Per-component guards elsewhere remain as finer overrides. */
+   Per-component guards elsewhere remain as finer overrides.
+
+   Busy indicators keep their ANIMATION (never their transitions). Collapsing an
+   infinite spinner to one 0.01ms iteration freezes it, and a frozen spinner
+   reads as a hung app — worse than the small, essential motion it replaced
+   (WCAG 2.3.3 exempts essential motion; the OS's own activity indicators keep
+   spinning under this setting). A busy indicator opts in with one marker class,
+   `ds-motion-essential` (`.ds-spinner` is exempt by itself) — spinners and
+   indeterminate progress sweeps only. Pulses and skeleton shimmers stay frozen
+   on purpose: a static dot or placeholder still reads correctly, a half-turned
+   ring doesn't. The playback icons (SpinningDisc, FilmReel) are not CSS
+   animations at all: useSpin drives them and keeps them still itself.
+   `:where()` keeps the guard's specificity at zero, as `*` had. */
 @media (prefers-reduced-motion: reduce) {
   *,
   *::before,
   *::after {
-    animation-duration: 0.01ms !important;
-    animation-iteration-count: 1 !important;
     transition-duration: 0.01ms !important;
     scroll-behavior: auto !important;
+  }
+  *:not(:where(.ds-spinner, .ds-motion-essential)),
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
   }
 }
 :root[data-reduce-motion] *,
 :root[data-reduce-motion] *::before,
 :root[data-reduce-motion] *::after {
-  animation-duration: 0.01ms !important;
-  animation-iteration-count: 1 !important;
   transition-duration: 0.01ms !important;
   scroll-behavior: auto !important;
+}
+:root[data-reduce-motion] *:not(:where(.ds-spinner, .ds-motion-essential)),
+:root[data-reduce-motion] *::before,
+:root[data-reduce-motion] *::after {
+  animation-duration: 0.01ms !important;
+  animation-iteration-count: 1 !important;
 }

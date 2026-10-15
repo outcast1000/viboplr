@@ -33,7 +33,7 @@ const StopIcon = () => <svg width="12" height="12" viewBox="0 0 12 12" aria-hidd
 function Spark({ size = 24 }: { size?: number }) {
   const rays = [0, 22.5, 45, 67.5, 90, 112.5, 135, 157.5];
   return (
-    <svg className="plugin-chat-spark" width={size} height={size} viewBox="0 0 24 24" aria-hidden="true">
+    <svg className="plugin-chat-spark ds-motion-essential" width={size} height={size} viewBox="0 0 24 24" aria-hidden="true">
       {rays.map((deg, i) => (
         <line key={deg} x1="12" y1={i % 2 ? 3.5 : 1.5} x2="12" y2={i % 2 ? 20.5 : 22.5} transform={`rotate(${deg} 12 12)`} stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
       ))}
@@ -153,7 +153,7 @@ export function stepsSummary(steps: PluginChatStep[]): string {
 }
 
 function StepMark({ status }: { status: PluginChatStep["status"] }) {
-  if (status === "running") return <span className="plugin-chat-step-mark plugin-chat-step-mark--running" />;
+  if (status === "running") return <span className="plugin-chat-step-mark plugin-chat-step-mark--running ds-motion-essential" />;
   const glyph = status === "error" ? "✕" : status === "declined" ? "⊘" : status === "note" ? "•" : "✓";
   return <span className={`plugin-chat-step-mark plugin-chat-step-mark--${status ?? "ok"}`}>{glyph}</span>;
 }
@@ -163,7 +163,7 @@ function StepGroup({ steps, open, onToggle }: { steps: PluginChatStep[]; open: b
   return (
     <div className={`plugin-chat-steps${open ? " is-open" : ""}`}>
       <button type="button" className="plugin-chat-steps-summary" onClick={onToggle} aria-expanded={open}>
-        {running && <span className="plugin-chat-step-mark plugin-chat-step-mark--running" />}
+        {running && <span className="plugin-chat-step-mark plugin-chat-step-mark--running ds-motion-essential" />}
         <span className="plugin-chat-steps-label">{stepsSummary(steps)}</span>
         <span className="plugin-chat-steps-chevron"><ChevronIcon /></span>
       </button>

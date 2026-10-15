@@ -149,7 +149,7 @@ const QueueRow = memo(function QueueRow({
           <div className="queue-item-line1">
             {resolving ? (
               <span
-                className="queue-item-resolving-icon"
+                className="queue-item-resolving-icon ds-motion-essential"
                 title={resolving.error ? `${resolving.error} · Trying ${resolving.trying}…` : `Trying ${resolving.trying}…`}
               />
             ) : isCurrent ? (
@@ -393,7 +393,7 @@ export function QueuePanel({
   const queueListRef = useRef<HTMLDivElement>(null);
 
   // Physical reorder/insert/remove settling for the queue list.
-  useFlipList(queueListRef);
+  const flipList = useFlipList(queueListRef);
 
   useEffect(() => {
     if (!tooltip || !tooltipRef.current) { setTooltipPos(null); return; }
@@ -799,7 +799,7 @@ export function QueuePanel({
           <div className="now-group queue-header-group" role="group" aria-label="Queue actions">
             <button
               className="g-btn g-btn-sm"
-              onClick={onRandomize}
+              onClick={() => { flipList.staggerNext(); onRandomize(); }}
               disabled={queueMode === "repeat-one" || queue.length < 2}
               title="Randomize queue order"
               aria-label="Randomize queue order"
@@ -943,7 +943,7 @@ export function QueuePanel({
             one-track queue looks finished rather than still filling. */}
         {backfillPending && (
           <div className="queue-backfill-row">
-            <span className="queue-item-resolving-icon" />
+            <span className="queue-item-resolving-icon ds-motion-essential" />
             <span className="queue-backfill-text">Filling in the rest…</span>
           </div>
         )}

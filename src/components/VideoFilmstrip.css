@@ -14,7 +14,7 @@
 
 .video-filmstrip-frame.clickable {
   cursor: pointer;
-  transition: transform 0.15s, border-color 0.15s;
+  transition: transform var(--dur-fast), border-color var(--dur-fast);
 }
 
 .video-filmstrip-frame.clickable:hover {
@@ -67,7 +67,7 @@
   position: absolute;
   inset: 0;
   background: rgba(var(--overlay-inverse), 0);
-  transition: background 0.15s;
+  transition: background var(--dur-fast);
 }
 
 .video-filmstrip-frame.clickable:hover::after {
@@ -80,7 +80,7 @@
   left: 50%;
   transform: translate(-50%, -50%) scale(0.8);
   opacity: 0;
-  transition: opacity 0.15s, transform 0.15s;
+  transition: opacity var(--dur-fast), transform var(--dur-fast);
   pointer-events: none;
   z-index: 1;
   filter: drop-shadow(0 1px 3px rgba(var(--overlay-inverse), 0.5));
