@@ -1058,7 +1058,7 @@ impl Database {
     }
 
     pub fn get_history_recent(&self, limit: i64) -> SqlResult<Vec<HistoryEntry>> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.reader();
         // Recent plays come straight off the played_at index — no per-row work.
         // The album is resolved afterwards in one batched, indexed lookup (see
         // resolve_history_library), which is why there is no longer a
@@ -1110,7 +1110,7 @@ impl Database {
     /// Total number of recorded plays. Cheap (`COUNT(*)` over an indexed table);
     /// used by the chunked history streamer to drive a determinate progress bar.
     pub fn get_history_play_count(&self) -> SqlResult<i64> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.reader();
         conn.query_row("SELECT COUNT(*) FROM history_plays", [], |row| row.get(0))
     }
 
@@ -1127,7 +1127,7 @@ impl Database {
         before_id: Option<i64>,
         limit: i64,
     ) -> SqlResult<Vec<HistoryPlayLite>> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.reader();
         let mut stmt = conn.prepare(
             "SELECT hp.id, hp.played_at, ht.display_title, ha.display_name
              FROM history_plays hp
@@ -1151,7 +1151,7 @@ impl Database {
     }
 
     pub fn get_history_most_played(&self, limit: i64) -> SqlResult<Vec<HistoryMostPlayed>> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.reader();
         let mut stmt = conn.prepare(
             "SELECT id, play_count, display_title, display_name, rank FROM ( \
                SELECT ht.id, ht.play_count, ht.display_title, ha.display_name, \
@@ -1183,7 +1183,7 @@ impl Database {
     /// 2, because with a light listener every track has one play and the shelf
     /// degrades into a reordered "Recently played". The History view passes 1.
     pub fn get_history_most_played_since(&self, since_ts: i64, limit: i64, min_plays: i64) -> SqlResult<Vec<HistoryMostPlayed>> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.reader();
         let mut stmt = conn.prepare(
             "SELECT id, cnt, display_title, display_name, rank FROM ( \
                SELECT ht.id, COUNT(*) as cnt, ht.display_title, ha.display_name, \
@@ -1214,7 +1214,7 @@ impl Database {
     }
 
     pub fn search_history_tracks(&self, query: &str, limit: i64) -> SqlResult<Vec<HistoryMostPlayed>> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.reader();
         let canonical_query = strip_diacritics(&query.to_lowercase());
         let pattern = format!("%{}%", canonical_query);
         let mut stmt = conn.prepare(
@@ -1245,7 +1245,7 @@ impl Database {
     }
 
     pub fn get_history_most_played_artists_since(&self, since_ts: i64, limit: i64) -> SqlResult<Vec<HistoryArtistStats>> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.reader();
         let mut stmt = conn.prepare(
             "SELECT id, cnt, track_count, display_name, rank FROM ( \
                SELECT ha.id, COUNT(*) as cnt, \
@@ -1272,7 +1272,7 @@ impl Database {
     }
 
     pub fn get_history_most_played_artists(&self, limit: i64) -> SqlResult<Vec<HistoryArtistStats>> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.reader();
         let mut stmt = conn.prepare(
             "SELECT id, play_count, track_count, display_name, rank FROM ( \
                SELECT ha.id, ha.play_count, \
@@ -1296,7 +1296,7 @@ impl Database {
     }
 
     pub fn search_history_artists(&self, query: &str, limit: i64) -> SqlResult<Vec<HistoryArtistStats>> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.reader();
         let canonical_query = strip_diacritics(&query.to_lowercase());
         let pattern = format!("%{}%", canonical_query);
         let mut stmt = conn.prepare(
@@ -1324,7 +1324,7 @@ impl Database {
     pub fn get_track_rank(&self, title: &str, artist_name: Option<&str>) -> SqlResult<Option<i64>> {
         let canonical_title = strip_diacritics(&title.to_lowercase());
         let canonical_artist = strip_diacritics(&artist_name.unwrap_or("").to_lowercase());
-        let conn = self.conn.lock().unwrap();
+        let conn = self.reader();
         conn.query_row(
             "SELECT rank FROM ( \
                SELECT ht.id, RANK() OVER (ORDER BY ht.play_count DESC) as rank \
@@ -1340,7 +1340,7 @@ impl Database {
 
     pub fn get_artist_rank(&self, artist_name: &str) -> SqlResult<Option<i64>> {
         let canonical_name = strip_diacritics(&artist_name.to_lowercase());
-        let conn = self.conn.lock().unwrap();
+        let conn = self.reader();
         conn.query_row(
             "SELECT rank FROM ( \
                SELECT ha.id, RANK() OVER (ORDER BY ha.play_count DESC) as rank \
@@ -1356,7 +1356,7 @@ impl Database {
     pub fn get_track_play_history(&self, title: &str, artist_name: Option<&str>, limit: i64) -> SqlResult<Vec<TrackPlayEntry>> {
         let canonical_title = strip_diacritics(&title.to_lowercase());
         let canonical_artist = strip_diacritics(&artist_name.unwrap_or("").to_lowercase());
-        let conn = self.conn.lock().unwrap();
+        let conn = self.reader();
         let mut stmt = conn.prepare(
             "SELECT hp.played_at
              FROM history_plays hp
@@ -1377,7 +1377,7 @@ impl Database {
     pub fn get_track_play_stats(&self, title: &str, artist_name: Option<&str>) -> SqlResult<Option<TrackPlayStats>> {
         let canonical_title = strip_diacritics(&title.to_lowercase());
         let canonical_artist = strip_diacritics(&artist_name.unwrap_or("").to_lowercase());
-        let conn = self.conn.lock().unwrap();
+        let conn = self.reader();
         conn.query_row(
             "SELECT ht.play_count, ht.first_played_at, ht.last_played_at
              FROM history_tracks ht
@@ -1395,7 +1395,7 @@ impl Database {
     /// Attempt to reconnect a ghost history track to a library track by canonical title+artist match.
     /// Returns the matched Track if found, or None if no match exists.
     pub fn reconnect_history_track(&self, history_track_id: i64) -> SqlResult<Option<Track>> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.reader();
 
         // Look up the history track's canonical info
         let (canonical_title, history_artist_id): (String, i64) = conn.query_row(
@@ -1434,7 +1434,7 @@ impl Database {
     /// Attempt to reconnect a ghost history artist to a library artist by canonical name match.
     /// Returns the library artist_id if found, or None.
     pub fn reconnect_history_artist(&self, history_artist_id: i64) -> SqlResult<Option<i64>> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.reader();
 
         let canonical_name: String = conn.query_row(
             "SELECT canonical_name FROM history_artists WHERE id = ?1",

@@ -4587,6 +4587,57 @@ fn test_library_reads_do_not_wait_for_an_open_write() {
     assert_eq!(all, 2, "and sees the write once it commits");
 }
 
+/// The history reads run on the reader too: playback asks for the track and
+/// artist rank on every track change, and on the writer those waited out a
+/// scan's chunk writes and its closing FTS rebuild — on the main thread, which
+/// froze the window.
+#[test]
+fn test_history_reads_do_not_wait_for_an_open_write() {
+    let dir = tempfile::tempdir().unwrap();
+    let db = std::sync::Arc::new(Database::new(dir.path()).unwrap());
+    db.record_play_by_metadata("Song", Some("Artist")).unwrap();
+
+    let writer = db.conn.lock().unwrap();
+    writer.execute_batch("BEGIN; INSERT INTO artists (name) VALUES ('Uncommitted');").unwrap();
+
+    let (tx, rx) = std::sync::mpsc::channel();
+    let reader_db = db.clone();
+    std::thread::spawn(move || {
+        let d = &reader_db;
+        let ht = d.get_history_most_played(10).unwrap()[0].history_track_id;
+        let ha = d.get_history_most_played_artists(10).unwrap()[0].history_artist_id;
+        let counts = vec![
+            d.get_history_recent(10).unwrap().len() as i64,
+            d.get_history_play_count().unwrap(),
+            d.get_history_plays_page(None, None, 10).unwrap().len() as i64,
+            d.get_history_most_played_since(0, 10, 1).unwrap().len() as i64,
+            d.get_history_most_played_artists_since(0, 10).unwrap().len() as i64,
+            d.search_history_tracks("song", 10).unwrap().len() as i64,
+            d.search_history_artists("artist", 10).unwrap().len() as i64,
+            d.get_track_play_history("Song", Some("Artist"), 10).unwrap().len() as i64,
+        ];
+        let ranks = (
+            d.get_track_rank("Song", Some("Artist")).unwrap(),
+            d.get_artist_rank("Artist").unwrap(),
+            d.get_track_play_stats("Song", Some("Artist")).unwrap().map(|s| s.play_count),
+        );
+        // No library rows, so both reconnects find nothing — but they answer.
+        let reconnects = (
+            d.reconnect_history_track(ht).unwrap().is_none(),
+            d.reconnect_history_artist(ha).unwrap().is_none(),
+        );
+        tx.send((counts, ranks, reconnects)).unwrap();
+    });
+    let (counts, ranks, reconnects) = rx
+        .recv_timeout(std::time::Duration::from_secs(2))
+        .expect("a history read waited on the writer");
+    assert_eq!(counts, vec![1; 8]);
+    assert_eq!(ranks, (Some(1), Some(1), Some(1)));
+    assert_eq!(reconnects, (true, true));
+
+    writer.execute_batch("COMMIT").unwrap();
+}
+
 /// The reader is query_only: a write through it must fail rather than slip past
 /// the writer's mutex.
 #[test]
