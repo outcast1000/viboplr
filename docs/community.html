@@ -4,15 +4,15 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Community — Vibo</title>
-  <meta name="description" content="What Vibo listeners share about the music they play — cue sheets, synced lyrics and comments on songs, albums and artists, plus mixtapes and, for signed-in members, Subsonic / Navidrome servers — straight from Vibo Community.">
+  <meta name="description" content="Vibo Community is where Vibo listeners share cue sheets, synced lyrics, mixtapes and comments. Find it at community.viboplr.com.">
   <link rel="canonical" href="https://viboplr.com/community.html">
   <meta property="og:type" content="website">
   <meta property="og:url" content="https://viboplr.com/community.html">
   <meta property="og:title" content="Community — Vibo">
-  <meta property="og:description" content="Now Playing cue sheets, synced lyrics, mixtapes and Subsonic servers, shared by Vibo listeners.">
+  <meta property="og:description" content="Cue sheets, synced lyrics, mixtapes and Subsonic servers, shared by Vibo listeners at community.viboplr.com.">
   <meta name="twitter:card" content="summary">
   <meta name="twitter:title" content="Community — Vibo">
-  <meta name="twitter:description" content="Now Playing cue sheets, synced lyrics, mixtapes and Subsonic servers, shared by Vibo listeners.">
+  <meta name="twitter:description" content="Cue sheets, synced lyrics, mixtapes and Subsonic servers, shared by Vibo listeners at community.viboplr.com.">
   <link rel="icon" href="assets/icon.svg" type="image/svg+xml">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -48,89 +48,53 @@
     </div>
   </nav>
 
-  <!-- Hero -->
+  <!-- Hero. This page only explains Vibo Community and sends people there;
+       everything shared lives on community.viboplr.com. -->
   <section class="download-hero">
     <div class="container">
       <h1 class="animate-in"><span class="gradient-text">Community</span></h1>
-      <p class="animate-in animate-delay-1">What Vibo listeners share with each other. It all lives on <a href="https://community.viboplr.com" target="_blank" rel="noopener">community.viboplr.com</a>; here's what's there right now.</p>
-      <div class="hero-buttons animate-in animate-delay-2" id="communityJump" style="margin-top: 1.5rem;"></div>
-    </div>
-  </section>
-
-  <!-- Get the plugin. Community lives in the app through the Vibo Community
-       plugin; without it the site's "Open in Vibo" buttons for cue sheets,
-       lyric sheets and mixtapes reach nothing. The button is the app's own
-       viboplr://install-plugin deep link (App.tsx, behind a confirm modal) at
-       the plugin's latest release zip — the same installUrl the gallery lists,
-       so it never needs a bump here. -->
-  <section class="section" id="plugin">
-    <div class="container">
-      <div class="gallery-steps reveal">
-        <h2>Get the Community plugin <span class="feature-tag">plugin</span></h2>
-        <p class="gallery-steps-intro">Community comes into Vibo through the free <strong>Vibo Community</strong> plugin. Install it to import cue sheets, lyric sheets and mixtapes with one click, share your own from the app, and send your plays and likes. Without it, the “Open in Vibo” buttons on those pages have nothing to open them.</p>
-        <div class="hero-buttons" style="margin: 0 0 1.5rem; justify-content: center;">
-          <a class="btn btn-primary" href="viboplr://install-plugin?url=https%3A%2F%2Fgithub.com%2Foutcast1000%2Fviboplr-community-plugin%2Freleases%2Flatest%2Fdownload%2Fcommunity.zip">Install in Vibo</a>
-          <a class="btn btn-outline" href="download.html">Don't have Vibo yet?</a>
-        </div>
-        <div class="gallery-steps-grid">
-          <div class="gallery-step">
-            <span class="gallery-step-num">1</span>
-            <h3>Find it</h3>
-            <p>The button above opens Vibo and asks before installing. Or, in Vibo, open <strong>Extensions → Plugins</strong> and search for <strong>Community</strong> — it is listed under <strong>Experimental</strong>.</p>
-          </div>
-          <div class="gallery-step">
-            <span class="gallery-step-num">2</span>
-            <h3>Install</h3>
-            <p>Click <strong>Install</strong> and approve what it asks for. It needs Vibo 1.0.97 or newer; Vibo tells you when either has an update.</p>
-          </div>
-          <div class="gallery-step">
-            <span class="gallery-step-num">3</span>
-            <h3>Sign in to share</h3>
-            <p>Open the plugin from the sidebar and sign in with GitHub, or with a code. Browsing and importing need no account. Sending plays stays off until you turn Community on in Vibo's scrobbling settings.</p>
-          </div>
-        </div>
+      <p class="animate-in animate-delay-1">Vibo Community is where Vibo listeners share what makes their music better: cue sheets, synced lyrics, mixtapes and comments. It lives on its own site.</p>
+      <div class="hero-buttons animate-in animate-delay-2" style="margin-top: 1.5rem;">
+        <a href="https://community.viboplr.com" class="btn btn-primary" target="_blank" rel="noopener">Go to community.viboplr.com</a>
       </div>
     </div>
   </section>
 
-  <!-- One section per area (Music, Mixtapes, Subsonic servers), built by
-       js/community.js from the community server's own module list
-       (GET /v1/modules, each module naming its area): a new kind of thing to
-       share shows up in its area with no change to this page. -->
-  <div id="communityModules">
-    <section class="section">
-      <div class="container">
-        <div class="gallery-status" id="communityStatus"></div>
-      </div>
-    </section>
-  </div>
-
-  <!-- Share your own -->
+  <!-- What's there. The ids are kept (music, mixtapes, servers) because
+       links like community.html#servers are out there (servers.html,
+       for/self-hosters.html). -->
   <section class="section">
     <div class="container">
       <div class="gallery-steps reveal">
-        <h2>Share your own</h2>
-        <p class="gallery-steps-intro">Browsing and using what others shared needs no account, except Subsonic servers, which only signed-in members see. To share, sign in with GitHub on <a href="https://community.viboplr.com" target="_blank" rel="noopener">community.viboplr.com</a> — no password to create.</p>
+        <h2>What you'll find there</h2>
         <div class="gallery-steps-grid">
-          <div class="gallery-step">
-            <span class="gallery-step-num">1</span>
-            <h3>Sign in</h3>
-            <p>With GitHub, on the website or from the <a href="#plugin">Vibo Community plugin</a> in the app. You manage only what you share.</p>
+          <div class="gallery-step" id="music">
+            <h3>Music</h3>
+            <p>Look up any song, album or artist to see what listeners shared about it: cue sheets for long mixes, synced lyrics, likes and comments.</p>
           </div>
-          <div class="gallery-step">
-            <span class="gallery-step-num">2</span>
-            <h3>Share</h3>
-            <p>Like and comment on any song, album or artist, and list servers on the website; share cue sheets, synced lyrics and mixtapes from the app where you made them.</p>
+          <div class="gallery-step" id="mixtapes">
+            <h3>Mixtapes</h3>
+            <p>Playlists people put together, ready to open in Vibo and play from your own library.</p>
           </div>
-          <div class="gallery-step">
-            <span class="gallery-step-num">3</span>
-            <h3>Keep it tidy</h3>
-            <p>Edit or unpublish anything you've shared from <a href="https://community.viboplr.com/me" target="_blank" rel="noopener">your account</a>. Spot a problem in someone else's? Report it there.</p>
+          <div class="gallery-step" id="servers">
+            <h3>Subsonic servers</h3>
+            <p>Subsonic / Navidrome servers that members open to others. Only signed-in members can see them.</p>
           </div>
         </div>
       </div>
+    </div>
+  </section>
+
+  <!-- How to take part -->
+  <section class="section">
+    <div class="container">
+      <div class="gallery-steps reveal">
+        <h2>Taking part</h2>
+        <p class="gallery-steps-intro">Browsing needs no account. To share, sign in with GitHub on community.viboplr.com; there's no password to create. Inside Vibo, Community comes through the free <strong>Vibo Community</strong> plugin <span class="feature-tag">plugin</span>, which opens what you find there in the app and shares what you make. Find it in Vibo under <strong>Extensions → Plugins</strong>.</p>
+      </div>
       <div class="hero-buttons" style="margin-top: 1.5rem; justify-content: center;">
         <a href="https://community.viboplr.com" class="btn btn-primary" target="_blank" rel="noopener">Open Vibo Community</a>
+        <a href="download.html" class="btn btn-outline">Don't have Vibo yet?</a>
       </div>
     </div>
   </section>
@@ -150,7 +114,6 @@
   </footer>
 
   <script src="js/main.js"></script>
-  <script src="js/community.js"></script>
   <script defer src="js/analytics.js"></script>
   <!-- Cloudflare Web Analytics -->
   <script defer src='https://static.cloudflareinsights.com/beacon.min.js' data-cf-beacon='{"token": "cbb978698d3744cca00a24f8cac8bc3c"}'></script>
