@@ -1,13 +1,16 @@
 # Vibo
 
-**The music player you can just talk to, built by talking to an AI.**
+**The player for music you own.**
 
-Vibo is a free, open-source desktop music player for macOS and Windows, and it is AI-native in both directions:
+Vibo is a free, open-source desktop music player for macOS and Windows, made for people who keep their own collection: folders of files, a Subsonic or Navidrome server, or both, in one library and one queue.
 
-- **Driven by AI.** A built-in [MCP](https://modelcontextprotocol.io) server lets Claude, or any AI assistant, run your music library. Ask it to build playlists, fix tags, organise folders, download tracks, or tell you what you played most last March.
-- **Built by AI.** Every line of code was written by an AI coding assistant (Claude Code). The human role is tech lead and product owner: decide what to build, define how it behaves, review, test, and push back until it's right. [The story →](https://viboplr.com/story.html)
+- **One library for everything you own.** Local folders and your music server side by side, with accent- and case-insensitive search that stays instant on big collections.
+- **Rediscover it.** Radio from any song, artist or tag, drawn from your own library, and a Home screen that brings back forgotten favorites and the albums you haven't played in years.
+- **Keep it in shape.** Bulk tag edits written into the files, compilations filed under their album artist, likes and history that survive a rescan.
+- **Hear the file.** A native mpv engine with sample-accurate gapless playback, exclusive bit-perfect output and ReplayGain.
+- **And it talks.** A built-in [MCP](https://modelcontextprotocol.io) server lets Claude, or any AI assistant, run your library: build playlists, fix tags, organise folders, or tell you what you played most last March. It's optional and off by default ([below](#ai-control-mcp)).
 
-Under the hood it's a Tauri 2 app with a Rust backend and a React frontend. It plays audio and video from local folders and Subsonic/Navidrome servers, and works as an orchestrator: a plugin system connects streaming providers, metadata services, lyric databases and image sources, while the core handles playback, the library and the UI. Its SQLite library starts fast, plays instantly and searches big collections in milliseconds.
+Plugins add the rest: streaming services, lyrics, artwork, scrobbling and downloads. Under the hood it's a Tauri 2 app with a Rust backend, a React frontend and a SQLite library. Every line of it was written by an AI coding assistant ([how that works](#built-with-ai)).
 
 ## AI Control (MCP)
 

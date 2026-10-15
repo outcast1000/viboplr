@@ -358,9 +358,11 @@ function ProfileStep({
   return (
     <>
       <p className="onboarding-step-desc">
-        Let's set things up — it only takes a minute. Do you have music of your
-        own? Your pick only tailors the next steps: every feature stays
-        available either way, and you can add a folder or plugins any time.
+        Vibo is built for the music you own: your folders and your Subsonic or
+        Navidrome server, in one library. Let's set things up — it only takes a
+        minute. Do you have music of your own? Your pick only tailors the next
+        steps: every feature stays available either way, and you can add a
+        folder or plugins any time.
       </p>
       <div className="onboarding-profile-grid">
         {ONBOARDING_PROFILES.map((id) => {

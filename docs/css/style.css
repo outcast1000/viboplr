@@ -2190,6 +2190,47 @@ ol.docs-list {
   }
 }
 
+/* The three primary audiences on the home page: one row, icon above the text */
+.persona-grid--primary {
+  grid-template-columns: repeat(3, 1fr);
+}
+
+.persona-grid--primary .persona-card {
+  display: flex;
+}
+
+@media (max-width: 900px) {
+  .persona-grid--primary {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* "More ways to use Vibo": the secondary personas as a row of links */
+.persona-links {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: var(--space-xs);
+  max-width: 860px;
+  margin: 0 auto;
+}
+
+.persona-links a {
+  padding: 10px 18px;
+  font-family: var(--font-display);
+  font-weight: 600;
+  color: var(--color-text);
+  background: var(--color-bg);
+  border: 1px solid var(--color-border);
+  border-radius: 999px;
+  transition: border-color var(--transition-fast), color var(--transition-fast);
+}
+
+.persona-links a:hover {
+  color: var(--color-accent-end);
+  border-color: rgba(233, 30, 138, 0.35);
+}
+
 .persona-card {
   display: flex;
   flex-direction: column;
