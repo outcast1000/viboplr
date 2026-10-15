@@ -522,6 +522,9 @@ pub(crate) fn build_router(state: ServerState) -> Router {
         .route("/v1/tracks/{id}/lyrics-file", post(handle_lyrics_file))
         .route("/v1/albums/{id}/cover-file", post(handle_cover_file))
         .route("/v1/files/move", post(handle_files_move))
+        // Delete local tracks to the trash, two-phase like moves: plan, then
+        // apply with the plan's hash. "Delete tracks" scope.
+        .route("/v1/tracks/delete", post(handle_tracks_delete))
         .route("/v1/tracks/{id}/download", post(handle_track_download))
         // Replace a library track's file, two-phase: stage (resolve through the
         // owning plugin, park the bytes beside the file, report old-vs-new),
@@ -1922,6 +1925,81 @@ async fn handle_files_move(state: AxumState<ServerState>, body: Bytes) -> Respon
 
 #[derive(serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
+struct DeleteBody {
+    track_ids: Vec<i64>,
+    #[serde(default)]
+    plan_hash: Option<String>,
+}
+
+/// Two-phase delete, the same contract as `/v1/files/move`: without
+/// `planHash` it only returns the exact track/file list and its hash; with the
+/// matching hash it applies. The apply goes through the FRONTEND bridge
+/// (`tracks.delete` → the canonical `performDelete`), so the trash call, the
+/// library rows, the queue and a playing track are all handled the way the
+/// app's own Delete handles them.
+async fn handle_tracks_delete(state: AxumState<ServerState>, body: Bytes) -> Response {
+    if let Err(resp) = check_scope(&state.0, Scope::DeleteTracks) {
+        return resp;
+    }
+    let parsed: DeleteBody = match parse_typed(&body) {
+        Ok(p) => p,
+        Err(resp) => return resp,
+    };
+    let db = state.0.db.clone();
+    let ids = parsed.track_ids.clone();
+    let planned = tokio::task::spawn_blocking(move || assistant_write::plan_deletes(&db, &ids)).await;
+    let (plan, hash) = match planned {
+        Ok(Ok(v)) => v,
+        Ok(Err(e)) => return error_response(StatusCode::BAD_REQUEST, e),
+        Err(e) => return error_response(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()),
+    };
+    match parsed.plan_hash {
+        None => axum::Json(json!({
+            "applied": false,
+            "plan": plan,
+            "planHash": hash,
+            "note": "nothing was deleted — show the user this list and re-send the same trackIds with planHash to move them to the trash",
+        }))
+        .into_response(),
+        Some(supplied) if supplied != hash => error_response(
+            StatusCode::BAD_REQUEST,
+            "the plan changed since it was made (tracks moved or were removed) — re-plan and review again",
+        ),
+        Some(_) => {
+            // Trashing is one OS round-trip per file — allow the long wait.
+            let timeout = state.0.bridge_timeout.saturating_mul(7);
+            let ids: Vec<i64> = plan.iter().map(|p| p.track_id).collect();
+            let result = match bridge_value(&state.0, "tracks.delete", json!({ "trackIds": ids }), timeout).await {
+                Ok(v) => v,
+                Err(resp) => return resp,
+            };
+            let deleted: std::collections::HashSet<i64> = result["deletedIds"]
+                .as_array()
+                .map(|a| a.iter().filter_map(|v| v.as_i64()).collect())
+                .unwrap_or_default();
+            let files: Vec<String> = plan
+                .iter()
+                .filter(|p| deleted.contains(&p.track_id))
+                .map(|p| p.file.clone())
+                .collect();
+            let failed = result["failures"].as_array().map(|a| a.len()).unwrap_or(0);
+            assistant_write::log_change(
+                "tracks.delete",
+                &format!("moved {} track(s) to the trash, {} failed", files.len(), failed),
+                &files,
+            );
+            axum::Json(json!({
+                "applied": true,
+                "deletedIds": result["deletedIds"],
+                "failures": result["failures"],
+            }))
+            .into_response()
+        }
+    }
+}
+
+#[derive(serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
 struct DownloadBody {
     collection_id: i64,
     #[serde(default)]
@@ -2509,6 +2587,7 @@ mod tests {
             ("POST", "/v1/downloads/plugin", r#"{"collectionId":1,"uri":"ytdlp://abc"}"#),
             ("POST", "/v1/tracks/1/replace-file", r#"{"uri":"slsk://abc"}"#),
             ("POST", "/v1/tracks/1/replace-file", r#"{"stageId":"abcdef.flac","confirm":true}"#),
+            ("POST", "/v1/tracks/delete", r#"{"trackIds":[1]}"#),
         ] {
             let res = router
                 .clone()
@@ -2529,7 +2608,7 @@ mod tests {
     async fn test_plugin_action_routes_are_403_without_the_scope() {
         let dir = tempfile::tempdir().unwrap();
         // Every other scope on: none of them stands in for Plugin actions.
-        grant_scopes(dir.path(), WriteScopes { modify_tags: true, manage_files: true, downloads: true, plugin_actions: false });
+        grant_scopes(dir.path(), WriteScopes { modify_tags: true, manage_files: true, downloads: true, plugin_actions: false, delete_tracks: false });
         let router = build_router(test_state_in(noop_emit(), dir.path().to_path_buf()));
         for (path, body) in [
             ("/v1/actions/invoke", r#"{"actionId":"watch","kind":"track","title":"a"}"#),
@@ -2943,6 +3022,68 @@ mod tests {
         assert_eq!(json["applied"], json!(true));
         assert_eq!(json["moved"].as_array().unwrap().len(), 1);
         assert!(root.path().join("Writer/Album/a.mp3").exists());
+    }
+
+    /// Track deletion plans first (nothing touched, and only the delete scope
+    /// unlocks it), refuses a stale hash, and applies by bridging the exact
+    /// planned ids to the frontend's canonical delete.
+    #[tokio::test]
+    async fn test_tracks_delete_is_two_phase_and_bridges_the_plan() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = tempfile::tempdir().unwrap();
+        grant_scopes(dir.path(), WriteScopes { delete_tracks: true, ..Default::default() });
+        let api_slot: Arc<Mutex<Option<Arc<ControlApi>>>> = Arc::new(Mutex::new(None));
+        let responder_slot = Arc::clone(&api_slot);
+        let seen: Arc<Mutex<Vec<(String, Value)>>> = Arc::new(Mutex::new(Vec::new()));
+        let seen_in = Arc::clone(&seen);
+        let state = test_state_in(
+            Arc::new(move |req: &ControlRequest| {
+                seen_in.lock().unwrap().push((req.verb.clone(), req.payload.clone()));
+                if let Some(api) = responder_slot.lock().unwrap().clone() {
+                    api.respond(req.id, true, json!({ "deletedIds": req.payload["trackIds"], "failures": [] }));
+                }
+            }),
+            dir.path().to_path_buf(),
+        );
+        *api_slot.lock().unwrap() = Some(Arc::clone(&state.api));
+        let track_id = seed_local_track(&state, root.path());
+        let router = build_router(state);
+
+        // Phase 1: plan only — the file stays and nothing is bridged.
+        let body = format!(r#"{{"trackIds":[{}]}}"#, track_id);
+        let res = router.clone().oneshot(request_json("POST", "/v1/tracks/delete", TEST_TOKEN, &body)).await.unwrap();
+        assert_eq!(res.status(), StatusCode::OK);
+        let json = body_json(res).await;
+        assert_eq!(json["applied"], json!(false));
+        assert_eq!(json["plan"].as_array().unwrap().len(), 1);
+        assert_eq!(json["plan"][0]["trackId"], json!(track_id));
+        let hash = json["planHash"].as_str().unwrap().to_string();
+        assert!(root.path().join("a.mp3").exists(), "planning must not delete anything");
+        assert!(seen.lock().unwrap().is_empty(), "planning must not reach the frontend");
+        assert_eq!(json["plan"][0]["fileMissing"], json!(false));
+
+        // Unknown ids fail the whole plan.
+        let bad_ids = format!(r#"{{"trackIds":[{},999999]}}"#, track_id);
+        let res = router.clone().oneshot(request_json("POST", "/v1/tracks/delete", TEST_TOKEN, &bad_ids)).await.unwrap();
+        assert_eq!(res.status(), StatusCode::BAD_REQUEST);
+
+        // A wrong hash is refused.
+        let bad = format!(r#"{{"trackIds":[{}],"planHash":"deadbeef"}}"#, track_id);
+        let res = router.clone().oneshot(request_json("POST", "/v1/tracks/delete", TEST_TOKEN, &bad)).await.unwrap();
+        assert_eq!(res.status(), StatusCode::BAD_REQUEST);
+        assert!(seen.lock().unwrap().is_empty());
+
+        // Phase 2: the matching hash bridges exactly the planned ids.
+        let apply = format!(r#"{{"trackIds":[{}],"planHash":"{}"}}"#, track_id, hash);
+        let res = router.oneshot(request_json("POST", "/v1/tracks/delete", TEST_TOKEN, &apply)).await.unwrap();
+        assert_eq!(res.status(), StatusCode::OK);
+        let json = body_json(res).await;
+        assert_eq!(json["applied"], json!(true));
+        assert_eq!(json["deletedIds"], json!([track_id]));
+        let seen = seen.lock().unwrap();
+        assert_eq!(seen.len(), 1);
+        assert_eq!(seen[0].0, "tracks.delete");
+        assert_eq!(seen[0].1["trackIds"], json!([track_id]));
     }
 
     /// History rename is a backend-direct DB write: no scope, validated and

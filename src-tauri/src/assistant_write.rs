@@ -13,6 +13,9 @@
 //!   declare `readOnly` (read-only tools need no scope). Plugin code can do
 //!   anything the app can, so this is the gate that replaced the MCP
 //!   server's old `--tier=full` flag, which only hid tools from the model.
+//! - `delete_tracks`  — move local library tracks to the trash (planned
+//!   first, applied only with the plan's hash; network-share files, which
+//!   have no trash, are refused)
 //!
 //! Scopes live in `assistant-permissions.json` in the profile dir, owned and
 //! read by **Rust** (never the frontend store): the HTTP handlers re-read the
@@ -40,6 +43,7 @@ pub struct WriteScopes {
     pub manage_files: bool,
     pub downloads: bool,
     pub plugin_actions: bool,
+    pub delete_tracks: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -48,6 +52,7 @@ pub enum Scope {
     ManageFiles,
     Downloads,
     PluginActions,
+    DeleteTracks,
 }
 
 impl Scope {
@@ -59,6 +64,7 @@ impl Scope {
             Scope::ManageFiles => "Manage files",
             Scope::Downloads => "Downloads",
             Scope::PluginActions => "Plugin actions",
+            Scope::DeleteTracks => "Delete tracks",
         }
     }
 }
@@ -70,6 +76,7 @@ impl WriteScopes {
             Scope::ManageFiles => self.manage_files,
             Scope::Downloads => self.downloads,
             Scope::PluginActions => self.plugin_actions,
+            Scope::DeleteTracks => self.delete_tracks,
         }
     }
 }
@@ -551,6 +558,80 @@ pub fn apply_moves(db: &Database, plan: &[PlannedMove]) -> Value {
         "failed": failed,
         "note": "live queue entries and .m3u playlist files still hold the old paths; library playlists (by id) follow automatically",
     })
+}
+
+// --- Track deletion ---
+
+pub const MAX_DELETES: usize = 200;
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PlannedDelete {
+    pub track_id: i64,
+    pub title: String,
+    pub artist: Option<String>,
+    pub album: Option<String>,
+    pub file: String,
+    /// The file is already gone; applying only removes the stale library row
+    /// (the app's delete skips the trash for a missing file).
+    pub file_missing: bool,
+}
+
+/// Validate a deletion against the DB and return the exact list plus its
+/// hash. Nothing is touched. All-or-nothing like `plan_moves`: an id that is
+/// unknown, remote, or on a network share fails the whole plan, so what the
+/// user approved is exactly what gets deleted. A row whose file is already
+/// gone is planned with `file_missing` (applying just drops the stale row)
+/// rather than failing the plan. Network shares are refused
+/// because they have no trash — the app's own delete always confirms those,
+/// and an API caller has no way to show that warning.
+pub fn plan_deletes(db: &Database, track_ids: &[i64]) -> Result<(Vec<PlannedDelete>, String), String> {
+    if track_ids.is_empty() {
+        return Err("trackIds must not be empty".to_string());
+    }
+    if track_ids.len() > MAX_DELETES {
+        return Err(format!("at most {} tracks per call", MAX_DELETES));
+    }
+    let mut seen = std::collections::HashSet::new();
+    let mut plan = Vec::with_capacity(track_ids.len());
+    for &id in track_ids {
+        if !seen.insert(id) {
+            return Err(format!("track {} is listed twice", id));
+        }
+        let track = db.get_track_by_id(id).map_err(|e| format!("track {}: {}", id, e))?;
+        let Some(file_str) = track.filesystem_path().map(|p| p.to_string()) else {
+            return Err(format!(
+                "track {} (\"{}\") is not a local file — its source is {}",
+                id,
+                track.title,
+                track.path.split("://").next().unwrap_or("unknown")
+            ));
+        };
+        if crate::models::is_network_path(&file_str) {
+            return Err(format!(
+                "track {} (\"{}\") is on a network share, which has no trash — delete it from the app instead",
+                id, track.title
+            ));
+        }
+        plan.push(PlannedDelete {
+            track_id: id,
+            title: track.title.clone(),
+            artist: track.artist_name.clone(),
+            album: track.album_title.clone(),
+            file_missing: !Path::new(&file_str).exists(),
+            file: file_str,
+        });
+    }
+    let hash = delete_plan_hash(&plan);
+    Ok((plan, hash))
+}
+
+pub fn delete_plan_hash(plan: &[PlannedDelete]) -> String {
+    let pairs: Vec<(i64, &str, bool)> =
+        plan.iter().map(|p| (p.track_id, p.file.as_str(), p.file_missing)).collect();
+    let encoded = serde_json::to_string(&pairs).unwrap_or_default();
+    let digest = Sha256::digest(encoded.as_bytes());
+    digest.iter().map(|b| format!("{:02x}", b)).collect()
 }
 
 // --- Source-faithful download ---
@@ -1134,7 +1215,7 @@ mod tests {
     #[test]
     fn test_scopes_roundtrip() {
         let dir = tempfile::tempdir().unwrap();
-        let scopes = WriteScopes { modify_tags: true, manage_files: false, downloads: true, plugin_actions: true };
+        let scopes = WriteScopes { modify_tags: true, manage_files: false, downloads: true, plugin_actions: true, delete_tracks: false };
         save_scopes(dir.path(), &scopes).unwrap();
         let loaded = load_scopes(dir.path());
         assert_eq!(loaded, scopes);

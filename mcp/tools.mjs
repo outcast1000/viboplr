@@ -851,6 +851,23 @@ export const TOOLS = [
     },
   },
   {
+    name: "delete_tracks",
+    readOnly: false,
+    categories: ["files"],
+    description:
+      "Move local library tracks to the trash (the same delete as the app's own: library rows, queue entries and a playing track follow). Needs the \"Delete tracks\" permission (403 otherwise). TWO-STEP: the first call only returns a plan (each track's title, artist, album, file and fileMissing + planHash, nothing touched; a fileMissing row only drops the stale library entry) — show it to the user and get their go-ahead — then re-send the same trackIds with planHash to apply. All-or-nothing planning: server/plugin tracks and network-share files (no trash, no undo) are refused. Max 200 tracks. " +
+      "Applied deletes are recorded in the app log as \"Assistant change [tracks.delete]\" lines.",
+    inputSchema: obj(
+      {
+        trackIds: numArr("Library track ids (from search_library / browse / query_library)"),
+        planHash: str("From the planning call — sending it applies the plan"),
+      },
+      ["trackIds"],
+    ),
+    run: ({ trackIds, planHash }, ctx) =>
+      ctx.request("POST", "/v1/tracks/delete", { trackIds, planHash }, { timeoutMs: SLOW_MS }),
+  },
+  {
     name: "download_track",
     readOnly: false,
     categories: ["download"],

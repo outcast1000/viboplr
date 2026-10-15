@@ -4599,6 +4599,11 @@ function App() {
       refreshAfterBulkEdit: tagOpsDeps.filesWritten,
     },
     tagOps: tagOpsDeps,
+    deleteTracks: async (trackIds) => {
+      const result = await contextMenuActions.performDelete(trackIds, `${trackIds.length} tracks`, { headless: true });
+      if (!result) throw new Error("delete_tracks returned nothing");
+      return result;
+    },
     downloads: {
       providers: downloadProviders,
       streamUriResolverOwner: plugins.streamUriResolverOwner,

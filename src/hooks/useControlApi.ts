@@ -81,6 +81,7 @@ import {
 import { clampSearchLimit, invokeAssistantTool, listAssistantTools, listSearchProviders, searchCatalog } from "../utils/hostOps";
 import { addToQueue, playNow, playWithBackfill, type DuplicatePolicy, type QueueOpsDeps } from "../utils/queueOps";
 import { permissionReasons } from "../pluginWorker/permissions";
+import type { DeleteTracksResult } from "./useContextMenuActions";
 
 export interface ControlApiDeps {
   appRestoring: boolean;
@@ -127,6 +128,11 @@ export interface ControlApiDeps {
   /** App's shared tag-refresh deps (utils/tagOps.ts) — the same ones the
    *  plugin API's tag methods use. */
   tagOps: TagOpsDeps;
+  /** useContextMenuActions.performDelete, headless — the canonical deletion
+   *  (trash, then library/queue/playback cleanup). Reached only through POST
+   *  /v1/tracks/delete, whose Rust handler has already enforced the "Delete
+   *  tracks" scope and the confirmed plan. */
+  deleteTracks: (trackIds: number[]) => Promise<DeleteTracksResult>;
   plugins: {
     pluginStates: PluginState[];
     /** usePlugins.togglePlugin — set semantics, persists + reloads. */
@@ -1546,6 +1552,13 @@ export function useControlApi(deps: ControlApiDeps) {
         if (add.length === 0 && remove.length === 0) bad("tags.edit needs add and/or remove");
         const tags = await editTrackTags(d.tagOps, trackId, { add, remove });
         return { tags: tags.map((t) => t.name) };
+      }
+
+      case "tracks.delete": {
+        const ids = asNumberArray(payload.trackIds);
+        if (!ids) bad("trackIds must be a non-empty array of numbers");
+        const result = await d.deleteTracks(ids);
+        return { requested: ids.length, deletedIds: result.deletedIds, failures: result.failures };
       }
 
       // File-writing bulk edit — the canonical `bulk_update_tracks` path (the

@@ -158,6 +158,13 @@ declares nothing is treated as one that changes things. Listing actions and
 tools never needs the switch. Plugin-to-plugin calls (`api.assistant.invoke`)
 are not gated — the switch is about what the *assistant* may do.
 
+A fifth switch, **Delete tracks**, covers `delete_tracks`: local library tracks
+to the Trash, through the app's own delete (rows, queue and a playing track
+follow). Two-step like `manage_files` move — the first call returns the exact
+track/file list + `planHash` and touches nothing; re-sending the same ids with
+the hash applies it. Server/plugin tracks and network-share files (no Trash,
+no undo) are refused at planning.
+
 Separately from the switches, the user can **pause the assistant** (the Pause
 button on the activity pill, or Settings → AI control → Assistant activity).
 While paused, every request that changes something or hands work to a plugin —

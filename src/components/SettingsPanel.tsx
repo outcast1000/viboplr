@@ -658,6 +658,7 @@ interface AssistantScopes {
   manageFiles: boolean;
   downloads: boolean;
   pluginActions: boolean;
+  deleteTracks: boolean;
 }
 
 const ASSISTANT_SCOPE_ROWS: Array<{ key: keyof AssistantScopes; label: string; description: string }> = [
@@ -684,6 +685,12 @@ const ASSISTANT_SCOPE_ROWS: Array<{ key: keyof AssistantScopes; label: string; d
     label: "Plugin actions",
     description:
       "Let the assistant make plugins act: run their menu actions, send them deep links, and call plugin tools that change things (for example start a Soulseek download). Plugin tools that only read — like listing your Spotify playlists — work without this.",
+  },
+  {
+    key: "deleteTracks",
+    label: "Delete tracks",
+    description:
+      "Move local library tracks to the trash. The assistant must show you the exact list first and send it back unchanged to apply it. Network-share files (no trash, no undo) and server tracks are refused.",
   },
 ];
 

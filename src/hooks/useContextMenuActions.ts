@@ -11,6 +11,13 @@ import { fadeOutTrackRows } from "../utils/rowRemoval";
 import { resolveLibraryIds } from "../utils/resolveLibraryIds";
 
 import { useAssignRef } from "./useLatestRef";
+/** `delete_tracks`'s answer (models.rs `DeleteTracksResult`). */
+export interface DeleteTracksResult {
+  deletedIds: number[];
+  deletedPaths: string[];
+  failures: { title: string; reason: string }[];
+}
+
 interface UseContextMenuActionsDeps {
   library: {
     tracks: Track[];
@@ -410,9 +417,12 @@ export function useContextMenuActions(deps: UseContextMenuActionsDeps) {
     await performDelete(trackIds, title);
   }
 
-  async function performDelete(trackIds: number[], title: string) {
+  /** The shared deletion. `headless` is the control API's caller: failures
+   *  come back in the result (and a thrown invoke propagates) instead of the
+   *  on-screen error modal — the requester isn't the person at the screen. */
+  async function performDelete(trackIds: number[], title: string, opts: { headless?: boolean } = {}): Promise<DeleteTracksResult | null> {
     try {
-      const result: { deletedIds: number[]; deletedPaths: string[]; failures: { title: string; reason: string }[] } = await invoke("delete_tracks", { trackIds });
+      const result: DeleteTracksResult = await invoke("delete_tracks", { trackIds });
       const deletedPaths = new Set(result.deletedPaths as string[]);
       if (result.deletedIds.length > 0) {
         // The rows vanishing is the only success feedback, so let them fade out
@@ -447,14 +457,18 @@ export function useContextMenuActions(deps: UseContextMenuActionsDeps) {
           settleRows();
         }
       }
+      if (opts.headless) return result;
       if (result.failures.length === trackIds.length) {
         setDeleteError({ message: `Failed to move ${title} to ${trashLabel}`, failures: result.failures });
       } else if (result.failures.length > 0) {
         setDeleteError({ message: `${result.failures.length} of ${trackIds.length} tracks could not be moved to ${trashLabel}`, failures: result.failures });
       }
+      return result;
     } catch (e) {
       console.error("Failed to move tracks to trash:", e);
+      if (opts.headless) throw e;
       setDeleteError({ message: `Failed to move ${title} to ${trashLabel}`, failures: [{ title, reason: String(e) }] });
+      return null;
     }
   }
 
@@ -506,6 +520,7 @@ export function useContextMenuActions(deps: UseContextMenuActionsDeps) {
     handleBulkEdit,
     handleDeleteRequest,
     handleDeleteConfirm,
+    performDelete,
     handleQueueRemove,
     handleQueueKeepOnly,
     handleQueueMoveToTop,
