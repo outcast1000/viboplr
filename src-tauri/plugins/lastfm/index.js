@@ -519,6 +519,91 @@ function activate(api) {
     });
   });
 
+  // ===== Global search (Cmd+K) =====
+  // A "Search “x” on Last.fm" row in the app's search. The host asks only when
+  // the user picks that row, so this is one round of three requests per search,
+  // never one per keystroke. Albums and artists open Vibo's own pages by name
+  // (the same pages the bios and similar artists here fill in); tracks are
+  // metadata-only — Last.fm has no audio — and play through the stream
+  // resolvers. Hosts before artist/album support read only `tracks`.
+
+  // Last.fm stopped serving artist photos in 2019; every artist (and most
+  // track) search image is this grey star. Drop it so the host can show its
+  // own artist image instead of a placeholder that looks like a real picture.
+  var PLACEHOLDER_IMAGE = "2a96cbd8b46e442fc41c2b86b821562f";
+
+  function searchImageUrl(images) {
+    var url = lastfmImageUrl(images);
+    return url && url.indexOf(PLACEHOLDER_IMAGE) === -1 ? url : null;
+  }
+
+  // Last.fm returns a lone match as an object rather than a one-item array.
+  function asList(v) {
+    if (!v) return [];
+    return Array.isArray(v) ? v : [v];
+  }
+
+  function searchMatches(method, key, query, limit) {
+    return lastfmGet(method, [[key, query], ["limit", String(limit)]]).then(function (data) {
+      var results = (data && data.results) || {};
+      var matches = results[key + "matches"];
+      return asList(matches && matches[key]);
+    });
+  }
+
+  function runSearch(query, limit) {
+    var n = Math.max(1, Math.min(limit || 6, 30));
+    // One failing method shouldn't hide what the other two found.
+    var settle = function (p) {
+      return p.then(
+        function (rows) { return { rows: rows }; },
+        function (err) { return { error: err }; }
+      );
+    };
+    return Promise.all([
+      settle(searchMatches("artist.search", "artist", query, n)),
+      settle(searchMatches("album.search", "album", query, n)),
+      settle(searchMatches("track.search", "track", query, n)),
+    ]).then(function (res) {
+      var failed = res.filter(function (r) { return r.error; });
+      if (failed.length === res.length) {
+        var msg = (failed[0].error && failed[0].error.message) || "Last.fm search failed";
+        console.error("[lastfm] search failed:", msg);
+        return { status: "error", message: msg };
+      }
+      var artists = [];
+      (res[0].rows || []).forEach(function (a) {
+        if (!a || !a.name) return;
+        var listeners = Number(a.listeners || 0);
+        artists.push({
+          name: a.name,
+          image_url: searchImageUrl(a.image),
+          subtitle: listeners > 0 ? compactCount(listeners) + " listeners" : null,
+        });
+      });
+      var albums = [];
+      (res[1].rows || []).forEach(function (a) {
+        if (!a || !a.name) return;
+        albums.push({ title: a.name, artist_name: a.artist || null, image_url: searchImageUrl(a.image) });
+      });
+      var tracks = [];
+      (res[2].rows || []).forEach(function (t) {
+        if (!t || !t.name) return;
+        tracks.push({ title: t.name, artist_name: t.artist || null, image_url: searchImageUrl(t.image) });
+      });
+      if (artists.length + albums.length + tracks.length === 0) return { status: "empty" };
+      return { status: "ok", tracks: tracks, albums: albums, artists: artists };
+    });
+  }
+
+  if (api.search) {
+    api.search.onQuery("lastfm", function (query, limit) {
+      var q = (query || "").trim();
+      if (!q) return Promise.resolve({ status: "empty" });
+      return runSearch(q, limit);
+    });
+  }
+
   // ===== Information Types =====
 
   var stripReadMore = function (html) {

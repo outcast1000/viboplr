@@ -3,11 +3,11 @@
     "lastfm": {
       "repo": "outcast1000/viboplr-lastfm",
       "asset": "lastfm.zip",
-      "version": "1.7.1",
+      "version": "1.8.0",
       "files": {
-        "manifest.json": "6a4a897a10d8b320d305635a85b0b0fdebf0fde12f841d051536a15dc8926ff1",
-        "index.js": "2ce2273587829b90501617006f45ba0997a5182b76adcfcaf2d193b5cdc5119a",
-        "signature.sig": "e0c6f93ca3d44458e0062187f1e6b45b3ca0d3895c4167741f95bcd2af44b1bf"
+        "manifest.json": "81d6b4c37482bc02cc32a2d981fbd692d983c7236cb4326e5007566a3d14e9a7",
+        "index.js": "e79f25499563da9598b50fbd8c48e99150fc3e39c690cec5952495e51e051c6e",
+        "signature.sig": "6ff9e9852b4e4521d13ee3e47f64f355d5c97689c76e9140b31ec52077b09e47"
       }
     }
   }
