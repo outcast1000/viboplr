@@ -1,0 +1,19 @@
+{
+  "id": "mock-meter",
+  "name": "Mock Meter",
+  "version": "1.0.0",
+  "author": "Vibo",
+  "description": "Debug-only level meter: shows the live per-channel peak and RMS from api.playback.onLevel (native mpv engine only), so the host's meter can be checked without a visualizer.",
+  "minAppVersion": "0.9.4",
+  "runtime": "worker",
+  "permissions": ["playback:read"],
+  "permissionReasons": {
+    "playback:read": "Read the playing track's live output level, for testing"
+  },
+  "debugOnly": true,
+  "contributes": {
+    "sidebarItems": [
+      { "id": "mock-meter-view", "label": "Level Meter", "icon": "chart-bar" }
+    ]
+  }
+}

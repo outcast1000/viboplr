@@ -478,7 +478,7 @@ mod tests {
     fn test_mock_plugins_load_in_debug_builds_but_never_ship() {
         // They used to sit in plugins/, so every release bundled them and a
         // user who turned on Debug mode found "Mock Download" in Extensions.
-        for id in ["mock-info", "mock-download"] {
+        for id in ["mock-info", "mock-download", "mock-meter"] {
             assert!(!is_bundled_plugin_id(id), "{id} must not be bundled");
             assert!(DEV_PLUGIN_IDS.split(',').any(|d| d == id), "{id}");
             // Tests are debug builds, so this is the debug-build answer.

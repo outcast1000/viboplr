@@ -20,7 +20,7 @@ fn main() {
     println!("cargo:rerun-if-changed=plugins");
     println!("cargo:rustc-env=VIBOPLR_BUNDLED_PLUGINS={}", plugin_ids("plugins"));
 
-    // Test-only plugins (mock-info, mock-download) live in dev-plugins/, which
+    // Test-only plugins (mock-info, mock-download, mock-meter) live in dev-plugins/, which
     // is not a bundle resource, so no release ships them. Debug builds load
     // them from the source tree — see plugins::dev_plugins_dir.
     println!("cargo:rerun-if-changed=dev-plugins");
