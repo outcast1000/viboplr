@@ -677,11 +677,20 @@ function App() {
   // queue hook): what to do when playback was held for a backfill tail that
   // never arrived.
   const backfillAbandonedRef = useRef<() => void>(() => {});
+  // Assigned below (it needs the queue hook): reconcile a replaced queue's
+  // like state against the durable store.
+  const reconcileReplacedQueueLikesRef = useRef<(tracks: QueueTrack[]) => void>(() => {});
 
   const queueHook = useQueue(restoredRef, playback.handlePlay, (tracks, startIndex, context) => {
     // Record the "Latest play" session for anything that replaces the queue.
     // Guarded so the startup queue-restore doesn't masquerade as a fresh play.
     if (!restoredRef.current) return;
+    // Every queue-replacing play gets its hearts from the durable store. Most
+    // callers hand in entries whose `liked` is a guess — plugin/shelf tracks
+    // are hardcoded 0, a Latest play snapshot is as old as the snapshot — and
+    // ~20 call sites go straight to playTracks, so reconciling here is the one
+    // place that can't be skipped (a Made for you mix showed no hearts at all).
+    reconcileReplacedQueueLikesRef.current(tracks);
     // Opt-in (issue #136): jump to the Now Playing view on an explicit new play.
     // This callback already fires only for queue-REPLACING plays — never enqueue,
     // play-next, auto-continue, or the startup restore (guard above) — so it is
@@ -773,6 +782,21 @@ function App() {
       console.error("Failed to reconcile like state for added tracks:", e);
     }
   }, [queueHook, playback]);
+  // A replaced queue, by contrast, may also *clear*: a snapshot entry still
+  // carrying liked:1 for a song since un-liked must lose its heart. Nothing
+  // optimistic can be in flight for entries that were inserted a moment ago.
+  useAssignRef(reconcileReplacedQueueLikesRef, (tracks: QueueTrack[]) => {
+    if (tracks.length === 0) return;
+    (async () => {
+      try {
+        const byId = await fetchLikeStates(tracks);
+        queueHook.setQueue(prev => applyLikeStates(prev, byId));
+        playback.setCurrentTrack(prev => (prev ? applyLikeState(prev, byId) : prev));
+      } catch (e) {
+        console.error("Failed to reconcile like state for the new queue:", e);
+      }
+    })();
+  });
 
   // Map a plugin-supplied play context onto the queue's PlaylistContext. Shared
   // by every plugin play entry point so the banner is identical whichever one a
