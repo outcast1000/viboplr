@@ -1619,6 +1619,15 @@ function App() {
     onEnqueuePluginTrack: (track) => {
       queueOps.addToQueue(queueOpsDeps, [pluginTrackToQueueTrack(track)], { duplicates: "ask" });
     },
+    // A catalog album/artist has no library id: open its page by name, which
+    // resolves to the library row when there is one and builds the page from
+    // the name when there isn't.
+    onOpenPluginAlbum: (album) => {
+      library.navigateToAlbumByName(album.title, album.artist_name ?? undefined).catch(console.error);
+    },
+    onOpenPluginArtist: (artist) => {
+      library.navigateToArtistByName(artist.name).catch(console.error);
+    },
     // Row hearts in the dropdown. `likeActions` is declared further down; these
     // closures only run on a click, long after it exists.
     likeActions: {

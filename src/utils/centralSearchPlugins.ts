@@ -1,4 +1,4 @@
-import type { PluginSearchProvider, PluginTrack } from "../types/plugin";
+import type { PluginSearchAlbum, PluginSearchArtist, PluginSearchProvider, PluginTrack } from "../types/plugin";
 
 /**
  * What the global search knows about one plugin provider for the *current*
@@ -9,7 +9,7 @@ import type { PluginSearchProvider, PluginTrack } from "../types/plugin";
 export type ProviderRunState =
   | { status: "idle" }
   | { status: "loading" }
-  | { status: "done"; tracks: PluginTrack[] }
+  | { status: "done"; tracks: PluginTrack[]; albums?: PluginSearchAlbum[]; artists?: PluginSearchArtist[] }
   | { status: "empty" }
   | { status: "error"; message?: string };
 
@@ -27,8 +27,10 @@ export function providerKeyOf(p: { pluginId: string; providerId: string }): stri
 export interface PluginSearchRow {
   key: string;
   providerKey: string;
-  kind: "run" | "loading" | "empty" | "error" | "track";
+  kind: "run" | "loading" | "empty" | "error" | "track" | "album" | "artist";
   track?: PluginTrack;
+  album?: PluginSearchAlbum;
+  artist?: PluginSearchArtist;
   message?: string;
   itemIndex: number | null;
 }
@@ -43,7 +45,9 @@ export interface PluginSearchSection {
 /** The selectable rows, in display order, ready to append to `items`. */
 export type PluginSearchSelectable =
   | { kind: "plugin-run"; providerKey: string; name: string }
-  | { kind: "plugin-track"; providerKey: string; track: PluginTrack };
+  | { kind: "plugin-track"; providerKey: string; track: PluginTrack }
+  | { kind: "plugin-album"; providerKey: string; album: PluginSearchAlbum }
+  | { kind: "plugin-artist"; providerKey: string; artist: PluginSearchArtist };
 
 /**
  * Lay out the plugin half of the dropdown: one section per provider, and the
@@ -88,14 +92,17 @@ export function buildPluginSearchSections(
           itemIndex: null,
         });
         break;
-      case "done":
+      case "done": {
         // A provider that answered with nothing is `empty`, so `done` always has
         // rows; the guard keeps a misbehaving provider from rendering a section
         // with no content and no explanation.
-        if (state.tracks.length === 0) {
+        const albums = state.albums ?? [];
+        const artists = state.artists ?? [];
+        if (state.tracks.length + albums.length + artists.length === 0) {
           rows.push({ key: `${key}:empty`, providerKey: key, kind: "empty", itemIndex: null });
           break;
         }
+        // Tracks → albums → artists, the order the library half uses.
         state.tracks.forEach((track, i) => {
           rows.push({
             key: `${key}:track:${i}`,
@@ -106,7 +113,16 @@ export function buildPluginSearchSections(
           });
           selectable.push({ kind: "plugin-track", providerKey: key, track });
         });
+        albums.forEach((album, i) => {
+          rows.push({ key: `${key}:album:${i}`, providerKey: key, kind: "album", album, itemIndex: next++ });
+          selectable.push({ kind: "plugin-album", providerKey: key, album });
+        });
+        artists.forEach((artist, i) => {
+          rows.push({ key: `${key}:artist:${i}`, providerKey: key, kind: "artist", artist, itemIndex: next++ });
+          selectable.push({ kind: "plugin-artist", providerKey: key, artist });
+        });
         break;
+      }
     }
 
     sections.push({ providerKey: key, name: provider.name, icon: provider.icon, rows });

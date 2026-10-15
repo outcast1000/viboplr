@@ -78,7 +78,7 @@ import {
   type BitPerfectStatusInput,
   type ControlApiRequest,
 } from "../utils/controlApi";
-import { invokeAssistantTool, listAssistantTools, listSearchProviders, searchCatalog } from "../utils/hostOps";
+import { clampSearchLimit, invokeAssistantTool, listAssistantTools, listSearchProviders, searchCatalog } from "../utils/hostOps";
 import { addToQueue, playNow, playWithBackfill, type DuplicatePolicy, type QueueOpsDeps } from "../utils/queueOps";
 import { permissionReasons } from "../pluginWorker/permissions";
 
@@ -946,8 +946,19 @@ export function useControlApi(deps: ControlApiDeps) {
           providerKey, query, limit: payload.limit,
         });
         if (result.status === "error") bad(result.message ?? "provider search failed");
+        // Albums and artists are names, not playable rows: they ride along for
+        // the caller to open (`ui.navigate`) and are not part of the searchId.
+        // `limit` is per kind, so each list is held to it — a provider that
+        // ignores the hint must not flood the caller.
+        const perKind = clampSearchLimit(payload.limit);
+        const albums = result.status === "ok"
+          ? (result.albums ?? []).slice(0, perKind).map((a) => ({ title: a.title, artistName: a.artist_name ?? null }))
+          : [];
+        const artists = result.status === "ok"
+          ? (result.artists ?? []).slice(0, perKind).map((a) => ({ name: a.name }))
+          : [];
         if (result.status === "empty" || result.tracks.length === 0) {
-          return { searchId: null, provider: `${provider.pluginId}:${provider.providerId}`, tracks: [] };
+          return { searchId: null, provider: `${provider.pluginId}:${provider.providerId}`, tracks: [], albums, artists };
         }
         const tracks = result.tracks.map(pluginTrackToQueueTrack);
         const searchId = `s${searchSeqRef.current++}`;
@@ -968,6 +979,8 @@ export function useControlApi(deps: ControlApiDeps) {
             durationSecs: t.duration_secs ?? null,
             video: t.format === "mp4",
           })),
+          albums,
+          artists,
         };
       }
 

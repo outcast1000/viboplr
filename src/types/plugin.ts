@@ -1545,9 +1545,31 @@ export interface PluginHomeAPI {
   ): () => void;
 }
 
-/** Result of one global-search query against a plugin catalog. */
+/** An artist a catalog search found. Opens Vibo's artist page by name, so it
+ *  needs no library id — a page for an artist not in the library is built from
+ *  the name. */
+export interface PluginSearchArtist {
+  name: string;
+  image_url?: string | null;
+  /** One short line under the name ("1.2M listeners"). Plain text. */
+  subtitle?: string | null;
+}
+
+/** An album a catalog search found. Opens Vibo's album page by name; set
+ *  `artist_name` (the album artist) or the page may match a same-titled album
+ *  by someone else. */
+export interface PluginSearchAlbum {
+  title: string;
+  artist_name?: string | null;
+  image_url?: string | null;
+}
+
+/** Result of one global-search query against a plugin catalog. `artists` and
+ *  `albums` are optional and newer than `tracks`: an older host reads only
+ *  `tracks`, so a provider that returns all three still works there, as a
+ *  tracks-only search. */
 export type PluginSearchResult =
-  | { status: "ok"; tracks: PluginTrack[] }
+  | { status: "ok"; tracks: PluginTrack[]; artists?: PluginSearchArtist[]; albums?: PluginSearchAlbum[] }
   | { status: "empty" }
   | { status: "error"; message?: string };
 
@@ -1568,8 +1590,9 @@ export type PluginSearchResult =
  * actually installed, and a provider that can't work should not be offered.
  */
 export interface PluginSearchAPI {
-  /** Handle a query for one provider. `limit` is a hint, not a contract — the
-   *  host trims. Returning `empty` is a normal miss, not a failure. */
+  /** Handle a query for one provider. `limit` is a hint per result kind, not a
+   *  contract — the host trims each list. Returning `empty` is a normal miss,
+   *  not a failure. */
   onQuery(
     providerId: string,
     handler: (query: string, limit: number) => Promise<PluginSearchResult>,

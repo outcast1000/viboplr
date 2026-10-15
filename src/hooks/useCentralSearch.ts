@@ -2,7 +2,8 @@
 import { useState, useCallback, useRef, useEffect, useMemo } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import type { Track, SearchAllResults, SearchResultItem } from "../types";
-import type { PluginSearchProvider, PluginSearchResult, PluginTrack } from "../types/plugin";
+import type { PluginSearchAlbum, PluginSearchArtist, PluginSearchProvider, PluginTrack } from "../types/plugin";
+import type { NormalizedSearchResult } from "../utils/pluginSearchResult";
 import { allocateSlotsBalanced } from "../utils/searchSlots";
 import {
   buildPluginSearchSections,
@@ -16,8 +17,11 @@ import { useSearchLikeHandlers } from "./useSearchLikeHandlers";
 const DEBOUNCE_MS = 200;
 const PER_TYPE_LIMIT = 7; // fetch up to this many per type, trim client-side
 /** Results to ask a plugin catalog for. Small: these rows sit under the library
- *  results in a dropdown, not in a full results page. */
+ *  results in a dropdown, not in a full results page. Albums and artists get
+ *  fewer rows than tracks: each opens a page that lists far more, so a provider
+ *  answering all three kinds still adds a dozen rows at most. */
 const PLUGIN_RESULT_LIMIT = 6;
+const PLUGIN_ENTITY_LIMIT = 3;
 
 interface UseCentralSearchOptions {
   onPlayTrack: (track: Track) => void;
@@ -32,15 +36,33 @@ interface UseCentralSearchOptions {
     providerId: string,
     query: string,
     limit: number,
-  ) => Promise<PluginSearchResult>;
+  ) => Promise<NormalizedSearchResult>;
   onPlayPluginTrack: (track: PluginTrack) => void;
   onEnqueuePluginTrack: (track: PluginTrack) => void;
+  /** Open Vibo's own album / artist page for a catalog result, by name (the
+   *  result has no library id; a page for something not in the library is
+   *  built from the name). */
+  onOpenPluginAlbum: (album: PluginSearchAlbum) => void;
+  onOpenPluginArtist: (artist: PluginSearchArtist) => void;
   /** Canonical like handlers (`useLikeActions`). Optional so the hook can
    *  mount without them; the dropdown then renders no hearts. */
   likeActions?: SearchLikeDeps;
 }
 
 const EMPTY_RESULTS: SearchAllResults = { artists: [], albums: [], tracks: [] };
+
+/** A provider's answer, trimmed to what the dropdown has room for. It arrives
+ *  normalized (`normalizeSearchResult`): all three lists present, and an `ok`
+ *  always holds at least one row. */
+function toRunState(result: NormalizedSearchResult): ProviderRunState {
+  if (result.status !== "ok") return result;
+  return {
+    status: "done",
+    tracks: result.tracks.slice(0, PLUGIN_RESULT_LIMIT),
+    albums: result.albums.slice(0, PLUGIN_ENTITY_LIMIT),
+    artists: result.artists.slice(0, PLUGIN_ENTITY_LIMIT),
+  };
+}
 
 export function useCentralSearch({
   onPlayTrack,
@@ -52,6 +74,8 @@ export function useCentralSearch({
   runProviderSearch,
   onPlayPluginTrack,
   onEnqueuePluginTrack,
+  onOpenPluginAlbum,
+  onOpenPluginArtist,
   likeActions,
 }: UseCentralSearchOptions) {
   const [query, setQuery] = useState("");
@@ -134,14 +158,7 @@ export function useCentralSearch({
           if (gen !== queryGenRef.current) return; // query moved on
           setProviderStates((prev) => ({
             ...prev,
-            [providerKey]:
-              result.status === "ok"
-                ? result.tracks.length > 0
-                  ? { status: "done", tracks: result.tracks.slice(0, PLUGIN_RESULT_LIMIT) }
-                  : { status: "empty" }
-                : result.status === "empty"
-                  ? { status: "empty" }
-                  : { status: "error", message: result.message },
+            [providerKey]: toRunState(result),
           }));
         })
         .catch((e) => {
@@ -217,6 +234,14 @@ export function useCentralSearch({
           if (enqueue) onEnqueuePluginTrack(item.track);
           else onPlayPluginTrack(item.track);
           break;
+        // Like the library's album/artist rows: they open a page, so there is
+        // nothing to enqueue and Cmd+Enter opens it too.
+        case "plugin-album":
+          onOpenPluginAlbum(item.album);
+          break;
+        case "plugin-artist":
+          onOpenPluginArtist(item.artist);
+          break;
       }
     },
     [
@@ -227,6 +252,8 @@ export function useCentralSearch({
       runProvider,
       onPlayPluginTrack,
       onEnqueuePluginTrack,
+      onOpenPluginAlbum,
+      onOpenPluginArtist,
     ],
   );
 

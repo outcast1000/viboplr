@@ -2,6 +2,7 @@ import { useRef, useEffect, useState } from "react";
 import type { Track, SearchAllResults, SearchResultItem } from "../types";
 import type { PluginSearchSection } from "../utils/centralSearchPlugins";
 import { resolveImageUrl } from "../utils/resolveImageUrl";
+import { useImageCache } from "../hooks/useImageCache";
 import { artistCountLabel } from "../utils/artistCount";
 import { AlbumCardArt } from "./AlbumCardArt";
 import { ArtistCardArt } from "./ArtistCardArt";
@@ -92,6 +93,31 @@ function TrackImage({ track, getAlbumImage, getArtistImage }: {
   );
 }
 
+/** Art for a catalog album/artist row: the provider's own image, else a
+ *  name-keyed image already on disk (never fetched), else the first letter.
+ *  An image that fails to load steps down to the next one, as elsewhere
+ *  (`utils/imageCandidates.ts`) — provider URLs go stale. */
+function CatalogArt({ imageUrl, libraryPath, label }: {
+  imageUrl?: string | null;
+  libraryPath: string | null;
+  label: string;
+}) {
+  const [failed, setFailed] = useState<ReadonlySet<string>>(() => new Set());
+  const candidates = [imageUrl, libraryPath ? resolveImageUrl(libraryPath) : null];
+  const src = candidates.find((c): c is string => !!c && !failed.has(c));
+  if (src) {
+    return (
+      <img
+        className="result-img"
+        src={src}
+        alt=""
+        onError={() => setFailed((prev) => new Set(prev).add(src))}
+      />
+    );
+  }
+  return <span className="result-img-fallback">{label.charAt(0).toUpperCase()}</span>;
+}
+
 /**
  * One plugin catalog's rows. A provider starts as a single "Search … on X" offer
  * because the host never queries plugin catalogs on its own (see
@@ -107,11 +133,17 @@ function PluginSection({
   query,
   highlightedIndex,
   onActivate,
+  peekAlbumImage,
+  peekArtistImage,
 }: {
   section: PluginSearchSection;
   query: string;
   highlightedIndex: number;
   onActivate: (row: PluginSearchSection["rows"][number]) => void;
+  /** Cache-only lookups: a catalog row merely appeared in a result, so it must
+   *  never fetch and keep a cover (same reason as `artwork: "cached"`). */
+  peekAlbumImage: (title: string, artistName?: string | null) => string | null;
+  peekArtistImage: (name: string) => string | null;
 }) {
   return (
     <>
@@ -156,6 +188,56 @@ function PluginSection({
           return (
             <div key={row.key} className="central-search-status">
               {section.name} search failed{row.message ? `: ${row.message}` : "."}
+            </div>
+          );
+        }
+        if (row.kind === "album") {
+          const album = row.album!;
+          return (
+            <div
+              key={row.key}
+              className={`central-search-result ${row.itemIndex === highlightedIndex ? "highlighted" : ""}`}
+              onMouseDown={(e) => {
+                e.preventDefault();
+                onActivate(row);
+              }}
+            >
+              <div className="result-art">
+                <CatalogArt
+                  imageUrl={album.image_url}
+                  libraryPath={peekAlbumImage(album.title, album.artist_name)}
+                  label={album.title}
+                />
+              </div>
+              <div className="result-info">
+                <div className="result-title">{album.title}</div>
+                <div className="result-subtitle">
+                  Album{album.artist_name ? ` · ${album.artist_name}` : ""}
+                </div>
+              </div>
+              <span className="result-action">→</span>
+            </div>
+          );
+        }
+        if (row.kind === "artist") {
+          const artist = row.artist!;
+          return (
+            <div
+              key={row.key}
+              className={`central-search-result ${row.itemIndex === highlightedIndex ? "highlighted" : ""}`}
+              onMouseDown={(e) => {
+                e.preventDefault();
+                onActivate(row);
+              }}
+            >
+              <div className="result-art result-art-round">
+                <CatalogArt imageUrl={artist.image_url} libraryPath={peekArtistImage(artist.name)} label={artist.name} />
+              </div>
+              <div className="result-info">
+                <div className="result-title">{artist.name}</div>
+                <div className="result-subtitle">Artist{artist.subtitle ? ` · ${artist.subtitle}` : ""}</div>
+              </div>
+              <span className="result-action">→</span>
             </div>
           );
         }
@@ -213,6 +295,11 @@ export function CentralSearchDropdown({
   pluginSections,
   likes,
 }: CentralSearchDropdownProps) {
+  // Catalog rows peek their own caches, never App's shared ones: a peek that
+  // misses records the miss, and in the shared cache that would stop the
+  // artist page the user opens next from ever fetching its image.
+  const catalogAlbumImages = useImageCache("album");
+  const catalogArtistImages = useImageCache("artist");
   const internalRef = useRef<HTMLInputElement>(null);
   const inputRef = externalInputRef ?? internalRef;
   const containerRef = useRef<HTMLDivElement>(null);
@@ -475,11 +562,17 @@ export function CentralSearchDropdown({
                 section={section}
                 query={query.trim()}
                 highlightedIndex={highlightedIndex}
+                peekAlbumImage={catalogAlbumImages.peekImage}
+                peekArtistImage={catalogArtistImages.peekImage}
                 onActivate={(row) =>
                   onResultClick(
                     row.kind === "run"
                       ? { kind: "plugin-run", providerKey: section.providerKey, name: section.name }
-                      : { kind: "plugin-track", providerKey: section.providerKey, track: row.track! },
+                      : row.kind === "album"
+                        ? { kind: "plugin-album", providerKey: section.providerKey, album: row.album! }
+                        : row.kind === "artist"
+                          ? { kind: "plugin-artist", providerKey: section.providerKey, artist: row.artist! }
+                          : { kind: "plugin-track", providerKey: section.providerKey, track: row.track! },
                   )
                 }
               />

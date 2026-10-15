@@ -112,6 +112,37 @@ describe("buildPluginSearchSections", () => {
     expect(new Set(keys).size).toBe(keys.length);
   });
 
+  it("lays out tracks, then albums, then artists, with contiguous indices", () => {
+    // The order the library half uses; and an album or artist row is as
+    // selectable as a track, so the arrow keys must step through all three.
+    const states: Record<string, ProviderRunState> = {
+      "ytdlp:ytdlp-search": {
+        status: "done",
+        tracks: [trk("Song")],
+        albums: [{ title: "Record", artist_name: "A" }],
+        artists: [{ name: "A" }, { name: "B" }],
+      },
+      "spotify-browse:search": { status: "idle" },
+    };
+    const { sections, selectable } = buildPluginSearchSections([provider(), spotify], states, 2);
+    expect(sections[0].rows.map((r) => r.kind)).toEqual(["track", "album", "artist", "artist"]);
+    expect(selectable.map((s) => s.kind)).toEqual([
+      "plugin-track", "plugin-album", "plugin-artist", "plugin-artist", "plugin-run",
+    ]);
+    const indices = sections.flatMap((s) => s.rows).map((r) => r.itemIndex);
+    expect(indices).toEqual([2, 3, 4, 5, 6]);
+    expect(selectable[1]).toMatchObject({ album: { title: "Record" } });
+    expect(selectable[3]).toMatchObject({ artist: { name: "B" } });
+  });
+
+  it("shows a provider that found only artists rather than calling it empty", () => {
+    const states: Record<string, ProviderRunState> = {
+      "ytdlp:ytdlp-search": { status: "done", tracks: [], artists: [{ name: "A" }] },
+    };
+    const { sections } = buildPluginSearchSections([provider()], states, 0);
+    expect(sections[0].rows.map((r) => r.kind)).toEqual(["artist"]);
+  });
+
   it("returns nothing when no providers are registered", () => {
     expect(buildPluginSearchSections([], {}, 0)).toEqual({ sections: [], selectable: [] });
   });

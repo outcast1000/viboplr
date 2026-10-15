@@ -158,11 +158,14 @@ export type SearchResultItem =
   | { kind: "track"; data: Track }
   // Global-search rows contributed by plugin catalogs, always after the library
   // ones. `plugin-run` is the "Search <query> on X" offer (the host never queries
-  // a plugin catalog on its own — see PluginSearchAPI); `plugin-track` is a
-  // result of having done so. Both live in the same flat item list as the
-  // library rows so one highlight index drives the whole dropdown.
+  // a plugin catalog on its own — see PluginSearchAPI); `plugin-track`,
+  // `plugin-album` and `plugin-artist` are results of having done so. All live
+  // in the same flat item list as the library rows so one highlight index
+  // drives the whole dropdown.
   | { kind: "plugin-run"; providerKey: string; name: string }
-  | { kind: "plugin-track"; providerKey: string; track: import("./types/plugin").PluginTrack };
+  | { kind: "plugin-track"; providerKey: string; track: import("./types/plugin").PluginTrack }
+  | { kind: "plugin-album"; providerKey: string; album: import("./types/plugin").PluginSearchAlbum }
+  | { kind: "plugin-artist"; providerKey: string; artist: import("./types/plugin").PluginSearchArtist };
 
 export interface Collection {
   id: number;

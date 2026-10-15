@@ -120,6 +120,7 @@ function parsePluginJson(value: unknown): unknown {
   }
 }
 import { withResolverLog } from "../utils/resolverLog";
+import { normalizeSearchResult, type NormalizedSearchResult } from "../utils/pluginSearchResult";
 
 import { useAssignRef } from "./useLatestRef";
 import { dropPrewarmedWorkers, prewarmPluginWorkers, startWorkerPlugin, type WorkerPluginControl } from "../pluginWorker/host";
@@ -3652,7 +3653,7 @@ export function usePlugins(
       providerId: string,
       query: string,
       limit: number,
-    ): Promise<PluginSearchResult> => {
+    ): Promise<NormalizedSearchResult> => {
       const handler = searchHandlersRef.current.get(`${pluginId}:${providerId}`);
       if (!handler) return { status: "error", message: "handler not registered" };
       try {
@@ -3665,7 +3666,7 @@ export function usePlugins(
             ),
           ),
         ]);
-        return result ?? { status: "empty" };
+        return normalizeSearchResult(result);
       } catch (e) {
         console.error(`Plugin search "${pluginId}:${providerId}" failed:`, e);
         return { status: "error", message: e instanceof Error ? e.message : String(e) };

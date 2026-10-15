@@ -706,7 +706,7 @@ export const TOOLS = [
     readOnly: true,
     categories: ["catalog"],
     description:
-      "Search external catalogs (YouTube, Spotify, TIDAL…) through their plugins. action=providers lists what's installed; action=search runs a query (SLOW — up to a minute) and returns a session-cached searchId + indexed tracks for catalog_play. External results have no library ids. To find something to play or download, use this rather than a plugin's own search tool (e.g. ytdlp__search): only a searchId from here is accepted by catalog_play, download_plugin_track and replace_track_file.",
+      "Search external catalogs (YouTube, Spotify, TIDAL…) through their plugins. action=providers lists what's installed; action=search runs a query (SLOW — up to a minute) and returns a session-cached searchId + indexed tracks for catalog_play, plus any albums / artists the provider found (names only — open them with navigate). searchId is null when no tracks were found, but albums / artists may still be present — check them before reporting nothing found. External results have no library ids. To find something to play or download, use this rather than a plugin's own search tool (e.g. ytdlp__search): only a searchId from here is accepted by catalog_play, download_plugin_track and replace_track_file.",
     inputSchema: obj(
       {
         action: en(["providers", "search"], "List providers or run a search"),
