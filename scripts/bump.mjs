@@ -176,6 +176,9 @@ const versionFiles = [
   { path: "package.json", replace: (s) => s.replace(/"version":\s*"[^"]*"/, `"version": "${version}"`) },
   { path: "src-tauri/Cargo.toml", replace: (s) => s.replace(/^version\s*=\s*"[^"]*"/m, `version = "${version}"`) },
   { path: "src-tauri/tauri.conf.json", replace: (s) => s.replace(/"version":\s*"[^"]*"/, `"version": "${version}"`) },
+  // The e2e Tauri mock reports the app version, which bundled plugins'
+  // `minAppVersion` is checked against — a stale one loaded Last.fm as incompatible.
+  { path: "tests/e2e/tauri-mock.js", replace: (s) => s.replace(/(cmd === 'plugin:app\|version'\) return ')[^']*'/, `$1${version}'`) },
 ];
 
 for (const { path, replace } of versionFiles) {

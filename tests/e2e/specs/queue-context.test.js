@@ -19,7 +19,7 @@ test('no context banner when no tracks are playing', async ({ page }) => {
   await expect(page.locator('.queue-context-banner')).not.toBeVisible();
 });
 
-test('album play from search shows context banner with album name', async ({ page }) => {
+test('album play from search shows context banner with artist and album name', async ({ page }) => {
   await page.locator('.search-view-input').fill('A');
   await page.waitForTimeout(1000);
 
@@ -34,7 +34,8 @@ test('album play from search shows context banner with album name', async ({ pag
   await firstCard.locator('.ds-card-play').click({ force: true });
 
   await expect(page.locator('.queue-context-banner')).toBeVisible({ timeout: 5000 });
-  await expect(page.locator('.queue-context-name')).toHaveText('Album X');
+  // An album reads "Artist – Album" (playlistContextTitle, mainPlaylist.ts).
+  await expect(page.locator('.queue-context-name')).toHaveText('Artist A – Album X');
 });
 
 test('artist play from search shows context banner with artist name', async ({ page }) => {
@@ -71,7 +72,8 @@ test('album detail Play All shows context banner', async ({ page }) => {
   await page.locator('.detail-hero-actions .ds-btn--primary').click({ force: true });
 
   await expect(page.locator('.queue-context-banner')).toBeVisible({ timeout: 5000 });
-  await expect(page.locator('.queue-context-name')).toHaveText('Album X');
+  // An album reads "Artist – Album" (playlistContextTitle, mainPlaylist.ts).
+  await expect(page.locator('.queue-context-name')).toHaveText('Artist A – Album X');
 });
 
 test('single track double-click does not show context banner', async ({ page }) => {

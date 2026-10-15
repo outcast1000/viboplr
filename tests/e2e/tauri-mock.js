@@ -150,8 +150,11 @@ window.__TAURI_INTERNALS__.invoke = async function (cmd, args) {
     if (cmd === 'plugin:event|emit') return null;
     if (cmd === 'plugin:event|unlisten') return null;
 
-    // plugin:app — version, name, etc.
-    if (cmd === 'plugin:app|version') return '0.9.99';
+    // plugin:app — version, name, etc. The real app version, kept in step by
+    // `npm run bump` (scripts/bump.mjs → versionFiles): bundled plugins carry a
+    // `minAppVersion`, and a stale version here loads them as "incompatible" —
+    // which is how the bundled Last.fm silently vanished from every spec.
+    if (cmd === 'plugin:app|version') return '1.0.108';
     if (cmd === 'plugin:app|name') return 'Vibo';
     if (cmd === 'plugin:app|tauri_version') return '2.0.0';
     if (cmd.startsWith('plugin:app')) return null;
