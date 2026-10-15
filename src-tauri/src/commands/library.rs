@@ -47,8 +47,9 @@ pub async fn get_albums(
 /// Forgotten favorites grouped by tag into playlists — the Home "Forgotten
 /// favorites" shelf.
 #[tauri::command]
-pub fn pick_forgotten_mixes(state: State<'_, AppState>, max_mixes: usize, mix_size: usize) -> Result<Vec<TrackMix>, String> {
-    state.db.pick_forgotten_mixes(max_mixes, mix_size).map_err(|e| e.to_string())
+pub async fn pick_forgotten_mixes(state: State<'_, AppState>, max_mixes: usize, mix_size: usize) -> Result<Vec<TrackMix>, String> {
+    let db = state.db.clone();
+    run_db_read(move || db.pick_forgotten_mixes(max_mixes, mix_size).map_err(|e| e.to_string())).await
 }
 
 /// ReplayGain values for the track at `path` (parsed from its `extra_tags` JSON).
@@ -863,19 +864,21 @@ pub async fn import_likes(
 /// Liked entities ("track" | "artist" | "album") from the durable entity_likes
 /// table for the Home liked shelves. `order` is "recent" (newest first) or "random".
 #[tauri::command]
-pub fn pick_liked_entities(
+pub async fn pick_liked_entities(
     state: State<'_, AppState>,
     kind: String,
     order: String,
     limit: u32,
 ) -> Result<Vec<LikedEntityInfo>, String> {
-    state.db.pick_liked_entities(&kind, &order, limit).map_err(|e| e.to_string())
+    let db = state.db.clone();
+    run_db_read(move || db.pick_liked_entities(&kind, &order, limit).map_err(|e| e.to_string())).await
 }
 
 /// Library tracks with no recorded plays — for the Home "Never played" shelf.
 #[tauri::command]
-pub fn pick_never_played_tracks(state: State<'_, AppState>, limit: u32) -> Result<Vec<Track>, String> {
-    state.db.pick_never_played_tracks(limit).map_err(|e| e.to_string())
+pub async fn pick_never_played_tracks(state: State<'_, AppState>, limit: u32) -> Result<Vec<Track>, String> {
+    let db = state.db.clone();
+    run_db_read(move || db.pick_never_played_tracks(limit).map_err(|e| e.to_string())).await
 }
 
 /// Reveal a local file in the OS file manager.

@@ -4638,6 +4638,48 @@ fn test_history_reads_do_not_wait_for_an_open_write() {
     writer.execute_batch("COMMIT").unwrap();
 }
 
+/// Auto-continue (asked near every track's end), radio and the Home shelf
+/// samples read on the reader too, so a scan's open write can't stall them.
+#[test]
+fn test_playback_and_home_reads_do_not_wait_for_an_open_write() {
+    let dir = tempfile::tempdir().unwrap();
+    let db = std::sync::Arc::new(Database::new(dir.path()).unwrap());
+    let artist = db.get_or_create_artist("Band").unwrap();
+    for title in ["One", "Two", "Three"] {
+        insert_track(&db, &format!("band/{title}.mp3"), title, Some(artist), None);
+    }
+    db.record_play_by_metadata("One", Some("Band")).unwrap();
+    db.set_entity_like("track", "track:band:two", 1, Some(r#"{"name":"Two","artist_name":"Band"}"#), 1)
+        .unwrap();
+
+    let writer = db.conn.lock().unwrap();
+    writer.execute_batch("BEGIN; INSERT INTO artists (name) VALUES ('Uncommitted');").unwrap();
+
+    let (tx, rx) = std::sync::mpsc::channel();
+    let reader_db = db.clone();
+    std::thread::spawn(move || {
+        let d = &reader_db;
+        let next = d.get_auto_continue_track("random", "One", Some("Band"), None, &[]).unwrap();
+        let station = d.build_radio_for_track("One", Some("Band"), 3, &RadioOptions::default()).unwrap();
+        let counts = (
+            station.len(),
+            d.pick_never_played_tracks(10).unwrap().len(),
+            d.pick_liked_entities("track", "recent", 10).unwrap().len(),
+        );
+        // These answer; with one play and no tags there is nothing to suggest.
+        let answered = d.pick_radio_seeds(3, &[]).is_ok() && d.pick_forgotten_mixes(2, 5).is_ok();
+        tx.send((next.map(|t| t.title), counts, answered)).unwrap();
+    });
+    let (next, counts, answered) = rx
+        .recv_timeout(std::time::Duration::from_secs(2))
+        .expect("a playback or Home read waited on the writer");
+    assert!(next.is_some_and(|t| t != "One"), "auto-continue picks another track");
+    assert_eq!(counts, (3, 2, 1));
+    assert!(answered);
+
+    writer.execute_batch("COMMIT").unwrap();
+}
+
 /// The reader is query_only: a write through it must fail rather than slip past
 /// the writer's mutex.
 #[test]

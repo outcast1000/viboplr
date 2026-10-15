@@ -118,18 +118,22 @@ pub async fn get_track_play_stats(state: State<'_, AppState>, title: String, art
     run_db_read(move || db.get_track_play_stats(&title, artist_name.as_deref()).map_err(|e| e.to_string())).await
 }
 
+// Asked as the playing track nears its end, so it must not wait out a scan's
+// writes: async + the reader, like the history reads above.
 #[tauri::command]
-pub fn get_auto_continue_track(
+pub async fn get_auto_continue_track(
     state: State<'_, AppState>,
     strategy: String,
     current_title: String,
     current_artist: Option<String>,
     format_filter: Option<String>,
 ) -> Result<Option<Track>, String> {
-    state
-        .db
-        .get_auto_continue_track(&strategy, &current_title, current_artist.as_deref(), format_filter.as_deref(), &[])
-        .map_err(|e| e.to_string())
+    let db = state.db.clone();
+    run_db_read(move || {
+        db.get_auto_continue_track(&strategy, &current_title, current_artist.as_deref(), format_filter.as_deref(), &[])
+            .map_err(|e| e.to_string())
+    })
+    .await
 }
 
 #[tauri::command]

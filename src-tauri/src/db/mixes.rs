@@ -132,7 +132,7 @@ impl Database {
     /// Tag names per track id, for the given ids (chunked under SQLite's
     /// bound-parameter limit). Ids without tags are absent from the map.
     fn tag_names_for_tracks(&self, ids: &[i64]) -> SqlResult<HashMap<i64, Vec<String>>> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.reader();
         let mut out: HashMap<i64, Vec<String>> = HashMap::new();
         for chunk in ids.chunks(500) {
             let placeholders = vec!["?"; chunk.len()].join(",");

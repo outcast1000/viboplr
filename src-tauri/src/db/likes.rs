@@ -198,7 +198,7 @@ impl Database {
     /// Reads display fields from each row's stored metadata JSON; rows without a
     /// usable name are skipped. Captures non-library likes too.
     pub fn pick_liked_entities(&self, kind: &str, order: &str, limit: u32) -> SqlResult<Vec<LikedEntityInfo>> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.reader();
         let order_clause = if order == "random" { "RANDOM()" } else { "updated_at DESC" };
         let sql = format!(
             "SELECT metadata FROM entity_likes \

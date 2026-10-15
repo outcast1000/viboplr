@@ -246,7 +246,7 @@ impl Database {
     }
 
     pub fn get_auto_continue_track(&self, strategy: &str, current_title: &str, current_artist: Option<&str>, format_filter: Option<&str>, exclude_ids: &[i64]) -> SqlResult<Option<Track>> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.reader();
 
         let format_clause = media_type_clause(format_filter);
 
@@ -388,7 +388,7 @@ impl Database {
         let share = opts.artist_share.min(100) as u64;
         let slots = (target_count - 1) as i64;
 
-        let conn = self.conn.lock().unwrap();
+        let conn = self.reader();
         let sql = format!(
             "{} WHERE strip_diacritics(unicode_lower(t.title)) = ?1 \
              AND strip_diacritics(unicode_lower(COALESCE(ar.name, ''))) = ?2 \
@@ -621,7 +621,7 @@ impl Database {
             return Ok(Vec::new());
         }
 
-        let conn = self.conn.lock().unwrap();
+        let conn = self.reader();
         let now_ts: i64 = conn.query_row("SELECT strftime('%s', 'now')", [], |row| {
             let s: String = row.get(0)?;
             Ok(s.parse::<i64>().unwrap_or(0))
@@ -793,7 +793,7 @@ impl Database {
         if limit == 0 {
             return Ok(Vec::new());
         }
-        let conn = self.conn.lock().unwrap();
+        let conn = self.reader();
         let sql = format!(
             "{} \
              WHERE t.liked != -1 {} \
@@ -827,7 +827,7 @@ impl Database {
         if limit == 0 {
             return Ok(Vec::new());
         }
-        let conn = self.conn.lock().unwrap();
+        let conn = self.reader();
         let now_ts: i64 = conn.query_row("SELECT strftime('%s', 'now')", [], |row| {
             let s: String = row.get(0)?;
             Ok(s.parse::<i64>().unwrap_or(0))
