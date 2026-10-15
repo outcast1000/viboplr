@@ -4,7 +4,7 @@
 // a real browser; these pin the maths, the stagger wiring and the fallbacks.
 import { describe, it, expect, afterEach, vi } from "vitest";
 import { render, act } from "@testing-library/react";
-import { useRef, useState } from "react";
+import { StrictMode, useRef, useState } from "react";
 import { rampDegrees, SPIN_RAMP_MS } from "../hooks/useSpin";
 import { useFlipList } from "../hooks/useFlipList";
 import { SpinningDisc } from "../components/SpinningDisc";
@@ -73,6 +73,17 @@ describe("useSpin state machine (fake Element.animate)", () => {
     expect(fake.calls[1].options.easing).toContain("0.33, 1, 0.68, 1"); // ease-out: the spin-down
     fake.restore();
     vi.useRealTimers();
+  });
+
+  it("a disc mounted mid-play still spins after StrictMode's simulated remount", () => {
+    const fake = installFakeAnimate();
+    render(<StrictMode><SpinningDisc playing /></StrictMode>);
+    // The last animation started must be the steady loop, not nothing (the
+    // stale "loop" mode used to make the re-run return early) and not a ramp.
+    const last = fake.calls[fake.calls.length - 1];
+    expect(last?.options.iterations).toBe(Infinity);
+    expect(fake.calls).toHaveLength(2); // mount + remount, each straight into the loop
+    fake.restore();
   });
 });
 

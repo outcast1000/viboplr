@@ -352,6 +352,9 @@
 
 .queue-item.queue-current {
   background: rgba(var(--accent-rgb), 0.1);
+  /* The playing row is always rendered: under content-visibility: auto its
+     spinning disc could stop being repainted. One row, so large queues stay cheap. */
+  content-visibility: visible;
 }
 
 .queue-item.queue-current .queue-item-title {

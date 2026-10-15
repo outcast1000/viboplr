@@ -14,3 +14,8 @@
 /* The reel rotates while playing — same motion language as the vinyl disc, so the
    audio/video pair reads as intentional. The rotation (and its spin-down on
    pause, and reduced motion) lives in useSpin, not here. */
+
+/* Own compositing layer while spinning — see SpinningDisc.css. */
+.film-reel.playing {
+  will-change: transform;
+}

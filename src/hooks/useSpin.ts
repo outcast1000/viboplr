@@ -114,7 +114,15 @@ export function useSpin(ref: React.RefObject<Element | null>, playing: boolean, 
 
   useEffect(() => () => {
     if (stopTimer.current) clearTimeout(stopTimer.current);
+    stopTimer.current = null;
     anim.current?.cancel();
+    anim.current = null;
     unsubscribe.current?.();
+    unsubscribe.current = null;
+    // Back to a fresh mount: StrictMode (dev) unmounts and remounts with these
+    // refs intact, and a stale "loop" mode made the re-run effect return early,
+    // leaving a disc mounted mid-play frozen.
+    mode.current = "idle";
+    firstRun.current = true;
   }, []);
 }
