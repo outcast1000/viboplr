@@ -58,6 +58,10 @@ export interface PersistedSettings {
   pluginViewMode: string | null | undefined;
   minimizeToMiniPlayer: boolean | undefined;
   reduceMotion: boolean | undefined;
+  scrollLongTitles: boolean | undefined;
+  /** Retired mini-only predecessor of `scrollLongTitles`; written only when
+   *  the user toggled it, so a stored value is an explicit choice. */
+  legacyMiniTitleScroll: boolean | undefined;
   uiZoom: number | undefined;
   miniZoom: number | undefined;
   // EQ / ReplayGain — previously re-read per key by the restore effect after
@@ -156,6 +160,8 @@ export async function readPersistedSettings(store: AppStore): Promise<PersistedS
     pluginViewMode: read<string | null>("pluginViewMode"),
     minimizeToMiniPlayer: read<boolean>("minimizeToMiniPlayer"),
     reduceMotion: read<boolean>("reduceMotion"),
+    scrollLongTitles: read<boolean>("scrollLongTitles"),
+    legacyMiniTitleScroll: read<boolean>("miniTitleScroll"),
     uiZoom: read<number>("uiZoom"),
     miniZoom: read<number>("miniZoom"),
     eqEnabled: read<boolean>("eqEnabled"),

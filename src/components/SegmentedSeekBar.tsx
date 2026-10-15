@@ -1,4 +1,5 @@
 import { useRef, useEffect, useCallback } from "react";
+import { seekPaintKey } from "../utils/seekRepaint";
 
 interface SegmentedSeekBarProps {
   progress: number; // 0..1
@@ -72,6 +73,8 @@ export function SegmentedSeekBar({ progress, durationSecs, bufferedPct = null }:
   const growRef = useRef(0);
   const growStartRef = useRef(0);
   const prevDurationRef = useRef(0);
+  // What the canvas currently shows; see WaveformSeekBar.
+  const paintedKeyRef = useRef("");
 
   const draw = useCallback((): boolean => {
     const canvas = canvasRef.current;
@@ -83,6 +86,14 @@ export function SegmentedSeekBar({ progress, durationSecs, bufferedPct = null }:
     const dpr = window.devicePixelRatio || 1;
     const w = canvas.clientWidth;
     const h = canvas.clientHeight;
+    const colors = getSkinColors(canvas);
+
+    const paintKey = seekPaintKey({
+      progress, width: w, height: h, hoverPct: null, bufferedPct,
+      extra: `${dpr}|${durationSecs}|${colors.playedTop}|${colors.unplayedTop}`,
+    });
+    if (growRef.current >= 1 && paintKey === paintedKeyRef.current) return false;
+    paintedKeyRef.current = paintKey;
 
     if (canvas.width !== w * dpr || canvas.height !== h * dpr) {
       canvas.width = w * dpr;
@@ -100,7 +111,6 @@ export function SegmentedSeekBar({ progress, durationSecs, bufferedPct = null }:
     const unit = (1 / durationSecs) * w - GAP < MIN_SEG_WIDTH ? 60 : 1;
     const segCount = Math.ceil(durationSecs / unit);
 
-    const colors = getSkinColors(canvas);
     const playedX = progress * w;
     // No buffer report ⇒ treat the whole track as available, which is the
     // pre-existing single-tone rendering.

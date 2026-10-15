@@ -1305,6 +1305,8 @@ interface SettingsPanelProps {
   onOpenNowPlayingOnVideoPlayChange: (enabled: boolean) => void;
   reduceMotion: boolean;
   onReduceMotionChange: (enabled: boolean) => void;
+  scrollLongTitles: boolean;
+  onScrollLongTitlesChange: (enabled: boolean) => void;
   uiZoom: number;
   onUiZoomChange: (factor: number) => void;
   miniZoom: number;
@@ -1429,6 +1431,8 @@ export function SettingsPanel({
   onOpenNowPlayingOnVideoPlayChange,
   reduceMotion,
   onReduceMotionChange,
+  scrollLongTitles,
+  onScrollLongTitlesChange,
   uiZoom,
   onUiZoomChange,
   miniZoom,
@@ -1757,6 +1761,13 @@ export function SettingsPanel({
                         <span className="settings-description">Minimise animations across the app — disables the mini-player text scroll, list reordering, and transitions. Also honoured automatically when your OS "reduce motion" setting is on.</span>
                       </div>
                       <ToggleSwitch checked={reduceMotion} onChange={onReduceMotionChange} />
+                    </div>
+                    <div className="settings-row">
+                      <div className="settings-row-info">
+                        <span className="settings-label">Scroll long titles</span>
+                        <span className="settings-description">Titles too long for the player bar or mini player scroll back and forth so you can read them. Off, they're cut short with "…" — hover for the full title.</span>
+                      </div>
+                      <ToggleSwitch checked={scrollLongTitles} onChange={onScrollLongTitlesChange} />
                     </div>
                   </div>
                 </div>

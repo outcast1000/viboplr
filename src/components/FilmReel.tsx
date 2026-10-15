@@ -13,19 +13,21 @@ import "./FilmReel.css";
  * fixed-size indicator (`size` in px — sidebar Now Playing, art fallback, frame
  * badge) or CSS-sized via `className` (the `.video-row-thumb-icon` % placeholder).
  * This is the single video glyph for the whole app — do not reintroduce a second
- * "video" icon elsewhere.
+ * "video" icon elsewhere. Like SpinningDisc it turns only when given `spin`.
  */
 export function FilmReel({
   size = 14,
   playing = false,
+  spin = false,
   className,
 }: {
   size?: number;
   playing?: boolean;
+  spin?: boolean;
   className?: string;
 }) {
   const svgRef = useRef<SVGSVGElement>(null);
-  useSpin(svgRef, playing, 1900);
+  useSpin(svgRef, playing && spin, 1900);
   return (
     <svg
       ref={svgRef}

@@ -1,6 +1,12 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { tileCoverStyle, tileIndexAt, type Storyboard, type TileStyle } from "../utils/storyboard";
 import "./FilmstripSeekBar.css";
+import { quantizeFraction } from "../utils/seekRepaint";
+
+// The lit rail is never wider than a fullscreen bar on a 5K display (2560 CSS
+// px); that many steps keeps a step under a pixel, so the rail repaints only
+// when it visibly moves (a long video moves a fraction of a pixel per tick).
+const RAIL_STEPS = 2560;
 
 interface FilmstripSeekBarProps {
   board: Storyboard;
@@ -165,7 +171,7 @@ export function FilmstripSeekBar({
       <div className="filmstrip-rail filmstrip-rail--bottom" style={{ height: rail }}>
         {/* The progress channel. Lives on the rail rather than over the frames so it
             costs no picture area — the same trade that buys the carets their space. */}
-        <i className="filmstrip-rail-lit" style={{ width: `${clamped * 100}%` }} />
+        <i className="filmstrip-rail-lit" style={{ width: `${quantizeFraction(clamped, RAIL_STEPS) * 100}%` }} />
       </div>
 
       {hoverPct != null && (

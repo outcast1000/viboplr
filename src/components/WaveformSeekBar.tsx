@@ -1,4 +1,5 @@
 import { useRef, useEffect, useCallback } from "react";
+import { seekPaintKey } from "../utils/seekRepaint";
 
 interface WaveformSeekBarProps {
   peaks: number[];
@@ -51,6 +52,21 @@ function getSkinColors(canvas: HTMLCanvasElement) {
   };
 }
 
+// Identity of a peaks array for the repaint check. Length alone can't tell a
+// replaced waveform from the one on screen (a shared waveform swapped for a
+// locally computed one of the same track has the same length), and the grow
+// animation that would force the repaint is keyed loosely too.
+const peaksIds = new WeakMap<number[], number>();
+let nextPeaksId = 1;
+function peaksId(peaks: number[]): number {
+  let id = peaksIds.get(peaks);
+  if (id === undefined) {
+    id = nextPeaksId++;
+    peaksIds.set(peaks, id);
+  }
+  return id;
+}
+
 /** Draw on the next frame, and keep drawing while `draw` reports that the grow
  *  animation is still running. The loop lives here rather than inside `draw`
  *  so the callback never has to schedule itself. Returns a cancel that stops
@@ -73,6 +89,9 @@ export function WaveformSeekBar({ peaks, progress, hoverPct = null, bufferedPct 
   const growRef = useRef(0); // 0 to 1 (animation progress)
   const growStartRef = useRef(0); // timestamp
   const prevPeaksKeyRef = useRef("");
+  // What the canvas currently shows (seekPaintKey); a draw that would paint
+  // the same thing skips the canvas — most position ticks move < 1px.
+  const paintedKeyRef = useRef("");
   const GROW_DURATION = 400; // ms
   const STAGGER_PER_BAR = 2; // ms per bar
   const MAX_STAGGER_SPAN = 600; // ms — cap total stagger so high bar counts still reveal promptly
@@ -87,6 +106,14 @@ export function WaveformSeekBar({ peaks, progress, hoverPct = null, bufferedPct 
     const dpr = window.devicePixelRatio || 1;
     const w = canvas.clientWidth;
     const h = canvas.clientHeight;
+    const c = getSkinColors(canvas);
+
+    const paintKey = seekPaintKey({
+      progress, width: w, height: h, hoverPct, bufferedPct,
+      extra: `${dpr}|${peaksId(peaks)}|${c.accent}|${c.base}|${c.inverse}`,
+    });
+    if (growRef.current >= 1 && paintKey === paintedKeyRef.current) return false;
+    paintedKeyRef.current = paintKey;
 
     if (canvas.width !== w * dpr || canvas.height !== h * dpr) {
       canvas.width = w * dpr;
@@ -95,7 +122,6 @@ export function WaveformSeekBar({ peaks, progress, hoverPct = null, bufferedPct 
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     ctx.clearRect(0, 0, w, h);
 
-    const c = getSkinColors(canvas);
     // Fit as many bars as the width allows without dropping below the minimum
     // bar width, then downsample the fine source peaks to that many bars.
     // Cap the count so each painted bar (after the gap) stays ≥ MIN_BAR_WIDTH_PX.

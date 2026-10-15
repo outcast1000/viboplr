@@ -68,7 +68,7 @@ const STORE_DEFAULTS = {
 // track always starts from the top), and positionSecs alone made the store
 // rewrite the whole file every 5s of playback. heroTvEffect / miniSizeMigrated
 // belonged to 0.9-era migrations that have since been removed.
-export const RETIRED_STORE_KEYS = ["positionSecs", "currentTrackEntry", "heroTvEffect", "miniSizeMigrated"] as const;
+export const RETIRED_STORE_KEYS = ["positionSecs", "currentTrackEntry", "heroTvEffect", "miniSizeMigrated", "miniTitleScroll"] as const;
 
 export interface AppStore {
   get<T>(key: string): Promise<T | undefined>;

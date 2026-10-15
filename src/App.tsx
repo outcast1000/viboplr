@@ -489,6 +489,10 @@ function App() {
   // Settings → Playback → Radio: how a station is filled (utils/radioOptions.ts).
   const [radioOptions, setRadioOptions] = usePersistedSetting<RadioOptions>("radioOptions", DEFAULT_RADIO_OPTIONS, restoredRef);
   const [reduceMotion, setReduceMotion] = usePersistedSetting("reduceMotion", false, restoredRef);
+  // Long titles in either bar scroll back and forth when on, and truncate when
+  // off (the default — a marquee is a continuous animation for as long as the
+  // title plays). Replaced the mini-only `miniTitleScroll`, which defaulted on.
+  const [scrollLongTitles, setScrollLongTitles] = usePersistedSetting("scrollLongTitles", false, restoredRef);
   const [eqCustomPresets, setEqCustomPresets] = usePersistedSetting<{ id: string; name: string; gains: number[] }[]>("eqCustomPresets", [], restoredRef);
   const [eqShowBarControlSimple, setEqShowBarControlSimple] = usePersistedSetting("eqShowBarControlSimple", true, restoredRef);
   const [eqShowBarControlAdvanced, setEqShowBarControlAdvanced] = usePersistedSetting("eqShowBarControlAdvanced", false, restoredRef);
@@ -3370,6 +3374,8 @@ function App() {
           openNowPlayingOnPlay: savedOpenNowPlayingOnPlay, openNowPlayingOnVideoPlay: savedOpenNowPlayingOnVideoPlay,
           updateNoticeDismissed: savedUpdateNoticeDismissed,
           reduceMotion: savedReduceMotion,
+          scrollLongTitles: savedScrollLongTitles,
+          legacyMiniTitleScroll,
           uiZoom: savedUiZoom, miniZoom: savedMiniZoom,
           eqEnabled: savedEqEnabled, eqMode: savedEqMode, eqPreset: savedEqPreset, eqGains: savedEqGains,
           eqCustomPresets: savedEqCustomPresets, eqPreGainDb: savedEqPreGainDb, eqBassDb: savedEqBassDb, eqTrebleDb: savedEqTrebleDb,
@@ -3475,6 +3481,15 @@ function App() {
         if (savedPlayerBarPins !== undefined) setPlayerBarPins(normalizePlayerBarPins(savedPlayerBarPins));
         if (savedUpdateNoticeDismissed) setUpdateNoticeDismissed(savedUpdateNoticeDismissed);
         if (savedReduceMotion) { setReduceMotion(true); applyReduceMotionAttr(true); }
+        if (savedScrollLongTitles) setScrollLongTitles(true);
+        // A user who explicitly turned the old mini-only scroll back on keeps
+        // it. Written here, not through usePersistedSetting: that only persists
+        // once restore has finished, and the old key is already gone by then
+        // (RETIRED_STORE_KEYS above), so the choice would be lost next launch.
+        if (savedScrollLongTitles === undefined && legacyMiniTitleScroll === true) {
+          setScrollLongTitles(true);
+          store.set("scrollLongTitles", true).catch((e) => console.error("Failed to migrate miniTitleScroll:", e));
+        }
 
         // EQ / RG / Now Playing info / debug values all arrive from the one
         // batched readPersistedSettings entries() read above — this used to be
@@ -5624,7 +5639,7 @@ function App() {
         action: () => mini.setMiniRestingSize(size),
       }));
       specs.push({ kind: "submenu", text: "Height", items: heightItems });
-      specs.push({ kind: "check", text: "Scroll Long Titles", checked: mini.miniTitleScroll, action: () => mini.setMiniTitleScroll(!mini.miniTitleScroll) });
+      specs.push({ kind: "check", text: "Scroll Long Titles", checked: scrollLongTitles, action: () => setScrollLongTitles(!scrollLongTitles) });
       // The info line is configured in Settings > Playback (drag to reorder,
       // dwell, on/off) — the menu just takes you there, leaving the main
       // window open on that section.
@@ -6518,6 +6533,8 @@ function App() {
               onOpenNowPlayingOnVideoPlayChange={handleOpenNowPlayingOnVideoPlayChange}
               reduceMotion={reduceMotion}
               onReduceMotionChange={handleReduceMotionChange}
+              scrollLongTitles={scrollLongTitles}
+              onScrollLongTitlesChange={setScrollLongTitles}
               uiZoom={zoom.uiZoom}
               onUiZoomChange={handleUiZoomChange}
               miniZoom={zoom.miniZoom}
@@ -7319,7 +7336,7 @@ function App() {
         miniMode={mini.miniMode}
         miniExpanded={mini.miniExpanded}
         miniRestingSize={mini.miniRestingSize}
-        miniTitleScroll={mini.miniTitleScroll}
+        titleScroll={scrollLongTitles}
         miniWidthSize={mini.miniWidthSize}
         onCancelCollapseTimer={npBar.onCancelCollapseTimer}
         onBeginMiniDrag={npBar.onBeginMiniDrag}

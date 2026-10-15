@@ -183,21 +183,26 @@
   flex-shrink: 0;
 }
 
+/* A soft accent glow behind the art. Pre-drawn as a radial gradient rather
+   than a blurred box, and static while playing — a pulse here ran for as long
+   as music played, recompositing the window all day (frontend.md → "New
+   motion must be cheap"). Playing only brightens it, once. */
 .now-art-wrapper::before {
   content: '';
   position: absolute;
-  inset: -10px;
-  background: rgba(var(--accent-rgb), 0.7);
-  filter: blur(20px);
-  border-radius: 8px;
+  inset: -22px;
+  background: radial-gradient(
+    closest-side,
+    rgba(var(--accent-rgb), 0.7) 45%,
+    rgba(var(--accent-rgb), 0)
+  );
   z-index: -1;
   opacity: 0.3;
-  will-change: opacity;
   transition: opacity var(--dur-slower) ease;
 }
 
 .now-art-wrapper.playing::before {
-  animation: glow-pulse 3s ease-in-out infinite;
+  opacity: 0.65;
 }
 
 /* New album art crossfades in once decoded (see CrossfadeArt in NowPlayingBar.tsx).

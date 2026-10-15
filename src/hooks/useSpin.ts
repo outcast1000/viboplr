@@ -1,5 +1,6 @@
 import { useEffect, useRef } from "react";
 import { isReducedMotion, subscribeReducedMotion } from "../utils/reducedMotion";
+import { isWindowHidden, subscribeWindowHidden } from "../utils/windowVisibility";
 
 /**
  * Turntable rotation for the playback icons (`SpinningDisc`, `FilmReel`): spins
@@ -22,6 +23,9 @@ import { isReducedMotion, subscribeReducedMotion } from "../utils/reducedMotion"
  *  - **A pause waits BLIP_MS before slowing.** `playing` is driven by media and
  *    engine events, and a false→true flicker at a track boundary would otherwise
  *    stutter every track change — during the steady spin *and* mid spin-up.
+ *  - **It holds still while the window is hidden.** The CSS pause on
+ *    `data-window-hidden` (base.css) can't reach `element.animate()` either,
+ *    so the steady spin pauses itself and resumes at the same angle.
  *  - **Nothing is allocated until the first play** — no animation and no
  *    reduce-motion subscription. `TrackArtFallback` renders a never-playing disc
  *    on every art-less row.
@@ -55,6 +59,7 @@ export function useSpin(ref: React.RefObject<Element | null>, playing: boolean, 
   const playingRef = useRef(playing);
   const periodRef = useRef(periodMs);
   const unsubscribe = useRef<(() => void) | null>(null);
+  const unsubscribeHidden = useRef<(() => void) | null>(null);
 
   useEffect(() => {
     const el = ref.current;
@@ -72,8 +77,10 @@ export function useSpin(ref: React.RefObject<Element | null>, playing: boolean, 
     /** Hold still at `deg` (cancelling alone would snap the icon to 0°). */
     const holdAt = (deg: number) =>
       replace(el.animate([rot(deg), rot(deg)], { duration: 1, fill: "forwards" }), "idle");
-    const loopFrom = (deg: number) =>
+    const loopFrom = (deg: number) => {
       replace(el.animate([rot(deg), rot(deg + 360)], { duration: periodRef.current, iterations: Infinity }), "loop");
+      if (isWindowHidden()) anim.current?.pause();
+    };
 
     if (playing) {
       if (stopTimer.current) {
@@ -90,6 +97,11 @@ export function useSpin(ref: React.RefObject<Element | null>, playing: boolean, 
         } else if (playingRef.current && mode.current !== "loop" && mode.current !== "up") {
           loopFrom(currentAngle(el));
         }
+      });
+      unsubscribeHidden.current ??= subscribeWindowHidden((hidden) => {
+        if (mode.current !== "loop") return; // ramps are one-shot and short
+        if (hidden) anim.current?.pause();
+        else anim.current?.play();
       });
       if (isReducedMotion()) return;
       const from = currentAngle(el);
@@ -119,6 +131,8 @@ export function useSpin(ref: React.RefObject<Element | null>, playing: boolean, 
     anim.current = null;
     unsubscribe.current?.();
     unsubscribe.current = null;
+    unsubscribeHidden.current?.();
+    unsubscribeHidden.current = null;
     // Back to a fresh mount: StrictMode (dev) unmounts and remounts with these
     // refs intact, and a stale "loop" mode made the re-run effect return early,
     // leaving a disc mounted mid-play frozen.

@@ -4,14 +4,19 @@ import "./SpinningDisc.css";
 
 /**
  * The canonical "currently playing" indicator used across the app
- * (now-playing mini bar, Library/Search track rows, Queue panel).
- * A vinyl disc that spins while playing and, on pause, slows to a stop like a
- * turntable (see useSpin — the rotation is driven from JS, not CSS).
+ * (compact mini player, Library/Search track rows, Queue panel, sidebar).
  * Inherits color from `currentColor` so each surface's accent applies.
+ *
+ * Only a disc given `spin` turns (while playing, slowing to a stop on pause
+ * like a turntable — see useSpin). That is the compact mini player's alone:
+ * nothing spins in the main window (owner decision, 2026-10-16), because every
+ * spinning copy is a continuous animation for as long as music plays, and up
+ * to four used to turn at once. The others mark the playing track by the
+ * `playing` class (its accent colour) and hold still.
  */
-export function SpinningDisc({ size = 14, playing }: { size?: number; playing: boolean }) {
+export function SpinningDisc({ size = 14, playing, spin = false }: { size?: number; playing: boolean; spin?: boolean }) {
   const svgRef = useRef<SVGSVGElement>(null);
-  useSpin(svgRef, playing, 1800);
+  useSpin(svgRef, playing && spin, 1800);
   return (
     <span className={`spinning-disc${playing ? " playing" : ""}`}>
       <svg ref={svgRef} width={size} height={size} viewBox="0 0 12 12" fill="none" className="spinning-disc-svg" aria-hidden="true">

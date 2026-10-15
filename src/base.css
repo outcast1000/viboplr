@@ -482,3 +482,15 @@ body.window-transparent {
   animation-duration: 0.01ms !important;
   animation-iteration-count: 1 !important;
 }
+
+/* === Hidden window ===
+   Nobody can see a minimized, covered or other-Space window, so nothing in it
+   animates (`data-window-hidden`, kept by utils/windowVisibility.ts). Paused,
+   not collapsed: everything resumes where it was when the window comes back.
+   Spinners included — there is no one to reassure. useSpin's Web Animations
+   are out of CSS's reach and pause themselves off the same signal. */
+:root[data-window-hidden] *,
+:root[data-window-hidden] *::before,
+:root[data-window-hidden] *::after {
+  animation-play-state: paused !important;
+}

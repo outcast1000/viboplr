@@ -3,7 +3,7 @@
 // jsdom has no Element.animate and no layout, so the visual half is verified in
 // a real browser; these pin the maths, the stagger wiring and the fallbacks.
 import { describe, it, expect, afterEach, vi } from "vitest";
-import { render, act } from "@testing-library/react";
+import { render, act, cleanup } from "@testing-library/react";
 import { StrictMode, useRef, useState } from "react";
 import { rampDegrees, SPIN_RAMP_MS } from "../hooks/useSpin";
 import { useFlipList } from "../hooks/useFlipList";
@@ -11,6 +11,7 @@ import { SpinningDisc } from "../components/SpinningDisc";
 import { fadeOutTrackRows } from "../utils/rowRemoval";
 
 afterEach(() => {
+  cleanup();
   vi.restoreAllMocks();
 });
 
@@ -48,7 +49,7 @@ describe("useSpin state machine (fake Element.animate)", () => {
   it("allocates nothing — no animation, no reduce-motion listener — for a disc that never plays", () => {
     const fake = installFakeAnimate();
     const listen = vi.spyOn(window, "addEventListener");
-    render(<SpinningDisc playing={false} />);
+    render(<SpinningDisc playing={false} spin />);
     expect(fake.calls).toHaveLength(0);
     expect(listen.mock.calls.some(([type]) => String(type) === "viboplr:reduce-motion-change")).toBe(false);
     fake.restore();
@@ -57,17 +58,17 @@ describe("useSpin state machine (fake Element.animate)", () => {
   it("a pause/play blip during the spin-up neither brakes nor restarts the ramp", () => {
     vi.useFakeTimers();
     const fake = installFakeAnimate();
-    const { rerender } = render(<SpinningDisc playing={false} />);
-    rerender(<SpinningDisc playing />);
+    const { rerender } = render(<SpinningDisc playing={false} spin />);
+    rerender(<SpinningDisc playing spin />);
     expect(fake.calls).toHaveLength(1);
     expect(fake.calls[0].options.duration).toBe(SPIN_RAMP_MS); // the spin-up ramp
-    rerender(<SpinningDisc playing={false} />);
+    rerender(<SpinningDisc playing={false} spin />);
     act(() => { vi.advanceTimersByTime(60); });
-    rerender(<SpinningDisc playing />);
+    rerender(<SpinningDisc playing spin />);
     act(() => { vi.advanceTimersByTime(500); });
     expect(fake.calls).toHaveLength(1); // still the same ramp
     // A real pause (past the grace) does slow it down.
-    rerender(<SpinningDisc playing={false} />);
+    rerender(<SpinningDisc playing={false} spin />);
     act(() => { vi.advanceTimersByTime(200); });
     expect(fake.calls).toHaveLength(2);
     expect(fake.calls[1].options.easing).toContain("0.33, 1, 0.68, 1"); // ease-out: the spin-down
@@ -77,13 +78,44 @@ describe("useSpin state machine (fake Element.animate)", () => {
 
   it("a disc mounted mid-play still spins after StrictMode's simulated remount", () => {
     const fake = installFakeAnimate();
-    render(<StrictMode><SpinningDisc playing /></StrictMode>);
+    render(<StrictMode><SpinningDisc playing spin /></StrictMode>);
     // The last animation started must be the steady loop, not nothing (the
     // stale "loop" mode used to make the re-run return early) and not a ramp.
     const last = fake.calls[fake.calls.length - 1];
     expect(last?.options.iterations).toBe(Infinity);
     expect(fake.calls).toHaveLength(2); // mount + remount, each straight into the loop
     fake.restore();
+  });
+
+  it("only a disc given `spin` turns — the rest just mark the playing track", () => {
+    const fake = installFakeAnimate();
+    const { container, rerender } = render(<SpinningDisc playing={false} />);
+    rerender(<SpinningDisc playing />);
+    expect(fake.calls).toHaveLength(0);
+    expect(container.querySelector(".spinning-disc.playing")).not.toBeNull();
+    fake.restore();
+  });
+
+  it("the steady spin pauses while the window is hidden and resumes when it is seen again", () => {
+    const pause = vi.fn();
+    const play = vi.fn();
+    const original = (Element.prototype as { animate?: unknown }).animate;
+    (Element.prototype as unknown as { animate: unknown }).animate = function () {
+      return { cancel: vi.fn(), pause, play, onfinish: null } as unknown as Animation;
+    };
+    let hidden = false;
+    const hiddenSpy = vi.spyOn(document, "hidden", "get").mockImplementation(() => hidden);
+    render(<SpinningDisc playing spin />); // mounted mid-play: straight into the loop
+    hidden = true;
+    act(() => { document.dispatchEvent(new Event("visibilitychange")); });
+    expect(pause).toHaveBeenCalledTimes(1);
+    expect(document.documentElement.hasAttribute("data-window-hidden")).toBe(true);
+    hidden = false;
+    act(() => { document.dispatchEvent(new Event("visibilitychange")); });
+    expect(play).toHaveBeenCalledTimes(1);
+    expect(document.documentElement.hasAttribute("data-window-hidden")).toBe(false);
+    hiddenSpy.mockRestore();
+    (Element.prototype as { animate?: unknown }).animate = original;
   });
 });
 

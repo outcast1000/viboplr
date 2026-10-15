@@ -33,6 +33,7 @@ import type { NowPlayingInfoResolved } from "../hooks/useNowPlayingInfo";
 import { SourceIndicator } from "./SourceIndicator";
 import type { InvokeInfoFetch } from "../hooks/useCommunityTags";
 import "./NowPlayingBar.css";
+import { quantizeFraction } from "../utils/seekRepaint";
 
 const mod = navigator.platform.includes("Mac") ? "\u2318" : "Ctrl+";
 const isMac = navigator.platform.includes("Mac");
@@ -56,6 +57,12 @@ function CrossfadeArt({ src, className }: { src: string | undefined; className: 
   if (!loaded) return null;
   return <img className={className} key={loaded} src={loaded} alt="" />;
 }
+
+// The mini progress line is at most 550 CSS px wide (the large mini width), and
+// the mini zoom can scale that past 1:1 on screen — 2560 steps keeps a step
+// under a device pixel either way, so its transform (behind the mini bar's
+// backdrop-filter) changes only when the line visibly grows.
+const MINI_PROGRESS_STEPS = 2560;
 
 function SlideText({ text, className }: { text: string; className?: string }) {
   const [key, setKey] = useState(0);
@@ -98,8 +105,9 @@ interface NowPlayingBarProps {
   miniMode: boolean;
   miniExpanded: boolean;
   miniRestingSize: MiniRestingSize;
-  /** When false, the mini player's title/info lines truncate instead of scrolling. */
-  miniTitleScroll: boolean;
+  /** Long title/info lines scroll back and forth when true and truncate when
+   *  false (the default), in the full bar and the mini player alike. */
+  titleScroll: boolean;
   miniWidthSize: MiniWidthSize;
   onCancelCollapseTimer: () => void;
   onBeginMiniDrag?: () => void;
@@ -196,7 +204,7 @@ export const NowPlayingBar = memo(function NowPlayingBar({
   icyTitle,
   trackRank,
   volume, muted,
-  imagePath, miniMode, miniExpanded, miniRestingSize, miniTitleScroll, miniWidthSize, onCancelCollapseTimer, onBeginMiniDrag, onCycleRestingSize, onCycleMiniWidth, onToggleMiniMode, onClose,
+  imagePath, miniMode, miniExpanded, miniRestingSize, titleScroll, miniWidthSize, onCancelCollapseTimer, onBeginMiniDrag, onCycleRestingSize, onCycleMiniWidth, onToggleMiniMode, onClose,
   onPause, onStop, onNext, onPrevious,
   onSeek, onVolume, onMute, onToggleFullscreen, canFullscreen,
   eqEnabled, eqMode, eqPreset, eqGains, eqPreGainDb, eqBassDb, eqTrebleDb, eqClipProtection, eqCustomPresets,
@@ -360,7 +368,7 @@ export const NowPlayingBar = memo(function NowPlayingBar({
                   </>
                 ) : currentTrack ? (
                   <>
-                    <span className="now-title">
+                    <span className="now-title" title={currentTrack.title}>
                       {currentTrack.liked === 1 && <IconHeartFilled size={11} className="mini-ultra-heart" />}
                       {currentTrack.title}
                     </span>
@@ -375,7 +383,7 @@ export const NowPlayingBar = memo(function NowPlayingBar({
                     ) : (
                       <NowPlayingInfoCycler
                         plain
-                        marquee={miniTitleScroll}
+                        marquee={titleScroll}
                         className="now-artist"
                         items={nowPlayingInfo}
                         sep=" · "
@@ -412,15 +420,15 @@ export const NowPlayingBar = memo(function NowPlayingBar({
                 </button>
               </div>
             </div>
-            {!showAllRows && <div className="mini-progress"><div className="mini-progress-fill" style={{ transform: `scaleX(${progress / 100})` }} /></div>}
+            {!showAllRows && <div className="mini-progress"><div className="mini-progress-fill" style={{ transform: `scaleX(${quantizeFraction(progress / 100, MINI_PROGRESS_STEPS)})` }} /></div>}
           </div>
         ) : (
           <div className="mini-ultra-row">
-            {currentTrack && <SpinningDisc size={14} playing={playing} />}
+            {currentTrack && <SpinningDisc size={14} playing={playing} spin />}
             {playbackError ? (
               <span className="mini-ultra-title">Playback failed</span>
             ) : currentTrack ? (
-              <MarqueeText className="mini-ultra-title" enabled={miniTitleScroll} restartKey={currentTrack.key} onPlan={handleUltraPlan}>
+              <MarqueeText className="mini-ultra-title" enabled={titleScroll} restartKey={currentTrack.key} onPlan={handleUltraPlan} title={currentTrack.artist_name ? `${currentTrack.title} — ${currentTrack.artist_name}` : currentTrack.title}>
                 <span className={`mini-ultra-lead${ultraTitleYielded ? " is-yielded" : ""}`}>
                   <span className="mini-ultra-lead-inner">
                     {currentTrack.liked === 1 && <IconHeartFilled size={11} className="mini-ultra-heart" />}
@@ -435,7 +443,7 @@ export const NowPlayingBar = memo(function NowPlayingBar({
             ) : (
               <span className="mini-ultra-title">No track playing</span>
             )}
-            <div className="mini-progress"><div className="mini-progress-fill" style={{ transform: `scaleX(${progress / 100})` }} /></div>
+            <div className="mini-progress"><div className="mini-progress-fill" style={{ transform: `scaleX(${quantizeFraction(progress / 100, MINI_PROGRESS_STEPS)})` }} /></div>
           </div>
         )}
         {showAllRows && (
@@ -592,7 +600,7 @@ export const NowPlayingBar = memo(function NowPlayingBar({
                 <span className="now-title-row">
                   <MarqueeText
                     className="now-title now-link"
-                    enabled
+                    enabled={titleScroll}
                     restartKey={currentTrack.key}
                     onClick={() => onTrackClick(currentTrack)}
                     title={currentTrack.title}
