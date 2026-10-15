@@ -20,10 +20,23 @@ function localRefs(html: string): string[] {
 }
 
 describe("site persona pages", () => {
-  it("links every persona page from the home grid, and nothing else", () => {
-    const home = readFileSync(join(docs, "index.html"), "utf8");
-    // Only the grid cards — other sections (e.g. the AI section's CTA) may link a persona page too.
-    const linked = [...home.matchAll(/href="(for\/[^"]+\.html)" class="persona-card\b/g)].map((m) => m[1]).sort();
+  // Positioning (site.md): the three primary audiences get the home page's
+  // only persona cards; every other persona page is a "More ways" link.
+  const home = () => readFileSync(join(docs, "index.html"), "utf8");
+  const cards = (html: string) => [...html.matchAll(/href="(for\/[^"]+\.html)" class="persona-card\b/g)].map((m) => m[1]);
+  const moreLinks = (html: string) => {
+    const nav = /<nav class="persona-links[^"]*"[^>]*>([\s\S]*?)<\/nav>/.exec(html)?.[1] ?? "";
+    return [...nav.matchAll(/href="(for\/[^"]+\.html)"/g)].map((m) => m[1]);
+  };
+
+  it("gives cards to the three primary audiences only", () => {
+    expect(cards(home()).sort()).toEqual(["for/audiophiles.html", "for/collectors.html", "for/self-hosters.html"]);
+  });
+
+  it("links every persona page from the home page exactly once, cards and links together", () => {
+    const html = home();
+    // Only the persona surfaces — other sections (e.g. the AI section's CTA) may link a persona page too.
+    const linked = [...cards(html), ...moreLinks(html)].sort();
     expect(linked).toEqual(pages.filter((p) => p.startsWith("for/")).sort());
   });
 
