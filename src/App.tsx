@@ -77,7 +77,7 @@ import { useProfileSwitch } from "./hooks/useProfileSwitch";
 import ProfileSwitchOverlay from "./components/ProfileSwitchOverlay";
 import { Toasts } from "./components/Toasts";
 import { useLibrary, DEFAULT_TRACK_COLUMNS } from "./hooks/useLibrary";
-import { useEventListeners } from "./hooks/useEventListeners";
+import { useEventListeners, type ResyncProgress } from "./hooks/useEventListeners";
 import { useFileDrop } from "./hooks/useFileDrop";
 import { useImageCache } from "./hooks/useImageCache";
 import { useAutoContinue } from "./hooks/useAutoContinue";
@@ -1632,13 +1632,7 @@ function App() {
 
   // UI state
   const [clearing, setClearing] = useState(false);
-  const [resyncProgress, setResyncProgress] = useState<{
-    collectionId: number;
-    collectionName: string;
-    kind: "scan" | "sync";
-    scanned: number;
-    total: number;
-  } | null>(null);
+  const [resyncProgress, setResyncProgress] = useState<ResyncProgress | null>(null);
   const [resyncComplete, setResyncComplete] = useState<{
     collectionId: number;
     collectionName: string;
@@ -6177,6 +6171,7 @@ function App() {
                     kind: resyncProgress.kind,
                     scanned: resyncProgress.scanned,
                     total: resyncProgress.total,
+                    counting: resyncProgress.counting,
                   }
                 : null
             }

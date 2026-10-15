@@ -350,9 +350,22 @@ pub struct CollectionCredentials {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ScanProgress {
     pub folder: String,
+    /// Files processed — or, while `counting`, media files found so far.
     pub scanned: u64,
+    /// 0 while `counting` (not known yet).
     pub total: u64,
     pub collection_id: i64,
+    /// The scan's first pass (walking the folder to count its files) rather
+    /// than the scan itself.
+    pub counting: bool,
+}
+
+impl ScanProgress {
+    /// From a `scanner::scan_folder` progress report, which uses a total of 0
+    /// for its counting pass.
+    pub fn from_report(folder: String, scanned: u64, total: u64, collection_id: i64) -> Self {
+        ScanProgress { folder, scanned, total, collection_id, counting: total == 0 }
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

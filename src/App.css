@@ -111,12 +111,18 @@
   -webkit-app-region: drag;
 }
 
-/* Caption bar sync indicator */
+/* Caption bar sync indicator. It sits in the window's drag region, which
+   WebView2 on Windows rebuilds as native windows on the main thread whenever
+   its shape changes — so the box is a FIXED size and nothing inside it may
+   move or resize (no rotate/scale/width animation): see SyncProgressBar in
+   CaptionBar.tsx. */
 .caption-sync-indicator {
   display: flex;
   align-items: center;
-  gap: 5px;
-  padding: 2px 8px;
+  gap: 6px;
+  width: 200px;
+  height: 22px;
+  padding: 0 8px;
   border: none;
   background: none;
   color: var(--text-secondary);
@@ -149,14 +155,34 @@
 }
 
 .caption-sync-text {
-  max-width: 120px;
+  flex: 1 1 0;
+  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  text-align: left;
+  font-variant-numeric: tabular-nums;
 }
 
-.caption-sync-spin {
-  animation: ds-spin 1s linear infinite;
+/* Progress is painted (a gradient stop driven by --sync-progress), never laid
+   out — a growing fill element would change the drag region on every update. */
+.caption-sync-bar {
+  flex: none;
+  width: 56px;
+  height: 4px;
+  border-radius: 2px;
+  background: linear-gradient(
+    to right,
+    var(--accent) var(--sync-progress, 0%),
+    var(--bg-tertiary) var(--sync-progress, 0%)
+  );
+}
+
+/* Total not known yet (counting files): an opacity pulse — opacity is the
+   one animation that can't change the region's shape. */
+.caption-sync-bar--indeterminate {
+  background: var(--accent);
+  animation: glow-pulse 1.4s ease-in-out infinite;
 }
 
 .content {

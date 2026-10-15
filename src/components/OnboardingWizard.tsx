@@ -27,6 +27,7 @@ import {
   prevStepId,
   joinNames,
 } from "./onboardingSteps";
+import { resyncStatusText } from "../utils/resyncProgress";
 import "./OnboardingWizard.css";
 
 interface ScanActivity {
@@ -35,6 +36,7 @@ interface ScanActivity {
   kind: "scan" | "sync";
   scanned: number;
   total: number;
+  counting?: boolean;
 }
 
 interface SkinsApi {
@@ -566,7 +568,7 @@ function MusicStep({
               <span className="onboarding-collection-kind">{c.kind}</span>
               <span className="onboarding-collection-status">
                 {resync && resync.collectionId === c.id
-                  ? `${resync.kind === "sync" ? "Syncing" : "Scanning"}… ${resync.scanned}${resync.total > 0 ? ` / ${resync.total}` : ""}`
+                  ? resyncStatusText(resync)
                   : "Added ✓"}
               </span>
             </div>

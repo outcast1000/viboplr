@@ -1,6 +1,7 @@
 import type { Collection, CollectionStats } from "../types";
 import type { ResyncProgress, ResyncComplete } from "../hooks/useEventListeners";
 import { collectionKindLabel, formatDurationCoarse, formatFileSize, formatRelativeTime } from "../utils";
+import { fractionWidth, resyncFraction, resyncStatusText } from "../utils/resyncProgress";
 import "./CollectionsView.css";
 
 function formatResyncStats(added: number, removed: number): string {
@@ -146,8 +147,8 @@ export function CollectionsView({
                   <div className="collection-resync-status">
                     <div className={`collection-progress-bar-track${resyncComplete?.error ? " collection-progress-error" : resyncComplete ? " collection-progress-done" : ""}`}>
                       <div
-                        className={`collection-progress-bar-fill ds-motion-essential${resyncProgress && resyncProgress.total === 0 ? " collection-progress-indeterminate" : ""}`}
-                        style={{ width: resyncComplete ? "100%" : resyncProgress && resyncProgress.total > 0 ? `${Math.round((resyncProgress.scanned / resyncProgress.total) * 100)}%` : undefined }}
+                        className={`collection-progress-bar-fill ds-motion-essential${resyncProgress && resyncFraction(resyncProgress) == null ? " collection-progress-indeterminate" : ""}`}
+                        style={{ width: resyncComplete ? "100%" : resyncProgress ? fractionWidth(resyncFraction(resyncProgress)) : undefined }}
                       />
                     </div>
                     <span className="collection-progress-text">
@@ -155,9 +156,9 @@ export function CollectionsView({
                         ? <span title={resyncComplete.error}>Error: {resyncComplete.error}</span>
                         : resyncComplete
                         ? `Complete — ${formatResyncStats(resyncComplete.newTracks, resyncComplete.removedTracks)}`
-                        : resyncProgress && resyncProgress.total > 0
-                        ? `${resyncProgress.kind === "scan" ? "Scanning" : "Syncing"}... ${resyncProgress.scanned}/${resyncProgress.total} ${resyncProgress.kind === "scan" ? "files" : "albums"}`
-                        : `Preparing ${resyncProgress?.kind === "scan" ? "scan" : "sync"}...`}
+                        : resyncProgress
+                        ? resyncStatusText(resyncProgress)
+                        : null}
                     </span>
                   </div>
                 )}

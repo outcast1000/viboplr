@@ -5,6 +5,29 @@ import type { ResyncProgress, ResyncComplete } from "../hooks/useEventListeners"
 import type { PluginSearchSection } from "../utils/centralSearchPlugins";
 import type { SearchLikeHandlers } from "../utils/searchLikes";
 import type { SearchAllResults, SearchResultItem } from "../types";
+import { fractionWidth, resyncFraction, resyncStatusText } from "../utils/resyncProgress";
+
+/**
+ * The caption bar's scan/sync progress. It sits inside the window's drag
+ * region, which WebView2 on Windows backs with native child windows rebuilt —
+ * on the main thread — whenever the region's shape changes. So nothing here
+ * may move or resize an element: the bar is one fixed box whose fill is
+ * *painted* (a gradient stop) and whose unknown-total state only pulses
+ * opacity. A rotating spinner here reshaped the region every frame and froze
+ * the app for as long as a slow scan ran.
+ */
+function SyncProgressBar({ fraction }: { fraction: number | null }) {
+  return (
+    <span
+      className={`caption-sync-bar${fraction == null ? " caption-sync-bar--indeterminate ds-motion-essential" : ""}`}
+      style={fraction == null ? undefined : ({ "--sync-progress": fractionWidth(fraction) } as React.CSSProperties)}
+      role="progressbar"
+      aria-valuemin={0}
+      aria-valuemax={100}
+      aria-valuenow={fraction == null ? undefined : Math.round(fraction * 100)}
+    />
+  );
+}
 
 interface CaptionBarProps {
   centralSearch: {
@@ -78,7 +101,7 @@ export function CaptionBar({
           <button
             className={`caption-sync-indicator${resyncComplete?.error ? " caption-sync-error" : resyncComplete ? " caption-sync-done" : ""}`}
             onClick={(e) => { e.stopPropagation(); onNavigateToCollections(); }}
-            title={resyncComplete?.error ? `Sync failed: ${resyncComplete.error}` : resyncProgress ? `${resyncProgress.scanned}/${resyncProgress.total}` : "Sync complete"}
+            title={resyncComplete?.error ? `Sync failed: ${resyncComplete.error}` : resyncProgress ? `${resyncProgress.collectionName} — ${resyncStatusText(resyncProgress)}` : "Sync complete"}
           >
             {resyncComplete?.error ? (
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -89,14 +112,17 @@ export function CaptionBar({
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                 <polyline points="20 6 9 17 4 12"/>
               </svg>
-            ) : (
-              <svg className="caption-sync-spin ds-motion-essential" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/>
-                <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/>
-              </svg>
-            )}
+            ) : resyncProgress ? (
+              <SyncProgressBar fraction={resyncFraction(resyncProgress)} />
+            ) : null}
             <span className="caption-sync-text">
-              {resyncComplete?.error ? "Sync failed" : resyncComplete ? "Sync complete" : resyncProgress?.collectionName}
+              {resyncComplete?.error
+                ? "Sync failed"
+                : resyncComplete
+                ? "Sync complete"
+                : resyncProgress?.counting
+                ? `Counting files… ${resyncProgress.scanned.toLocaleString()}`
+                : resyncProgress?.collectionName}
             </span>
           </button>
         )}

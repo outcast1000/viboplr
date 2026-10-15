@@ -6,7 +6,7 @@ use regex::Regex;
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, LazyLock};
-use std::time::Instant;
+use std::time::{Duration, Instant};
 use walkdir::WalkDir;
 
 use crate::db::Database;
@@ -370,12 +370,24 @@ pub fn scan_folder(
     let root = PathBuf::from(folder_path);
     let start = Instant::now();
 
-    // First pass: count files
-    let total: u64 = WalkDir::new(&root)
+    // First pass: count files. On a cold HDD this walk alone can take tens of
+    // seconds, so it reports too: `(found_so_far, 0)` — a total of 0 is how the
+    // callback tells the counting pass from the scan (a scan never reports
+    // with total 0, since an empty folder never enters the loop below).
+    const COUNT_REPORT_INTERVAL: Duration = Duration::from_millis(250);
+    let mut total: u64 = 0;
+    let mut last_count_report = Instant::now();
+    for _ in WalkDir::new(&root)
         .into_iter()
         .filter_map(|e| e.ok())
         .filter(|e| e.file_type().is_file() && is_media_file(e.path()) && e.metadata().map(|m| m.len() > 0).unwrap_or(false))
-        .count() as u64;
+    {
+        total += 1;
+        if last_count_report.elapsed() >= COUNT_REPORT_INTERVAL {
+            last_count_report = Instant::now();
+            progress_callback(total, 0);
+        }
+    }
 
     info!("Scan started: {} ({} media files found)", folder_path, total);
 
@@ -782,6 +794,29 @@ mod tests {
         // Force rescan: the file is re-read and the row re-asserted from disk.
         scan_folder(&db, root.to_str().unwrap(), Some(collection.id), true, |_, _| {});
         assert!(!has_extra(&db), "force must re-read and re-assert the file");
+    }
+
+    /// The counting pass reports as `(found, 0)` and the scan never reports a
+    /// total of 0 — `ScanProgress::from_report` tells the phases apart by it.
+    #[test]
+    fn test_scan_reports_counting_then_scanning() {
+        let dir = tempfile::tempdir().unwrap();
+        for i in 0..25 {
+            std::fs::write(dir.path().join(format!("Artist - Song {i:02}.mp3")), b"not really mp3").unwrap();
+        }
+        let db = Arc::new(Database::new_in_memory().unwrap());
+        let collection = db
+            .add_collection("local", "t", Some(dir.path().to_str().unwrap()), None, None, None, None, None)
+            .unwrap();
+        let reports = std::sync::Mutex::new(Vec::new());
+        scan_folder(&db, dir.path().to_str().unwrap(), Some(collection.id), false, |scanned, total| {
+            reports.lock().unwrap().push((scanned, total));
+        });
+        let reports = reports.into_inner().unwrap();
+        let first_scan = reports.iter().position(|&(_, total)| total > 0).expect("scan reports");
+        assert!(reports[..first_scan].iter().all(|&(_, total)| total == 0));
+        assert!(reports[first_scan..].iter().all(|&(_, total)| total == 25));
+        assert_eq!(reports.last(), Some(&(25, 25)));
     }
 
     #[test]

@@ -8,6 +8,8 @@ interface ResyncProgress {
   kind: "scan" | "sync";
   scanned: number;
   total: number;
+  /** A scan's counting pass (see utils/resyncProgress.ts). */
+  counting?: boolean;
 }
 
 interface ResyncComplete {
@@ -54,13 +56,18 @@ export function useEventListeners(opts: EventListenerOptions) {
     // whole tree tens of times per second for the scan's duration. Dropping
     // intermediate events is safe — scan-complete resets the state afterwards.
     let lastProgressRender = 0;
-    const stopProgress = subscribe<{ folder: string; scanned: number; total: number; collection_id?: number }>(
+    let lastProgressCounting: boolean | null = null;
+    const stopProgress = subscribe<{ folder: string; scanned: number; total: number; collection_id?: number; counting?: boolean }>(
       "scan-progress",
       (event) => {
         if (event.payload.collection_id == null) return;
+        const counting = event.payload.counting ?? false;
         const now = Date.now();
-        if (now - lastProgressRender < 250) return;
+        // The first report of a new phase always lands, so the counting →
+        // scanning switch isn't lost to the throttle.
+        if (now - lastProgressRender < 250 && counting === lastProgressCounting) return;
         lastProgressRender = now;
+        lastProgressCounting = counting;
         setResyncComplete(null);
         setResyncProgress({
           collectionId: event.payload.collection_id,
@@ -68,6 +75,7 @@ export function useEventListeners(opts: EventListenerOptions) {
           kind: "scan",
           scanned: event.payload.scanned,
           total: event.payload.total,
+          counting,
         });
       }
     );

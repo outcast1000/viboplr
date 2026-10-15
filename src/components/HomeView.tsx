@@ -21,6 +21,7 @@ import { CustomizeHomeModal, type CustomizeShelfRow } from "./CustomizeHomeModal
 import { buildHomeShelfMenuSpecs } from "../contextMenu/buildHomeShelfMenuSpecs";
 import { showNativeMenu } from "../nativeMenu";
 import { store } from "../store";
+import { resyncStatusText } from "../utils/resyncProgress";
 import { seedProfileShelfVisibility, type OnboardingProfile } from "./onboardingSteps";
 import "./HomeView.css";
 
@@ -56,7 +57,7 @@ export interface HomeViewProps {
   pluginViews: Array<{ pluginId: string; viewId: string; label: string }>;
   onOpenPluginView: (pluginId: string, viewId: string) => void;
   /** Live scan/sync of a collection, so a bare Home reads as "working", not "broken". */
-  indexing: { collectionName: string; kind: "scan" | "sync"; scanned: number; total: number } | null;
+  indexing: { collectionName: string; kind: "scan" | "sync"; scanned: number; total: number; counting?: boolean } | null;
   onAddFolder: () => void;
   onConnectServer: () => void;
   onBrowseExtensions: () => void;
@@ -346,7 +347,7 @@ function HomeEmptyState({
   collectionCount: number;
   pluginViews: Array<{ pluginId: string; viewId: string; label: string }>;
   onOpenPluginView: (pluginId: string, viewId: string) => void;
-  indexing: { collectionName: string; kind: "scan" | "sync"; scanned: number; total: number } | null;
+  indexing: { collectionName: string; kind: "scan" | "sync"; scanned: number; total: number; counting?: boolean } | null;
   onAddFolder: () => void;
   onConnectServer: () => void;
   onBrowseExtensions: () => void;
@@ -361,7 +362,9 @@ function HomeEmptyState({
           {indexing.kind === "sync" ? "Syncing" : "Scanning"} “{indexing.collectionName}”…
         </h2>
         <p className="home-empty-desc">
-          {indexing.scanned > 0
+          {indexing.counting
+            ? `${resyncStatusText(indexing)} — then Home fills in as tracks land.`
+            : indexing.scanned > 0
             ? `${indexing.scanned.toLocaleString()}${indexing.total > 0 ? ` of ${indexing.total.toLocaleString()}` : ""} tracks so far — Home fills in as they land.`
             : "Home fills in as your tracks land. This runs in the background, so feel free to look around."}
         </p>

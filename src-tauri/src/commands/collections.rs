@@ -95,12 +95,7 @@ pub async fn add_collection(
                 let removed_tracks = scanner::scan_folder(&db, &scan_path, Some(collection_id), false, |scanned, total| {
                     let _ = app.emit(
                         "scan-progress",
-                        ScanProgress {
-                            folder: scan_path.clone(),
-                            scanned,
-                            total,
-                            collection_id,
-                        },
+                        ScanProgress::from_report(scan_path.clone(), scanned, total, collection_id),
                     );
                 });
                 let _ = db.rebuild_fts();
