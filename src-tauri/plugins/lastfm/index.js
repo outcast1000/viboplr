@@ -643,6 +643,15 @@ function activate(api) {
   var mixMemo = Object.create(null);
   var mixMemoKeys = [];
 
+  // `mixMemoKeys` is the eviction order, oldest first, each key at most once:
+  // a key stored again moves to the end, and a failed lookup leaves the list
+  // with its entry. (A key listed twice would let its stale copy's eviction
+  // delete the fresh entry stored under it.)
+  function forgetMemoKey(key) {
+    var i = mixMemoKeys.indexOf(key);
+    if (i !== -1) mixMemoKeys.splice(i, 1);
+  }
+
   function memoized(key, fetcher) {
     var hit = mixMemo[key];
     if (hit && (hit.pending || Date.now() - hit.at < MIX_MEMO_TTL)) return hit.promise;
@@ -653,13 +662,25 @@ function activate(api) {
       return value;
     }, function (err) {
       // A failure is not remembered: the next ask tries again.
-      if (mixMemo[key] === entry) delete mixMemo[key];
+      if (mixMemo[key] === entry) {
+        delete mixMemo[key];
+        forgetMemoKey(key);
+      }
       throw err;
     });
     mixMemo[key] = entry;
+    forgetMemoKey(key);
     mixMemoKeys.push(key);
     while (mixMemoKeys.length > MIX_MEMO_MAX) delete mixMemo[mixMemoKeys.shift()];
     return entry.promise;
+  }
+
+  // Read an info type's stored response when one is there, else ask Last.fm —
+  // and never store: a mix asks about a dozen artists per radio, and writing
+  // each would leave a storage row behind for every one (the memo above holds
+  // the trimmed copy instead). The tab that owns the key keeps writing it.
+  function readStoredOrFetch(cacheKey, fetcher) {
+    return cacheGet(cacheKey).then(function (stored) { return stored || fetcher(); });
   }
 
   // Last.fm error 6: "Artist / Track not found" — a normal miss, not an outage.
@@ -722,30 +743,36 @@ function activate(api) {
     return Promise.all(workers).then(function () { return results; });
   }
 
-  // De-duplicate, cap each artist, drop what the user disliked and anything in
-  // `exclude` (a radio's seed), then keep the first `size`. `uncapped` names
-  // the one artist the cap doesn't apply to — an artist mix's own artist, whose
-  // share artistMixTracks already sets.
+  // De-duplicate, drop anything in `exclude` (a radio's seed) and what the user
+  // disliked, then cap each artist and keep the first `size`. Dislikes go
+  // before the cap so a disliked song doesn't use up its artist's slots.
+  // `uncapped` names the one artist the cap doesn't apply to — an artist mix's
+  // own artist, whose share artistMixTracks already sets.
   function shapeMix(tracks, opts) {
     opts = opts || {};
     var exclude = opts.exclude || {};
     var uncapped = opts.uncapped ? String(opts.uncapped).toLowerCase() : null;
     var seen = {};
-    var perArtist = {};
-    var kept = [];
+    var unique = [];
     for (var i = 0; i < tracks.length; i++) {
       var t = tracks[i];
       if (!t || !t.title) continue;
       var key = trackKey(t.title, t.artist_name);
       if (seen[key] || exclude[key]) continue;
-      var a = String(t.artist_name || "").toLowerCase();
-      if (a !== uncapped && (perArtist[a] || 0) >= (opts.perArtist || PER_ARTIST_CAP)) continue;
       seen[key] = true;
-      perArtist[a] = (perArtist[a] || 0) + 1;
-      kept.push(t);
+      unique.push(t);
     }
-    return dropDisliked(kept).then(function (list) {
-      return list.slice(0, opts.size || MIX_SIZE);
+    return dropDisliked(unique).then(function (list) {
+      var perArtist = {};
+      var kept = [];
+      var size = opts.size || MIX_SIZE;
+      for (var j = 0; j < list.length && kept.length < size; j++) {
+        var a = String(list[j].artist_name || "").toLowerCase();
+        if (a !== uncapped && (perArtist[a] || 0) >= (opts.perArtist || PER_ARTIST_CAP)) continue;
+        perArtist[a] = (perArtist[a] || 0) + 1;
+        kept.push(list[j]);
+      }
+      return kept;
     });
   }
 
@@ -774,16 +801,26 @@ function activate(api) {
     });
   }
 
-  // Shared with the Top Songs tab (fetchArtistTopTracks): one cached response.
+  // Reads the Top Songs tab's stored response when there is one (same key and
+  // request), never writes it.
   function artistTopTracks(artist) {
-    return fetchArtistTopTracks(artist).then(function (data) {
-      return asList(data && data.toptracks && data.toptracks.track).map(function (t) { return toPluginTrack(t, artist); });
+    var lower = artist.toLowerCase();
+    return memoized("top-tracks:" + lower, function () {
+      return readStoredOrFetch("artist_top_tracks:" + lower, function () {
+        return lastfmGet("artist.getTopTracks", [["artist", artist], ["autocorrect", "1"], ["limit", "50"]]);
+      }).then(function (data) {
+        return asList(data && data.toptracks && data.toptracks.track).map(function (t) { return toPluginTrack(t, artist); });
+      });
     });
   }
 
+  // Same: the Similar Artists tab's stored response, read but never written.
   function similarArtistNames(artist) {
-    return memoized("similar-artists:" + artist.toLowerCase(), function () {
-      return lastfmGet("artist.getSimilar", [["artist", artist], ["autocorrect", "1"], ["limit", "20"]]).then(function (data) {
+    var lower = artist.toLowerCase();
+    return memoized("similar-artists:" + lower, function () {
+      return readStoredOrFetch("similar_artists:" + lower, function () {
+        return lastfmGet("artist.getSimilar", [["artist", artist], ["autocorrect", "1"], ["limit", "20"]]);
+      }).then(function (data) {
         return asList(data && data.similarartists && data.similarartists.artist)
           .map(function (a) { return a && a.name; })
           .filter(Boolean);
@@ -814,6 +851,23 @@ function activate(api) {
           if (n < neighbours.length) out.push(neighbours[n++]);
         }
         return out;
+      });
+    });
+  }
+
+  // A song's similar songs, closest first. When Last.fm has fewer than
+  // `enough` (obscure songs often have a handful or none), what it has is kept
+  // up front and the artist's mix tops it up. `toppedUp` says the artist mix
+  // is in, whose own artist is exempt from the per-artist cap.
+  function similarThenArtist(artist, title, enough) {
+    return similarTracks(artist, title).then(function (similar) {
+      var near = looseShuffle(similar, 8);
+      if (similar.length >= enough) return { list: near, toppedUp: false };
+      return artistMixTracks(artist).then(function (list) {
+        return { list: near.concat(list), toppedUp: true };
+      }, function (err) {
+        if (isNotFound(err)) return { list: near, toppedUp: false };
+        throw err;
       });
     });
   }
@@ -862,15 +916,8 @@ function activate(api) {
         var exclude = {};
         exclude[trackKey(title, artist)] = true;
         return playMix([seed], { name: "Radio: " + title, source: "radio" }, function () {
-          return similarTracks(artist, title).then(function (similar) {
-            // Obscure songs often have no similar list; their artist does.
-            if (similar.length >= 10) return shapeMix(looseShuffle(similar, 8), { exclude: exclude });
-            return artistMixTracks(artist).then(function (list) {
-              return shapeMix(list, { exclude: exclude, uncapped: artist });
-            }, function (err) {
-              if (isNotFound(err)) return [];
-              throw err;
-            });
+          return similarThenArtist(artist, title, 10).then(function (mix) {
+            return shapeMix(mix.list, { exclude: exclude, uncapped: mix.toppedUp ? artist : null });
           }).then(withHead(seed));
         }, failMessage);
       }
@@ -894,6 +941,44 @@ function activate(api) {
         : "Start radio: couldn't reach Last.fm", { kind: "error" });
     });
   });
+
+  // --- Auto-continue ---
+  // Asked by hosts that have it when the library has nothing to offer, or on
+  // the "Similar" share of picks. Mostly continues from the song playing; one
+  // pick in four goes back to the session's first song, so a long chain of
+  // similar-of-similar doesn't drift away from what the user started with.
+  var SEED_RETURN_CHANCE = 0.25;
+
+  if (typeof api.playback.onAutoContinue === "function") {
+    api.playback.onAutoContinue(function (request) {
+      var current = request && request.current;
+      if (!current || !current.title || !current.artistName) return Promise.resolve(null);
+      // Last.fm only knows songs; it has nothing to offer a video-only queue.
+      if (request.formatFilter === "video") return Promise.resolve(null);
+      return hasPlaybackSource().then(function (ok) {
+        if (!ok) return null;
+        var seed = current;
+        var back = request.sessionSeed;
+        if (back && back.title && back.artistName && Math.random() < SEED_RETURN_CHANCE) seed = back;
+        var exclude = {};
+        exclude[trackKey(current.title, current.artistName)] = true;
+        // The session's first song is never suggested back, even once it has
+        // scrolled out of the host's recent list.
+        if (back && back.title) exclude[trackKey(back.title, back.artistName)] = true;
+        (request.recent || []).forEach(function (r) {
+          if (r && r.title) exclude[trackKey(r.title, r.artistName)] = true;
+        });
+        return similarThenArtist(seed.artistName, seed.title, 5).then(function (mix) {
+          return shapeMix(mix.list, { exclude: exclude, size: Math.max(1, Math.min(request.count || 8, 20)) });
+        }).then(function (tracks) {
+          return tracks.length > 0 ? tracks : null;
+        });
+      }).catch(function (err) {
+        console.error("[lastfm] auto-continue failed:", err && err.message);
+        return null;
+      });
+    });
+  }
 
   // --- Home shelf: "From Last.fm" ---
   // Seeded from the user's own history (name-keyed, so it works with no
@@ -980,25 +1065,46 @@ function activate(api) {
     return asList(data && data.toptags && data.toptags.tag).map(function (t) { return t && t.name; });
   }
 
-  // The user's own Last.fm tags when signed in, else the top artist's, else
-  // (nothing to go on) a couple of Last.fm's most popular genres.
+  // Genres to build mixes from, from the first source that has any (after the
+  // junk filter): the user's own Last.fm tags (signed in), then the top
+  // artist's, then a couple of Last.fm's most popular — so a signed-in user who
+  // never tagged anything still gets genre mixes. A source that fails counts
+  // as empty.
   function seedTags(artistSeed) {
-    var source = state.username
-      ? memoized("user-tags:" + state.username.toLowerCase(), function () {
-          return lastfmGet("user.getTopTags", [["user", state.username], ["limit", "15"]]).then(tagNames);
-        })
-      : artistSeed
-        ? memoized("artist-tags:" + artistSeed.toLowerCase(), function () {
-            return lastfmGet("artist.getTopTags", [["artist", artistSeed], ["autocorrect", "1"]]).then(tagNames);
-          })
-        : memoized("chart-tags", function () {
-            return lastfmGet("chart.getTopTags", [["limit", "20"]]).then(function (data) {
-              return asList(data && data.tags && data.tags.tag).map(function (t) { return t && t.name; });
-            });
-          }).then(function (names) { return shuffle(names.filter(Boolean).slice(0, 10)); });
-    return source.then(function (tags) {
-      return tags.filter(function (n) { return n && !JUNK_TAG.test(n); }).slice(0, 2);
+    var sources = [];
+    if (state.username) {
+      var user = state.username;
+      sources.push(function () {
+        return memoized("user-tags:" + user.toLowerCase(), function () {
+          return lastfmGet("user.getTopTags", [["user", user], ["limit", "15"]]).then(tagNames);
+        });
+      });
+    }
+    if (artistSeed) {
+      sources.push(function () {
+        return memoized("artist-tags:" + artistSeed.toLowerCase(), function () {
+          return lastfmGet("artist.getTopTags", [["artist", artistSeed], ["autocorrect", "1"]]).then(tagNames);
+        });
+      });
+    }
+    sources.push(function () {
+      return memoized("chart-tags", function () {
+        return lastfmGet("chart.getTopTags", [["limit", "20"]]).then(function (data) {
+          return asList(data && data.tags && data.tags.tag).map(function (t) { return t && t.name; });
+        });
+      }).then(function (names) { return shuffle(names.filter(Boolean).slice(0, 10)); });
     });
+    function tryFrom(i) {
+      if (i >= sources.length) return Promise.resolve([]);
+      return sources[i]().catch(function (err) {
+        console.error("[lastfm] tag lookup failed:", err && err.message);
+        return [];
+      }).then(function (tags) {
+        var usable = tags.filter(function (n) { return n && !JUNK_TAG.test(n); }).slice(0, 2);
+        return usable.length > 0 ? usable : tryFrom(i + 1);
+      });
+    }
+    return tryFrom(0);
   }
 
   function similarCard(seed) {
@@ -1066,26 +1172,26 @@ function activate(api) {
     });
   }
 
-  api.home.onFetchShelf(MIX_SHELF, function (limit) {
+  // Every host the plugin supports has api.home (since 0.9.91); the guard only
+  // keeps a missing one from aborting the rest of activate.
+  if (api.home) api.home.onFetchShelf(MIX_SHELF, function (limit) {
     return hasPlaybackSource().then(function (ok) {
       if (!ok) return { status: "empty" };
       return historySeeds().then(function (seeds) {
         var noHistory = seeds.tracks.length + seeds.artists.length === 0;
         var topArtist = seeds.artists[0] || (seeds.tracks[0] && seeds.tracks[0].artist) || null;
-        return seedTags(topArtist).catch(function () { return []; }).then(function (tags) {
-          var cards = []
-            .concat(seeds.tracks.map(similarCard))
-            .concat(seeds.artists.map(artistCard))
-            .concat(tags.map(tagCard))
-            .map(settleCard);
-          // Nothing to personalise from: open with what's popular now.
-          if (noHistory) cards.unshift(settleCard(trendingCard()));
-          return Promise.all(cards).then(function (items) {
-            items = items.filter(Boolean);
-            if (noHistory || items.length >= 2) return items;
-            // Thin history (its seeds found little): top up with Trending.
-            return settleCard(trendingCard()).then(function (t) { return t ? items.concat([t]) : items; });
-          });
+        // The song and artist cards don't need the tags: all start at once.
+        var seeded = seeds.tracks.map(similarCard).concat(seeds.artists.map(artistCard)).map(settleCard);
+        var tagged = seedTags(topArtist).then(function (tags) {
+          return Promise.all(tags.map(tagCard).map(settleCard));
+        }, function () { return []; });
+        // Nothing to personalise from: open with what's popular now.
+        var trending = noHistory ? settleCard(trendingCard()) : Promise.resolve(null);
+        return Promise.all([trending, Promise.all(seeded), tagged]).then(function (res) {
+          var items = [res[0]].concat(res[1], res[2]).filter(Boolean);
+          if (noHistory || items.length >= 2) return items;
+          // Thin history (its seeds found little): top up with Trending.
+          return settleCard(trendingCard()).then(function (t) { return t ? items.concat([t]) : items; });
         });
       }).then(function (items) {
         if (items.length === 0) return { status: "empty" };
@@ -1098,7 +1204,7 @@ function activate(api) {
   });
 
   // Only artist mixes ship partial; every other card already holds its list.
-  api.home.onResolvePlay(MIX_SHELF, function (item) {
+  if (api.home) api.home.onResolvePlay(MIX_SHELF, function (item) {
     if (!item || typeof item.id !== "string" || item.id.indexOf("artist:") !== 0) {
       return Promise.resolve((item && item.tracks) || []);
     }
