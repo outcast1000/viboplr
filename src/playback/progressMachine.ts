@@ -20,6 +20,12 @@ export interface ProgressInputs {
   isPreloading: boolean;
   isCrossfading: boolean;
   prefetchRequested: boolean;
+  /** How many seconds before the end to request the auto-continue prefetch
+   *  when the queue has run out. Defaults to the preload lead (20s): a library
+   *  pick is instant. App raises it when a plugin may answer, since a plugin
+   *  suggestion still needs a network lookup and a stream search before it can
+   *  play (utils/autoContinue.ts → prefetchLeadSecs). Scaled by `rate` too. */
+  prefetchLeadSecs?: number;
   /**
    * Playback rate. Defaults to 1 so every existing caller is unaffected.
    *
@@ -68,10 +74,11 @@ export function driveProgressMachine(i: ProgressInputs): ProgressActions {
   // preloading outright.
   const rate = i.rate && i.rate > 0 ? i.rate : 1;
 
-  if (remaining <= preloadLeadTime(i.next) * rate) {
-    // Queue exhausted → ask auto-continue to extend it (once per track).
-    if (!i.prefetchRequested && !i.next) actions.requestPrefetch = true;
+  // Queue exhausted → ask auto-continue to extend it (once per track).
+  const prefetchLead = i.prefetchLeadSecs && i.prefetchLeadSecs > 0 ? i.prefetchLeadSecs : preloadLeadTime(null);
+  if (!i.prefetchRequested && !i.next && remaining <= prefetchLead * rate) actions.requestPrefetch = true;
 
+  if (remaining <= preloadLeadTime(i.next) * rate) {
     if (i.next && i.preloadedKey !== i.next.key) {
       actions.invalidatePreload = i.preloadedKey !== null;
       if (!i.isPreloading) actions.preloadTrack = i.next;

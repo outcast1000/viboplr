@@ -95,6 +95,9 @@ export const PERMISSION_TABLE: Record<string, PermissionCheck | null> = {
   "playback.onTrackScrobbled": need("playback:read"),
   // The plugin's own row in Settings → Playback → Scrobbling.
   "playback.reportScrobble": OWN,
+  // Its answer is queued and played, so it needs the grant that plays things
+  // (it is also told what's playing — a control plugin can see that anyway).
+  "playback.onAutoContinue": need("playback:control"),
   "playback.playTrack": need("playback:control"),
   "playback.playTracks": need("playback:control"),
   "playback.insertTrack": need("playback:control"),

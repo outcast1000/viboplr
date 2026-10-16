@@ -68,8 +68,10 @@ import type {
   PluginWaveformLookupHandler,
   PluginWaveformShareHandler,
   PluginDownloadInit,
+  PluginAutoContinueRequest,
 } from "../types/plugin";
 import { sanitizePluginRms, type WaveformPluginBridge } from "../waveform/pluginProvider";
+import { PLUGIN_AUTO_CONTINUE_TIMEOUT_MS, type AutoContinuePluginBridge } from "../utils/autoContinue";
 import type { UiContext } from "../utils/uiContext";
 import type { InfoEntity, InfoFetchResult } from "../types/informationTypes";
 import type { Storyboard } from "../utils/storyboard";
@@ -95,6 +97,8 @@ import { sanitizeViewHeader } from "../utils/pluginViewHeader";
  *  explicitly asks for it, and the real providers shell out to a binary or drive
  *  a scrape window, which legitimately takes tens of seconds. */
 const PLUGIN_SEARCH_TIMEOUT_MS = 60000;
+
+type PluginAutoContinueHandler = (request: PluginAutoContinueRequest) => PluginTrack[] | null | Promise<PluginTrack[] | null>;
 
 /** The host registries a plugin may call into — see `hostRegistryRef`. */
 interface HostRegistry {
@@ -234,6 +238,8 @@ interface LoadedPlugin {
   /** `api.waveforms.onLookup` / `onShare` — one of each per plugin, last wins. */
   waveformLookupHandler: PluginWaveformLookupHandler | null;
   waveformShareHandler: PluginWaveformShareHandler | null;
+  /** `api.playback.onAutoContinue` — one per plugin, last wins. */
+  autoContinueHandler: PluginAutoContinueHandler | null;
   schedulerHandlers: Map<string, () => void>;
   visualizerFactories: Map<string, () => PluginVisualizer>;
 }
@@ -943,6 +949,14 @@ export function usePlugins(
               "track:scrobbled",
               handler as (...args: unknown[]) => void,
             ),
+          onAutoContinue(handler) {
+            loaded.autoContinueHandler = handler;
+            const unsub = () => {
+              if (loaded.autoContinueHandler === handler) loaded.autoContinueHandler = null;
+            };
+            trackUnsubscribe(unsub);
+            return unsub;
+          },
           onStreamResolve(
             providerId: string,
             handler: (title: string, artistName: string | null, albumName: string | null, durationSecs: number | null) => Promise<{ url: string; label: string } | null>,
@@ -2148,6 +2162,7 @@ export function usePlugins(
     loaded.storyboardResolvers.clear();
     loaded.waveformLookupHandler = null;
     loaded.waveformShareHandler = null;
+    loaded.autoContinueHandler = null;
     loaded.schedulerHandlers.clear();
     loaded.visualizerFactories.clear();
 
@@ -2309,6 +2324,7 @@ export function usePlugins(
         storyboardResolvers: new Map(),
         waveformLookupHandler: null,
         waveformShareHandler: null,
+        autoContinueHandler: null,
         schedulerHandlers: new Map(),
         visualizerFactories: new Map(),
       };
@@ -3911,6 +3927,58 @@ export function usePlugins(
     hasShareHandlers: () => [...loadedPluginsRef.current.values()].some((lp) => lp.waveformShareHandler),
   }), []);
 
+  // Auto-continue's plugin half (`api.playback.onAutoContinue`). Like the
+  // waveform bridge, handlers are read from the loaded plugins at call time.
+  // Only a plugin that declares `contributes.autoContinue` AND registered a
+  // handler is asked — the declaration is what Settings and the prefetch lead
+  // see, so asking an undeclared plugin would run the slow path on the short
+  // lead behind a slider that says no provider exists.
+  const autoContinueBridge = useMemo<AutoContinuePluginBridge>(() => {
+    const providers = () =>
+      [...loadedPluginsRef.current.values()].filter((lp) => lp.autoContinueHandler && lp.manifest.contributes?.autoContinue);
+    return {
+      hasProviders: () => providers().length > 0,
+      async suggest(request, accept) {
+        for (const lp of providers()) {
+          const handler = lp.autoContinueHandler;
+          if (!handler) continue;
+          let timer: ReturnType<typeof setTimeout> | undefined;
+          let answer: PluginTrack[] | null = null;
+          try {
+            answer = await Promise.race([
+              Promise.resolve().then(() => handler(request)),
+              new Promise<null>((resolve) => {
+                timer = setTimeout(() => {
+                  console.error(`Auto-continue via ${lp.id} timed out`);
+                  resolve(null);
+                }, PLUGIN_AUTO_CONTINUE_TIMEOUT_MS);
+              }),
+            ]);
+          } catch (e) {
+            console.error(`Auto-continue via ${lp.id} failed:`, e);
+          } finally {
+            clearTimeout(timer);
+          }
+          if (!Array.isArray(answer) || answer.length === 0) continue;
+          const accepted = await accept(lp.id, answer);
+          if (accepted !== null) return accepted;
+        }
+        return null;
+      },
+    };
+  }, []);
+
+  // What Settings lists: active plugins that declare `contributes.autoContinue`
+  // (the registration itself isn't state, so the declaration is the reactive
+  // signal; the bridge above asks only these, once they have registered).
+  const autoContinueProviders = useMemo(
+    () =>
+      pluginStates
+        .filter((p) => p.enabled && p.status === "active" && p.manifest.contributes?.autoContinue)
+        .map((p) => ({ pluginId: p.id, name: p.manifest.contributes?.autoContinue?.name || p.manifest.name })),
+    [pluginStates],
+  );
+
   // Runtime-registered Now Playing info items, sorted by priority then label.
   const nowPlayingInfoItems = useMemo(
     () =>
@@ -3984,6 +4052,8 @@ export function usePlugins(
     streamUriResolverOwner,
     resolveStoryboardByUri,
     waveformBridge,
+    autoContinueBridge,
+    autoContinueProviders,
     invokeHomeShelf,
     nowPlayingInfoItems,
     invokeNowPlayingInfo,

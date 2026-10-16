@@ -1297,6 +1297,8 @@ interface SettingsPanelProps {
   autoContinueWeights: AutoContinueWeights;
   onAdjustAutoContinueWeight: (key: keyof AutoContinueWeights, value: number) => void;
   onResetAutoContinueWeights: () => void;
+  /** Plugins that answer `api.playback.onAutoContinue` (e.g. Last.fm). */
+  autoContinueProviders: Array<{ pluginId: string; name: string }>;
   /** "Keep in bar" pins for the playback bars' advanced audio controls. */
   playerBarPins: PlayerBarPins;
   onPlayerBarPinsChange: (next: PlayerBarPins) => void;
@@ -1380,6 +1382,7 @@ const AUTO_CONTINUE_WEIGHT_ROWS: { key: keyof AutoContinueWeights; label: string
   { key: "sameTag", label: "Same tag" },
   { key: "mostPlayed", label: "Most played" },
   { key: "liked", label: "Liked" },
+  { key: "similar", label: "Similar (plugins)" },
 ];
 
 export function SettingsPanel({
@@ -1425,6 +1428,7 @@ export function SettingsPanel({
   autoContinueWeights,
   onAdjustAutoContinueWeight,
   onResetAutoContinueWeights,
+  autoContinueProviders,
   playerBarPins,
   onPlayerBarPinsChange,
   bitPerfectAvailable,
@@ -1481,6 +1485,8 @@ export function SettingsPanel({
   onScrolledToId,
 }: SettingsPanelProps) {
   const [settingsTab, setSettingsTab] = useState<SettingsTab>("general");
+  // Who answers auto-continue's "Similar" picks (label + description).
+  const providerNames = autoContinueProviders.map((p) => p.name).join(", ");
 
   // Deep link from another surface: select the tab that owns the section, then
   // (on the next run, once that tab has rendered) scroll it into view and clear
@@ -2091,22 +2097,36 @@ export function SettingsPanel({
                         <span className="settings-description">The mix of rules auto-continue draws from; each weight is that rule's share of picks, and they always add up to 100%. Turn auto-continue on or off with the ∞ button in the queue header.</span>
                       </div>
                       <div className="settings-ac-weights">
-                        {AUTO_CONTINUE_WEIGHT_ROWS.map(({ key, label }) => (
-                          <Fragment key={key}>
-                            <label className="settings-description" htmlFor={`ac-weight-${key}`}>{label}</label>
-                            <input
-                              id={`ac-weight-${key}`}
-                              type="range"
-                              min={0}
-                              max={100}
-                              value={autoContinueWeights[key]}
-                              onChange={e => onAdjustAutoContinueWeight(key, parseInt(e.target.value, 10))}
-                              className="settings-slider"
-                            />
-                            <span className="settings-value">{autoContinueWeights[key]}%</span>
-                          </Fragment>
-                        ))}
+                        {AUTO_CONTINUE_WEIGHT_ROWS.map(({ key, label }) => {
+                          // The plugin strategy names who answers it, and can't
+                          // be raised with nobody to answer — but a weight left
+                          // over from a removed provider stays movable, or it
+                          // could never be brought back to 0.
+                          const noProvider = key === "similar" && autoContinueProviders.length === 0;
+                          const rowLabel = key === "similar" && !noProvider ? `Similar · ${providerNames}` : label;
+                          return (
+                            <Fragment key={key}>
+                              <label className="settings-description" htmlFor={`ac-weight-${key}`}>{rowLabel}</label>
+                              <input
+                                id={`ac-weight-${key}`}
+                                type="range"
+                                min={0}
+                                max={100}
+                                value={autoContinueWeights[key]}
+                                disabled={noProvider && autoContinueWeights.similar === 0}
+                                onChange={e => onAdjustAutoContinueWeight(key, parseInt(e.target.value, 10))}
+                                className="settings-slider"
+                              />
+                              <span className="settings-value">{autoContinueWeights[key]}%</span>
+                            </Fragment>
+                          );
+                        })}
                       </div>
+                      <span className="settings-description">
+                        {autoContinueProviders.length > 0
+                          ? `"Similar" asks ${providerNames} for a song like the one playing, which may not be in your library. With no library, or nothing of the right format, auto-continue asks them anyway.`
+                          : "Install a plugin such as Last.fm to let auto-continue suggest songs that aren't in your library."}
+                      </span>
                       <div>
                         <button className="ds-btn ds-btn--ghost ds-btn--sm" onClick={onResetAutoContinueWeights}>Reset to defaults</button>
                       </div>

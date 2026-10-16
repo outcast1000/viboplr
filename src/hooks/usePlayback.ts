@@ -187,6 +187,9 @@ export function usePlayback(
   // a playback failure on a track the queue advanced to (not a user click).
   // See surfacePlaybackFailure; when unassigned the modal path is used instead.
   onAutoSkipFailureRef: React.RefObject<((track: QueueTrack, error: string) => void) | null>,
+  // Seconds before the end at which to ask auto-continue for the next track
+  // (App: utils/autoContinue.ts → prefetchLeadSecs). Absent = the preload lead.
+  prefetchLeadRef?: React.RefObject<number>,
 ) {
   const [currentTrack, setCurrentTrack] = useState<QueueTrack | null>(null);
   const [playing, setPlaying] = useState(false);
@@ -1248,6 +1251,7 @@ export function usePlayback(
           isPreloading: nativePreloadingRef.current,
           isCrossfading: nativeFadingRef.current,
           prefetchRequested: prefetchRequestedRef.current,
+          prefetchLeadSecs: prefetchLeadRef?.current,
           rate: playbackRateRef.current,
         });
         if (actions.requestPrefetch) {
@@ -2363,6 +2367,7 @@ export function usePlayback(
         isPreloading: isPreloadingRef.current,
         isCrossfading: isCrossfadingRef.current,
         prefetchRequested: prefetchRequestedRef.current,
+        prefetchLeadSecs: prefetchLeadRef?.current,
         rate: playbackRateRef.current,
       });
       if (actions.requestPrefetch) {

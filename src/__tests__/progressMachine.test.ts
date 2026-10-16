@@ -72,6 +72,20 @@ describe("driveProgressMachine", () => {
     expect(a.preloadTrack).toBeNull();
   });
 
+  it("requests the prefetch earlier when given a longer prefetch lead (a plugin may answer)", () => {
+    // 60s lead: at 150/200 (50s left) it asks; with the default 20s it wouldn't.
+    expect(driveProgressMachine(inputs({ position: 150, next: null, prefetchLeadSecs: 60 })).requestPrefetch).toBe(true);
+    expect(driveProgressMachine(inputs({ position: 150, next: null })).requestPrefetch).toBe(false);
+    // Still once per track, and never with a next track already queued.
+    expect(driveProgressMachine(inputs({ position: 150, next: null, prefetchLeadSecs: 60, prefetchRequested: true })).requestPrefetch).toBe(false);
+    expect(driveProgressMachine(inputs({ position: 150, next: makeTrack(), prefetchLeadSecs: 60 })).requestPrefetch).toBe(false);
+  });
+
+  it("scales the prefetch lead by the playback rate", () => {
+    // 60s of wall clock at 2x is 120 track-seconds: 100s left already qualifies.
+    expect(driveProgressMachine(inputs({ position: 100, next: null, prefetchLeadSecs: 60, rate: 2 })).requestPrefetch).toBe(true);
+  });
+
   it("does not re-request prefetch once requested", () => {
     const a = driveProgressMachine(inputs({ position: 185, next: null, prefetchRequested: true }));
     expect(a.requestPrefetch).toBe(false);

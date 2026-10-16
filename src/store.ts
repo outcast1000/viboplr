@@ -23,7 +23,7 @@ const STORE_DEFAULTS = {
   fullWindowY: null,
   fullWindowMaximized: false,
   autoContinueEnabled: false,
-  autoContinueWeights: { random: 40, sameArtist: 20, sameTag: 20, mostPlayed: 10, liked: 10 },
+  autoContinueWeights: { random: 40, sameArtist: 20, sameTag: 20, mostPlayed: 10, liked: 10, similar: 0 },
   autoContinueSameFormat: false,
   trackColumns: null,
   trackSortField: null,

@@ -100,6 +100,7 @@ import { applyWebviewZoom, stepZoomPreset } from "./utils/zoom";
 import { useVideoLayout } from "./hooks/useVideoLayout";
 import { useWaveform } from "./hooks/useWaveform";
 import type { WaveformPluginBridge } from "./waveform/pluginProvider";
+import { LIBRARY_PREFETCH_LEAD_SECS, prefetchLeadSecs, prefetchStillWanted, type AutoContinuePluginBridge } from "./utils/autoContinue";
 import { useStoryboard } from "./hooks/useStoryboard";
 import { partialStoryboard } from "./utils/storyboard";
 import { useGlobalShortcuts } from "./hooks/useGlobalShortcuts";
@@ -533,7 +534,11 @@ function App() {
   // metadata-only track's Download affordance re-renders when it changes.
   const [resolverSources, setResolverSources] = useState<string[]>([]);
   const transcodeSessionRef = useRef<{ sessionId: string; baseUrl: string; durationSecs: number | null; seekOffset: number } | null>(null);
-  const playback = usePlayback(restoredRef, peekNextRef, crossfadeSecsRef, advanceIndexRef, onScrobbleRef, resolveTrackSrcRef, prefetchNextRef, transcodeSessionRef, useNativeEngineRef, useNativeVideoRef, nativeEndedRef, playbackAutoSkipRef);
+  // How early, in seconds before a track ends, auto-continue is asked for the
+  // next one — longer when a plugin may answer (utils/autoContinue.ts →
+  // prefetchLeadSecs). Assigned once plugins and the library count exist.
+  const prefetchLeadRef = useRef(LIBRARY_PREFETCH_LEAD_SECS);
+  const playback = usePlayback(restoredRef, peekNextRef, crossfadeSecsRef, advanceIndexRef, onScrobbleRef, resolveTrackSrcRef, prefetchNextRef, transcodeSessionRef, useNativeEngineRef, useNativeVideoRef, nativeEndedRef, playbackAutoSkipRef, prefetchLeadRef);
 
   const [trackRank, setTrackRank] = useState<number | null>(null);
   const [artistRank, setArtistRank] = useState<number | null>(null);
@@ -745,7 +750,9 @@ function App() {
       }
     });
   }, () => audiblePlayingTrackRef.current, () => backfillAbandonedRef.current());
-  const autoContinue = useAutoContinue(restoredRef);
+  // Filled once usePlugins exists (below): auto-continue's plugin half.
+  const autoContinueBridgeRef = useRef<AutoContinuePluginBridge | null>(null);
+  const autoContinue = useAutoContinue(restoredRef, autoContinueBridgeRef);
   const zoom = useUiZoom();
   const mini = useMiniMode(restoredRef, zoom.uiZoomRef, zoom.miniZoomRef);
   const videoLayout = useVideoLayout(restoredRef);
@@ -888,6 +895,12 @@ function App() {
   const plugins = usePlugins(pluginTrackRef, pluginPlayingRef, pluginPositionRef, pluginQueueRef, pluginPlaybackCallbacks, pluginHostCallbacksRef, debugMode, devPluginPath, !appRestoring);
   const waveformPluginsRef = useRef<WaveformPluginBridge | null>(null);
   useAssignRef(waveformPluginsRef, plugins.waveformBridge);
+  useAssignRef(autoContinueBridgeRef, plugins.autoContinueBridge);
+  useAssignRef(prefetchLeadRef, prefetchLeadSecs({
+    hasProviders: plugins.autoContinueProviders.length > 0,
+    similarWeight: autoContinue.weights.similar,
+    libraryEmpty: library.trackCount === 0,
+  }));
   const waveformPeaks = useWaveform(playback.currentTrack, {
     // A stream often has no duration until the player reports one, and a
     // shared waveform is matched on it. Only a stream borrows the player's: a
@@ -4299,6 +4312,31 @@ function App() {
     });
   }, [playback.setCurrentTrack, queueHook.setQueue, library.loadLibrary, library.loadTracks]);
 
+  // The session so far, for auto-continue's plugins: the queue (to skip what
+  // was just heard) and its first entry (what the user started from).
+  const libraryEmptyRef = useLatestRef(library.trackCount === 0);
+  const autoContinueContext = () => ({
+    recent: queueRef.current,
+    sessionSeed: queueRef.current[0] ?? null,
+    libraryEmpty: libraryEmptyRef.current,
+  });
+
+  // One auto-continue fetch per playing track, shared by the lead-time
+  // prefetch and the end-of-queue path. A plugin suggestion can take seconds,
+  // so without this a track ending while the prefetch still waits started a
+  // second full lookup (and could queue two picks). Kept after it settles —
+  // a prefetch that found nothing answers the end-of-queue path too — and
+  // dropped once its pick has been queued or the track changes.
+  const autoContinueFetchRef = useRef<{ key: string; promise: Promise<QueueTrack | null> } | null>(null);
+  const fetchAutoContinue = (track: QueueTrack): Promise<QueueTrack | null> => {
+    const inFlight = autoContinueFetchRef.current;
+    if (inFlight && inFlight.key === track.key) return inFlight.promise;
+    const promise = autoContinueRef.current.fetchTrack(track, autoContinueContext());
+    autoContinueFetchRef.current = { key: track.key, promise };
+    return promise;
+  };
+  const fetchAutoContinueRef = useLatestRef(fetchAutoContinue);
+
   useAssignRef(prefetchNextRef, () => {
     const ac = autoContinueRef.current;
     const track = currentTrackRef.current;
@@ -4312,13 +4350,24 @@ function App() {
       return;
     }
     console.debug(`[prefetch] Fetching auto-continue track (current: "${track.title}")`);
-    ac.fetchTrack(track).then(next => {
-      if (next) {
-        console.debug(`[prefetch] Queued "${next.title}" by ${next.artist_name}`);
-        addToQueueRef.current(next);
-      } else {
+    fetchAutoContinueRef.current(track).then(next => {
+      if (!next) {
         console.debug("[prefetch] Auto-continue returned no track");
+        return;
       }
+      const wanted = prefetchStillWanted({
+        fetchedForKey: track.key,
+        currentKey: currentTrackRef.current?.key ?? null,
+        hasNext: peekNextRef.current() !== null,
+        backfillPending: backfillPendingRef.current,
+      });
+      if (!wanted) {
+        console.debug(`[prefetch] Dropped "${next.title}" — playback moved on while it was fetched`);
+        return;
+      }
+      if (autoContinueFetchRef.current?.key === track.key) autoContinueFetchRef.current = null;
+      console.debug(`[prefetch] Queued "${next.title}" by ${next.artist_name}`);
+      addToQueueRef.current(next);
     });
   });
 
@@ -4330,14 +4379,18 @@ function App() {
     // repeat-one, playNext never returns false, so this branch is unreachable
     // there anyway — the explicit mode check is belt-and-suspenders + intent.
     if (queueModeRef.current === "normal" && ac.enabled && track) {
-      const next = await ac.fetchTrack(track);
+      // Reuses a prefetch still in flight for this track rather than asking again.
+      const next = await fetchAutoContinueRef.current(track);
+      if (autoContinueFetchRef.current?.key === track.key) autoContinueFetchRef.current = null;
+      // Something else started while we waited: leave it playing.
+      if (currentTrackRef.current?.key !== track.key) return;
       if (next) {
         addToQueueAndPlayRef.current(next, source);
         return;
       }
     }
     handleStopRef.current();
-  }, []);
+  }, [fetchAutoContinueRef]);
   // Handed to useQueue: a held-for tail that never arrived releases the
   // end-of-queue decision we deferred below.
   useAssignRef(backfillAbandonedRef, () => { void endOfQueue("auto"); });
@@ -4640,16 +4693,15 @@ function App() {
         async () => {
           const ac = autoContinueRef.current;
           const track = currentTrackRef.current;
-          const fetched = ac.enabled && track ? await ac.fetchTrack(track) : null;
-          // Auto-continue picks a library Track; the queue takes QueueTracks
-          // (and the conversion is what stamps `libraryId` on the new entry).
-          return fetched ? trackToQueueTrack(fetched) : null;
+          // A QueueTrack already (a library pick carries its `libraryId`); the
+          // shared fetch reuses a prefetch still in flight for this track.
+          return ac.enabled && track ? await fetchAutoContinueRef.current(track) : null;
         },
         () => handleStopRef.current(),
       );
     }
     playback.clearPlaybackError();
-  }, [queueHook, playback]);
+  }, [queueHook, playback, fetchAutoContinueRef]);
   useAssignRef(currentTrackDeletedRef, (indices) => { void handleCurrentTrackDeleted(indices); });
 
   useGlobalShortcuts({
@@ -6534,6 +6586,7 @@ function App() {
               autoContinueWeights={autoContinue.weights}
               onAdjustAutoContinueWeight={autoContinue.adjustWeight}
               onResetAutoContinueWeights={autoContinue.resetWeights}
+              autoContinueProviders={plugins.autoContinueProviders}
               playerBarPins={playerBarPins}
               onPlayerBarPinsChange={setPlayerBarPins}
               bitPerfectAvailable={bitPerfect.control != null}

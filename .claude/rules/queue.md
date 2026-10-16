@@ -307,6 +307,8 @@ Multiple `useEffect` hooks check `restoredRef.current` before writing. This prev
 
 When `playNext` returns `false` (normal mode, end of queue), auto-continue takes over — it selects a new track via weighted strategy and calls `addToQueueAndPlay`. Auto-continue must not be confused with queue advancement. The queue hook only handles tracks already in the queue. Auto-continue extends the queue.
 
+**Its pick may not be a library track.** When the library has nothing to offer, or on a "Similar (plugins)" pick, an auto-continue plugin (Last.fm) answers with a metadata-only `QueueTrack` (`path: null`) that the stream resolvers find at play time — so the prefetch is requested 60s before the end instead of 20s when that can happen (`frontend.md` → useAutoContinue.ts). A suggestion that can't be resolved goes through the ordinary playback-failure path (auto-skip → `handleNext` → auto-continue asks again); there is deliberately no pre-check yet.
+
 **A pending backfill outranks auto-continue.** A queue that has run dry may only *look* finished — `playWithBackfill` plays a head (often a single seed track) while the rest resolves. Both entry points check for that first: the lead-time **prefetch** (`prefetchNextRef`) skips while `backfillPending`, and `handleNext` calls `holdForBackfillTail()` before running the end-of-queue decision. A hold makes the next `appendToPlaySession` set `queueIndex` to the tail's first entry and play it (`source: "auto"`); if the tail never lands, `settleBackfill` fires the hook's `onBackfillAbandoned` callback and the deferred auto-continue/stop runs then. The hold is cleared by every session boundary. Covered by `useQueueBackfillHold.test.tsx`.
 
 ### Interaction with Scrobble

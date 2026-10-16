@@ -208,6 +208,29 @@ export interface PluginManifestContributes {
   /** Declares that the plugin answers `api.waveforms` — documentation for the
    *  user and for tooling; the host acts on the registrations, not this. */
   waveformProvider?: { name: string };
+  /** Declares that the plugin answers `api.playback.onAutoContinue`; `name`
+   *  is what Settings → Playback → Auto-continue calls it. The host acts on
+   *  the registration, not this. */
+  autoContinue?: { name: string };
+}
+
+/** What the host tells an auto-continue plugin when the queue is about to
+ *  run out. Names, never ids. */
+export interface PluginAutoContinueRequest {
+  /** The track playing now — the one to continue from. */
+  current: { title: string; artistName: string | null; albumTitle: string | null; durationSecs: number | null };
+  /** The first track of this play session (what the user started), so a
+   *  long chain of suggestions can steer back toward it instead of drifting.
+   *  Null when unknown. */
+  sessionSeed: { title: string; artistName: string | null } | null;
+  /** Recently played and queued titles. The host skips these anyway; a plugin
+   *  may skip them too, to spend its answer on fresh songs. */
+  recent: Array<{ title: string; artistName: string | null }>;
+  /** "Same format" in Settings: "audio" / "video" when the next track must
+   *  match, else null. A suggestion without `kind: "video"` counts as audio. */
+  formatFilter: "audio" | "video" | null;
+  /** How many suggestions are welcome. The host plays the first usable one. */
+  count: number;
 }
 
 export interface PluginApiUsage {
@@ -984,6 +1007,19 @@ export interface PluginPlaybackAPI {
    *  subscribed to `onTrackScrobbled` is heard. Throws on a malformed report.
    *  Feature-detect. */
   reportScrobble?(report: ScrobbleReport): void;
+  /** Suggest what plays when the queue runs out. Asked when auto-continue is
+   *  on and the library has nothing to offer (no library, or nothing of the
+   *  right format), and on the picks Settings gives "Similar (plugins)" — never
+   *  while the user is just playing a queue. Return a few `PluginTrack`s (a
+   *  metadata-only one is fine; the stream resolvers find it) or null. The
+   *  host skips recent, disliked and wrong-format ones and plays the first
+   *  left. Several plugins are asked in load order until one has something;
+   *  each has 15s. One handler per plugin (registering again replaces it).
+   *  Asked only when the manifest also declares `contributes.autoContinue`.
+   *  Permission `playback:control` (what it returns is played). Feature-detect. */
+  onAutoContinue?(
+    handler: (request: PluginAutoContinueRequest) => PluginTrack[] | null | Promise<PluginTrack[] | null>,
+  ): () => void;
   onStreamResolve(
     providerId: string,
     handler: (
