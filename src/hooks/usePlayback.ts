@@ -1376,7 +1376,19 @@ export function usePlayback(
         // must not be retried natively either.
         if (!retryNatively) nativeBlockedKeysRef.current.add(payload.trackKey);
         if (nativePreloadedRef.current?.key === payload.trackKey) nativePreloadedRef.current = null;
-        if (nativeSessionRef.current?.key !== payload.trackKey) return;
+        if (nativeSessionRef.current?.key !== payload.trackKey) {
+          // A refused PRELOAD (the standby deck, not the playing track). Logged
+          // here because nothing else records it: the next preload tick just
+          // re-resolves, so without this the file log shows the retries but
+          // never mpv's reason for refusing.
+          console.error(`[mpv] Native preload failed (${payload.code}) for ${payload.trackKey}:`, payload.message);
+          logPlayback(
+            retryNatively
+              ? `Native preload error (${payload.code}) key=${payload.trackKey} — will re-resolve (attempt ${failures + 1}): ${payload.message}`
+              : `Native preload error (${payload.code}) key=${payload.trackKey} — native blocked after ${failures} attempt(s), will play on the browser engine: ${payload.message}`,
+          );
+          return;
+        }
         nativeSessionRef.current = null;
         nativeFadingRef.current = false;
         setNativeVideoActive(false);
