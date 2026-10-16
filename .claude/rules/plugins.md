@@ -745,7 +745,11 @@ The merged list is exposed by `usePlugins` as `searchProviders`; `useCentralSear
 
 **Not wired to the mini player.** `useMiniSearch` stays library-only: multi-second catalog searches with status rows don't fit a 40px bar.
 
-**The reference provider is Last.fm** (`outcast1000/viboplr-lastfm`): one `artist.search` + `album.search` + `track.search` per activation, a single HTTP round trip each — exactly the cheap catalog this surface is for. Its tracks are metadata-only (Last.fm has no audio), so they play through the stream resolvers. yt-dlp shipped one too (v1.15.0–v1.20.0) and **removed** it deliberately — its sidebar view searches better, and a second entry point only spent more yt-dlp searches against YouTube's bot gate. Do not re-add that one.
+**Shipping providers:**
+- **Last.fm** (`outcast1000/viboplr-lastfm`, from v1.8.0) — the reference for artist + album results: one `artist.search` + `album.search` + `track.search` per activation, a single HTTP round trip each — exactly the cheap catalog this surface is for. Its tracks are metadata-only (Last.fm has no audio), so they play through the stream resolvers.
+- **Spotify** (`outcast1000/viboplr-spotify`, `spotify-browse`, from v1.20.0) — **songs only**: it scrapes `/search/{q}/tracks` in the plugin's hidden browse window, so each run costs seconds and counts against Spotify's throttling of automated sessions. Artist/album results were considered (2026-10-16) and deliberately not added: they would open the same name-keyed pages as Last.fm's rows (shown on by default, so mostly duplicates), cost the scraper more, and the plugin's album-card parsing was broken at the time (cards whose subtitle is plain "1997 • Radiohead" text with no `/artist/` link). If revisited, scrape the combined `/search/{q}` page (songs, artists and albums in one load) and de-duplicate catalog rows across providers first.
+
+yt-dlp shipped one too (v1.15.0–v1.20.0) and **removed** it deliberately — its sidebar view searches better, and a second entry point only spent more yt-dlp searches against YouTube's bot gate. Do not re-add that one.
 
 **If you build one:** register at runtime (not in the manifest) whenever the capability is conditional, and reset the "already registered" flag in `deactivate` — the host drops the provider on unload, so a disable/enable cycle must register again.
 
