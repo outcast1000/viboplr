@@ -1,7 +1,7 @@
 {
   "id": "lastfm",
   "name": "Last.fm",
-  "version": "1.8.0",
+  "version": "1.9.0",
   "author": "Vibo",
   "description": "Scrobbling, now playing, history import, and metadata from Last.fm",
   "icon": "M17.5 19H9a7 7 0 1 1 6.71-9h1.79a4.5 4.5 0 1 1 0 9z",
@@ -17,17 +17,19 @@
     "library:read",
     "library:write",
     "env:LASTFM_API_KEY",
-    "env:LASTFM_API_SECRET"
+    "env:LASTFM_API_SECRET",
+    "plugins:call"
   ],
   "permissionReasons": {
     "network:ws.audioscrobbler.com": "Talk to Last.fm: scrobbles, bios, similar artists and tracks, tags",
     "system:open": "Open the Last.fm sign-in page and your Last.fm profile in your browser",
     "playback:read": "See what's playing, to scrobble it and update Now Playing on Last.fm",
-    "playback:control": "Play an album's full tracklist when you ask it to",
-    "library:read": "Love or unlove a track on Last.fm when you like it or take the like away",
+    "playback:control": "Play an album's full tracklist, or a radio of similar songs, when you ask it to",
+    "library:read": "Love or unlove a track on Last.fm when you like it, and base mixes on what you've played",
     "library:write": "Import your Last.fm scrobbles into History and your loved tracks as likes",
     "env:LASTFM_API_KEY": "Use Vibo's Last.fm API key",
-    "env:LASTFM_API_SECRET": "Sign requests to Last.fm with Vibo's API secret"
+    "env:LASTFM_API_SECRET": "Sign requests to Last.fm with Vibo's API secret",
+    "plugins:call": "Check that a source such as yt-dlp is installed before offering radio and mixes of songs you don't own"
   },
   "contributes": {
     "assistant": {
@@ -171,6 +173,22 @@
         "targets": [
           "track"
         ]
+      },
+      {
+        "id": "lastfm-radio",
+        "label": "Start radio",
+        "targets": [
+          "track",
+          "artist"
+        ]
+      }
+    ],
+    "homeShelves": [
+      {
+        "id": "lastfm-mixes",
+        "title": "From Last.fm",
+        "displayKind": "playlist-cards",
+        "limit": 10
       }
     ],
     "searchProviders": [
