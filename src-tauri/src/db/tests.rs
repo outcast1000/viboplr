@@ -2134,6 +2134,30 @@ fn test_find_track_by_metadata_diacritics() {
 }
 
 #[test]
+fn test_find_track_by_metadata_apostrophe_variants() {
+    let db = test_db();
+    let artist = db.get_or_create_artist("Red Hot Chili Peppers").unwrap();
+    let curly = insert_track(&db, "music/cant-stop.mp3", "Can\u{2019}t Stop", Some(artist), None);
+    let straight = insert_track(&db, "music/dont-stop.mp3", "Don't Stop", Some(artist), None);
+
+    // A straight apostrophe finds the curly-tagged file, and the other way round.
+    let result = db.find_track_by_metadata("Can't Stop", Some("Red Hot Chili Peppers"), None).unwrap();
+    assert_eq!(result.map(|t| t.id), Some(curly));
+    let result = db.find_track_by_metadata("Don\u{2019}t Stop", Some("Red Hot Chili Peppers"), None).unwrap();
+    assert_eq!(result.map(|t| t.id), Some(straight));
+    // Title-only tier too.
+    let result = db.find_track_by_metadata("CAN`T STOP", None, None).unwrap();
+    assert_eq!(result.map(|t| t.id), Some(curly));
+}
+
+#[test]
+fn test_match_variants() {
+    assert_eq!(match_variants("Jóga"), vec!["joga".to_string()]);
+    assert_eq!(match_variants("Can\u{2019}t"), vec!["can\u{2019}t".to_string(), "can't".to_string()]);
+    assert_eq!(match_variants("Can't"), vec!["can't".to_string(), "can\u{2019}t".to_string()]);
+}
+
+#[test]
 fn test_find_track_by_metadata_title_only() {
     let db = test_db();
     insert_track(&db, "music/creep.mp3", "Creep", None, None);

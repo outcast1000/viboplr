@@ -11,6 +11,33 @@ pub fn strip_diacritics(s: &str) -> String {
     s.nfd().filter(|c| !unicode_normalization::char::is_combining_mark(*c)).collect()
 }
 
+/// Characters tag writers use interchangeably for an apostrophe: ASCII, the
+/// typographic right/left quotes, the modifier letter, the spacing acute and
+/// the backtick. "Can’t Stop" in a file tag and "Can't Stop" from Last.fm are
+/// the same song.
+const APOSTROPHES: [char; 6] = ['\'', '\u{2019}', '\u{2018}', '\u{02BC}', '\u{00B4}', '`'];
+
+/// The normalized (`strip_diacritics(unicode_lower(..))`) spellings a metadata
+/// match should accept for `s`: itself, plus — when it carries any apostrophe
+/// variant — the all-ASCII and all-typographic forms, which is how libraries
+/// write them. Returned as values to bind against the indexed expression, not
+/// folded into a SQL function: `strip_diacritics` backs expression indexes and
+/// persisted keys (history canonical names, `entity_likes`), so its meaning
+/// must not change.
+pub fn match_variants(s: &str) -> Vec<String> {
+    let base = strip_diacritics(&s.to_lowercase());
+    let mut out = vec![base.clone()];
+    if base.contains(|c| APOSTROPHES.contains(&c)) {
+        for a in ['\'', '\u{2019}'] {
+            let v: String = base.chars().map(|c| if APOSTROPHES.contains(&c) { a } else { c }).collect();
+            if !out.contains(&v) {
+                out.push(v);
+            }
+        }
+    }
+    out
+}
+
 
 
 /// SQL expression that reconstructs the full URI from the relative path stored in

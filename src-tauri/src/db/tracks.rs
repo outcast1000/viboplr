@@ -582,27 +582,37 @@ impl Database {
 
         let enabled_filter = ENABLED_COLLECTION_FILTER;
 
-        let query_tier = |sql: &str, params: &[&dyn rusqlite::types::ToSql]| -> SqlResult<Vec<Track>> {
+        let query_tier = |sql: &str, params: Vec<String>| -> SqlResult<Vec<Track>> {
             let mut stmt = conn.prepare(sql)?;
-            let rows = stmt.query_map(params, |row| track_from_row(row))?;
+            let rows = stmt.query_map(rusqlite::params_from_iter(params), |row| track_from_row(row))?;
             rows.collect()
         };
+
+        // Each field is matched against every spelling `match_variants` accepts
+        // (the curly/straight apostrophe pair), pre-normalized here so the
+        // column side stays the indexed `strip_diacritics(unicode_lower(..))`
+        // expression and the lookup keeps its index.
+        let placeholders = |n: usize| vec!["?"; n].join(", ");
+        let title_v = match_variants(title);
 
         // A blank artist is no artist — treat it like `None` so it reaches the
         // title-only tier instead of matching nothing.
         let artist_name = artist_name.filter(|a| !a.trim().is_empty());
 
         if let Some(artist) = artist_name {
+            let artist_v = match_variants(artist);
             // Try title + artist + album first
             if let Some(album) = album_name {
+                let album_v = match_variants(album);
                 let sql = format!(
-                    "{} WHERE strip_diacritics(unicode_lower(t.title)) = strip_diacritics(unicode_lower(?1)) \
-                     AND ar.name IS NOT NULL AND strip_diacritics(unicode_lower(ar.name)) = strip_diacritics(unicode_lower(?2)) \
-                     AND al.title IS NOT NULL AND strip_diacritics(unicode_lower(al.title)) = strip_diacritics(unicode_lower(?3)) \
+                    "{} WHERE strip_diacritics(unicode_lower(t.title)) IN ({}) \
+                     AND ar.name IS NOT NULL AND strip_diacritics(unicode_lower(ar.name)) IN ({}) \
+                     AND al.title IS NOT NULL AND strip_diacritics(unicode_lower(al.title)) IN ({}) \
                      {} {}",
-                    TRACK_SELECT, enabled_filter, order_clause
+                    TRACK_SELECT, placeholders(title_v.len()), placeholders(artist_v.len()),
+                    placeholders(album_v.len()), enabled_filter, order_clause
                 );
-                let result = query_tier(&sql, params![title, artist, album])?;
+                let result = query_tier(&sql, [title_v.clone(), artist_v.clone(), album_v].concat())?;
                 if !result.is_empty() {
                     return Ok(result);
                 }
@@ -610,25 +620,26 @@ impl Database {
 
             // Fall back to title + artist
             let sql = format!(
-                "{} WHERE strip_diacritics(unicode_lower(t.title)) = strip_diacritics(unicode_lower(?1)) \
-                 AND ar.name IS NOT NULL AND strip_diacritics(unicode_lower(ar.name)) = strip_diacritics(unicode_lower(?2)) \
+                "{} WHERE strip_diacritics(unicode_lower(t.title)) IN ({}) \
+                 AND ar.name IS NOT NULL AND strip_diacritics(unicode_lower(ar.name)) IN ({}) \
                  {} {}",
-                TRACK_SELECT, enabled_filter, order_clause
+                TRACK_SELECT, placeholders(title_v.len()), placeholders(artist_v.len()),
+                enabled_filter, order_clause
             );
             // With an artist in hand, a title-only match is a different
             // artist's song of the same name ("Intro", "Creep") — never the
             // track asked for. Stop here rather than hand that to playback,
             // the like mirror or the tag editor.
-            return query_tier(&sql, params![title, artist]);
+            return query_tier(&sql, [title_v, artist_v].concat());
         }
 
         // No artist to go on: title only
         let sql = format!(
-            "{} WHERE strip_diacritics(unicode_lower(t.title)) = strip_diacritics(unicode_lower(?1)) \
+            "{} WHERE strip_diacritics(unicode_lower(t.title)) IN ({}) \
              {} {}",
-            TRACK_SELECT, enabled_filter, order_clause
+            TRACK_SELECT, placeholders(title_v.len()), enabled_filter, order_clause
         );
-        query_tier(&sql, params![title])
+        query_tier(&sql, title_v)
     }
 
     pub fn find_track_id_by_path(&self, full_path: &str) -> SqlResult<Option<i64>> {
