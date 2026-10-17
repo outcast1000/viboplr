@@ -2,6 +2,7 @@ import { useState, useRef, useEffect, useCallback, memo } from "react";
 import { computeIndexSelection } from "../utils/rowSelection";
 import type { QueueTrack, QueueMode } from "../types";
 import type { PlaylistContext } from "../hooks/useQueue";
+import type { TrackFailure } from "../playback/trackFailures";
 import { formatDuration, formatFileSize } from "../utils";
 import { queueItemLocalThumb, playlistContextTitle, type ThumbInfo } from "../mainPlaylist";
 import { extractDominantColor, type RGB } from "../utils/extractDominantColor";
@@ -65,7 +66,8 @@ interface QueueRowProps {
   isDraggedRow: boolean;
   localThumb: string | null;
   resolving: { error: string | null; trying: string | null } | null;
-  resolveFailure: string | null;
+  failure: TrackFailure | null;
+  onShowFailure: (track: QueueTrack) => void;
   showRadio: boolean;
   showLocate: boolean;
   showLikes: boolean;
@@ -90,7 +92,7 @@ interface QueueRowProps {
 // pay a full-list re-render per mousemove.
 const QueueRow = memo(function QueueRow({
   track: t, index: i, isCurrent, isPlaying, isSelected, dropAbove, dropBelow, isDraggedRow,
-  localThumb, resolving, resolveFailure, showRadio, showLocate, showLikes, showDislike,
+  localThumb, resolving, failure, onShowFailure, showRadio, showLocate, showLikes, showDislike,
   getTrackImage, observeVisible,
   onRowMouseDown, onRowClick, onRowContextMenu, onRowInfoEnter, onRowInfoLeave,
   onPlay, onTogglePlayPause, onStartRadio, onLocateTrack, onToggleLike, onToggleDislike,
@@ -170,11 +172,18 @@ const QueueRow = memo(function QueueRow({
             </span>
             {t.file_size != null && <span className="queue-item-size">{formatFileSize(t.file_size)}</span>}
           </div>
-          {resolveFailure && !resolving ? (
-            <div className="queue-item-status queue-item-status-failed">
+          {failure && !resolving ? (
+            <button
+              type="button"
+              className="queue-item-status queue-item-status-failed"
+              title="Show what happened"
+              onMouseDown={(e) => e.stopPropagation()}
+              onDoubleClick={(e) => e.stopPropagation()}
+              onClick={(e) => { e.stopPropagation(); onShowFailure(t); }}
+            >
               <svg className="queue-resolving-fail-icon" width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
-              <span className="queue-resolving-error">Couldn't play · {resolveFailure}</span>
-            </div>
+              <span className="queue-resolving-error">Couldn't play · {failure.summary}</span>
+            </button>
           ) : null}
         </div>
       </div>
@@ -283,7 +292,10 @@ interface QueuePanelProps {
   mainPlaylistDir: string | null;
   thumbInfo: Record<string, ThumbInfo>;
   resolvingStatus?: { key: string; error: string | null; trying: string | null } | null;
-  resolveFailures?: Record<string, string>;
+  /** Why an entry didn't play (either stage), keyed by QueueTrack.key. */
+  trackFailures?: Record<string, TrackFailure>;
+  /** Click on a row's "Couldn't play" note — App opens the details dialog. */
+  onShowFailure?: (track: QueueTrack) => void;
   /** The live play session is still resolving its remaining tracks (see
    *  usePlayActions.playWithBackfill). Renders the trailing "filling in" row. */
   backfillPending?: boolean;
@@ -371,7 +383,7 @@ export function QueuePanel({
   onPlay, onTogglePlayPause, onRemove: _onRemove, onLocateTrack, onStartRadio, onMoveMultiple, onClear, onSaveAsM3U, onSaveToPlaylists, onExportAsMixtape, onLoadPlaylist, onPublishQueue, preferVideoResolution, onPreferVideoResolutionChange, onRandomize, queueMode, onToggleQueueMode, autoContinueEnabled, onToggleAutoContinue, onOpenAutoContinueSettings, onContextMenu, onToggleLike, onToggleDislike,
   externalDropTarget,
   collapsed, fsRevealed, onToggleCollapsed, onResizeWidth, isPlaying, debugMode,
-  mainPlaylistDir, thumbInfo, resolvingStatus, resolveFailures, backfillPending,
+  mainPlaylistDir, thumbInfo, resolvingStatus, trackFailures, onShowFailure, backfillPending,
 }: QueuePanelProps) {
   const [selectedIndices, setSelectedIndices] = useState<Set<number>>(new Set());
   const [dropTarget, setDropTarget] = useState<number | null>(null);
@@ -534,13 +546,14 @@ export function QueuePanel({
   // Latest props/state for the stable row handlers below (queue.md "Ref-Based
   // State Access") — the handlers keep one identity across renders so the
   // memoized rows don't re-render whenever the panel does.
-  const latestRef = useRef({ selectedIndices, onPlay, onTogglePlayPause, onStartRadio, onLocateTrack, onToggleLike, onToggleDislike, onMoveMultiple, onContextMenu });
-  useAssignRef(latestRef, { selectedIndices, onPlay, onTogglePlayPause, onStartRadio, onLocateTrack, onToggleLike, onToggleDislike, onMoveMultiple, onContextMenu });
+  const latestRef = useRef({ selectedIndices, onPlay, onTogglePlayPause, onStartRadio, onLocateTrack, onToggleLike, onToggleDislike, onMoveMultiple, onContextMenu, onShowFailure });
+  useAssignRef(latestRef, { selectedIndices, onPlay, onTogglePlayPause, onStartRadio, onLocateTrack, onToggleLike, onToggleDislike, onMoveMultiple, onContextMenu, onShowFailure });
 
   const rowPlay = useCallback((t: QueueTrack, i: number) => latestRef.current.onPlay(t, i), []);
   const rowTogglePlayPause = useCallback(() => latestRef.current.onTogglePlayPause(), []);
   const rowStartRadio = useCallback((t: QueueTrack) => latestRef.current.onStartRadio?.(t), []);
   const rowLocateTrack = useCallback((t: QueueTrack) => latestRef.current.onLocateTrack?.(t), []);
+  const rowShowFailure = useCallback((t: QueueTrack) => latestRef.current.onShowFailure?.(t), []);
   const rowToggleLike = useCallback((t: QueueTrack) => latestRef.current.onToggleLike?.(t), []);
   const rowToggleDislike = useCallback((t: QueueTrack) => latestRef.current.onToggleDislike?.(t), []);
 
@@ -912,7 +925,8 @@ export function QueuePanel({
               thumbInfo,
             })) ?? null}
             resolving={resolvingStatus?.key === t.key ? resolvingStatus : null}
-            resolveFailure={resolveFailures?.[t.key] ?? null}
+            failure={trackFailures?.[t.key] ?? null}
+            onShowFailure={rowShowFailure}
             showRadio={!!onStartRadio}
             showLocate={!!onLocateTrack}
             showLikes={!!onToggleLike}

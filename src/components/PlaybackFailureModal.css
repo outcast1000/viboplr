@@ -1,0 +1,106 @@
+.playback-failure-modal {
+  max-width: 560px;
+}
+
+.playback-failure-track {
+  margin: 0 0 8px;
+  font-size: var(--fs-base);
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.playback-failure-artist {
+  font-weight: 400;
+  color: var(--text-secondary);
+}
+
+.playback-failure-headline {
+  margin: 0;
+  font-size: var(--fs-sm);
+  color: var(--error);
+}
+
+.playback-failure-explanation {
+  margin: 4px 0 12px;
+  font-size: var(--fs-sm);
+  color: var(--text-secondary);
+}
+
+.playback-failure-rows {
+  margin: 0 0 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.playback-failure-row {
+  display: grid;
+  grid-template-columns: 96px 1fr;
+  gap: 8px;
+  font-size: var(--fs-sm);
+}
+
+.playback-failure-row dt {
+  color: var(--text-tertiary);
+}
+
+.playback-failure-row dd {
+  margin: 0;
+  color: var(--text-primary);
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.playback-failure-code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: var(--fs-xs);
+  user-select: text;
+}
+
+.playback-failure-subtitle {
+  margin: 0 0 6px;
+  font-size: var(--fs-xs);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-tertiary);
+}
+
+.playback-failure-attempts {
+  margin: 0 0 4px;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  max-height: 200px;
+  overflow-y: auto;
+}
+
+.playback-failure-attempts li {
+  display: grid;
+  grid-template-columns: minmax(96px, auto) 1fr;
+  column-gap: 8px;
+  padding: 4px 8px;
+  border-radius: var(--ds-radius);
+  background: var(--bg-tertiary);
+  font-size: var(--fs-sm);
+}
+
+.playback-failure-attempt-name {
+  color: var(--text-primary);
+}
+
+.playback-failure-attempt-outcome {
+  color: var(--text-secondary);
+}
+
+.playback-failure-attempts li.is-found .playback-failure-attempt-outcome {
+  color: var(--success);
+}
+
+.playback-failure-attempt-detail {
+  grid-column: 1 / -1;
+  color: var(--text-tertiary);
+  overflow-wrap: anywhere;
+}

@@ -48,7 +48,7 @@ import { type StreamResolver, createLibraryStreamResolver } from "./streamResolv
 import { BUILTIN_PRESETS, presetForGains } from "./eqPresets";
 import { timeAsync, getTimingEntries, type TimingEntry } from "./startupTiming";
 
-import { usePlayback } from "./hooks/usePlayback";
+import { usePlayback, type PlaybackOutcomeHandlers } from "./hooks/usePlayback";
 import { probeEngineCapabilities, nativeEngine, type EngineCapabilities } from "./playback/nativeEngine";
 import { useEngineComponent } from "./hooks/useEngineComponent";
 import { getPlaybackPosition, subscribePlaybackPosition } from "./playback/positionStore";
@@ -193,6 +193,8 @@ import { OnboardingWizard } from "./components/OnboardingWizard";
 import { onboardingDecision, normalizeProfile, SPOTIFY_PLUGIN_ID, type OnboardingProfile } from "./components/onboardingSteps";
 import BulkEditModal, { type BulkEditResult } from "./components/BulkEditModal";
 import PlaybackErrorModal from "./components/PlaybackErrorModal";
+import PlaybackFailureModal from "./components/PlaybackFailureModal";
+import { trackFailureReportLines } from "./playback/trackFailures";
 import { PromptModal } from "./components/PromptModal";
 import { PublishSourceModal } from "./components/PublishSourceModal";
 import { MixtapePreviewModal } from "./components/MixtapePreviewModal";
@@ -532,7 +534,10 @@ function App() {
   // next one — longer when a plugin may answer (utils/autoContinue.ts →
   // prefetchLeadSecs). Assigned once plugins and the library count exist.
   const prefetchLeadRef = useRef(LIBRARY_PREFETCH_LEAD_SECS);
-  const playback = usePlayback(restoredRef, peekNextRef, crossfadeSecsRef, advanceIndexRef, onScrobbleRef, resolveTrackSrcRef, prefetchNextRef, useNativeEngineRef, useNativeVideoRef, nativeEndedRef, playbackAutoSkipRef, prefetchLeadRef);
+  // Per-entry failure record for the queue rows — filled in by
+  // useStreamResolution's recorder once that hook exists below.
+  const playbackOutcomeRef = useRef<PlaybackOutcomeHandlers | null>(null);
+  const playback = usePlayback(restoredRef, peekNextRef, crossfadeSecsRef, advanceIndexRef, onScrobbleRef, resolveTrackSrcRef, prefetchNextRef, useNativeEngineRef, useNativeVideoRef, nativeEndedRef, playbackAutoSkipRef, prefetchLeadRef, playbackOutcomeRef);
 
   const [trackRank, setTrackRank] = useState<number | null>(null);
   const [artistRank, setArtistRank] = useState<number | null>(null);
@@ -1055,6 +1060,8 @@ function App() {
   // title plus an optional context block describing what the user was doing,
   // so a report raised from a playback failure carries that failure with it.
   const [reportProblem, setReportProblem] = useState<{ title: string; context: DiagnosticContext | null } | null>(null);
+  // Queue entry whose "Couldn't play" details dialog is open (by key).
+  const [failureDetailsKey, setFailureDetailsKey] = useState<string | null>(null);
 
   // Host-only facts for the diagnostic bundle — the things the report can't
   // reach on its own (release channel, effective engine, plugin + dependency
@@ -1213,7 +1220,7 @@ function App() {
   // while Bit-perfect mode drives it, the player's volume otherwise.
   const controlsVolume = bitPerfect.controlsVolume ?? playback.volume;
 
-  const { resolvingStatus, resolveFailures, resolvedSource } = useStreamResolution({
+  const { resolvingStatus, trackFailures, resolvedSource, recordPlaybackFailure, clearTrackFailure } = useStreamResolution({
     resolveTrackSrcRef,
     resolveStreamByUriRef,
     streamResolversRef,
@@ -1243,6 +1250,7 @@ function App() {
       }
     },
   });
+  useAssignRef(playbackOutcomeRef, { failed: recordPlaybackFailure, started: clearTrackFailure });
 
   // Seek-bar hover previews for video. Complements the waveform, which is audio-only:
   // at most one of the two is non-null for a given track. Declared after `plugins`
@@ -6798,7 +6806,8 @@ function App() {
           thumbInfo={queueHook.thumbInfo}
           resolvingStatus={resolvingStatus}
           backfillPending={queueHook.backfillPending}
-          resolveFailures={resolveFailures}
+          trackFailures={trackFailures}
+          onShowFailure={(track) => setFailureDetailsKey(track.key)}
         />
       {!queueCollapsed && (
         <button
@@ -7109,6 +7118,43 @@ function App() {
           })}
         />
       )}
+
+      {(() => {
+        // Closes itself when the entry leaves the queue or its failure clears
+        // (it played) — the record is the dialog's whole content.
+        if (!failureDetailsKey) return null;
+        const failure = trackFailures[failureDetailsKey];
+        const index = queueHook.queue.findIndex((t) => t.key === failureDetailsKey);
+        const track = index >= 0 ? queueHook.queue[index] : null;
+        if (!failure || !track) return null;
+        return (
+          <PlaybackFailureModal
+            track={track}
+            failure={failure}
+            onClose={() => setFailureDetailsKey(null)}
+            onRetry={() => {
+              setFailureDetailsKey(null);
+              queueHook.setQueueIndex(index);
+              playback.handlePlay(track);
+            }}
+            onReportProblem={() => {
+              setFailureDetailsKey(null);
+              setReportProblem({
+                title: "Playback failed",
+                context: {
+                  title: "Playback failure",
+                  lines: [
+                    ...trackFailureReportLines(failure, track),
+                    `Source class: ${sourceClass(track.path)}`,
+                    `Format: ${track.format ?? "unknown"}`,
+                    `Engine: ${mpvCapable ? "mpv" : "not loaded"}`,
+                  ],
+                },
+              });
+            }}
+          />
+        );
+      })()}
 
       {reportProblem && (
         <ReportProblemModal

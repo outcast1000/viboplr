@@ -533,6 +533,22 @@
   flex-shrink: 0;
 }
 
+/* The failure note is a button: it opens the details dialog. */
+button.queue-item-status-failed {
+  width: 100%;
+  padding: 0;
+  border: 0;
+  background: none;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+button.queue-item-status-failed:hover .queue-resolving-error,
+button.queue-item-status-failed:focus-visible .queue-resolving-error {
+  text-decoration: underline;
+}
+
 .queue-item-title {
   overflow: hidden;
   text-overflow: ellipsis;

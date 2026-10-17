@@ -278,6 +278,11 @@ Queue items show: thumbnail, a like/dislike indicator before the title (driven b
 
 Features: drag-and-drop reorder, multi-select (Shift/Cmd+Click), right-click context menu, duplicate detection on enqueue, resizable width via drag handle.
 
+**Failed entries say so, and say why.** An entry that didn't play carries a red **"Couldn't play · …"** note under its artist line; clicking it opens `PlaybackFailureModal` (what failed, the source the player was handed, the player's own error, how many times it tried, every resolver the chain asked and how each ended; Try again / Report a problem / Close). One record per entry (`playback/trackFailures.ts`, state in `useStreamResolution` → `trackFailures`), two stages:
+- **`resolve`** — every resolver came back empty. Written by the chain; cleared by a later successful resolve.
+- **`playback`** — a source was found but the engine couldn't open it (an expired/refused stream, an undecodable file). Written by `usePlayback.surfacePlaybackFailure` on **both** surfaces (auto-skip toast and modal) via its `playbackOutcomeRef`, after the remote retries are spent; cleared only by the engine's first real progress for that entry (`started`), **not** by a successful resolve — a resolve is exactly what preceded the failure, and clearing on it is how these notes used to vanish.
+`handlePlay` re-reports an exhausted chain as a bare message on its way out; `mergeTrackFailure` keeps the chain's richer record. Records are pruned with the entry when it leaves the queue. Preload failures are not recorded — the explicit play at the boundary reports them if they recur.
+
 ### Playlist Context
 
 When tracks are played from a specific source (album, artist, tag, playlist, plugin view, etc.), a `PlaylistContext` is attached to the queue. This gives the queue panel awareness of *what* the user is playing.

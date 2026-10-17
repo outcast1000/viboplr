@@ -9,6 +9,12 @@ import type { StreamCandidate } from "../types/plugin";
 import { type StreamResolver } from "../streamResolvers";
 import { track as trackTelemetry, sourceClass } from "../telemetry";
 import { classifyErrorKind } from "../utils/errorKind";
+import {
+  CHAIN_EXHAUSTED_MESSAGE,
+  mergeTrackFailure,
+  type ResolverAttempt,
+  type TrackFailure,
+} from "../playback/trackFailures";
 
 import { useAssignRef } from "./useLatestRef";
 import type { Notify } from "./useToasts";
@@ -227,9 +233,23 @@ export function useStreamResolution({
   onTrackFormatResolved,
 }: UseStreamResolutionDeps) {
   const [resolvingStatus, setResolvingStatus] = useState<{ key: string; error: string | null; trying: string | null } | null>(null);
-  // Persistent per-track resolve failures, keyed by QueueTrack.key. Survives track
-  // changes so the failed row keeps explaining what happened until a later retry succeeds.
-  const [resolveFailures, setResolveFailures] = useState<Record<string, string>>({});
+  // Persistent per-track failures, keyed by QueueTrack.key — both stages (see
+  // playback/trackFailures.ts). Survives track changes so the failed row keeps
+  // explaining what happened. A `resolve` failure clears on a later successful
+  // resolve; a `playback` one only once the engine actually plays the entry
+  // (`clearTrackFailure`), since a resolve is exactly what preceded it.
+  const [trackFailures, setTrackFailures] = useState<Record<string, TrackFailure>>({});
+  const clearResolveStageFailure = useCallback((key: string) => {
+    setTrackFailures(prev => {
+      if (prev[key]?.stage !== "resolve") return prev;
+      const next = { ...prev };
+      delete next[key];
+      return next;
+    });
+  }, []);
+  // The chain's last walk per entry — what a playback failure reports as "what
+  // was tried" (the walk that found the source the engine then refused).
+  const attemptsByKeyRef = useRef<Map<string, ResolverAttempt[]>>(new Map());
   // The winning source per track, keyed by QueueTrack.key. The now-playing UI
   // reads the CURRENT track's entry (`resolvedSource` below), so a preload of the
   // next track can record its answer early without relabelling the one playing —
@@ -248,6 +268,8 @@ export function useStreamResolution({
     });
   }, []);
   const resolvedSource = currentTrack ? sourcesByKey[currentTrack.key] ?? null : null;
+  const sourcesByKeyRef = useRef(sourcesByKey);
+  useAssignRef(sourcesByKeyRef, sourcesByKey);
   const resolveGenerationRef = useRef(0);
 
   // Single-flight + short-TTL success cache for track resolution, both keyed by
@@ -598,7 +620,7 @@ export function useStreamResolution({
       }
 
       if (chain.length === 0) {
-        throw new Error("Couldn't find a playable source for this track");
+        throw new Error(CHAIN_EXHAUSTED_MESSAGE);
       }
 
       let lastError: string | null = null;
@@ -607,6 +629,7 @@ export function useStreamResolution({
       // by the time the chain is exhausted the actual cause is otherwise gone.
       let lastThrown: unknown = null;
       const failures: ChainFailure[] = [];
+      const attempts: ResolverAttempt[] = [];
       for (const entry of chain) {
         if (!preload && resolveGenerationRef.current !== generation) return { src: "" };
         if (lastError || chain.length > 1) {
@@ -616,13 +639,11 @@ export function useStreamResolution({
           const { src, engineSource } = await entry.resolve();
           if (!preload && resolveGenerationRef.current !== generation) return { src: "" };
           setResolvingStatus(null);
-          // Resolved successfully — clear any prior persistent failure for this track.
-          setResolveFailures(prev => {
-            if (!(track.key in prev)) return prev;
-            const next = { ...prev };
-            delete next[track.key];
-            return next;
-          });
+          attempts.push({ name: entry.name, outcome: "found" });
+          attemptsByKeyRef.current.set(track.key, attempts);
+          // Resolved — a "no source" note is now wrong. A playback-stage note
+          // stays until the engine actually plays it.
+          clearResolveStageFailure(track.key);
           const meta: ResolvedSource = { name: entry.name, url: src, sourceUrl: entry.sourceUrl, id: entry.id, effectiveSource: entry.effectiveSource ?? { kind: "direct-url", uri: src } };
           setResolvedSource(track.key, meta);
           if (entry.fellBackToAudio) {
@@ -643,6 +664,13 @@ export function useStreamResolution({
           console.error(`Stream resolver "${entry.name}" failed:`, e);
           lastError = entry.failureLabel ?? entryFailureLabel(entry.name);
           lastThrown = e;
+          attempts.push({
+            name: entry.name,
+            outcome: e instanceof ResolverMiss
+              ? (entry.videoFirst && e.reason === "miss" ? "no-video" : e.reason)
+              : "error",
+            detail: e instanceof ResolverMiss && e.reason === "miss" ? null : e instanceof Error ? e.message : String(e),
+          });
           failures.push({
             name: entry.name,
             native: entry.native,
@@ -660,7 +688,9 @@ export function useStreamResolution({
       // Record a persistent failure for this track so the queue row keeps
       // explaining what happened even after playback moves to another track.
       // Blamed on the track's own source, not the last fallback resolver tried.
-      setResolveFailures(prev => ({ ...prev, [track.key]: describeChainFailure(failures) }));
+      attemptsByKeyRef.current.set(track.key, attempts);
+      const failure: TrackFailure = { stage: "resolve", summary: describeChainFailure(failures), at: Date.now(), attempts };
+      setTrackFailures(prev => ({ ...prev, [track.key]: failure }));
       // `providers_tried` separates "no resolver could play it" from "nothing
       // even offered to try", which are different bugs with the same symptom.
       trackTelemetry("stream_resolve_failed", {
@@ -668,7 +698,7 @@ export function useStreamResolution({
         error_kind: classifyErrorKind(lastThrown),
         providers_tried: chain.length,
       });
-      throw new Error("Couldn't find a playable source for this track");
+      throw new Error(CHAIN_EXHAUSTED_MESSAGE);
     };
 
     // Public resolver: single-flight in-flight dedup + short-TTL success cache,
@@ -708,12 +738,7 @@ export function useStreamResolution({
           if (!preload) {
             setResolvingStatus(null);
             setResolvedSource(key, cached.meta);
-            setResolveFailures(prev => {
-              if (!(key in prev)) return prev;
-              const next = { ...prev };
-              delete next[key];
-              return next;
-            });
+            clearResolveStageFailure(key);
           }
           return cached.resolved;
         }
@@ -758,7 +783,39 @@ export function useStreamResolution({
       inFlightResolvesRef.current.set(key, promise);
       return promise;
     };
-  }, [resolveTrackSrcRef, resolveStreamByUriRef, streamResolversRef, preferVideoRef]);
+  }, [resolveTrackSrcRef, resolveStreamByUriRef, streamResolversRef, preferVideoRef, clearResolveStageFailure]);
+
+  /** The engine gave up on an entry (after its retries) or the play threw.
+   *  Attaches what the chain tried and the source the engine was handed. */
+  const recordPlaybackFailure = useCallback(
+    (key: string, info: { summary: string; engineError?: string | null; tries?: number | null }) => {
+      const meta = sourcesByKeyRef.current[key];
+      const incoming: TrackFailure = {
+        stage: "playback",
+        summary: info.summary,
+        at: Date.now(),
+        attempts: attemptsByKeyRef.current.get(key) ?? [],
+        source: meta ? { name: meta.name, url: meta.sourceUrl ?? meta.url ?? null } : null,
+        engineError: info.engineError ?? null,
+        tries: info.tries ?? null,
+      };
+      setTrackFailures(prev => {
+        const merged = mergeTrackFailure(prev[key], incoming);
+        return merged === prev[key] ? prev : { ...prev, [key]: merged };
+      });
+    },
+    [],
+  );
+
+  /** The engine is playing this entry — whatever failed before no longer applies. */
+  const clearTrackFailure = useCallback((key: string) => {
+    setTrackFailures(prev => {
+      if (!(key in prev)) return prev;
+      const next = { ...prev };
+      delete next[key];
+      return next;
+    });
+  }, []);
 
   // Same for the per-track sources — except the playing track's, which is kept
   // even when it has left the queue (a cleared queue keeps playing).
@@ -775,20 +832,24 @@ export function useStreamResolution({
     });
   }, [queue, currentKey]);
 
-  // Prune persistent resolve failures for tracks no longer in the queue, so the
-  // map stays bounded and a recycled key can't inherit a stale error.
+  // Prune persistent failures (and the attempt log) for tracks no longer in the
+  // queue, so both stay bounded and a recycled key can't inherit a stale error.
   useEffect(() => {
-    setResolveFailures(prev => {
+    const live = new Set(queue.map(t => t.key));
+    if (currentKey) live.add(currentKey);
+    for (const k of attemptsByKeyRef.current.keys()) {
+      if (!live.has(k)) attemptsByKeyRef.current.delete(k);
+    }
+    setTrackFailures(prev => {
       const keys = Object.keys(prev);
       if (keys.length === 0) return prev;
-      const live = new Set(queue.map(t => t.key));
       const stale = keys.filter(k => !live.has(k));
       if (stale.length === 0) return prev;
       const next = { ...prev };
       for (const k of stale) delete next[k];
       return next;
     });
-  }, [queue]);
+  }, [queue, currentKey]);
 
-  return { resolvingStatus, resolveFailures, resolvedSource };
+  return { resolvingStatus, trackFailures, resolvedSource, recordPlaybackFailure, clearTrackFailure };
 }

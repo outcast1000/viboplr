@@ -42,6 +42,13 @@ import { setPlaybackPosition, getPlaybackPosition } from "../playback/positionSt
 import { noteNativeFailure, clearNativeRetries, streamLadderStep } from "../playback/playbackRetry";
 import type { EqClipProtection, EqMode } from "../eqPresets";
 import { useAssignRef } from "./useLatestRef";
+import { CHAIN_EXHAUSTED_MESSAGE } from "../playback/trackFailures";
+
+/** What usePlayback tells the per-entry failure record (see its last param). */
+export interface PlaybackOutcomeHandlers {
+  failed: (key: string, info: { summary: string; engineError?: string | null; tries?: number | null }) => void;
+  started: (key: string) => void;
+}
 
 /** Engine attempts allowed for one remote track before its failure is shown.
  *  Three because each one costs a fresh resolve (a yt-dlp run, seconds) and the
@@ -124,6 +131,11 @@ export function usePlayback(
   // Seconds before the end at which to ask auto-continue for the next track
   // (App: utils/autoContinue.ts → prefetchLeadSecs). Absent = the preload lead.
   prefetchLeadRef?: React.RefObject<number>,
+  // Per-entry failure record for the queue row (playback/trackFailures.ts):
+  // `failed` when a play is given up on — both surfaces, auto-skip and modal —
+  // and `started` once the engine reports real progress for an entry, which is
+  // what clears it. App points this at useStreamResolution's recorder.
+  playbackOutcomeRef?: React.RefObject<PlaybackOutcomeHandlers | null>,
 ) {
   const [currentTrack, setCurrentTrack] = useState<QueueTrack | null>(null);
   const [playing, setPlaying] = useState(false);
@@ -190,6 +202,9 @@ export function usePlayback(
   // progress in between — the circuit breaker's counter (see
   // surfacePlaybackFailure). Reset on user plays and on real progress ticks.
   const autoSkipStreakRef = useRef(0);
+  // The entry `playbackOutcomeRef.started` was last sent for — so it fires once
+  // per entry, not on every position tick. Reset when that entry fails.
+  const startedReportedKeyRef = useRef<string | null>(null);
   // Monotonic id bumped on every play request. A superseded request (a newer
   // play started while this one was resolving) discards its outcome instead of
   // flashing a playback-error modal or claiming the now-playing bar.
@@ -578,6 +593,13 @@ export function usePlayback(
         // (background, then desktop) until mpv's real first present. The
         // accurate signal is `engine-playback-restart` (see its subscription).
 
+        // First real progress for this entry: it plays, so a failure noted on its
+        // queue row is no longer true. Once per entry until it fails again.
+        if (payload.positionSecs > 0 && startedReportedKeyRef.current !== payload.trackKey) {
+          startedReportedKeyRef.current = payload.trackKey;
+          playbackOutcomeRef?.current?.started(payload.trackKey);
+        }
+
         const track = currentTrackRef.current;
         // Real playback progress — a track is actually playing, so the streak
         // of consecutive auto-skipped failures (surfacePlaybackFailure's
@@ -768,7 +790,10 @@ export function usePlayback(
           return;
         }
         setPlaying(false);
-        surfacePlaybackFailureRef.current(engineErrorMessage(payload.message), track, lastPlaySrcRef.current);
+        surfacePlaybackFailureRef.current(engineErrorMessage(payload.message), track, lastPlaySrcRef.current, {
+          engineError: payload.message,
+          tries: failures,
+        });
       }),
     );
   }, []);
@@ -832,7 +857,7 @@ export function usePlayback(
       // surfaces it instead of leaving playback stuck on a stale now-playing bar.
       if (decision === "fail") {
         diagnosePlayOutcome("fail", track, generation, !!resolved.src);
-        throw new Error("Couldn't find a playable source for this track");
+        throw new Error(CHAIN_EXHAUSTED_MESSAGE);
       }
       // Resolution may have discovered the real local file for a path-less /
       // remote track (e.g. a Home track-row that only carried title+artist).
@@ -1117,7 +1142,22 @@ export function usePlayback(
   // network for a connectivity error; local tracks probe the disk for a missing
   // file. The functional upgrade only replaces the exact base message, so it
   // never reopens a dismissed modal or clobbers a newer failure.
-  function surfacePlaybackFailure(base: string, track: QueueTrack | null, src: string | null) {
+  function surfacePlaybackFailure(
+    base: string,
+    track: QueueTrack | null,
+    src: string | null,
+    engine?: { engineError: string; tries: number },
+  ) {
+    // The queue row keeps saying this after the toast or modal is gone — and a
+    // click on it explains it (playback/trackFailures.ts).
+    const recordFailure = (summary: string) => {
+      if (!track) return;
+      playbackOutcomeRef?.current?.failed(track.key, { summary, engineError: engine?.engineError, tries: engine?.tries });
+    };
+    if (track) {
+      if (startedReportedKeyRef.current === track.key) startedReportedKeyRef.current = null;
+      recordFailure(base);
+    }
     // Anonymous reliability signal: playback failed. Coarse class only — never
     // the error text, title, or path. `reason` is the original two-way split
     // (dashboards key on it); the bucketed `error_kind` is the finer breakdown
@@ -1131,7 +1171,7 @@ export function usePlayback(
     // A track the QUEUE advanced to (playlist progression, gapless handoff —
     // not a user click) skips straight to the next track instead of stopping
     // the music behind the modal's 15s countdown. The user still sees it: App's
-    // handler raises a toast, and a resolve failure keeps its persistent
+    // handler raises a toast, and the failure recorded above keeps its
     // "Couldn't play · …" note on the queue row. The streak cap is the circuit
     // breaker — past it the modal (whose countdown still advances, just slowly)
     // takes over, so a fully dead queue in repeat-all can't spin forever.
@@ -1158,6 +1198,7 @@ export function usePlayback(
           const refined = describeLocalPlaybackFailure(base, exists);
           if (refined === base) return;
           setPlaybackError(prev => (prev === base ? refined : prev));
+          recordFailure(refined);
         })
         .catch((e) => console.error("Failed to probe playback file existence:", e));
       return;
@@ -1166,6 +1207,7 @@ export function usePlayback(
       const refined = describePlaybackFailure(base, true, network);
       if (refined === base) return;
       setPlaybackError(prev => (prev === base ? refined : prev));
+      recordFailure(refined);
     });
   }
   const surfacePlaybackFailureRef = useRef(surfacePlaybackFailure);
