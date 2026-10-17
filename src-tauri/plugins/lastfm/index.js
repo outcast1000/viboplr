@@ -614,7 +614,7 @@ function activate(api) {
   // when some plugin can play a track the library doesn't have — the library
   // resolver alone would fail on nearly every row.
 
-  var MIX_SIZE = 50;
+  var MIX_SIZE = 30;
   var PER_ARTIST_CAP = 3;
   var MIX_SHELF = "lastfm-mixes";
 
@@ -917,7 +917,7 @@ function activate(api) {
         exclude[trackKey(title, artist)] = true;
         return playMix([seed], { name: "Radio: " + title, source: "radio" }, function () {
           return similarThenArtist(artist, title, 10).then(function (mix) {
-            return shapeMix(mix.list, { exclude: exclude, uncapped: mix.toppedUp ? artist : null });
+            return shapeMix(mix.list, { exclude: exclude, uncapped: mix.toppedUp ? artist : null, size: MIX_SIZE - 1 });
           }).then(withHead(seed));
         }, failMessage);
       }
@@ -929,7 +929,7 @@ function activate(api) {
         exclude[trackKey(head.title, head.artist_name)] = true;
         return playMix([head], { name: "Radio: " + artist, source: "radio" }, function () {
           return artistMixTracks(artist).then(function (list) {
-            return shapeMix(list, { exclude: exclude, uncapped: artist });
+            return shapeMix(list, { exclude: exclude, uncapped: artist, size: MIX_SIZE - 1 });
           }).then(withHead(head));
         }, failMessage);
       });
@@ -981,12 +981,57 @@ function activate(api) {
   }
 
   // --- Home shelf: "From Last.fm" ---
-  // Seeded from the user's own history (name-keyed, so it works with no
-  // library and without signing in to Last.fm). Cards that can be built in one
-  // request ship their whole list; an artist mix needs a dozen, so its card
-  // ships the artist's top song and the rest resolves on play (`partial`).
+  // Every card is filled on demand, so building the shelf costs Last.fm next
+  // to nothing. Song and artist cards open with a song from the user's own
+  // history (`partial`): the host plays it at once and appends the rest,
+  // resolved on play. Genre and Trending cards ship the list kept from their
+  // last build when there is one, else no tracks (the host waits for the
+  // resolve on play); those lists are rebuilt in the background after every
+  // fetch, so the next one is instant.
+  //
+  // Home gives a shelf 5 seconds and drops it whole on a timeout, so the few
+  // lookups left (genre names, a signed-in user's account history, an artist
+  // with no song in the history) share one SHELF_BUDGET_MS deadline and fall
+  // back to what was kept last time. At least MIN_CARDS are shown: popular
+  // genres fill the gap, from a list that needs no request.
+
+  var MIN_CARDS = 6;
+  var SHELF_BUDGET_MS = 3000;
+  var MIN_MIX_TRACKS = 8;
+  var SHELF_STORE_KEY = "home_mixes";
+  var THIN_MAX = 50;
+  var POPULAR_TAGS = ["rock", "electronic", "indie", "alternative", "pop", "hip-hop", "jazz", "soul", "metal", "folk", "punk", "ambient"];
 
   var JUNK_TAG = /seen live|favou?rite|^\d+s?$|^my |albums i own|under \d+/i;
+
+  // One deadline per shelf fetch. `within(promise, fallback)` settles with the
+  // promise's value, or with `fallback` once the deadline passes or the
+  // promise fails. The lookup keeps running either way, and the memo above
+  // keeps its answer for the next fetch.
+  function makeDeadline() {
+    var end = Date.now() + SHELF_BUDGET_MS;
+    return function within(promise, fallback) {
+      return new Promise(function (resolve) {
+        var done = false;
+        var timer = setTimeout(function () {
+          done = true;
+          resolve(fallback);
+        }, Math.max(0, end - Date.now()));
+        promise.then(function (value) {
+          if (done) return;
+          done = true;
+          clearTimeout(timer);
+          resolve(value);
+        }, function (err) {
+          if (done) return;
+          done = true;
+          clearTimeout(timer);
+          console.error("[lastfm] home mix lookup failed:", err && err.message);
+          resolve(fallback);
+        });
+      });
+    };
+  }
 
   function featuredArtists(tracks) {
     var names = [];
@@ -997,37 +1042,68 @@ function activate(api) {
     return names.join(", ");
   }
 
-  // Up to two song seeds (different artists) and two artist seeds from
-  // `recent` / `top`, both lists of { title?, artist }.
-  function pickSeeds(recent, top) {
+  function capitalize(s) {
+    return s.charAt(0).toUpperCase() + s.slice(1);
+  }
+
+  function seedTrack(song) {
+    return { title: song.title, artist_name: song.artist, album_title: song.album || undefined };
+  }
+
+  // Up to three song seeds (different artists) and three artist seeds, each
+  // artist with the song its card opens with: their most played lately, else
+  // their latest play. `recent` / `played` are lists of { title, artist,
+  // album? }, `top` a list of artist names.
+  function pickSeeds(recent, top, played) {
     var tracks = [];
-    var usedArtists = {};
+    var used = {};
     recent.forEach(function (h) {
-      if (tracks.length >= 2 || !h || !h.title || !h.artist) return;
+      if (tracks.length >= 3 || !h || !h.title || !h.artist) return;
       var a = h.artist.toLowerCase();
-      if (usedArtists[a]) return;
-      usedArtists[a] = true;
-      tracks.push({ title: h.title, artist: h.artist });
+      if (used[a]) return;
+      used[a] = true;
+      tracks.push(h);
     });
-    var artists = [];
-    top.forEach(function (name) {
-      if (!name || artists.length >= 2 || usedArtists[name.toLowerCase()]) return;
-      usedArtists[name.toLowerCase()] = true;
-      artists.push(name);
+    var names = [];
+    function addArtist(name) {
+      if (!name || names.length >= 3 || used[name.toLowerCase()]) return;
+      used[name.toLowerCase()] = true;
+      names.push(name);
+    }
+    top.forEach(addArtist);
+    recent.forEach(function (h) { addArtist(h && h.artist); });
+    var songs = played.concat(recent);
+    var artists = names.map(function (name) {
+      var lower = name.toLowerCase();
+      var head = null;
+      for (var i = 0; i < songs.length && !head; i++) {
+        var s = songs[i];
+        if (s && s.title && s.artist && s.artist.toLowerCase() === lower) head = seedTrack(s);
+      }
+      return { name: name, head: head };
     });
     return { tracks: tracks, artists: artists };
   }
 
+  function historySong(h) {
+    return h && { title: h.display_title, artist: h.display_artist, album: h.display_album || null };
+  }
+
   function localHistory() {
-    if (typeof api.library.getHistory !== "function") return Promise.resolve({ recent: [], top: [] });
-    var recent = api.library.getHistory({ limit: 80 }).catch(function () { return []; });
+    if (typeof api.library.getHistory !== "function") return Promise.resolve({ recent: [], top: [], played: [] });
+    var none = function () { return []; };
+    var recent = api.library.getHistory({ limit: 80 }).catch(none);
     var top = typeof api.library.getMostPlayedArtists === "function"
-      ? api.library.getMostPlayedArtists({ days: 30, limit: 6 }).catch(function () { return []; })
+      ? api.library.getMostPlayedArtists({ days: 30, limit: 6 }).catch(none)
       : Promise.resolve([]);
-    return Promise.all([recent, top]).then(function (res) {
+    var played = typeof api.library.getMostPlayed === "function"
+      ? api.library.getMostPlayed({ days: 30, limit: 50 }).catch(none)
+      : Promise.resolve([]);
+    return Promise.all([recent, top, played]).then(function (res) {
       return {
-        recent: (res[0] || []).map(function (h) { return h && { title: h.display_title, artist: h.display_artist }; }),
+        recent: (res[0] || []).map(historySong),
         top: (res[1] || []).map(function (r) { return r && r.display_name; }),
+        played: (res[2] || []).map(historySong),
       };
     });
   }
@@ -1053,11 +1129,13 @@ function activate(api) {
     return Promise.all([recent, top]).then(function (res) { return { recent: res[0], top: res[1] }; });
   }
 
-  function historySeeds() {
+  function historySeeds(within) {
     return localHistory().then(function (local) {
-      var seeds = pickSeeds(local.recent, local.top);
+      var seeds = pickSeeds(local.recent, local.top, local.played);
       if (seeds.tracks.length + seeds.artists.length > 0) return seeds;
-      return accountHistory().then(function (account) { return pickSeeds(account.recent, account.top); });
+      return within(accountHistory(), { recent: [], top: [] }).then(function (account) {
+        return pickSeeds(account.recent, account.top, []);
+      });
     });
   }
 
@@ -1065,12 +1143,12 @@ function activate(api) {
     return asList(data && data.toptags && data.toptags.tag).map(function (t) { return t && t.name; });
   }
 
-  // Genres to build mixes from, from the first source that has any (after the
-  // junk filter): the user's own Last.fm tags (signed in), then the top
-  // artist's, then a couple of Last.fm's most popular — so a signed-in user who
-  // never tagged anything still gets genre mixes. A source that fails counts
-  // as empty.
-  function seedTags(artistSeed) {
+  // Up to two genres, taken in order from: the user's own Last.fm tags
+  // (signed in), the top artist's, then a few of Last.fm's most popular.
+  // Junk tags and genres known to be too thin for a mix (`thin`) are skipped,
+  // and a source that runs short hands over to the next one. A source that
+  // fails counts as empty.
+  function seedTags(artistSeed, thin) {
     var sources = [];
     if (state.username) {
       var user = state.username;
@@ -1094,108 +1172,198 @@ function activate(api) {
         });
       }).then(function (names) { return shuffle(names.filter(Boolean).slice(0, 10)); });
     });
+    var picked = [];
     function tryFrom(i) {
-      if (i >= sources.length) return Promise.resolve([]);
+      if (i >= sources.length || picked.length >= 2) return Promise.resolve(picked);
       return sources[i]().catch(function (err) {
         console.error("[lastfm] tag lookup failed:", err && err.message);
         return [];
       }).then(function (tags) {
-        var usable = tags.filter(function (n) { return n && !JUNK_TAG.test(n); }).slice(0, 2);
-        return usable.length > 0 ? usable : tryFrom(i + 1);
+        tags.forEach(function (n) {
+          if (picked.length >= 2 || !n || JUNK_TAG.test(n) || thin["tag:" + n.toLowerCase()]) return;
+          if (picked.some(function (p) { return p.toLowerCase() === n.toLowerCase(); })) return;
+          picked.push(n);
+        });
+        return tryFrom(i + 1);
       });
     }
     return tryFrom(0);
   }
 
-  function similarCard(seed) {
-    return similarTracks(seed.artist, seed.title).then(function (list) {
-      return shapeMix(looseShuffle(list, 8));
-    }).then(function (tracks) {
-      if (tracks.length < 8) return null;
-      return {
-        id: "similar:" + encodeURIComponent(seed.artist) + "|" + encodeURIComponent(seed.title),
-        name: "Similar to " + seed.title,
-        subtitle: featuredArtists(tracks),
-        tracks: tracks,
-      };
-    });
+  function tagId(tag) {
+    return "tag:" + encodeURIComponent(tag.toLowerCase());
   }
 
-  function artistCard(artist) {
-    return artistTopTracks(artist).then(function (top) {
-      if (top.length === 0) return null;
-      return {
-        id: "artist:" + encodeURIComponent(artist),
-        name: artist + " & similar",
-        subtitle: "Mix from Last.fm",
-        tracks: [top[0]],
-        partial: true,
-      };
-    });
-  }
-
-  function tagCard(tag) {
+  function tagMixTracks(tag) {
     return memoized("tag:" + tag.toLowerCase(), function () {
       return lastfmGet("tag.getTopTracks", [["tag", tag], ["limit", "100"]]).then(function (data) {
         return asList(data && data.tracks && data.tracks.track).map(function (t) { return toPluginTrack(t); });
       });
     }).then(function (list) {
-      return shapeMix(shuffle(list), { size: 40, perArtist: 2 });
-    }).then(function (tracks) {
-      if (tracks.length < 8) return null;
-      return {
-        id: "tag:" + encodeURIComponent(tag.toLowerCase()),
-        name: tag.charAt(0).toUpperCase() + tag.slice(1) + " mix",
-        subtitle: featuredArtists(tracks),
-        tracks: tracks,
-      };
+      return shapeMix(shuffle(list), { perArtist: 2 });
     });
   }
 
-  function trendingCard() {
+  function trendingTracks() {
     return memoized("chart", function () {
       return lastfmGet("chart.getTopTracks", [["limit", "100"]]).then(function (data) {
         return asList(data && data.tracks && data.tracks.track).map(function (t) { return toPluginTrack(t); });
       });
     }).then(function (list) {
-      return shapeMix(list, { size: 50, perArtist: 2 });
-    }).then(function (tracks) {
-      if (tracks.length < 8) return null;
-      return { id: "trending", name: "Trending on Last.fm", subtitle: featuredArtists(tracks), tracks: tracks };
+      return shapeMix(list, { perArtist: 2 });
     });
   }
 
-  function settleCard(p) {
-    return p.catch(function (err) {
-      console.error("[lastfm] home mix failed:", err && err.message);
-      return null;
+  // The full list behind a genre or Trending card, or null for any other id.
+  function listTracksFor(id) {
+    if (id === "trending") return trendingTracks();
+    if (id.indexOf("tag:") === 0) return tagMixTracks(decodeURIComponent(id.slice(4)));
+    return null;
+  }
+
+  function songCard(seed) {
+    return {
+      id: "similar:" + encodeURIComponent(seed.artist) + "|" + encodeURIComponent(seed.title),
+      name: "Similar to " + seed.title,
+      subtitle: seed.artist + " · mix from Last.fm",
+      tracks: [seedTrack(seed)],
+      partial: true,
+    };
+  }
+
+  // An artist without a song in the history opens with their best-known one,
+  // when Last.fm answers in time.
+  function artistCard(seed, within) {
+    var head = seed.head
+      ? Promise.resolve(seed.head)
+      : within(artistTopTracks(seed.name).then(function (top) { return top[0] || null; }), null);
+    return head.then(function (h) {
+      if (!h) return null;
+      return {
+        id: "artist:" + encodeURIComponent(seed.name),
+        name: seed.name + " & similar",
+        subtitle: "Mix from Last.fm",
+        tracks: [h],
+        partial: true,
+      };
     });
+  }
+
+  // A genre or Trending card: the list kept from its last build, minus what
+  // the user has disliked since, or no tracks when there is none (or what is
+  // left is too short), in which case it resolves on play.
+  function listCard(id, name, about, store) {
+    var kept = store.lists && store.lists[id];
+    var list = Array.isArray(kept) ? kept : [];
+    return dropDisliked(list).then(function (tracks) {
+      if (tracks.length < MIN_MIX_TRACKS) tracks = [];
+      return { id: id, name: name, subtitle: tracks.length > 0 ? featuredArtists(tracks) : about, tracks: tracks };
+    });
+  }
+
+  function loadShelfStore() {
+    return api.storage.get(SHELF_STORE_KEY).then(function (v) {
+      return v && typeof v === "object" ? v : {};
+    }, function (err) {
+      console.error("[lastfm] couldn't read kept home mixes:", err && err.message);
+      return {};
+    });
+  }
+
+  // Rebuilds the lists of the genre and Trending cards just shown and keeps
+  // them for the next fetch. A genre whose mix comes out too short is
+  // remembered as thin and not offered again; a lookup that fails keeps the
+  // old list. Only the lists of the cards shown are kept, so the stored value
+  // stays a few dozen tracks per card.
+  var refreshingLists = null;
+  function refreshLists(items, tags, store) {
+    if (refreshingLists) return refreshingLists;
+    var ids = items.map(function (i) { return i.id; }).filter(function (id) { return listTracksFor(id) !== null; });
+    var oldLists = store.lists || {};
+    refreshingLists = mapLimit(ids, 2, function (id) {
+      return listTracksFor(id).then(function (tracks) {
+        return { id: id, tracks: tracks };
+      }, function (err) {
+        console.error("[lastfm] couldn't rebuild " + id + ":", err && err.message);
+        return { id: id, tracks: null };
+      });
+    }).then(function (results) {
+      var thinKeys = Object.keys(store.thin || {});
+      var next = { lists: {}, thin: {}, tags: tags.slice(0, 2) };
+      results.forEach(function (r) {
+        if (!r.tracks) {
+          if (oldLists[r.id]) next.lists[r.id] = oldLists[r.id];
+        } else if (r.tracks.length >= MIN_MIX_TRACKS) {
+          next.lists[r.id] = r.tracks;
+        } else {
+          thinKeys.push(r.id);
+        }
+      });
+      thinKeys.slice(-THIN_MAX).forEach(function (k) { next.thin[k] = true; });
+      return api.storage.set(SHELF_STORE_KEY, next);
+    }).catch(function (err) {
+      console.error("[lastfm] couldn't keep home mixes:", err && err.message);
+    }).then(function () {
+      refreshingLists = null;
+    });
+    return refreshingLists;
   }
 
   // Every host the plugin supports has api.home (since 0.9.91); the guard only
   // keeps a missing one from aborting the rest of activate.
   if (api.home) api.home.onFetchShelf(MIX_SHELF, function (limit) {
+    var max = limit || 10;
+    var within = makeDeadline();
     return hasPlaybackSource().then(function (ok) {
       if (!ok) return { status: "empty" };
-      return historySeeds().then(function (seeds) {
+      return Promise.all([historySeeds(within), loadShelfStore()]).then(function (res) {
+        var seeds = res[0];
+        var store = res[1];
+        var thin = store.thin || {};
         var noHistory = seeds.tracks.length + seeds.artists.length === 0;
-        var topArtist = seeds.artists[0] || (seeds.tracks[0] && seeds.tracks[0].artist) || null;
-        // The song and artist cards don't need the tags: all start at once.
-        var seeded = seeds.tracks.map(similarCard).concat(seeds.artists.map(artistCard)).map(settleCard);
-        var tagged = seedTags(topArtist).then(function (tags) {
-          return Promise.all(tags.map(tagCard).map(settleCard));
-        }, function () { return []; });
-        // Nothing to personalise from: open with what's popular now.
-        var trending = noHistory ? settleCard(trendingCard()) : Promise.resolve(null);
-        return Promise.all([trending, Promise.all(seeded), tagged]).then(function (res) {
-          var items = [res[0]].concat(res[1], res[2]).filter(Boolean);
-          if (noHistory || items.length >= 2) return items;
-          // Thin history (its seeds found little): top up with Trending.
-          return settleCard(trendingCard()).then(function (t) { return t ? items.concat([t]) : items; });
+        var topArtist = (seeds.artists[0] && seeds.artists[0].name) || (seeds.tracks[0] && seeds.tracks[0].artist) || null;
+        var keptTags = (store.tags || []).filter(function (t) { return typeof t === "string" && !thin["tag:" + t.toLowerCase()]; });
+        var artistCards = Promise.all(seeds.artists.map(function (a) {
+          return artistCard(a, within).catch(function (err) {
+            console.error("[lastfm] home mix failed:", err && err.message);
+            return null;
+          });
+        }));
+        var tags = within(seedTags(topArtist, thin), keptTags);
+        return Promise.all([artistCards, tags]).then(function (r) {
+          var personalTags = r[1];
+          // [kind, value]: built in this order, genre and Trending lists
+          // looked up together below.
+          var plan = [];
+          var usedTags = {};
+          function planTag(tag) {
+            var lower = tag.toLowerCase();
+            if (usedTags[lower] || thin["tag:" + lower]) return;
+            usedTags[lower] = true;
+            plan.push(["tag", tag]);
+          }
+          // Nothing to personalise from: open with what's popular now.
+          if (noHistory) plan.push(["trending"]);
+          seeds.tracks.forEach(function (s) { plan.push(["card", songCard(s)]); });
+          r[0].forEach(function (c) { if (c) plan.push(["card", c]); });
+          personalTags.forEach(planTag);
+          if (!noHistory && plan.length < MIN_CARDS) plan.push(["trending"]);
+          // Popular genres fill the rest, those with a kept list first so they
+          // play at once.
+          var lists = store.lists || {};
+          var popular = POPULAR_TAGS.filter(function (t) { return lists[tagId(t)]; })
+            .concat(POPULAR_TAGS.filter(function (t) { return !lists[tagId(t)]; }));
+          for (var i = 0; i < popular.length && plan.length < MIN_CARDS; i++) planTag(popular[i]);
+          plan = plan.slice(0, max);
+          return Promise.all(plan.map(function (p) {
+            if (p[0] === "card") return p[1];
+            if (p[0] === "trending") return listCard("trending", "Trending on Last.fm", "Popular on Last.fm right now", store);
+            return listCard(tagId(p[1]), capitalize(p[1]) + " mix", "Genre mix from Last.fm", store);
+          })).then(function (items) {
+            refreshLists(items, personalTags, store);
+            return items.length > 0 ? { status: "ok", items: items } : { status: "empty" };
+          });
         });
-      }).then(function (items) {
-        if (items.length === 0) return { status: "empty" };
-        return { status: "ok", items: items.slice(0, limit || 10) };
       });
     }).catch(function (err) {
       console.error("[lastfm] home mixes failed:", err && err.message);
@@ -1203,20 +1371,36 @@ function activate(api) {
     });
   });
 
-  // Only artist mixes ship partial; every other card already holds its list.
+  // Song and artist cards ship their opening song (`partial`): the host has
+  // started it, so the list handed back opens with it — or is empty when
+  // nothing else was found, which is what makes the host say so. Genre and
+  // Trending cards resolve here only when they shipped no kept list.
   if (api.home) api.home.onResolvePlay(MIX_SHELF, function (item) {
-    if (!item || typeof item.id !== "string" || item.id.indexOf("artist:") !== 0) {
-      return Promise.resolve((item && item.tracks) || []);
-    }
-    var artist = decodeURIComponent(item.id.slice("artist:".length));
-    var head = item.tracks && item.tracks[0];
+    var id = item && typeof item.id === "string" ? item.id : "";
+    var head = item && item.partial && item.tracks && item.tracks[0];
     var exclude = {};
     if (head) exclude[trackKey(head.title, head.artist_name)] = true;
-    return artistMixTracks(artist).then(function (list) {
-      return shapeMix(list, { exclude: exclude, uncapped: artist });
-    }).then(function (rest) {
-      return head ? [head].concat(rest) : rest;
-    });
+    var withHead = function (rest) {
+      if (!head) return rest;
+      return rest.length > 0 ? [head].concat(rest) : [];
+    };
+    if (id.indexOf("similar:") === 0) {
+      var parts = id.slice("similar:".length).split("|");
+      var artist = decodeURIComponent(parts[0] || "");
+      var title = decodeURIComponent(parts[1] || "");
+      return similarThenArtist(artist, title, 10).then(function (mix) {
+        return shapeMix(mix.list, { exclude: exclude, uncapped: mix.toppedUp ? artist : null, size: MIX_SIZE - 1 });
+      }).then(withHead);
+    }
+    if (id.indexOf("artist:") === 0) {
+      var name = decodeURIComponent(id.slice("artist:".length));
+      return artistMixTracks(name).then(function (list) {
+        return shapeMix(list, { exclude: exclude, uncapped: name, size: MIX_SIZE - 1 });
+      }).then(withHead);
+    }
+    var list = listTracksFor(id);
+    if (list) return list;
+    return Promise.resolve((item && item.tracks) || []);
   });
 
   // ===== Information Types =====
