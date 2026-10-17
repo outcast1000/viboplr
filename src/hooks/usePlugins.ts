@@ -46,6 +46,9 @@ import type {
   InteractiveResolveHandler,
   InteractiveSearchResult,
   GetQualitiesHandler,
+  DownloadPreviewHandler,
+  DownloadPreviewRequest,
+  DownloadPreview,
   DownloadQualityOption,
   HomeShelfDisplayKind,
   HomeShelfItem,
@@ -235,6 +238,7 @@ interface LoadedPlugin {
   interactiveSearchHandlers: Map<string, InteractiveSearchHandler>;
   interactiveResolveHandlers: Map<string, InteractiveResolveHandler>;
   getQualitiesHandlers: Map<string, GetQualitiesHandler>;
+  downloadPreviewHandlers: Map<string, DownloadPreviewHandler>;
   streamResolveHandlers: Map<string, (title: string, artistName: string | null, albumName: string | null, durationSecs: number | null, opts?: { preferVideo?: boolean; externalAudio?: boolean; fresh?: boolean }) => Promise<StreamResolveResult | null>>;
   streamUriResolvers: Map<string, (id: string, quality?: string | null, opts?: { externalAudio?: boolean; fresh?: boolean; video?: boolean }) => Promise<string | { candidates: StreamCandidate[]; sourceUrl?: string } | null>>;
   storyboardResolvers: Map<string, (id: string) => Promise<Storyboard | null>>;
@@ -1961,6 +1965,12 @@ export function usePlugins(
             trackUnsubscribe(unsub);
             return unsub;
           },
+          onPreview(providerId: string, handler: DownloadPreviewHandler): () => void {
+            loaded.downloadPreviewHandlers.set(providerId, handler);
+            const unsub = () => { loaded.downloadPreviewHandlers.delete(providerId); };
+            trackUnsubscribe(unsub);
+            return unsub;
+          },
         },
 
         scheduler: {
@@ -2315,6 +2325,7 @@ export function usePlugins(
         interactiveSearchHandlers: new Map(),
         interactiveResolveHandlers: new Map(),
         getQualitiesHandlers: new Map(),
+        downloadPreviewHandlers: new Map(),
         streamResolveHandlers: new Map(),
         streamUriResolvers: new Map(),
         storyboardResolvers: new Map(),
@@ -3467,13 +3478,12 @@ export function usePlugins(
       if (!handler) {
         return withResolverLog({ kind: "download:metadata", provider, input }, async () => { throw new Error("no resolveByMetadata handler registered"); }).catch(() => null);
       }
-      try {
-        return await withResolveScope(pluginId, onProgress, () =>
-          withResolverLog({ kind: "download:metadata", provider, input },
-            () => handler(title, artistName, albumName, durationSecs, format)));
-      } catch {
-        return null;
-      }
+      // Errors propagate, as by URI: a throw is the provider's user-facing
+      // reason and the modal shows it. Swallowing it here is what made every
+      // fallback-path failure read "could not resolve this track".
+      return await withResolveScope(pluginId, onProgress, () =>
+        withResolverLog({ kind: "download:metadata", provider, input },
+          () => handler(title, artistName, albumName, durationSecs, format)));
     },
     [withResolveScope],
   );
@@ -3516,6 +3526,28 @@ export function usePlugins(
         withResolverLog({ kind: "download:resolve", provider, input }, () => handler(matchId, format)));
     },
     [withResolveScope],
+  );
+
+  /** The provider's preview of what a download would fetch, or null when it
+   *  offers none (no `onPreview`, or no interactive resolve to fetch the
+   *  previewed item with). Throws whatever the provider throws. */
+  const hasDownloadPreview = useCallback((pluginId: string, providerId: string): boolean => {
+    const loaded = loadedPluginsRef.current.get(pluginId);
+    return !!loaded?.downloadPreviewHandlers.get(providerId) && !!loaded.interactiveResolveHandlers.get(providerId);
+  }, []);
+
+  const hasInteractiveSearch = useCallback((pluginId: string, providerId: string): boolean => {
+    return !!loadedPluginsRef.current.get(pluginId)?.interactiveSearchHandlers.get(providerId);
+  }, []);
+
+  const invokeDownloadPreview = useCallback(
+    async (pluginId: string, providerId: string, request: DownloadPreviewRequest): Promise<DownloadPreview | null> => {
+      const provider = `${pluginId}:${providerId}`;
+      const handler = loadedPluginsRef.current.get(pluginId)?.downloadPreviewHandlers.get(providerId);
+      if (!handler) return null;
+      return withResolverLog({ kind: "download:preview", provider, input: { ...request } }, () => handler(request));
+    },
+    [],
   );
 
   const invokeGetQualities = useCallback(
@@ -4044,6 +4076,9 @@ export function usePlugins(
     invokeInteractiveSearch,
     invokeInteractiveResolve,
     invokeGetQualities,
+    invokeDownloadPreview,
+    hasDownloadPreview,
+    hasInteractiveSearch,
     resolveStreamByUri,
     streamUriResolverOwner,
     resolveStoryboardByUri,

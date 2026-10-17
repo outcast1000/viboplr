@@ -5,7 +5,7 @@ import type {
   DownloadResolveProgress,
 } from "../types/plugin";
 import type { AppStore } from "../store";
-import type { ResolveTrack } from "../utils/downloadPlan";
+import type { DownloadPlan, ResolveTrack } from "../utils/downloadPlan";
 import { SingleTrackDownload } from "./download/SingleTrackDownload";
 import { MultiTrackDownload } from "./download/MultiTrackDownload";
 import type { DownloadTrack } from "./download/types";
@@ -15,10 +15,15 @@ export type { DownloadTrack } from "./download/types";
 
 interface DownloadModalProps {
   tracks: DownloadTrack[];
+  providerId?: string;
   providerName: string;
   confirmed?: boolean;
   /** See `DownloadModalState.resolveTrack`. */
   resolveTrack?: ResolveTrack;
+  /** See `DownloadModalState` — a plan's preview / pick-another half. */
+  preview?: DownloadPlan["preview"];
+  resolveMatch?: DownloadPlan["resolveMatch"];
+  search?: DownloadPlan["search"];
   qualityOptions?: DownloadQualityOption[] | null;
   collections: { id: number; name: string; path: string }[];
   store: AppStore;
@@ -38,9 +43,13 @@ interface DownloadModalProps {
 
 export function DownloadModal({
   tracks,
+  providerId,
   providerName,
   confirmed,
   resolveTrack,
+  preview,
+  resolveMatch,
+  search,
   qualityOptions,
   collections,
   store,
@@ -60,8 +69,12 @@ export function DownloadModal({
         {isSingle ? (
           <SingleTrackDownload
             track={tracks[0]}
+            providerId={providerId}
             providerName={providerName}
             resolveTrack={resolveTrack}
+            preview={preview}
+            resolveMatch={resolveMatch}
+            search={search}
             qualityOptions={qualityOptions}
             collections={collections}
             store={store}
@@ -84,6 +97,7 @@ export function DownloadModal({
             lastDest={lastDest}
             onSearch={onSearch}
             onResolve={onResolve}
+            onCancelResolve={onCancelResolve}
             onClose={onClose}
             onComplete={onComplete}
             onPlay={onPlay}

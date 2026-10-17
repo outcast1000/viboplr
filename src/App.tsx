@@ -54,7 +54,7 @@ import { useEngineComponent } from "./hooks/useEngineComponent";
 import { getPlaybackPosition, subscribePlaybackPosition } from "./playback/positionStore";
 import { useStreamResolution } from "./hooks/useStreamResolution";
 import { useDownloadOrchestration } from "./hooks/useDownloadOrchestration";
-import { decideDownload } from "./utils/downloadPlan";
+import { decideDownload, uriPlan, type DownloadPlan } from "./utils/downloadPlan";
 import { useQueue } from "./hooks/useQueue";
 import type { PlaylistContext } from "./hooks/useQueue";
 import { usePlayActions } from "./hooks/usePlayActions";
@@ -325,6 +325,12 @@ function resolveUiEntity(s: {
     return name ? { kind: "tag", name, artistName: null, albumTitle: null } : null;
   }
   return null;
+}
+
+
+/** The modal-state fields a single-track plan contributes (see `planDownloadModal`). */
+function planFields(plan: DownloadPlan) {
+  return { resolveTrack: plan.resolve, preview: plan.preview, resolveMatch: plan.resolveMatch, search: plan.search };
 }
 
 function App() {
@@ -2513,9 +2519,14 @@ function App() {
               confirmed: !isSingle,
               // Single track with a source uri: resolve exactly that, no search.
               // Without one the modal opens the provider's interactive search.
-              resolveTrack: isSingle && sourceUri && provider
-                ? (format, onProgress) => provider.resolveByUri(sourceUri, format, onProgress)
-                : undefined,
+              ...(isSingle && sourceUri && provider
+                ? planFields(uriPlan(provider, sourceUri, {
+                  title: p.tracks[0].title,
+                  artist_name: p.tracks[0].artist_name ?? null,
+                  album_title: p.tracks[0].album_title ?? null,
+                  duration_secs: p.tracks[0].durationSecs ?? null,
+                }))
+                : {}),
             });
           };
           const replaceId = isSingle ? p.tracks[0].libraryTrackId : null;
@@ -6931,9 +6942,13 @@ function App() {
         return (
         <DownloadModal
           tracks={downloadModal.tracks}
+          providerId={downloadModal.providerId}
           providerName={downloadModal.providerName}
           confirmed={downloadModal.confirmed}
           resolveTrack={downloadModal.resolveTrack}
+          preview={downloadModal.preview}
+          resolveMatch={downloadModal.resolveMatch}
+          search={downloadModal.search}
           qualityOptions={qualityOptions}
           collections={localCollections}
           store={store}

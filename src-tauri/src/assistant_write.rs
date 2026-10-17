@@ -636,30 +636,6 @@ pub fn delete_plan_hash(plan: &[PlannedDelete]) -> String {
 
 // --- Source-faithful download ---
 
-/// Sniff a downloaded audio file's container from its first bytes — used only
-/// when a Subsonic "original" download has no stored format ("auto").
-fn sniff_audio_ext(bytes: &[u8]) -> Option<&'static str> {
-    if bytes.len() < 12 {
-        return None;
-    }
-    if &bytes[0..4] == b"fLaC" {
-        return Some("flac");
-    }
-    if &bytes[0..4] == b"OggS" {
-        return Some("ogg");
-    }
-    if &bytes[0..3] == b"ID3" || (bytes[0] == 0xFF && (bytes[1] & 0xE0) == 0xE0) {
-        return Some("mp3");
-    }
-    if &bytes[0..4] == b"RIFF" && &bytes[8..12] == b"WAVE" {
-        return Some("wav");
-    }
-    if &bytes[4..8] == b"ftyp" {
-        return Some("m4a");
-    }
-    None
-}
-
 /// Where the bytes of a landing download come from.
 pub enum DownloadSource {
     /// A URL this side fetches itself (subsonic stream/download URL, direct
@@ -748,7 +724,7 @@ fn settle_ext(named_ext: String, source: &DownloadSource, temp: &Path) -> String
     let read = std::fs::File::open(temp)
         .and_then(|mut f| std::io::Read::read(&mut f, &mut head))
         .unwrap_or(0);
-    sniff_audio_ext(&head[..read]).unwrap_or("mp3").to_string()
+    crate::downloader::sniff_audio_ext(&head[..read]).unwrap_or("mp3").to_string()
 }
 
 /// Land one download into a local collection: validate the destination

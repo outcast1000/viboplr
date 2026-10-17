@@ -348,12 +348,19 @@
 .dl-field {
   display: flex;
   justify-content: space-between;
+  gap: 12px;
   font-size: var(--fs-sm);
   padding: 4px 0;
 }
 
 .dl-field span:first-child {
   color: var(--text-secondary);
+  flex-shrink: 0;
+}
+
+/* A long value (a provider's Quality line) wraps against the right edge. */
+.dl-field span:last-child {
+  text-align: right;
 }
 
 /* Result (fresh download) */
@@ -688,4 +695,52 @@
   text-transform: uppercase;
   color: var(--text-tertiary);
   margin: 4px 0 8px;
+}
+
+/* A caution that doesn't stop anything: you already own this, the new file is a
+   downgrade, the file saved but missed the library. */
+.dl-warn {
+  background: color-mix(in srgb, var(--warning) 14%, transparent);
+  color: var(--text-primary);
+  border: 1px solid color-mix(in srgb, var(--warning) 45%, transparent);
+  padding: 8px 12px;
+  border-radius: 6px;
+  font-size: var(--fs-sm);
+  margin-bottom: 12px;
+}
+
+/* What the provider said about the item it will fetch, under its title. */
+.dl-preview-note {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 4px 6px;
+  font-size: var(--fs-xs);
+  color: var(--text-tertiary);
+}
+
+.dl-link {
+  background: none;
+  border: none;
+  padding: 0;
+  color: var(--accent);
+  font-size: inherit;
+  cursor: pointer;
+}
+
+.dl-link:hover:not(:disabled) {
+  text-decoration: underline;
+}
+
+.dl-link:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.dl-qual-stack {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
 }

@@ -89,6 +89,10 @@ pub async fn check_dest_conflict(
     dest_dir: String,
     format: String,
     ext: Option<String>,
+    album_title: Option<String>,
+    track_number: Option<u32>,
+    is_video: Option<bool>,
+    layout: Option<String>,
 ) -> Result<ConflictCheck, String> {
     // A resolver-provided extension (e.g. a Subsonic original file's true suffix)
     // overrides the format default so the conflict check and resulting filename
@@ -100,8 +104,18 @@ pub async fn check_dest_conflict(
         .map(|e| e.trim().trim_start_matches('.').to_ascii_lowercase())
         .filter(|e| !e.is_empty() && e != "auto")
         .unwrap_or_else(|| crate::downloader::format_fallback_extension(&format).to_string());
-    let filename = crate::downloader::download_filename(&artist_name, &track_title, &ext);
-    let dest_path = std::path::Path::new(&dest_dir).join(&filename);
+    // The layout decides the folders under `dest_dir` (Artist › Album, or flat).
+    // Omitted by an older caller, it stays flat — the name this always had.
+    let rel = crate::downloader::download_relative_path(
+        crate::downloader::DownloadLayout::parse(layout.as_deref()),
+        &artist_name,
+        &track_title,
+        album_title.as_deref(),
+        track_number,
+        is_video.unwrap_or(false),
+        &ext,
+    );
+    let dest_path = std::path::Path::new(&dest_dir).join(&rel);
     let dest_str = dest_path.to_string_lossy().to_string();
 
     if dest_path.exists() {
@@ -399,7 +413,7 @@ pub async fn download_to_path(
     let cancel_flag = state.direct_download_cancel.clone();
 
     tauri::async_runtime::spawn_blocking(move || -> Result<DownloadPathResult, String> {
-        let final_dest = dest.clone();
+        let mut final_dest = dest.clone();
 
         // Ensure parent directory exists
         if let Some(parent) = final_dest.parent() {
@@ -408,8 +422,8 @@ pub async fn download_to_path(
         }
 
         // Download to temp file first
-        let ext = final_dest.extension().and_then(|e| e.to_str()).unwrap_or(fallback_ext);
-        let temp_path = final_dest.with_extension(format!("viboplr-dl.{}", ext));
+        let ext = final_dest.extension().and_then(|e| e.to_str()).unwrap_or(fallback_ext).to_string();
+        let mut temp_path = final_dest.with_extension(format!("viboplr-dl.{}", ext));
 
         crate::downloader::download_file(
             &stream_url,
@@ -420,6 +434,23 @@ pub async fn download_to_path(
                 let _ = app.emit("direct-download-progress", pct);
             }),
         )?;
+
+        // A source that named no container (a bare stream URL) arrives here as
+        // `.bin`, which the scanner skips — so the file would land on disk and
+        // never reach the library. Name it from its first bytes instead.
+        if ext.eq_ignore_ascii_case("bin") {
+            if let Some(real) = sniff_file_ext(&temp_path) {
+                let renamed = temp_path.with_extension(format!("viboplr-dl.{}", real));
+                std::fs::rename(&temp_path, &renamed)
+                    .map_err(|e| format!("Failed to rename downloaded file: {}", e))?;
+                temp_path = renamed;
+                final_dest = if overwrite {
+                    final_dest.with_extension(real)
+                } else {
+                    free_path(&final_dest.with_extension(real))
+                };
+            }
+        }
 
         // Write tags if metadata was provided
         if title.is_some() || artist_name.is_some() {
@@ -464,6 +495,28 @@ pub async fn download_to_path(
     .map_err(|e| e.to_string())?
 }
 
+/// The container a downloaded file's first bytes name, if any.
+fn sniff_file_ext(path: &std::path::Path) -> Option<&'static str> {
+    use std::io::Read;
+    let mut head = [0u8; 16];
+    let read = std::fs::File::open(path).and_then(|mut f| f.read(&mut head)).ok()?;
+    crate::downloader::sniff_audio_ext(&head[..read])
+}
+
+/// `path` when nothing is there yet, else the first free `name (N).ext`.
+fn free_path(path: &std::path::Path) -> std::path::PathBuf {
+    if !path.exists() {
+        return path.to_path_buf();
+    }
+    let stem = path.file_stem().and_then(|s| s.to_str()).unwrap_or("download").to_string();
+    let ext = path.extension().and_then(|e| e.to_str()).map(|e| format!(".{}", e)).unwrap_or_default();
+    let parent = path.parent().map(|p| p.to_path_buf()).unwrap_or_default();
+    (2..1000)
+        .map(|n| parent.join(format!("{} ({}){}", stem, n, ext)))
+        .find(|p| !p.exists())
+        .unwrap_or_else(|| path.to_path_buf())
+}
+
 #[tauri::command]
 pub async fn add_downloaded_track(
     app: AppHandle,
@@ -489,7 +542,10 @@ pub async fn add_downloaded_track(
                     super::emit_track_added(&app, &db, track_id);
                 }
             }
-            None => log::warn!("Downloaded file was not ingested: {}", file_path.display()),
+            None => {
+                log::warn!("Downloaded file was not ingested: {}", file_path.display());
+                return Err("the library couldn't read the file".to_string());
+            }
         }
         Ok::<(), String>(())
     })

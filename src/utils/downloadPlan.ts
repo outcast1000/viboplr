@@ -1,6 +1,12 @@
 import type { QueueTrack } from "../types";
 import type { EffectiveSource } from "../queueEntry";
-import type { DownloadProvider, DownloadResolveResult, DownloadResolveProgress } from "../types/plugin";
+import type {
+  DownloadProvider,
+  DownloadResolveResult,
+  DownloadResolveProgress,
+  DownloadPreview,
+  InteractiveSearchResult,
+} from "../types/plugin";
 
 /** The built-in Subsonic download provider id (see `useDownloadOrchestration`). */
 export const BUILTIN_SUBSONIC_PROVIDER_ID = "__builtin:subsonic";
@@ -43,7 +49,23 @@ export interface DownloadPlan {
   providerId: string;
   providerName: string;
   resolve: ResolveTrack;
+  /** Ask the provider which item `resolve` would fetch, before fetching it.
+   *  Null answer = no preview; the modal then just calls `resolve`. */
+  /** `opts.uri` asks about one specific item instead (a match the user picked
+   *  from `search`), for its real qualities. */
+  preview?: (opts: { isVideo: boolean; uri?: string }) => Promise<DownloadPreview | null>;
+  /** Fetch one specific match — the previewed item, or one the user picked
+   *  from `search`. */
+  resolveMatch?: (
+    matchId: string,
+    format: string,
+    onProgress?: (progress: DownloadResolveProgress) => void,
+  ) => Promise<DownloadResolveResult>;
+  /** The provider's free-text search, to pick a different match. */
+  search?: (query: string, limit: number) => Promise<InteractiveSearchResult[]>;
 }
+
+type PlanTrack = Pick<QueueTrack, "title" | "artist_name" | "album_title" | "duration_secs">;
 
 /**
  * The single source of truth mapping a winning playback source → its downloader.
@@ -61,7 +83,7 @@ export interface DownloadPlan {
  */
 export function decideDownload(
   source: EffectiveSource | null | undefined,
-  track: Pick<QueueTrack, "title" | "artist_name" | "album_title" | "duration_secs">,
+  track: PlanTrack,
   providers: DownloadProvider[],
 ): DownloadPlan | null {
   if (!source) return null;
@@ -83,7 +105,7 @@ export function decideDownload(
   if (source.kind === "subsonic") {
     const p = providers.find((pr) => pr.id === BUILTIN_SUBSONIC_PROVIDER_ID);
     if (!p) return null;
-    return uriPlan(p, source.uri);
+    return uriPlan(p, source.uri, track);
   }
 
   // plugin source — the downloader must be contributed by the same plugin.
@@ -92,7 +114,7 @@ export function decideDownload(
 
   if (source.uri) {
     // Native scheme (e.g. tidal://) — resolve directly by URI.
-    return uriPlan(p, source.uri);
+    return uriPlan(p, source.uri, track);
   }
   // Stream-resolver win (e.g. YouTube fallback) — no native URI; resolve by
   // metadata, which lets the provider check its cache before re-downloading.
@@ -116,30 +138,33 @@ export function decideDownload(
  */
 export function decideMetadataDownload(
   resolverSources: readonly string[],
-  track: Pick<QueueTrack, "title" | "artist_name" | "album_title" | "duration_secs">,
+  track: PlanTrack,
   providers: DownloadProvider[],
 ): DownloadPlan | null {
   for (const source of resolverSources) {
     if (source === "built-in") continue;
-    // Subsonic downloads by URI only — it has nothing to search by name.
-    const p = providers.find((pr) => pr.source === source && pr.id !== BUILTIN_SUBSONIC_PROVIDER_ID);
+    // Only a provider that can find a track by name: Subsonic downloads by URI
+    // only, and Soulseek hands over just the copy it already kept — offered
+    // here, its Download button would fail on nearly every row.
+    const p = providers.find((pr) => pr.source === source && pr.id !== BUILTIN_SUBSONIC_PROVIDER_ID && pr.findsByName !== false);
     if (p) return metadataPlan(p, track);
   }
   return null;
 }
 
-function uriPlan(p: DownloadProvider, uri: string): DownloadPlan {
+/** The plan for one provider-owned URI — what `decideDownload` builds for a
+ *  plugin scheme, for callers that already know the provider (a plugin's own
+ *  `download-tracks` request). */
+export function uriPlan(p: DownloadProvider, uri: string, track: PlanTrack): DownloadPlan {
   return {
     providerId: p.id,
     providerName: p.name,
     resolve: (format, onProgress) => p.resolveByUri(uri, format, onProgress),
+    ...matchCapabilities(p, uri, track),
   };
 }
 
-function metadataPlan(
-  p: DownloadProvider,
-  track: Pick<QueueTrack, "title" | "artist_name" | "album_title" | "duration_secs">,
-): DownloadPlan {
+function metadataPlan(p: DownloadProvider, track: PlanTrack): DownloadPlan {
   return {
     providerId: p.id,
     providerName: p.name,
@@ -152,5 +177,29 @@ function metadataPlan(
         format,
         onProgress,
       ),
+    ...matchCapabilities(p, null, track),
+  };
+}
+
+/** The preview / pick-another half of a plan, for providers that have it. */
+function matchCapabilities(
+  p: DownloadProvider,
+  uri: string | null,
+  track: PlanTrack,
+): Pick<DownloadPlan, "preview" | "resolveMatch" | "search"> {
+  const preview = p.preview;
+  return {
+    preview: preview
+      ? (opts) => preview({
+        uri: opts.uri ?? uri,
+        isVideo: opts.isVideo,
+        title: track.title,
+        artistName: track.artist_name ?? null,
+        albumName: track.album_title ?? null,
+        durationSecs: track.duration_secs ?? null,
+      })
+      : undefined,
+    resolveMatch: p.resolveMatch,
+    search: p.search,
   };
 }

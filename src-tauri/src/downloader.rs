@@ -99,6 +99,90 @@ pub fn sanitize_filename(name: &str) -> String {
     }
 }
 
+/// Sniff an audio file's container from its first bytes. For a download whose
+/// source named no extension (a bare stream URL, a Subsonic original of
+/// unknown format): naming it from the bytes is what lets the scanner index it.
+pub fn sniff_audio_ext(bytes: &[u8]) -> Option<&'static str> {
+    if bytes.len() < 12 {
+        return None;
+    }
+    if &bytes[0..4] == b"fLaC" {
+        return Some("flac");
+    }
+    if &bytes[0..4] == b"OggS" {
+        return Some("ogg");
+    }
+    if &bytes[0..3] == b"ID3" || (bytes[0] == 0xFF && (bytes[1] & 0xE0) == 0xE0) {
+        return Some("mp3");
+    }
+    if &bytes[0..4] == b"RIFF" && &bytes[8..12] == b"WAVE" {
+        return Some("wav");
+    }
+    if &bytes[0..4] == b"FORM" && (&bytes[8..12] == b"AIFF" || &bytes[8..12] == b"AIFC") {
+        return Some("aiff");
+    }
+    if &bytes[4..8] == b"ftyp" {
+        return Some("m4a");
+    }
+    None
+}
+
+/// How the download modal lays files out inside the chosen folder.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DownloadLayout {
+    /// `{Artist} - {Title}.{ext}` straight in the folder (the old behaviour).
+    Flat,
+    /// `{Artist}/{Album}/{NN} {Title}.{ext}`, `{Artist}/{Title}.{ext}` when the
+    /// album is unknown, and videos under `Videos/{Artist} - {Title}.{ext}` —
+    /// a music video belongs to no album and shouldn't sit among its tracks.
+    ArtistAlbum,
+}
+
+impl DownloadLayout {
+    pub fn parse(s: Option<&str>) -> Self {
+        match s {
+            Some("artist-album") => DownloadLayout::ArtistAlbum,
+            _ => DownloadLayout::Flat,
+        }
+    }
+}
+
+/// The path, relative to the chosen folder, a single-track download lands at.
+/// Every component is sanitized, so the result never escapes the folder.
+pub fn download_relative_path(
+    layout: DownloadLayout,
+    artist: &str,
+    title: &str,
+    album: Option<&str>,
+    track_number: Option<u32>,
+    is_video: bool,
+    ext: &str,
+) -> std::path::PathBuf {
+    let mut p = std::path::PathBuf::new();
+    match layout {
+        DownloadLayout::Flat => p.push(download_filename(artist, title, ext)),
+        DownloadLayout::ArtistAlbum if is_video => {
+            p.push("Videos");
+            p.push(download_filename(artist, title, ext));
+        }
+        DownloadLayout::ArtistAlbum => {
+            p.push(sanitize_filename(artist));
+            match album.map(str::trim).filter(|a| !a.is_empty()) {
+                Some(album) => {
+                    p.push(sanitize_filename(album));
+                    let name = match track_number.filter(|n| *n > 0) {
+                        Some(n) => format!("{:02} {}", n, sanitize_filename(title)),
+                        None => sanitize_filename(title),
+                    };
+                    p.push(format!("{}.{}", name, ext));
+                }
+                None => p.push(format!("{}.{}", sanitize_filename(title), ext)),
+            }
+        }
+    }
+    p
+}
+
 /// Build the flat `{Artist} - {Title}.{ext}` filename used by the download
 /// modal's conflict check and direct-to-path download. Components are sanitized.
 pub fn download_filename(artist: &str, title: &str, ext: &str) -> String {
@@ -370,6 +454,42 @@ mod tests {
         let url = format!("file://{}", src.to_string_lossy().replace('%', "%25"));
         download_file(&url, None, &dest, None, None).unwrap();
         assert_eq!(std::fs::read(&dest).unwrap(), b"fLaC");
+    }
+
+    #[test]
+    fn test_sniff_audio_ext_names_common_containers() {
+        let pad = |head: &[u8]| { let mut v = head.to_vec(); v.resize(16, 0); v };
+        assert_eq!(sniff_audio_ext(&pad(b"fLaC")), Some("flac"));
+        assert_eq!(sniff_audio_ext(&pad(b"ID3\x04")), Some("mp3"));
+        assert_eq!(sniff_audio_ext(&pad(b"OggS")), Some("ogg"));
+        assert_eq!(sniff_audio_ext(&pad(b"RIFF\x00\x00\x00\x00WAVE")), Some("wav"));
+        assert_eq!(sniff_audio_ext(&pad(b"FORM\x00\x00\x00\x00AIFF")), Some("aiff"));
+        assert_eq!(sniff_audio_ext(&pad(b"\x00\x00\x00 ftypM4A ")), Some("m4a"));
+        assert_eq!(sniff_audio_ext(&pad(b"<html>")), None);
+        assert_eq!(sniff_audio_ext(b"fLaC"), None, "too short to judge");
+    }
+
+    #[test]
+    fn test_download_relative_path_layouts() {
+        use std::path::PathBuf;
+        let flat = download_relative_path(DownloadLayout::Flat, "Pearl Jam", "Alive", Some("Ten"), Some(2), false, "flac");
+        assert_eq!(flat, PathBuf::from("Pearl Jam - Alive.flac"));
+        let full = download_relative_path(DownloadLayout::ArtistAlbum, "Pearl Jam", "Alive", Some("Ten"), Some(2), false, "flac");
+        assert_eq!(full, PathBuf::from("Pearl Jam").join("Ten").join("02 Alive.flac"));
+        let no_number = download_relative_path(DownloadLayout::ArtistAlbum, "Pearl Jam", "Alive", Some("Ten"), None, false, "flac");
+        assert_eq!(no_number, PathBuf::from("Pearl Jam").join("Ten").join("Alive.flac"));
+        let no_album = download_relative_path(DownloadLayout::ArtistAlbum, "Pearl Jam", "Alive", Some("  "), Some(2), false, "ogg");
+        assert_eq!(no_album, PathBuf::from("Pearl Jam").join("Alive.ogg"));
+        let video = download_relative_path(DownloadLayout::ArtistAlbum, "Pearl Jam", "Alive", Some("Ten"), Some(2), true, "mp4");
+        assert_eq!(video, PathBuf::from("Videos").join("Pearl Jam - Alive.mp4"));
+    }
+
+    #[test]
+    fn test_download_relative_path_cannot_escape_the_folder() {
+        let p = download_relative_path(DownloadLayout::ArtistAlbum, "../..", "a/b", Some(".."), None, false, "mp3");
+        assert!(p.components().all(|c| matches!(c, std::path::Component::Normal(_))), "{:?}", p);
+        assert_eq!(DownloadLayout::parse(None), DownloadLayout::Flat);
+        assert_eq!(DownloadLayout::parse(Some("artist-album")), DownloadLayout::ArtistAlbum);
     }
 
     // --- sanitize_filename tests ---

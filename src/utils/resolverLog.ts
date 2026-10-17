@@ -12,7 +12,8 @@ export type ResolverKind =
   | "download:uri"
   | "download:metadata"
   | "download:search"
-  | "download:resolve";
+  | "download:resolve"
+  | "download:preview";
 
 export interface ResolverLogEntry {
   seq: number;

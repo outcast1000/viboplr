@@ -135,6 +135,11 @@ export interface PluginManifestStreamResolver {
 export interface PluginManifestDownloadProvider {
   id: string;
   name: string;
+  /** `false` when `onResolveByMetadata` only hands over a file the plugin
+   *  already holds and never searches (Soulseek's kept fallback copy). The host
+   *  then doesn't offer this provider for a track that has no source yet — a
+   *  "Not in library" row — since it could almost never answer. Omitted = true. */
+  findsByName?: boolean;
 }
 
 export interface PluginManifestSettingsPanel {
@@ -1870,6 +1875,11 @@ export interface DownloadResolveResult {
    *  onGetQualities), because the extension is resolved before any bytes
    *  arrive. */
   ext?: string | null;
+  /** What the provider actually fetched, as one plain-text line (e.g.
+   *  "480p · H.264 + AAC · 714 kbps"). Shown as "Quality" when the download
+   *  completes: a quality option is often a cap the source can fall short of,
+   *  and only the provider knows where it landed. */
+  quality?: string | null;
 }
 
 export type DownloadResolveByUriHandler = (
@@ -1921,6 +1931,38 @@ export interface DownloadQualityOption {
 
 export type GetQualitiesHandler = () => DownloadQualityOption[];
 
+/** What the download window asks a provider before fetching anything: which
+ *  item it would download for this track. `uri` is the track's own source
+ *  when it has one (`ytdlp://…`), else null and the provider finds it by name. */
+export interface DownloadPreviewRequest {
+  uri: string | null;
+  title: string;
+  artistName: string | null;
+  albumName: string | null;
+  durationSecs: number | null;
+  /** The track is a video, so a video is what the user most likely wants
+   *  (rank toward the music video, not the audio upload). */
+  isVideo: boolean;
+}
+
+/** A provider's answer to `DownloadPreviewRequest`. */
+export interface DownloadPreview {
+  /** The item that would be fetched. Shown in place of the track, and the
+   *  download goes through `onInteractiveResolve(match.id, …)` — so the file is
+   *  the one shown, never a second search's pick. */
+  match: InteractiveSearchResult;
+  /** One plain line under the match, e.g. "The same video you just watched". */
+  note?: string | null;
+  /** The quality options this item really offers, replacing `onGetQualities`'
+   *  fixed list for this download (e.g. no 1080p for a video that tops out at
+   *  480p). Omit to keep the fixed list. */
+  qualities?: DownloadQualityOption[] | null;
+}
+
+/** Answer `null` when there is nothing to preview; the window then downloads
+ *  the way it always has. Throw to show a reason. */
+export type DownloadPreviewHandler = (request: DownloadPreviewRequest) => Promise<DownloadPreview | null>;
+
 /** A progress report from a provider that is doing real work inside a resolve
  *  (see `PluginDownloadsAPI.reportProgress`). Every field is optional — a
  *  provider that only knows "merging now" sends a `label` and no `percent`. */
@@ -1951,12 +1993,30 @@ export interface PluginDownloadsAPI {
   onInteractiveSearch(providerId: string, handler: InteractiveSearchHandler): () => void;
   onInteractiveResolve(providerId: string, handler: InteractiveResolveHandler): () => void;
   onGetQualities(providerId: string, handler: GetQualitiesHandler): () => void;
+  /** Say which item a download would fetch before it starts (see
+   *  `DownloadPreview`). Needs `onInteractiveResolve` — that is how the
+   *  previewed item is downloaded — and `onInteractiveSearch` lets the user
+   *  pick a different one. Older hosts don't call it. */
+  onPreview(providerId: string, handler: DownloadPreviewHandler): () => void;
 }
 
 export interface DownloadProvider {
   id: string;
   name: string;
   source: string;
+  /** See `PluginManifestDownloadProvider.findsByName`. */
+  findsByName: boolean;
+  /** Present when the provider can preview a download and resolve the
+   *  previewed item (`onPreview` + `onInteractiveResolve`). */
+  preview?: (request: DownloadPreviewRequest) => Promise<DownloadPreview | null>;
+  /** Present when the provider can resolve a match id (its interactive resolve). */
+  resolveMatch?: (
+    matchId: string,
+    format: string,
+    onProgress?: (progress: DownloadResolveProgress) => void,
+  ) => Promise<DownloadResolveResult>;
+  /** Present when the provider offers a free-text search to pick another match. */
+  search?: (query: string, limit: number) => Promise<InteractiveSearchResult[]>;
   /** `onProgress` is forwarded to the provider's `api.downloads.reportProgress`
    *  calls for the duration of this resolve (see `usePlugins` resolve scopes). */
   resolveByUri: (

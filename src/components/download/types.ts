@@ -55,6 +55,11 @@ export interface BatchDownloadTrackState {
   artist: string;
   status: BatchDownloadStatus;
   progress: number;
+  /** What the provider says it is doing ("Downloading video · 8 MiB/s"). */
+  stage?: string;
+  /** The provider's resolve produced a local file; the copy into place
+   *  doesn't drive the row's percentage. */
+  savingLocal?: boolean;
   error?: string;
   filePath?: string;
 }

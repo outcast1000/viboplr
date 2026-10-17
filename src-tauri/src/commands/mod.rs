@@ -642,6 +642,9 @@ pub struct AudioProperties {
     pub bit_depth: Option<u8>,
     pub channels: Option<u8>,
     pub bitrate: Option<u32>,
+    /// Length in seconds, when the container states it. The download modal's
+    /// "Compare files" uses it to flag a replacement that is a different cut.
+    pub duration_secs: Option<f64>,
 }
 
 /// Embedded tag metadata read straight off a file on disk, for `read_file_tags`.

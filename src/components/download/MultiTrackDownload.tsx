@@ -4,7 +4,7 @@ import { listen } from "@tauri-apps/api/event";
 import { safeUnlisten } from "../../utils/tauriEvents";
 import { open } from "@tauri-apps/plugin-dialog";
 import type { Track } from "../../types";
-import type { InteractiveSearchResult, DownloadResolveResult, DownloadQualityOption } from "../../types/plugin";
+import type { InteractiveSearchResult, DownloadResolveResult, DownloadResolveProgress, DownloadQualityOption } from "../../types/plugin";
 import { formatDuration, formatFileSize } from "../../utils";
 import { defaultQualityValue } from "../../utils/downloadQuality";
 import type { AppStore } from "../../store";
@@ -28,6 +28,7 @@ export function MultiTrackDownload({
   lastDest,
   onSearch,
   onResolve,
+  onCancelResolve,
   onClose,
   onComplete,
   onPlay,
@@ -40,7 +41,14 @@ export function MultiTrackDownload({
   store: AppStore;
   lastDest: string | null;
   onSearch: (query: string, limit: number) => Promise<InteractiveSearchResult[]>;
-  onResolve: (matchId: string, format: string) => Promise<DownloadResolveResult>;
+  onResolve: (
+    matchId: string,
+    format: string,
+    onProgress?: (progress: DownloadResolveProgress) => void,
+  ) => Promise<DownloadResolveResult>;
+  /** Stops the provider's in-flight resolve (its yt-dlp / ffmpeg run). A
+   *  resolve can be the whole download, so Cancel must reach it. */
+  onCancelResolve?: () => void;
   onClose: () => void;
   onComplete: (message: string) => void;
   onPlay?: (path: string) => void;
@@ -121,6 +129,7 @@ export function MultiTrackDownload({
     libraryResolveRef.current?.("skip");
     conflictResolveRef.current?.("skip");
     upgradeResolveRef.current?.("skip");
+    onCancelResolve?.();
     invoke("cancel_direct_download").catch(console.error);
     onClose();
   }
@@ -178,7 +187,7 @@ export function MultiTrackDownload({
                 artistName: match.artistName ?? tracks[i].artistName ?? null,
                 albumName: null,
               });
-            } catch { /* no match */ }
+            } catch (e) { console.error("Failed to check the library for a batch track:", e); }
           }
 
           setResolveStates(prev => prev.map((s, idx) =>
@@ -285,7 +294,9 @@ export function MultiTrackDownload({
       const unlisten = await listen<number>("direct-download-progress", (event) => {
         setDownloadStates(prev => {
           const downloading = prev.find(s => s.status === "downloading");
-          if (!downloading) return prev;
+          // A provider that already fetched the file (yt-dlp) reported its own
+          // progress; the copy into place must not restart the row at 0%.
+          if (!downloading || downloading.savingLocal) return prev;
           return prev.map(s =>
             s.index === downloading.index ? { ...s, progress: event.payload } : s
           );
@@ -314,7 +325,7 @@ export function MultiTrackDownload({
                   artistName: t.artistName ?? null,
                   albumName: t.albumTitle ?? null,
                 });
-              } catch { /* treat as not in library */ }
+              } catch (e) { console.error("Failed to check the library for a batch track:", e); }
               if (libMatch && !cancelledRef.current) {
                 setBatchLibraryMatch({
                   trackIndex: i,
@@ -336,9 +347,21 @@ export function MultiTrackDownload({
               }
             }
 
-            // Resolve the stream URL + metadata
-            const resolved = await onResolveRef.current(t.matchId!, quality);
+            // Resolve the stream URL + metadata. A provider that downloads the
+            // file itself reports how far it is; show it on this track's row.
+            const resolved = await onResolveRef.current(t.matchId!, quality, (p) => {
+              if (cancelledRef.current) return;
+              setDownloadStates(prev => prev.map(s => s.index === i ? {
+                ...s,
+                progress: typeof p.percent === "number" ? Math.max(0, Math.min(100, Math.round(p.percent))) : s.progress,
+                stage: [p.label, p.detail].filter(Boolean).join(" · ") || s.stage,
+              } : s));
+            });
             const streamUrl = resolved.url;
+            const savingLocal = streamUrl.startsWith("file://");
+            setDownloadStates(prev => prev.map(s => s.index === i ? {
+              ...s, savingLocal, stage: savingLocal ? "Saving…" : undefined,
+            } : s));
 
             // Merge metadata
             const title = resolved.metadata?.title || t.title;
@@ -437,8 +460,9 @@ export function MultiTrackDownload({
                   finalPath = altPath;
                 }
               }
-            } catch {
+            } catch (e) {
               // Conflict check failed — fall through and let download_to_path decide.
+              console.error("Failed to check a batch download destination:", e);
             }
 
             // Normal download
@@ -461,8 +485,12 @@ export function MultiTrackDownload({
                   path: result.path,
                   collectionId: destCollectionId,
                 });
-              } catch {
-                // Non-blocking -- file saved, just not indexed
+              } catch (e) {
+                // Non-blocking -- file saved, just not indexed. Shown on the row.
+                console.error("Failed to add a downloaded file to the library:", e);
+                setDownloadStates(prev => prev.map(s =>
+                  s.index === i ? { ...s, error: `Saved, but not added to the library: ${e instanceof Error ? e.message : String(e)}` } : s
+                ));
               }
             }
 
@@ -873,8 +901,14 @@ export function MultiTrackDownload({
                 <div className="dl-batch-info">
                   <div className="dl-batch-title">{ds.title}</div>
                   {ds.artist && <div className="dl-batch-match">{ds.artist}</div>}
+                  {ds.status === "downloading" && ds.stage && (
+                    <div className="dl-batch-match">{ds.stage}</div>
+                  )}
                   {ds.status === "error" && ds.error && (
                     <div className="dl-batch-match" style={{color: "var(--error)"}}>{ds.error}</div>
+                  )}
+                  {ds.status === "done" && ds.error && (
+                    <div className="dl-batch-match" style={{color: "var(--warning)"}}>{ds.error}</div>
                   )}
                 </div>
                 {ds.status === "downloading" && (

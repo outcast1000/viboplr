@@ -535,6 +535,7 @@ pub fn get_track_audio_properties(
         bit_depth: props.bit_depth(),
         channels: props.channels(),
         bitrate: props.overall_bitrate(),
+        duration_secs: Some(props.duration().as_secs_f64()).filter(|d| *d > 0.0),
     })
 }
 
@@ -557,6 +558,7 @@ pub fn get_audio_properties_by_path(
         bit_depth: props.bit_depth(),
         channels: props.channels(),
         bitrate: props.overall_bitrate(),
+        duration_secs: Some(props.duration().as_secs_f64()).filter(|d| *d > 0.0),
     })
 }
 

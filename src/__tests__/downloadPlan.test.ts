@@ -110,4 +110,37 @@ describe("decideMetadataDownload", () => {
     expect(decideMetadataDownload(["built-in", "spotify"], track, ALL)).toBeNull();
     expect(decideMetadataDownload([], track, ALL)).toBeNull();
   });
+
+  // Soulseek's by-name resolve only hands over a copy it already kept, so on a
+  // "Not in library" row it failed nearly every time. A provider that says it
+  // can't find tracks by name is skipped for the next one in the order.
+  it("skips a provider that can't find a track by name", () => {
+    const slskd = makeProvider({ id: "slskd:slskd-import", name: "Soulseek", source: "slskd", findsByName: false });
+    expect(decideMetadataDownload(["slskd", "youtube"], track, [slskd, youtube])?.providerId).toBe("youtube:youtube-fallback");
+    expect(decideMetadataDownload(["slskd"], track, [slskd])).toBeNull();
+  });
+
+  it("but a track Soulseek played still downloads through Soulseek", () => {
+    const slskd = makeProvider({ id: "slskd:slskd-import", name: "Soulseek", source: "slskd", findsByName: false });
+    expect(decideDownload({ kind: "plugin", pluginId: "slskd" }, track, [slskd])?.providerId).toBe("slskd:slskd-import");
+  });
+});
+
+describe("plan preview", () => {
+  it("asks the provider with the track, its source and the video intent", async () => {
+    const preview = vi.fn(async () => null);
+    const yt = makeProvider({ id: "ytdlp:ytdlp-download", source: "ytdlp", preview, resolveMatch: vi.fn(), search: vi.fn() });
+    const byUri = decideDownload({ kind: "plugin", pluginId: "ytdlp", uri: "ytdlp://abc" }, track, [yt]);
+    await byUri!.preview!({ isVideo: true });
+    expect(preview).toHaveBeenLastCalledWith({ uri: "ytdlp://abc", title: "Song", artistName: "Artist", albumName: "Album", durationSecs: 200, isVideo: true });
+    const byName = decideMetadataDownload(["ytdlp"], track, [yt]);
+    await byName!.preview!({ isVideo: false });
+    expect(preview).toHaveBeenLastCalledWith(expect.objectContaining({ uri: null, isVideo: false }));
+    expect(byName!.resolveMatch).toBe(yt.resolveMatch);
+    expect(byName!.search).toBe(yt.search);
+  });
+
+  it("has none for a provider without one", () => {
+    expect(decideDownload({ kind: "plugin", pluginId: "tidal-browse", uri: "tidal://5" }, track, ALL)!.preview).toBeUndefined();
+  });
 });

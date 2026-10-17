@@ -25,6 +25,11 @@ export interface DownloadModalState {
    *  from `tracks[0].uri`; that inference is what kept sending tracks a
    *  playback fallback played into a search Soulseek doesn't answer. */
   resolveTrack?: ResolveTrack;
+  /** The plan's preview / pick-another half (`DownloadPlan`), when the
+   *  provider has one: the modal shows what will be fetched before fetching. */
+  preview?: DownloadPlan["preview"];
+  resolveMatch?: DownloadPlan["resolveMatch"];
+  search?: DownloadPlan["search"];
 }
 
 /** The modal state for downloading one track through a plan. Every plan-based
@@ -38,13 +43,17 @@ export function planDownloadModal(track: DownloadTrack, plan: DownloadPlan): Dow
     providerId: plan.providerId,
     providerName: plan.providerName,
     resolveTrack: plan.resolve,
+    preview: plan.preview,
+    resolveMatch: plan.resolveMatch,
+    search: plan.search,
   };
 }
 
 interface UseDownloadOrchestrationDeps {
   plugins: Pick<
     ReturnType<typeof usePlugins>,
-    "pluginStates" | "invokeDownloadResolveByUri" | "invokeDownloadResolveByMetadata" | "streamUriResolverOwner"
+    | "pluginStates" | "invokeDownloadResolveByUri" | "invokeDownloadResolveByMetadata" | "streamUriResolverOwner"
+    | "invokeDownloadPreview" | "hasDownloadPreview" | "hasInteractiveSearch" | "invokeInteractiveResolve" | "invokeInteractiveSearch"
   >;
   libraryTracks: Track[];
   queue: QueueTrack[];
@@ -83,6 +92,11 @@ export function useDownloadOrchestration({
       id: "__builtin:subsonic",
       name: "Subsonic",
       source: "__builtin",
+      // Subsonic downloads by URI only — it has nothing to search by name.
+      findsByName: false,
+      // The backend's error is the reason ("no collection for host …", a
+      // refused sign-in): it propagates to the modal rather than collapsing
+      // into "could not resolve".
       resolveByUri: (uri, format) =>
         withResolverLog(
           { kind: "download:uri", provider: "__builtin:subsonic", input: { uri, format } },
@@ -95,7 +109,7 @@ export function useDownloadOrchestration({
             });
             return { url: target.url, headers: null, metadata: null, ext: target.ext };
           },
-        ).catch(() => null),
+        ),
       resolveByMetadata: () =>
         withResolverLog(
           { kind: "download:metadata", provider: "__builtin:subsonic", input: {} },
@@ -113,16 +127,33 @@ export function useDownloadOrchestration({
           id: `${ps.id}:${dp.id}`,
           name: dp.name,
           source: ps.id,
+          findsByName: dp.findsByName !== false,
           resolveByUri: (uri, format, onProgress) =>
             plugins.invokeDownloadResolveByUri(ps.id, dp.id, uri, format, onProgress),
           resolveByMetadata: (title, artistName, albumName, durationSecs, format, onProgress) =>
             plugins.invokeDownloadResolveByMetadata(ps.id, dp.id, title, artistName, albumName, durationSecs, format, onProgress),
+          // Handlers register during activation, so these are looked up when
+          // called, not when the list is built.
+          preview: (request) =>
+            plugins.hasDownloadPreview(ps.id, dp.id)
+              ? plugins.invokeDownloadPreview(ps.id, dp.id, request)
+              : Promise.resolve(null),
+          resolveMatch: (matchId, format, onProgress) =>
+            plugins.invokeInteractiveResolve(ps.id, dp.id, matchId, format, onProgress),
+          search: (query, limit) =>
+            plugins.hasInteractiveSearch(ps.id, dp.id)
+              ? plugins.invokeInteractiveSearch(ps.id, dp.id, query, limit)
+              : Promise.resolve([]),
         });
       }
     }
 
     return providers;
-  }, [plugins.pluginStates, plugins.invokeDownloadResolveByUri, plugins.invokeDownloadResolveByMetadata]);
+  }, [
+    plugins.pluginStates, plugins.invokeDownloadResolveByUri, plugins.invokeDownloadResolveByMetadata,
+    plugins.invokeDownloadPreview, plugins.hasDownloadPreview, plugins.hasInteractiveSearch,
+    plugins.invokeInteractiveResolve, plugins.invokeInteractiveSearch,
+  ]);
 
   // Kept in a ref so nativePlanForTrack (a stable callback) always reads the
   // live provider list. There is no download-resolve bridge any more — mixtape

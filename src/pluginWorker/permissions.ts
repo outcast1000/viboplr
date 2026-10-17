@@ -207,6 +207,7 @@ export const PERMISSION_TABLE: Record<string, PermissionCheck | null> = {
   "downloads.onInteractiveSearch": OWN,
   "downloads.onInteractiveResolve": OWN,
   "downloads.onGetQualities": OWN,
+  "downloads.onPreview": OWN,
 
   "playlists.save": need("library:write"),
   "playlists.list": need("library:read"),
