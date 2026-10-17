@@ -201,9 +201,12 @@ async function runImageHandler(
   }
 }
 
-// Simple semver comparison: returns true if current >= required
+// Simple semver comparison: returns true if current >= required. Compares the
+// numeric major.minor.patch only — a pre-release/build suffix is dropped first,
+// or "1.0.111-beta.1" splits into a NaN segment (same rule as the Rust checker).
 function semverSatisfies(current: string, required: string): boolean {
-  const parse = (v: string) => v.replace(/^v/, "").split(".").map(Number);
+  const parse = (v: string) =>
+    v.trim().replace(/^v/, "").split(/[-+]/)[0].split(".").map((s) => Number(s) || 0);
   const c = parse(current);
   const r = parse(required);
   for (let i = 0; i < 3; i++) {

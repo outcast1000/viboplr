@@ -4,48 +4,31 @@ use serde::Serialize;
 use std::path::Path;
 use tauri::Emitter;
 
-fn semver_is_newer(current: &str, remote: &str) -> bool {
-    let parse = |v: &str| -> Vec<u64> {
-        v.trim_start_matches('v')
-            .split('.')
-            .filter_map(|s| s.parse().ok())
-            .collect()
-    };
-    let c = parse(current);
-    let r = parse(remote);
-    for i in 0..3 {
-        let cv = c.get(i).copied().unwrap_or(0);
-        let rv = r.get(i).copied().unwrap_or(0);
-        if rv > cv {
-            return true;
-        }
-        if rv < cv {
-            return false;
-        }
+/// The numeric `major.minor.patch` of a version, ignoring a leading `v` and any
+/// pre-release / build suffix. Splitting the raw string on `.` read
+/// `1.0.111-beta.1` as `1.0.1` (`111-beta` isn't a number and was dropped), so a
+/// beta build refused every plugin whose `minAppVersion` was above 1.0.1. A
+/// pre-release compares equal to its release: a 1.0.111 beta satisfies 1.0.111.
+fn version_core(v: &str) -> [u64; 3] {
+    let core = v
+        .trim()
+        .trim_start_matches('v')
+        .split(['-', '+'])
+        .next()
+        .unwrap_or("");
+    let mut out = [0u64; 3];
+    for (slot, part) in out.iter_mut().zip(core.split('.')) {
+        *slot = part.parse().unwrap_or(0);
     }
-    false
+    out
+}
+
+fn semver_is_newer(current: &str, remote: &str) -> bool {
+    version_core(remote) > version_core(current)
 }
 
 fn semver_satisfies(current: &str, required: &str) -> bool {
-    let parse = |v: &str| -> Vec<u64> {
-        v.trim_start_matches('v')
-            .split('.')
-            .filter_map(|s| s.parse().ok())
-            .collect()
-    };
-    let c = parse(current);
-    let r = parse(required);
-    for i in 0..3 {
-        let cv = c.get(i).copied().unwrap_or(0);
-        let rv = r.get(i).copied().unwrap_or(0);
-        if cv > rv {
-            return true;
-        }
-        if cv < rv {
-            return false;
-        }
-    }
-    true
+    version_core(current) >= version_core(required)
 }
 
 #[derive(Debug, Clone)]
@@ -617,6 +600,13 @@ mod tests {
         assert!(semver_satisfies("2.0.0", "1.0.0"));
         assert!(!semver_satisfies("0.9.0", "1.0.0"));
         assert!(!semver_satisfies("1.0.0", "1.0.1"));
+        // A pre-release reads as its core version, not as "1.0.1".
+        assert!(semver_satisfies("1.0.111-beta.1", "1.0.85"));
+        assert!(semver_satisfies("1.0.111-beta.1", "1.0.111"));
+        assert!(!semver_satisfies("1.0.111-beta.1", "1.0.112"));
+        assert!(semver_satisfies("v1.0.111+build.5", "1.0.85"));
+        assert!(semver_is_newer("1.0.111-beta.1", "1.0.112"));
+        assert!(!semver_is_newer("1.0.111", "1.0.111-beta.2"));
     }
 
     #[test]
