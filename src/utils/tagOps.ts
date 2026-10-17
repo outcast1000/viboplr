@@ -102,8 +102,6 @@ export async function editTrackTags(
 
 // --- File metadata ---
 
-export type TagMode = "add" | "remove" | "replace";
-
 /** Presence rules: a key that is absent leaves the field alone; `null` (or
  *  `""` for strings) clears it. Values are `unknown` because both callers are
  *  untyped at runtime (a JSON body, a plugin's JS) — validation lives here. */

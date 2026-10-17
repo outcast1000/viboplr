@@ -1,6 +1,6 @@
 // Pure geometry + sampling math for the EQ response curve, shared by the
 // interactive popover editor (EqCurve.tsx) and the read-only bar preview
-// (EqBarControl.tsx). Kept dependency-free and unit-tested like utils/knob.ts.
+// (EqBarControl.tsx). Kept dependency-free and unit-tested.
 //
 // The DSP magnitude math itself lives in eqPresets.ts (peakingResponseDb /
 // shelfResponseDb) — this module only maps frequency↔x and dB↔y for a given

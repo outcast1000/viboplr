@@ -315,5 +315,3 @@ export function useToasts() {
     unseenError: unseen.some((i) => i.kind === "error"),
   };
 }
-
-export type NotificationsState = ReturnType<typeof useToasts>;

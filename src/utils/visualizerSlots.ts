@@ -15,18 +15,6 @@ export function visualizerKey(v: PluginVisualizerRegistration): string {
   return `${v.pluginId}:${v.id}`;
 }
 
-/** Split a persisted key back into its parts, or null if malformed. */
-export function parseVisualizerKey(
-  key: string | null | undefined,
-): { pluginId: string; visualizerId: string } | null {
-  if (!key) return null;
-  const sep = key.indexOf(":");
-  // A visualizer id may itself contain ":" — split on the FIRST separator only,
-  // since the plugin id never does.
-  if (sep <= 0 || sep === key.length - 1) return null;
-  return { pluginId: key.slice(0, sep), visualizerId: key.slice(sep + 1) };
-}
-
 /** Visualizers willing to fill this slot. */
 export function candidatesFor(
   visualizers: PluginVisualizerRegistration[],

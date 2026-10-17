@@ -255,13 +255,6 @@ interface ResolveScope {
   cancelled: boolean;
 }
 
-/** The rejection a killed `plugin_exec` produces (`EXEC_CANCELLED` in
- *  `commands/media.rs`). Callers use it to tell "the user cancelled" apart from
- *  "the tool failed" — the first must not surface as an error. */
-export function isExecCancelled(e: unknown): boolean {
-  return String(e instanceof Error ? e.message : e).trim() === "Cancelled";
-}
-
 /** Store key: approved permissions per worker-runtime plugin (id → permission strings). */
 const PERMISSION_GRANTS_KEY = "pluginPermissionGrants";
 

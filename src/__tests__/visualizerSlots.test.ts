@@ -2,7 +2,6 @@ import { describe, it, expect, vi } from "vitest";
 import type { PluginVisualizerRegistration } from "../types/pluginVisualizer";
 import {
   visualizerKey,
-  parseVisualizerKey,
   candidatesFor,
   resolveSlot,
   resolveFullscreenSlot,
@@ -24,23 +23,9 @@ const meter: PluginVisualizerRegistration = {
 };
 const ALL = [deck, meter];
 
-describe("visualizerKey / parseVisualizerKey", () => {
-  it("round-trips", () => {
+describe("visualizerKey", () => {
+  it("is pluginId:visualizerId", () => {
     expect(visualizerKey(deck)).toBe("vinyl-deck:deck");
-    expect(parseVisualizerKey("vinyl-deck:deck")).toEqual({
-      pluginId: "vinyl-deck",
-      visualizerId: "deck",
-    });
-  });
-
-  it("splits on the first separator only, so a visualizer id may contain one", () => {
-    expect(parseVisualizerKey("plug:a:b")).toEqual({ pluginId: "plug", visualizerId: "a:b" });
-  });
-
-  it("rejects malformed keys rather than inventing halves", () => {
-    for (const bad of ["", ":", "noseparator", ":leading", "trailing:", null, undefined]) {
-      expect(parseVisualizerKey(bad as string)).toBeNull();
-    }
   });
 });
 

@@ -3,7 +3,6 @@ export const BANDS = [31, 62, 125, 250, 500, 1000, 2000, 4000, 8000, 16000] as c
 export const BAND_Q = 1.41;
 export const GAIN_MIN = -15;
 export const GAIN_MAX = 15;
-export const NUM_BANDS = 10;
 
 // Simple (Bass/Treble) mode: a classic two-band Baxandall-style tone stack built
 // from two shelving filters. Bass is a low-shelf at ~100 Hz (lifts/cuts the whole
@@ -20,8 +19,6 @@ export type EqMode = "advanced" | "simple";
 export type EqClipProtection = "limiter" | "headroom";
 export const SHELF_BASS_FREQ = 100;
 export const SHELF_TREBLE_FREQ = 10000;
-export const SHELF_GAIN_MIN = -15;
-export const SHELF_GAIN_MAX = 15;
 
 export interface EqPreset {
   id: string;
@@ -152,34 +149,4 @@ export function presetForGains(gains: number[], customPresets: EqPreset[]): stri
     if (gainsEqual(gains, p.gains)) return p.id;
   }
   return "custom";
-}
-
-export function applyGainsToFilters(
-  filters: { gain: { value: number } }[],
-  gains: number[],
-): void {
-  for (let i = 0; i < filters.length && i < gains.length; i++) {
-    filters[i].gain.value = gains[i];
-  }
-}
-
-function clamp(n: number, lo: number, hi: number): number {
-  return Math.max(lo, Math.min(hi, n));
-}
-
-function freshId(): string {
-  return `c-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
-}
-
-export function validateImportedPreset(raw: unknown): EqPreset | null {
-  if (!raw || typeof raw !== "object") return null;
-  const r = raw as Record<string, unknown>;
-  if (typeof r.name !== "string" || r.name.length === 0) return null;
-  if (!Array.isArray(r.gains) || r.gains.length !== NUM_BANDS) return null;
-  const gains: number[] = [];
-  for (const g of r.gains) {
-    if (typeof g !== "number" || !Number.isFinite(g)) return null;
-    gains.push(clamp(g, GAIN_MIN, GAIN_MAX));
-  }
-  return { id: freshId(), name: r.name, gains };
 }

@@ -71,14 +71,6 @@ export function generateSkinCSS(colors: SkinColors, customCSS?: string): string 
   return css;
 }
 
-export function slugifySkinName(name: string): string {
-  return name
-    .toLowerCase()
-    .replace(/[^a-z0-9\s-]/g, "")
-    .replace(/[\s-]+/g, "-")
-    .replace(/^-|-$/g, "");
-}
-
 // A complete, valid neutral palette (the Default Dark Blue look) used to seed a
 // brand-new user skin. Every one of the 19 keys is present and valid so the
 // starter passes validateSkin() and renders immediately — the author then tweaks

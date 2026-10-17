@@ -498,40 +498,6 @@ export function orderResolvedShelves(
   return [...shelves].sort((a, b) => rankShelf(a, builtinOrder) - rankShelf(b, builtinOrder));
 }
 
-export async function resolveShelves(
-  resolvers: ShelfResolver[],
-  opts: { timeoutMs: number } = { timeoutMs: PLUGIN_TIMEOUT_MS },
-): Promise<ResolvedShelf[]> {
-  const work = resolvers.map(async (r) => {
-    try {
-      const result = await Promise.race<ShelfFetchResult>([
-        r.fetch(r.limit),
-        new Promise<ShelfFetchResult>((resolve) =>
-          setTimeout(() => resolve({ status: "error", message: "timeout" }), opts.timeoutMs),
-        ),
-      ]);
-      if (result.status !== "ok" || result.items.length === 0) {
-        if (result.status === "error") {
-          console.error(`Home shelf "${r.id}" failed:`, result.message ?? "");
-        }
-        return null;
-      }
-      return {
-        id: r.id,
-        pluginId: r.pluginId,
-        title: result.title ?? r.title,
-        displayKind: r.displayKind,
-        items: result.items,
-      } as ResolvedShelf;
-    } catch (e) {
-      console.error(`Home shelf "${r.id}" threw:`, e);
-      return null;
-    }
-  });
-  const settled = await Promise.all(work);
-  return settled.filter((s): s is ResolvedShelf => s !== null);
-}
-
 export interface UseHomeOptions {
   isVisible: boolean;
   pluginShelves: Array<{

@@ -1,6 +1,6 @@
 // src/__tests__/skinUtils.test.ts
 import { describe, it, expect } from "vitest";
-import { validateSkin, generateSkinCSS, sanitizeCustomCSS, slugifySkinName } from "../skinUtils";
+import { validateSkin, generateSkinCSS, sanitizeCustomCSS } from "../skinUtils";
 
 describe("validateSkin", () => {
   const validSkin = {
@@ -108,16 +108,3 @@ describe("generateSkinCSS", () => {
   });
 });
 
-describe("slugifySkinName", () => {
-  it("lowercases and replaces spaces with hyphens", () => {
-    expect(slugifySkinName("Arctic Light")).toBe("arctic-light");
-  });
-
-  it("strips non-alphanumeric characters", () => {
-    expect(slugifySkinName("My Theme! (v2)")).toBe("my-theme-v2");
-  });
-
-  it("collapses multiple hyphens", () => {
-    expect(slugifySkinName("foo  --  bar")).toBe("foo-bar");
-  });
-});

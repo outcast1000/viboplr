@@ -6,7 +6,6 @@ import {
   eligibleQuizTracks,
   fiftyFiftyRemovals,
   formatClock,
-  getQuizMode,
   hasEnoughQuizTracks,
   normalizeBestScores,
   normalizeTitle,
@@ -69,11 +68,6 @@ describe("quiz modes", () => {
 
   it("only hard uses same-artist distractors", () => {
     expect(QUIZ_MODES.filter((m) => m.sameArtistDistractors).map((m) => m.id)).toEqual(["hard"]);
-  });
-
-  it("getQuizMode resolves by id and falls back to the first mode", () => {
-    expect(getQuizMode("hard").id).toBe("hard");
-    expect(getQuizMode("nope" as never).id).toBe("easy");
   });
 });
 

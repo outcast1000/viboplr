@@ -31,10 +31,6 @@ export const QUIZ_MODES: QuizMode[] = [
   { id: "hard", label: "Hard", startSecs: 60, bonusSecs: 4, penaltySecs: 15, skipSecs: 8, snippetSecs: 4, sameArtistDistractors: true },
 ];
 
-export function getQuizMode(id: QuizModeId): QuizMode {
-  return QUIZ_MODES.find((m) => m.id === id) ?? QUIZ_MODES[0];
-}
-
 /** Formats remaining seconds as m:ss, never below 0:00. */
 export function formatClock(secs: number): string {
   const s = Math.max(0, Math.ceil(secs));

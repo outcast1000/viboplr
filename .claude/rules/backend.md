@@ -151,7 +151,7 @@ Plugins can register additional collection kinds.
 
 Tracks belong to a collection via `collection_id`. Disabled collections are filtered via `ENABLED_COLLECTION_FILTER`. Track paths use URL schemes: `file://` (local), `subsonic://{collection_id}/{subsonic_id}`. Plugins register custom URL schemes (e.g., `{scheme}://{id}`).
 
-**Track type classification:** Use `is_remote()` on `Track` (Rust) or `isLocalTrack()` / `isRemoteTrack()` (TypeScript, from `queueEntry.ts`) to classify tracks. These use an allow-list pattern: only `file://` is local, everything else is remote. Do not add new deny-list checks for specific schemes.
+**Track type classification:** Use `is_remote()` on `Track` (Rust) or `isLocalTrack()` (TypeScript, from `queueEntry.ts`; "remote" is simply `!isLocalTrack`) to classify tracks. These use an allow-list pattern: only `file://` is local, everything else is remote. Do not add new deny-list checks for specific schemes.
 
 ## Background Tasks
 

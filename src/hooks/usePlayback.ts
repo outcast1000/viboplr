@@ -1258,5 +1258,3 @@ export function usePlayback(
     rgPreventClip, setRgPreventClip,
   };
 }
-
-export type PlaybackApi = ReturnType<typeof usePlayback>;

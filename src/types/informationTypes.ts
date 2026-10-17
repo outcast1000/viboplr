@@ -2,8 +2,6 @@
 
 export type InfoEntityKind = "artist" | "album" | "track" | "tag";
 
-export type InfoStatus = "ok" | "not_found" | "error";
-
 export type DisplayKind =
   | "rich_text"
   | "html"
@@ -41,12 +39,6 @@ export type InfoFetchResult =
   | { status: "ok"; value: Record<string, unknown> }
   | { status: "not_found" }
   | { status: "error" };
-
-/** Provider in a fallback chain */
-export interface InfoProvider {
-  pluginId: string;
-  integerId: number;
-}
 
 /** Progress entry during fetch chain */
 export interface FetchProgressEntry {

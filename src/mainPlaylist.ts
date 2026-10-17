@@ -85,13 +85,6 @@ export function queueItemLocalThumb(args: {
   return `${mainPlaylistDir}/thumbs/${info.filename}#v=${info.version}`;
 }
 
-export function isContextRemote(ctx: PlaylistContext | null | undefined): boolean {
-  if (!ctx) return false;
-  if (typeof ctx.remote === "boolean") return ctx.remote;
-  if (!ctx.source) return false;
-  return !LIBRARY_SOURCES.has(ctx.source);
-}
-
 /**
  * Coerce one untyped metadata value into the single line the wire format and
  * the QueuePanel tooltip both want, or null to drop it. String-ish arrays are

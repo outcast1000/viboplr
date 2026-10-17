@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { nextQueueKey, librarySelection, entrySelection, queueTrackSelection, isPlayingLibraryRow, isPlayingSelection, isLibraryTrack, isLocalTrack, trackToQueueTrack } from "../queueEntry";
+import { nextQueueKey, librarySelection, entrySelection, queueTrackSelection, isPlayingLibraryRow, isPlayingSelection, isLocalTrack, trackToQueueTrack } from "../queueEntry";
 import { sameSong, likeTargetsRow } from "../hooks/useLikeActions";
 import type { Track, QueueTrack } from "../types";
 
@@ -129,16 +129,6 @@ describe("trackToQueueTrack libraryId", () => {
     expect(copy.key).not.toBe(original.key);
     expect(copy.libraryId).toBe(42);
     expect(copy.key).toMatch(/^q:\d+$/);
-  });
-});
-
-describe("isLibraryTrack", () => {
-  it("returns true for track with numeric id", () => {
-    expect(isLibraryTrack(makeTrack({ id: 42 }))).toBe(true);
-  });
-
-  it("returns false for track with null id", () => {
-    expect(isLibraryTrack(makeTrack({ id: null }))).toBe(false);
   });
 });
 

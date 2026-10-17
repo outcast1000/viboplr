@@ -154,16 +154,8 @@ export function isPlayingLibraryRow(
   return playingId != null && playingId === row.id;
 }
 
-export function isLibraryTrack(track: Track): boolean {
-  return track.id != null;
-}
-
 export function isLocalTrack(track: { path?: string | null }): boolean {
   return !!track.path?.startsWith("file://");
-}
-
-export function isRemoteTrack(track: { path?: string | null }): boolean {
-  return !!track.path && track.path.length > 0 && !track.path.startsWith("file://");
 }
 
 /**
@@ -199,21 +191,6 @@ export function isNetworkSharePath(path: string | null | undefined): boolean {
   if (!path) return false;
   const bare = path.startsWith("file://") ? path.slice("file://".length) : path;
   return bare.startsWith("\\\\") || bare.startsWith("//");
-}
-
-/**
- * Extracts the remote ID from a subsonic:// or plugin scheme path.
- */
-export function remoteId(track: Track): string | null {
-  if (!track.path) return null;
-  if (track.path.startsWith("subsonic://")) {
-    const rest = track.path.substring(11);
-    const lastSlash = rest.lastIndexOf("/");
-    return lastSlash >= 0 ? rest.substring(lastSlash + 1) || null : null;
-  }
-  const parsed = parseUrlScheme(track.path);
-  if (parsed.scheme === "plugin") return parsed.id;
-  return null;
 }
 
 /**
@@ -405,17 +382,6 @@ export function nativeResolverName(
     );
   }
   return "Unknown";
-}
-
-/**
- * Returns true if the URL uses a remote app-specific scheme (subsonic://, plugin schemes).
- * Returns false for file://, http(s)://, and plain paths.
- */
-export function isRemoteScheme(url: string): boolean {
-  if (!url.includes("://")) return false;
-  if (url.startsWith("file://")) return false;
-  if (url.startsWith("http://") || url.startsWith("https://")) return false;
-  return true;
 }
 
 /**

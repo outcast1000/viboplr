@@ -6,10 +6,7 @@ import {
   parseUrlScheme,
   isLocalTrack,
   effectiveLocalPath,
-  isRemoteTrack,
   isNetworkSharePath,
-  isRemoteScheme,
-  remoteId,
 } from "../queueEntry";
 import type { Track } from "../types";
 
@@ -36,28 +33,6 @@ function makeTrack(overrides: Partial<Track> = {}): Track {
   };
 }
 
-describe("isRemoteScheme", () => {
-  it("returns true for tidal:// URLs", () => {
-    expect(isRemoteScheme("tidal://123/456")).toBe(true);
-  });
-
-  it("returns true for subsonic:// URLs", () => {
-    expect(isRemoteScheme("subsonic://server.com/123")).toBe(true);
-  });
-
-  it("returns false for file:// URLs", () => {
-    expect(isRemoteScheme("file:///path/to/song.mp3")).toBe(false);
-  });
-
-  it("returns false for http/https URLs", () => {
-    expect(isRemoteScheme("https://cdn.example.com/stream")).toBe(false);
-  });
-
-  it("returns false for paths without scheme", () => {
-    expect(isRemoteScheme("/path/to/song.mp3")).toBe(false);
-  });
-});
-
 describe("isLocalTrack", () => {
   it("returns true for file:// path", () => {
     expect(isLocalTrack(makeTrack({ path: "file:///music/song.mp3" }))).toBe(true);
@@ -81,40 +56,6 @@ describe("isLocalTrack", () => {
 
   it("returns false for empty string path", () => {
     expect(isLocalTrack(makeTrack({ path: "" }))).toBe(false);
-  });
-});
-
-describe("isRemoteTrack", () => {
-  it("returns true for subsonic:// path", () => {
-    expect(isRemoteTrack(makeTrack({ path: "subsonic://server.com/abc" }))).toBe(true);
-  });
-
-  it("returns true for plugin scheme path", () => {
-    expect(isRemoteTrack(makeTrack({ path: "tidal://12345" }))).toBe(true);
-  });
-
-  it("returns true for external:// path", () => {
-    expect(isRemoteTrack(makeTrack({ path: "external://yt/abc" }))).toBe(true);
-  });
-
-  it("returns true for http:// path", () => {
-    expect(isRemoteTrack(makeTrack({ path: "http://example.com/track.mp3" }))).toBe(true);
-  });
-
-  it("returns false for file:// path", () => {
-    expect(isRemoteTrack(makeTrack({ path: "file:///music/song.mp3" }))).toBe(false);
-  });
-
-  it("returns false for null path", () => {
-    expect(isRemoteTrack(makeTrack({ path: null }))).toBe(false);
-  });
-
-  it("returns false for empty string path", () => {
-    expect(isRemoteTrack(makeTrack({ path: "" }))).toBe(false);
-  });
-
-  it("returns true for arbitrary unknown scheme", () => {
-    expect(isRemoteTrack(makeTrack({ path: "foo://bar" }))).toBe(true);
   });
 });
 
@@ -143,24 +84,6 @@ describe("isNetworkSharePath", () => {
     expect(isNetworkSharePath(null)).toBe(false);
     expect(isNetworkSharePath(undefined)).toBe(false);
     expect(isNetworkSharePath("")).toBe(false);
-  });
-});
-
-describe("remoteId", () => {
-  it("extracts id from subsonic:// path", () => {
-    expect(remoteId(makeTrack({ path: "subsonic://server.com/abc123" }))).toBe("abc123");
-  });
-
-  it("extracts id from plugin scheme path", () => {
-    expect(remoteId(makeTrack({ path: "tidal://12345" }))).toBe("12345");
-  });
-
-  it("returns null for local path", () => {
-    expect(remoteId(makeTrack({ path: "file:///music/song.mp3" }))).toBeNull();
-  });
-
-  it("returns null for subsonic:// with no id segment", () => {
-    expect(remoteId(makeTrack({ path: "subsonic://server.com/" }))).toBeNull();
   });
 });
 
