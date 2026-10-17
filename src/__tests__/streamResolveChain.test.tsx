@@ -86,13 +86,11 @@ function mountChain(opts: Opts = {}) {
   const { result } = renderHook(() =>
     useStreamResolution({
       resolveTrackSrcRef: resolveTrackSrcRef as never,
-      transcodeSessionRef: { current: null } as never,
       resolveStreamByUriRef: { current: resolveStreamByUri } as never,
       streamResolversRef: { current: [createLibraryStreamResolver(), ...extraResolvers] },
       resolveStreamByUri,
       streamUriResolverOwner: (scheme: string) => (scheme === "qbt" ? "qbittorrent" : null),
       pluginNames: new Map([["qbittorrent", "qBittorrent"]]),
-      requireDep: vi.fn().mockResolvedValue(true),
       useNativeVideoRef: { current: true },
       preferVideoRef: { current: preferVideo },
       queue: [track],

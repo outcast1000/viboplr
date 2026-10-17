@@ -24,7 +24,6 @@ export interface KeyboardShortcutDeps {
   mini: ReturnType<typeof useMiniMode>;
   // Volatile playback state read on each keypress.
   volume: number;
-  getMediaElement: () => HTMLMediaElement | null;
   handleSeek: (secs: number) => void;
   handlePause: () => void;
   currentTrack: QueueTrack | null;
@@ -38,7 +37,7 @@ export interface KeyboardShortcutDeps {
   /** Cmd/Ctrl+Shift+N: open/close the notifications list (the caption bell). */
   toggleNotifications: () => void;
   // Fullscreen, dispatched by track kind inside App (video keeps its own path —
-  // it owns the <video> element). The key shares this with the now-playing bar's
+  // the engine's native surface). The key shares this with the now-playing bar's
   // fullscreen button so the two can't disagree about which surface answers.
   canFullscreen: boolean;
   toggleFullscreenForTrack: () => void;

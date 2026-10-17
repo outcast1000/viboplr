@@ -12,7 +12,6 @@ import { classifyErrorKind } from "../utils/errorKind";
 
 import { useAssignRef } from "./useLatestRef";
 import type { Notify } from "./useToasts";
-const TRANSCODE_VIDEO_FORMATS = ["mkv", "avi", "wmv"];
 
 /** Reuse a just-resolved src for the SAME track within this window instead of
  *  hitting the resolver again. Short, because remote stream URLs (e.g.
@@ -48,19 +47,6 @@ class ResolverMiss extends Error {
   constructor(readonly reason: "miss" | "timeout", message: string) {
     super(message);
   }
-}
-
-/** Formats that the local `<video>` element can't play natively and that must be
- * routed through the on-the-fly transcode server. */
-export function needsTranscode(track: { format: string | null }): boolean {
-  return TRANSCODE_VIDEO_FORMATS.includes(track.format?.toLowerCase() ?? "");
-}
-
-interface TranscodeSession {
-  sessionId: string;
-  baseUrl: string;
-  durationSecs: number | null;
-  seekOffset: number;
 }
 
 /** User-facing label for one failed resolver-chain entry. */
@@ -145,68 +131,10 @@ export function unownedSchemeLabel(scheme: string): string {
   return `No installed plugin can play ${scheme}:// links`;
 }
 
-// DORMANT safety net for the next googlevideo enforcement change. In Aug 2026
-// googlevideo began 403ing every request shape both engines produce (mpv's
-// plain GET, the <audio> element's `bytes=0-`) on URLs minted by a stale
-// yt-dlp player client; the real fix was switching yt-dlp to the nightly
-// channel (dependencies.rs), whose client's URLs both engines play directly —
-// so the relay is kept OFF. If YouTube breaks direct playback again, flip
-// CHUNK_RELAY_ENABLED: matching URLs then play through the backend chunk
-// relay (`stream_relay.rs`), which forwards each player request upstream as
-// bounded chunks from the requested offset — seeks included.
-const CHUNK_RELAY_ENABLED = false;
-const CHUNK_RELAY_HOST = /(^|\.)googlevideo\.com$/i;
-
-function needsChunkRelay(url: string | null | undefined): url is string {
-  if (!url || !(url.startsWith("http://") || url.startsWith("https://"))) return false;
-  try {
-    return CHUNK_RELAY_HOST.test(new URL(url).hostname);
-  } catch {
-    return false;
-  }
-}
-
-/** Swap chunk-gated stream URLs (browser `src`, native `url`/`audioUrl`) for
- * local relay URLs. The resolver's request headers move upstream with the
- * registration — the relay sends them to the CDN, so the engine-side source
- * drops them (nothing signed should be replayed against localhost, and the
- * browser engine could never send them anyway). Registration failure falls
- * back to the direct URLs: playback then fails exactly as it would have, and
- * the existing retry ladder owns it. */
-async function applyChunkRelay<T extends { src: string; engineSource: EngineSource | null }>(
-  res: T,
-): Promise<T> {
-  if (!CHUNK_RELAY_ENABLED) return res;
-  const es = res.engineSource?.kind === "http" ? res.engineSource : null;
-  const urls = [res.src, es?.url, es?.audioUrl];
-  if (!urls.some(needsChunkRelay)) return res;
-  try {
-    const relayed = new Map<string, string>();
-    for (const u of urls) {
-      if (needsChunkRelay(u) && !relayed.has(u)) {
-        relayed.set(u, await invoke<string>("register_stream_relay", { url: u, headers: es?.headers ?? null }));
-      }
-    }
-    const swap = (u: string) => relayed.get(u) ?? u;
-    return {
-      ...res,
-      src: swap(res.src),
-      engineSource: es
-        ? { kind: "http" as const, url: swap(es.url), ...(es.audioUrl ? { audioUrl: swap(es.audioUrl) } : {}) }
-        : res.engineSource,
-    };
-  } catch (e) {
-    console.error("Chunk-relay registration failed — playing the direct URL:", e);
-    return res;
-  }
-}
-
 interface UseStreamResolutionDeps {
   /** Created in App (must precede `usePlayback`, which consumes it). This hook
    * assigns its `.current` to the real resolver once plugins are available. */
   resolveTrackSrcRef: React.MutableRefObject<(track: QueueTrack, opts?: { preload?: boolean }) => Promise<ResolvedTrackSource>>;
-  /** Created in App and shared with `usePlayback` for seek/offset math + cleanup. */
-  transcodeSessionRef: React.MutableRefObject<TranscodeSession | null>;
   /** Created in App; kept fresh here from `resolveStreamByUri`. */
   resolveStreamByUriRef: React.MutableRefObject<(scheme: string, id: string, quality?: string | null, opts?: { externalAudio?: boolean; fresh?: boolean; video?: boolean }) => Promise<{ url: string; candidates?: StreamCandidate[]; sourceUrl?: string }>>;
   /** Ordered, user-configured plugin stream resolvers (populated elsewhere in App). */
@@ -220,11 +148,8 @@ interface UseStreamResolutionDeps {
    *  native entry for a plugin scheme, so the source panel says "yt-dlp" rather
    *  than the capitalized protocol ("Ytdlp"). */
   pluginNames: Map<string, string>;
-  /** Surfaces the platform-aware dependency install modal (`dependencies.requireDep`). */
-  requireDep: (name: string, feature: string) => Promise<boolean>;
-  /** True when the native mpv engine will render video (macOS full build,
-   * engine selected) — mkv/avi/wmv then skip the ffmpeg transcode server and
-   * resolve to a raw file `engineSource` instead. */
+  /** True when the engine renders video (macOS and Windows). Video sources
+   * are then asked for split streams the engine can merge. */
   useNativeVideoRef: React.MutableRefObject<boolean>;
   /** True when the user's "Prefer video" toggle is on. When set, every track
    * that isn't already a video is run through the stream resolvers (library
@@ -234,7 +159,7 @@ interface UseStreamResolutionDeps {
   preferVideoRef: React.MutableRefObject<boolean>;
   /** Current queue — drives pruning of stale per-track resolve failures. */
   queue: QueueTrack[];
-  /** Currently-playing track — drives transcode-session teardown. */
+  /** Currently-playing track — whose source `resolvedSource` reports. */
   currentTrack: QueueTrack | null;
   /** Transient toast — surfaces silent fallbacks (video → library audio copy). */
   notify: Notify;
@@ -254,8 +179,8 @@ interface UseStreamResolutionDeps {
  * The playback source-resolution engine: builds the `resolveTrackSrcRef` resolver
  * chain (native scheme → user-ordered stream resolvers, where the built-in
  * Library resolver — serving local and network copies — sits first by default),
- * manages the transcode-session lifecycle, and tracks per-track resolve status +
- * persistent failures. Extracted out of App.tsx; the refs it drives are created
+ * and tracks per-track resolve status + persistent failures. Extracted out of
+ * App.tsx; the refs it drives are created
  * there (so `usePlayback` can consume them) and passed in here.
  *
  * Returns the render-facing resolution state.
@@ -289,13 +214,11 @@ export function attributedSourceUrl(
 
 export function useStreamResolution({
   resolveTrackSrcRef,
-  transcodeSessionRef,
   resolveStreamByUriRef,
   streamResolversRef,
   resolveStreamByUri,
   streamUriResolverOwner,
   pluginNames,
-  requireDep,
   useNativeVideoRef,
   preferVideoRef,
   queue,
@@ -331,7 +254,7 @@ export function useStreamResolution({
   // QueueTrack.key. Collapses the redundant slow-resolver (yt-dlp) calls that
   // otherwise fire for the SAME track when several paths resolve it at once or
   // in quick succession (a play, the per-tick video pre-resolve, and the
-  // engine-error → handlePlay fallback replay).
+  // engine-error → handlePlay retry).
   const inFlightResolvesRef = useRef<Map<string, Promise<ResolvedTrackSource>>>(new Map());
   const resolveCacheRef = useRef<Map<string, { at: number; resolved: ResolvedTrackSource; meta: ResolvedSource | null }>>(new Map());
   // Negative counterpart, read by preloads only — see RESOLVE_FAILURE_TTL_MS.
@@ -341,11 +264,6 @@ export function useStreamResolution({
   // ladder to pick next, both live in the shared `playbackRetry` store (written
   // by usePlayback on its way into the replay — see that module for why it isn't
   // derived from the engine-error event here).
-
-  // `requireDep` is read inside the build-once resolver below; keep it in a ref so
-  // the resolver always calls the latest one without re-building the chain.
-  const requireDepRef = useRef(requireDep);
-  useAssignRef(requireDepRef, requireDep);
 
   // Scheme→owner lookup, read inside the build-once resolver. Kept fresh in a ref
   // so the chain always sees the current plugin set without rebuilding.
@@ -402,12 +320,9 @@ export function useStreamResolution({
         return Promise.resolve({ src: convertFileSrc(parsed.path), engineSource: { kind: "file", path: parsed.path } });
       }
       if (parsed.scheme === "plugin") {
-        // When the native mpv engine will render this as video it can attach a
-        // separate audio stream, so hint the resolver to offer split candidates
-        // and let selectStream pick a hi-res video-only + audio-only pair. The
-        // browser element can't merge, so it keeps getting a muxed stream — and
-        // selectStream's `browserUrl` (always self-contained) is used as the
-        // element src, which is also the safe fallback if the native play errors.
+        // When the engine renders this as video it can attach a separate audio
+        // stream, so hint the resolver to offer split candidates and let
+        // selectStream pick a hi-res video-only + audio-only pair.
         const externalAudio = videoTrack && useNativeVideoRef.current;
         // `video` carries the request's intent now that a plugin ref no longer
         // encodes it in the URI (the ytdlp ".mp4" suffix is legacy): the track
@@ -416,21 +331,20 @@ export function useStreamResolution({
         const opts = externalAudio || fresh || videoTrack ? { externalAudio, fresh, video: videoTrack } : undefined;
         return resolveStreamByUriRef.current(parsed.protocol, parsed.id, null, opts).then(r => {
           if (r.candidates && r.candidates.length) {
-            const sel = selectStream(r.candidates, { engine: externalAudio ? "native" : "browser", video: videoTrack, skipTopVideo: ladderStep });
+            const sel = selectStream(r.candidates, { video: videoTrack, skipTopVideo: ladderStep });
             if (sel) {
               // A candidate is just a URL, and not every plugin scheme resolves
               // to the network — one may name a file already on this disk (the
               // qBittorrent plugin's `qbt://` does). Classify it like any other
-              // URL rather than assuming http: a raw `file://` handed to the
-              // element is unloadable (local files must go through
-              // convertFileSrc) and would tell mpv a local file is a stream.
+              // URL rather than assuming http, or mpv is told a local file is a
+              // network stream.
               // Only the split-stream case has to stay here, because `audioUrl`
               // and `headers` have nowhere to ride through the recursion.
               if (selectedNeedsClassifying(sel)) {
                 return resolveUrlDetailed(sel.url, videoTrack, sel.headers, fresh, ladderStep)
                   .then(inner => (r.sourceUrl ? { ...inner, sourceUrl: r.sourceUrl } : inner));
               }
-              return { src: sel.browserUrl, engineSource: { kind: "http" as const, url: sel.url, audioUrl: sel.audioUrl, headers: sel.headers }, sourceUrl: r.sourceUrl };
+              return { src: sel.url, engineSource: { kind: "http" as const, url: sel.url, audioUrl: sel.audioUrl, headers: sel.headers }, sourceUrl: r.sourceUrl };
             }
           }
           // Falling through to the self-contained URL must not drop the
@@ -506,30 +420,6 @@ export function useStreamResolution({
             sourceUrl: url,
             effectiveSource: classifyEffectiveSource(url, ownerRef.current),
             resolve: async () => {
-              const parsed = parseUrlScheme(url);
-              // The native engine plays mkv/avi/wmv directly — no transcode.
-              if (parsed.scheme === "file" && needsTranscode(track) && !useNativeVideoRef.current) {
-                if (transcodeSessionRef.current) {
-                  invoke("stop_transcode", { sessionId: transcodeSessionRef.current.sessionId }).catch(console.error);
-                }
-                try {
-                  const result = await invoke<{ url: string; sessionId: string; durationSecs: number | null }>("start_transcode", { path: parsed.path });
-                  transcodeSessionRef.current = {
-                    sessionId: result.sessionId,
-                    baseUrl: result.url.replace(/\?seek=.*$/, ""),
-                    durationSecs: result.durationSecs ?? null,
-                    seekOffset: 0,
-                  };
-                  // Transcode-server streams are webview-only by design.
-                  return { src: result.url, engineSource: null };
-                } catch (e) {
-                  const msg = e instanceof Error ? e.message : String(e);
-                  if (msg.includes("ffmpeg is not installed")) {
-                    requireDepRef.current("ffmpeg", "Video playback");
-                  }
-                  throw e;
-                }
-              }
               const resolved = await resolveUrlDetailed(url, isVideoTrack(track), undefined, fresh, ladderStep);
               const attributed = attributedSourceUrl(resolved.sourceUrl, resolved.engineSource);
               if (attributed) nativeEntry.sourceUrl = attributed;
@@ -656,9 +546,9 @@ export function useStreamResolution({
             // `url` has to be (360p, on YouTube). `url` remains the fallback for
             // a candidate list nothing in it suits.
             if (result.candidates?.length) {
-              const sel = selectStream(result.candidates, { engine: externalAudio ? "native" : "browser", video: asVideo, skipTopVideo: ladderStep });
+              const sel = selectStream(result.candidates, { video: asVideo, skipTopVideo: ladderStep });
               if (sel) {
-                return { src: sel.browserUrl, engineSource: { kind: "http" as const, url: sel.url, audioUrl: sel.audioUrl, headers: sel.headers } };
+                return { src: sel.url, engineSource: { kind: "http" as const, url: sel.url, audioUrl: sel.audioUrl, headers: sel.headers } };
               }
             }
             // In the prefer-video pass we've confirmed a video result, so resolve
@@ -723,7 +613,7 @@ export function useStreamResolution({
           setResolvingStatus({ key: track.key, error: lastError, trying: entry.name });
         }
         try {
-          const { src, engineSource } = await applyChunkRelay(await entry.resolve());
+          const { src, engineSource } = await entry.resolve();
           if (!preload && resolveGenerationRef.current !== generation) return { src: "" };
           setResolvingStatus(null);
           // Resolved successfully — clear any prior persistent failure for this track.
@@ -784,7 +674,7 @@ export function useStreamResolution({
     // Public resolver: single-flight in-flight dedup + short-TTL success cache,
     // both keyed by QueueTrack.key. Concurrent callers (a play + the per-tick
     // video pre-resolve) share one promise; rapid sequential re-entries (the
-    // engine-error → handlePlay fallback, the preload guard resetting on every
+    // engine-error → handlePlay retry, the preload guard resetting on every
     // handlePlay) reuse the just-resolved src instead of shelling out to yt-dlp
     // again for the same track.
     resolveTrackSrcRef.current = async (track, opts) => {
@@ -868,15 +758,7 @@ export function useStreamResolution({
       inFlightResolvesRef.current.set(key, promise);
       return promise;
     };
-  }, [resolveTrackSrcRef, transcodeSessionRef, resolveStreamByUriRef, streamResolversRef, preferVideoRef]);
-
-  // Tear down the transcode session when playback leaves a track that needed it.
-  useEffect(() => {
-    if (transcodeSessionRef.current && (!currentTrack || !needsTranscode(currentTrack))) {
-      invoke("stop_transcode", { sessionId: transcodeSessionRef.current.sessionId }).catch(console.error);
-      transcodeSessionRef.current = null;
-    }
-  }, [currentTrack, transcodeSessionRef]);
+  }, [resolveTrackSrcRef, resolveStreamByUriRef, streamResolversRef, preferVideoRef]);
 
   // Same for the per-track sources — except the playing track's, which is kept
   // even when it has left the queue (a cleared queue keeps playing).

@@ -1,6 +1,5 @@
 import { describe, it, expect } from "vitest";
 import { clampRate, MIN_VISUALIZER_RATE, MAX_VISUALIZER_RATE } from "../components/VisualizerSlot";
-import { applyRateTo } from "../hooks/usePlayback";
 
 describe("clampRate", () => {
   // The contract's promise is that a misbehaving visualizer can cost you a view
@@ -35,30 +34,3 @@ describe("clampRate", () => {
   });
 });
 
-describe("applyRateTo", () => {
-  function fakeEl() {
-    return { playbackRate: 1, preservesPitch: true, webkitPreservesPitch: true } as unknown as
-      HTMLMediaElement & { preservesPitch: boolean; webkitPreservesPitch: boolean };
-  }
-
-  it("turns pitch preservation OFF, which is what makes this a deck", () => {
-    // preservesPitch defaults to TRUE. Left alone, the browser time-stretches and
-    // holds the original pitch — correct for a podcast, wrong for a turntable,
-    // which resamples so 45 on a 33 pressing is faster AND higher. This one line
-    // is the whole difference and it is invisible in a screenshot.
-    const el = fakeEl();
-    applyRateTo(el, 1.35);
-    expect(el.preservesPitch).toBe(false);
-    expect(el.playbackRate).toBeCloseTo(1.35);
-  });
-
-  it("also sets the webkit-prefixed name, which is what some WKWebViews honour", () => {
-    const el = fakeEl();
-    applyRateTo(el, 2);
-    expect(el.webkitPreservesPitch).toBe(false);
-  });
-
-  it("is a no-op on a missing element", () => {
-    expect(() => applyRateTo(null, 1.35)).not.toThrow();
-  });
-});

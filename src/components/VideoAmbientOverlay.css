@@ -1,5 +1,5 @@
 /* Ambient overlay for the video theater view. Lives inside
-   .video-container--theater, above the <video>. Pointer-events pass through
+   .video-container--theater, above the video. Pointer-events pass through
    except on the interactive up-next chip. */
 .video-ambient {
   position: absolute;

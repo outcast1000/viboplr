@@ -11,9 +11,9 @@
 // predicting which — and refusals cluster in time rather than attaching to a
 // particular stream. Re-resolving mints a new link and gets a fresh draw, which
 // is the whole of the recovery; the ladder is a last resort for the final
-// attempt only, where the alternative is the browser engine's 360p rather than
-// another try at full quality. See `streamLadderStep` for why it stays out of
-// the way until then.
+// attempt only, where the alternative is giving up rather than another try at
+// full quality. See `streamLadderStep` for why it stays out of the way until
+// then.
 //
 // This is a module-level store rather than a ref in either hook, and it is
 // written directly rather than derived from the `engine-error` event, because
@@ -56,8 +56,7 @@ export function consumeResolveStale(key: string): boolean {
  *  lands a quarter of plays below it for no gain.
  *
  *  The step is kept for the LAST attempt only, where the alternative is not
- *  another try at 1080p but the browser engine — whose sole self-contained
- *  YouTube format is 360p. A working 480p beats that. */
+ *  another try at 1080p but the track failing. A working 480p beats that. */
 export function streamLadderStep(key: string): number {
   return Math.max(0, (attempts.get(key) ?? 0) - 1);
 }

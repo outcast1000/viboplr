@@ -371,21 +371,6 @@
   color: var(--text-secondary);
 }
 
-.playback-error-mpv {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  align-items: flex-start;
-  margin: 12px 0;
-  padding-top: 12px;
-  border-top: 1px solid var(--border);
-}
-
-.playback-error-mpv-hint {
-  font-size: var(--fs-sm);
-  color: var(--text-secondary);
-}
-
 .track-row-action {
   width: 22px;
   height: 22px;

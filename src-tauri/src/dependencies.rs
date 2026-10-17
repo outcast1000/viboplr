@@ -164,8 +164,7 @@ pub struct DependencyDef {
 /// administrator installed into the OS trust store. A tool that verifies
 /// against its own bundled list (yt-dlp: Python + certifi) then rejects every
 /// connection — `CERTIFICATE_VERIFY_FAILED` — while the browser, which reads
-/// the OS store, works. Applied to every spawn by `command_with_path` /
-/// `tokio_command_with_path`:
+/// the OS store, works. Applied to every spawn by `command_with_path`:
 ///
 /// - **macOS**: `args` plus `ca_file_env` = the exported OS trust store
 ///   (`trust_store::pem_path`). If the export fails, nothing is applied and the
@@ -272,7 +271,6 @@ pub static REGISTRY: &[DependencyDef] = &[
             url: "https://ffmpeg.org/download.html",
         },
         internal_consumers: &[
-            ("Video playback", "Transcode MKV/AVI/WMV to streamable MP4"),
             ("Video frame preview", "Extract thumbnail frames from video files"),
             ("Audio format conversion", "Convert WebM downloads to M4A"),
         ],
@@ -654,27 +652,6 @@ pub fn command_with_path(program: &str) -> std::process::Command {
 // encoding regardless of locale; `PYTHONIOENCODING` pins stdio explicitly. Both
 // are no-ops on already-UTF-8 platforms and are ignored by non-Python programs
 // (ffmpeg).
-pub fn tokio_command_with_path(program: &str) -> tokio::process::Command {
-    let resolved = managed_binary_path(program)
-        .map(|p| p.into_os_string())
-        .unwrap_or_else(|| program.into());
-    let mut cmd = tokio::process::Command::new(resolved);
-    cmd.args(data_dir_args(program));
-    let (trust_args, ca_file) = os_trust_setup(program);
-    cmd.args(trust_args);
-    if let Some((var, pem)) = ca_file {
-        cmd.env(var, pem);
-    }
-    cmd.env("PATH", augmented_path());
-    cmd.env("PYTHONUTF8", "1");
-    cmd.env("PYTHONIOENCODING", "utf-8");
-    #[cfg(target_os = "windows")]
-    {
-        use std::os::windows::process::CommandExt;
-        cmd.creation_flags(0x08000000);
-    }
-    cmd
-}
 
 /// Upper bound for a version probe. yt-dlp's PyInstaller binary can take
 /// 15-20s to start on macOS, so this must be generous — it exists to bound
@@ -2058,13 +2035,5 @@ mod tests {
         let cmd = command_with_path("yt-dlp");
         assert_eq!(env_value(&cmd, "PYTHONUTF8"), Some("1"));
         assert_eq!(env_value(&cmd, "PYTHONIOENCODING"), Some("utf-8"));
-    }
-
-    #[test]
-    fn test_tokio_command_with_path_forces_utf8_io() {
-        let cmd = tokio_command_with_path("yt-dlp");
-        let std_cmd = cmd.as_std();
-        assert_eq!(env_value(std_cmd, "PYTHONUTF8"), Some("1"));
-        assert_eq!(env_value(std_cmd, "PYTHONIOENCODING"), Some("utf-8"));
     }
 }

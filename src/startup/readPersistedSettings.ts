@@ -15,7 +15,6 @@ export interface PersistedSettings {
   vol: number | undefined;
   muted: boolean | undefined;
   crossfadeSecs: number | undefined;
-  playbackEngine: string | undefined;
   audioExclusive: boolean | undefined;
   betaUpdates: boolean | undefined;
   /** Per-kind signatures of update notices the user has waved away. */
@@ -120,7 +119,6 @@ export async function readPersistedSettings(store: AppStore): Promise<PersistedS
     vol: read<number>("volume"),
     muted: read<boolean>("muted"),
     crossfadeSecs: read<number>("crossfadeSecs"),
-    playbackEngine: read<string>("playbackEngine"),
     audioExclusive: read<boolean>("audioExclusive"),
     betaUpdates: read<boolean>("betaUpdates"),
     updateNoticeDismissed: read<UpdateNoticeDismissals>("updateNoticeDismissed"),

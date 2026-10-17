@@ -14,83 +14,67 @@ const YT: StreamCandidate[] = [
 ];
 
 describe("selectStream — video", () => {
-  it("native engine picks best video-only + audio-only, with muxed browser fallback", () => {
-    const r = selectStream(YT, { engine: "native", video: true });
+  it("picks the best video-only + audio-only pair", () => {
+    const r = selectStream(YT, { video: true });
     expect(r).not.toBeNull();
     expect(r!.url).toBe("v1080"); // best mp4/avc video-only
-    expect(r!.audioUrl).toBe("am4a"); // browser-safe audio preferred
+    expect(r!.audioUrl).toBe("am4a"); // m4a/aac preferred
     expect(r!.headers).toEqual({ "User-Agent": "yt-dlp" });
-    expect(r!.browserUrl).toBe("mux360"); // self-contained fallback
     expect(r!.video).toBe(true);
   });
 
-  it("browser engine picks the self-contained muxed stream (no audioUrl)", () => {
-    const r = selectStream(YT, { engine: "browser", video: true });
-    expect(r!.url).toBe("mux360");
-    expect(r!.browserUrl).toBe("mux360");
-    expect(r!.audioUrl).toBeUndefined();
-  });
-
-  it("native falls back to muxed when there is no split pair", () => {
+  it("falls back to muxed when there is no split pair", () => {
     const onlyMuxed: StreamCandidate[] = [
       { url: "mux720", kind: "muxed", height: 720, container: "mp4", vcodec: "avc1", acodec: "mp4a" },
     ];
-    const r = selectStream(onlyMuxed, { engine: "native", video: true });
+    const r = selectStream(onlyMuxed, { video: true });
     expect(r!.url).toBe("mux720");
     expect(r!.audioUrl).toBeUndefined();
   });
 
   it("prefers avc/mp4 video over vp9/webm at equal resolution", () => {
-    const r = selectStream(YT, { engine: "native", video: true });
+    const r = selectStream(YT, { video: true });
     expect(r!.url).toBe("v1080"); // not v1080vp9
   });
 
-  it("uses an HLS master tagged muxed when there is no progressive muxed", () => {
+  it("takes a split pair over an HLS master tagged muxed", () => {
     const hls: StreamCandidate[] = [
       { url: "hlsmaster", kind: "muxed", container: "m3u8" },
       { url: "v1080", kind: "video", height: 1080, container: "mp4", vcodec: "avc1" },
       { url: "am4a", kind: "audio", container: "m4a", acodec: "mp4a" },
     ];
-    const nat = selectStream(hls, { engine: "native", video: true });
-    expect(nat!.url).toBe("v1080");
-    expect(nat!.browserUrl).toBe("hlsmaster");
-    const br = selectStream(hls, { engine: "browser", video: true });
-    expect(br!.url).toBe("hlsmaster");
+    expect(selectStream(hls, { video: true })!.url).toBe("v1080");
+    expect(selectStream([hls[0]], { video: true })!.url).toBe("hlsmaster");
   });
 });
 
 describe("selectStream — retry ladder", () => {
   it("steps down one video rung per failed attempt, keeping the same audio", () => {
-    // The point of the ladder: a refused 1080p stream becomes 720p on mpv,
-    // instead of the browser engine's 360p muxed — which is what a bare
-    // fallback would have given.
-    const first = selectStream(YT, { engine: "native", video: true, skipTopVideo: 0 });
-    const second = selectStream(YT, { engine: "native", video: true, skipTopVideo: 1 });
+    const first = selectStream(YT, { video: true, skipTopVideo: 0 });
+    const second = selectStream(YT, { video: true, skipTopVideo: 1 });
     expect(first!.url).toBe("v1080");
     expect(second!.url).toBe("v720");
     expect(second!.audioUrl).toBe("am4a"); // audio is not stepped down with it
   });
 
-  it("descends past the browser-safe streams into the rest rather than stopping", () => {
-    // v1080 (mp4/avc) and v720 (mp4/avc) are browser-safe; v1080vp9 is not. A
-    // ladder that only walked the safe list would run out at step 2 and drop to
-    // the browser engine while a perfectly playable vp9 stream was still there —
-    // mpv can decode it even though the <video> element can't.
-    const third = selectStream(YT, { engine: "native", video: true, skipTopVideo: 2 });
+  it("descends past the preferred encodings into the rest rather than stopping", () => {
+    // v1080 and v720 are mp4/avc; v1080vp9 is not. A ladder that only walked the
+    // preferred list would run out at step 2 while a playable vp9 stream was
+    // still there.
+    const third = selectStream(YT, { video: true, skipTopVideo: 2 });
     expect(third!.url).toBe("v1080vp9");
   });
 
   it("gives up on the split pair once the ladder runs off the end", () => {
-    const past = selectStream(YT, { engine: "native", video: true, skipTopVideo: 9 });
-    // No video-only rung left → the muxed stream, which is where the browser
-    // engine would have landed anyway. usePlayback caps the attempts before this.
+    const past = selectStream(YT, { video: true, skipTopVideo: 9 });
+    // No video-only rung left → the muxed stream. usePlayback caps the attempts
+    // before this.
     expect(past!.url).toBe("mux360");
     expect(past!.audioUrl).toBeUndefined();
   });
 
   it("is unchanged when no ladder step is supplied", () => {
-    expect(selectStream(YT, { engine: "native", video: true })!.url).toBe("v1080");
-    expect(selectStream(YT, { engine: "browser", video: true })!.url).toBe("mux360");
+    expect(selectStream(YT, { video: true })!.url).toBe("v1080");
   });
 });
 
@@ -103,46 +87,62 @@ describe("selectStream — audio", () => {
     // them here would silently undo the whole point of that shape.
     const headers = { "User-Agent": "yt-dlp", Referer: "https://example/" };
     const only: StreamCandidate[] = [{ url: "a1", kind: "audio", headers }];
-    const r = selectStream(only, { engine: "browser", video: false });
+    const r = selectStream(only, { video: false });
     expect(r!.url).toBe("a1");
-    expect(r!.browserUrl).toBe("a1");
     expect(r!.video).toBe(false);
     expect(r!.headers).toEqual(headers);
   });
 
   it("leaves headers undefined when the chosen audio stream declares none", () => {
-    const r = selectStream(YT, { engine: "browser", video: false });
+    const r = selectStream(YT, { video: false });
     expect(r!.url).toBe("am4a");
     expect(r!.headers).toBeUndefined();
   });
 
-  it("native prefers highest-quality browser-safe audio; browserUrl is m4a", () => {
-    const r = selectStream(YT, { engine: "native", video: false });
+  it("prefers m4a/aac audio at equal bitrate and never pairs an audio pick", () => {
+    const r = selectStream(YT, { video: false });
     expect(r!.video).toBe(false);
     expect(r!.url).toBe("am4a");
-    expect(r!.browserUrl).toBe("am4a");
     expect(r!.audioUrl).toBeUndefined();
   });
 
-  it("falls back to opus for native when no m4a exists, but browserUrl stays opus too", () => {
+  it("ranks audio by quality first — a higher-bitrate opus beats m4a", () => {
+    const mixed: StreamCandidate[] = [
+      { url: "am4a", kind: "audio", container: "m4a", acodec: "mp4a", tbr: 129 },
+      { url: "aopus", kind: "audio", container: "webm", acodec: "opus", tbr: 160 },
+    ];
+    expect(selectStream(mixed, { video: false })!.url).toBe("aopus");
+  });
+
+  it("pairs a video pick with the best audio, and keeps avc video over a higher VP9 rung", () => {
+    const yt: StreamCandidate[] = [
+      { url: "v1080", kind: "video", height: 1080, container: "mp4", vcodec: "avc1" },
+      { url: "v2160vp9", kind: "video", height: 2160, container: "webm", vcodec: "vp9" },
+      { url: "am4a", kind: "audio", container: "m4a", acodec: "mp4a", tbr: 129 },
+      { url: "aopus", kind: "audio", container: "webm", acodec: "opus", tbr: 160 },
+    ];
+    const r = selectStream(yt, { video: true });
+    expect(r!.url).toBe("v1080");
+    expect(r!.audioUrl).toBe("aopus");
+  });
+
+  it("takes opus when no m4a exists", () => {
     const opusOnly: StreamCandidate[] = [
       { url: "aopus", kind: "audio", container: "webm", acodec: "opus", tbr: 160 },
     ];
-    const r = selectStream(opusOnly, { engine: "native", video: false });
-    expect(r!.url).toBe("aopus");
-    expect(r!.browserUrl).toBe("aopus");
+    expect(selectStream(opusOnly, { video: false })!.url).toBe("aopus");
   });
 });
 
 describe("selectStream — edge cases", () => {
   it("returns null for an empty candidate list", () => {
-    expect(selectStream([], { engine: "native", video: true })).toBeNull();
-    expect(selectStream([], { engine: "browser", video: false })).toBeNull();
+    expect(selectStream([], { video: true })).toBeNull();
+    expect(selectStream([], { video: false })).toBeNull();
   });
 
   it("returns null for video request with only audio candidates", () => {
     const audioOnly: StreamCandidate[] = [{ url: "am4a", kind: "audio", container: "m4a", acodec: "mp4a" }];
-    expect(selectStream(audioOnly, { engine: "native", video: true })).toBeNull();
+    expect(selectStream(audioOnly, { video: true })).toBeNull();
   });
 });
 
@@ -150,22 +150,21 @@ describe("selectStream — edge cases", () => {
 // network — the qBittorrent plugin's `qbt://` names a file already on disk.
 describe("selectedNeedsClassifying", () => {
   it("sends a non-http pick back through the URL classifier", () => {
-    // Handing this to the http branch gives the media element a raw file:// src
-    // it cannot load (local files must go through convertFileSrc) and tells mpv
-    // a local file is a network stream.
-    expect(selectedNeedsClassifying({ url: "file:///music/a.flac", browserUrl: "file:///music/a.flac", video: false })).toBe(true);
+    // Handing this to the http branch would tell mpv a local file is a network
+    // stream.
+    expect(selectedNeedsClassifying({ url: "file:///music/a.flac", video: false })).toBe(true);
   });
 
   it("leaves an ordinary http stream on the http path", () => {
-    expect(selectedNeedsClassifying({ url: "https://cdn/x.m4a", browserUrl: "https://cdn/x.m4a", video: false })).toBe(false);
-    expect(selectedNeedsClassifying({ url: "http://cdn/x.m4a", browserUrl: "http://cdn/x.m4a", video: false })).toBe(false);
+    expect(selectedNeedsClassifying({ url: "https://cdn/x.m4a", video: false })).toBe(false);
+    expect(selectedNeedsClassifying({ url: "http://cdn/x.m4a", video: false })).toBe(false);
   });
 
   it("never reroutes a split video pick", () => {
     // `audioUrl` and `headers` have nowhere to ride through the classifier, and
     // a split pair is always http anyway.
     expect(selectedNeedsClassifying({
-      url: "https://cdn/v.mp4", audioUrl: "https://cdn/a.m4a", browserUrl: "https://cdn/muxed.mp4", video: true,
+      url: "https://cdn/v.mp4", audioUrl: "https://cdn/a.m4a", video: true,
     })).toBe(false);
   });
 });

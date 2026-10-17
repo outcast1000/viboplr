@@ -17,9 +17,9 @@ interface AudioFullscreenProps {
  * than described twice. This container's whole job is to pin that surface over
  * the app grid and hang the control bar off the bottom of it.
  *
- * The video path can't join in: it fullscreens `.video-container`, and the shared
- * `<video>` element must never be remounted or moved out of it. So the container
- * differs there and the *controls* are what's shared. From the user's side there
+ * The video path can't join in: it fullscreens `.video-container`, which the
+ * engine's native surface tracks and which must not be remounted. So the
+ * container differs there and the *controls* are what's shared. From the user's side there
  * is one fullscreen with one control bar.
  *
  * Window fullscreen (set by the caller), not DOM element fullscreen — the same

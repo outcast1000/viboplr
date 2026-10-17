@@ -18,10 +18,8 @@ import { nativeEngine, type EngineMediaInfo } from "../playback/nativeEngine";
  * the panel painted under the queue drawer, the video surfaces and every modal,
  * no matter how large its own z-index got.
  *
- * The portal target is `document.fullscreenElement ?? document.body`, and the
- * fullscreen half is load-bearing rather than defensive: inside **DOM
- * fullscreen** the browser paints only the fullscreened subtree, so a panel
- * hoisted to the app root would silently never appear over fullscreen video.
+ * Both fullscreens are window fullscreen with a pinned overlay, so the app root
+ * (`document.body`) is always the right target.
  *
  * Both playback bars mount it. It used to exist only on the docked one, which
  * meant the answer to "why does this sound wrong / where is this streaming
@@ -99,8 +97,8 @@ export function SourceIndicator({ track, resolvedSource }: SourceIndicatorProps)
     setAnchor({ x: rect.left, y: rect.top - 8 });
     setOpen(true);
     // Fetch the engine's live decode facts on hover — by now decode has settled
-    // (resolution/bitrate are ready). Null on the browser engine, which leaves
-    // the lofty fallback.
+    // (resolution/bitrate are ready). Null when nothing is decoding, which
+    // leaves the lofty fallback.
     nativeEngine.getMediaInfo()
       .then(setMediaInfo)
       .catch((e) => console.error("Failed to load engine media info:", e));
@@ -137,7 +135,7 @@ export function SourceIndicator({ track, resolvedSource }: SourceIndicatorProps)
           }}
           onClose={() => setOpen(false)}
         />,
-        document.fullscreenElement ?? document.body,
+        document.body,
       )}
     </>
   );

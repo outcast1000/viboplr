@@ -1,7 +1,7 @@
-/* Subtitle-style synced lyrics over the shared <video>. A direct child of
+/* Subtitle-style synced lyrics over the video. A direct child of
    .video-container, so one instance covers every video mode. PERSISTENT (not
    gated on any idle-fade layer — subtitles are content, not a control).
-   Pointer-events off so clicks reach the video.
+   Pointer-events off so clicks reach the video surface.
 
    Colour comes from the --hero-text-* / --video-subtitle-* tokens, NOT from
    --text-primary / --text-secondary. What backs these glyphs is a video frame,
@@ -47,23 +47,18 @@
   color: var(--hero-text-secondary);
 }
 
-/* Larger + lifted in the immersive modes (Now Playing theater / fullscreen).
-   Both the browser :fullscreen path and the native mpv fullscreen (--native-fs)
-   are covered. */
+/* Larger + lifted in the immersive modes (Now Playing theater / fullscreen). */
 .video-container--theater .video-subtitles,
-.video-container--native-fs .video-subtitles,
-.video-container:fullscreen .video-subtitles {
+.video-container--native-fs .video-subtitles {
   bottom: 11%;
 }
 .video-container--theater .video-subtitle-current,
-.video-container--native-fs .video-subtitle-current,
-.video-container:fullscreen .video-subtitle-current {
+.video-container--native-fs .video-subtitle-current {
   font-size: var(--fs-2xl);
   -webkit-text-stroke: 3px var(--video-subtitle-stroke);
 }
 .video-container--theater .video-subtitle-next,
-.video-container--native-fs .video-subtitle-next,
-.video-container:fullscreen .video-subtitle-next {
+.video-container--native-fs .video-subtitle-next {
   font-size: var(--fs-lg);
 }
 

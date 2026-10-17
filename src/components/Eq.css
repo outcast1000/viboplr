@@ -8,8 +8,8 @@
   position: relative;
 }
 
-/* Fixed, not absolute: EqPopover portals itself to `document.fullscreenElement
-   ?? document.body` and sets `bottom`/`right` from the button's rect. It has to
+/* Fixed, not absolute: EqPopover portals itself to `document.body` and sets
+   `bottom`/`right` from the button's rect. It has to
    leave the bar because z-index only ranks within the nearest stacking context,
    and in audio fullscreen `.audio-fs` (z-index 999) is one — so the panel was
    capped underneath the queue drawer (fixed, 1000 at the root). At the root it

@@ -10,7 +10,7 @@ import { nativeEngine } from "./nativeEngine";
 // decoding, after the EQ and **before** ReplayGain and the volume, which mpv
 // applies together as one output gain (a program meter — the slider doesn't
 // move it). Null means there is no live reading: paused, stopped, a track
-// change, the browser engine, or Bit-perfect mode (which suspends the meter
+// change, or Bit-perfect mode (which suspends the meter
 // along with the rest of the DSP).
 //
 // Nothing is measured until a consumer holds the meter (`watchPlaybackLevel`).

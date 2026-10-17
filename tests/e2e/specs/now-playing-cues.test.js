@@ -9,7 +9,7 @@ const tauriMockPath = path.resolve(__dirname, '..', 'tauri-mock.js');
 
 const SHEET = {
   title: 'mock', artistName: null, albumName: 'Mock Album', durationSecs: 245, author: 'Claude', version: 3, createdAt: 0, updatedAt: 86400,
-  // At 0 and long-lived, so it is on screen whatever the mock audio's clock does.
+  // At 0 and long-lived, so it is on screen whatever the fake engine's clock does.
   sheet: { cues: [{ at: 0, until: 3600, kind: 'quote', text: 'Mock lyric line', caption: 'What it means', label: 'Meaning' }] },
 };
 

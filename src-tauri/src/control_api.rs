@@ -256,8 +256,8 @@ pub fn remove_discovery_file(app_dir: &Path) {
 // --- Lifecycle ---
 
 /// Start the server (idempotent — returns the existing port when already
-/// running). Same non-blocking std-bind → tokio handoff as the transcode
-/// server, so this is safe on the Tauri setup path.
+/// running). Binds a std listener synchronously and hands it to tokio, so
+/// this is non-blocking and safe on the Tauri setup path.
 pub fn start(
     api: &Arc<ControlApi>,
     db: Arc<Database>,

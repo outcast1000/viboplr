@@ -24,8 +24,7 @@ const A = track("q:1", "a");
 const B = track("q:2", "b");
 
 function mount() {
-  // Nothing on this path needs the backend (the chunk relay is off for a
-  // plain https answer); answer anything else with null.
+  // Nothing on this path needs the backend; answer anything with null.
   invoke.mockResolvedValue(null);
   const resolveTrackSrcRef = { current: null as unknown as (t: QueueTrack, opts?: { preload?: boolean }) => Promise<ResolvedTrackSource> };
   const resolveStreamByUri = vi.fn((_scheme: string, id: string) => Promise.resolve({ url: `https://cdn.example/${id}.mp3` }));
@@ -33,13 +32,11 @@ function mount() {
     ({ currentTrack }: { currentTrack: QueueTrack | null }) =>
       useStreamResolution({
         resolveTrackSrcRef: resolveTrackSrcRef as never,
-        transcodeSessionRef: { current: null } as never,
         resolveStreamByUriRef: { current: resolveStreamByUri } as never,
         streamResolversRef: { current: [] },
         resolveStreamByUri,
         streamUriResolverOwner: (scheme: string) => (scheme === "qbt" ? "qbittorrent" : null),
         pluginNames: new Map([["qbittorrent", "qBittorrent"]]),
-        requireDep: vi.fn().mockResolvedValue(true),
         useNativeVideoRef: { current: true },
         preferVideoRef: { current: false },
         queue: [A, B],

@@ -1,20 +1,14 @@
 // Playback failure message resolution.
 //
-// WKWebView reports a failed fetch of a media source as
-// MEDIA_ERR_SRC_NOT_SUPPORTED (code 4) or a NotSupportedError play() rejection —
-// the same signals as a genuinely unsupported format. Without disambiguation, a
-// dead internet connection (remote tracks) or a deleted/moved file (local
-// tracks) surfaces as "File format not supported". These helpers classify the
-// real cause so the error the user sees names the real problem.
+// The mpv engine reports a failure as an `engine-error` carrying libmpv's own
+// text ("loading failed", "unrecognized file format", …). Those name what the
+// demuxer saw, not why: "loading failed" is as likely a dead connection or a
+// file that was moved as a broken one. `engineErrorMessage` turns the engine's
+// text into a sentence, and the describe* helpers then probe the real cause —
+// the network for a remote track, the disk for a local one — so the error the
+// user sees names the actual problem.
 
 export type NetworkStatus = "ok" | "offline" | "unreachable";
-
-export const MEDIA_ERROR_MESSAGES: Record<number, string> = {
-  1: "Playback aborted",
-  2: "Network error during playback",
-  3: "File could not be decoded — format may not be supported",
-  4: "File format not supported",
-};
 
 export const OFFLINE_PLAYBACK_ERROR =
   "No internet connection — this track streams from the network";
@@ -22,42 +16,39 @@ export const UNREACHABLE_PLAYBACK_ERROR =
   "The streaming source could not be reached — check your connection";
 export const FILE_NOT_FOUND_PLAYBACK_ERROR =
   "File not found — it may have been moved or deleted";
-export const VIDEO_CODEC_PLAYBACK_ERROR = "Video codec not supported";
-// A reachable REMOTE source that still failed as a format/codec error: the
-// built-in player can't decode this stream (e.g. VP9/Opus from the web), but the
-// mpv engine usually can. Worded for a stream (not a local file) — and kept in
-// FORMAT_PLAYBACK_ERRORS below so the "use mpv" offer still appears.
-export const REMOTE_FORMAT_PLAYBACK_ERROR =
-  "This stream can’t be played by the built-in player";
+export const FORMAT_PLAYBACK_ERROR = "This file’s format can’t be played";
+export const LOAD_PLAYBACK_ERROR = "The track couldn’t be opened";
+export const AUDIO_OUTPUT_PLAYBACK_ERROR = "Couldn’t open the audio output device";
+// libmpv could not be loaded on this machine, so nothing can play. Settings →
+// Playback explains it and offers a replacement copy.
+export const ENGINE_UNAVAILABLE_ERROR =
+  "The playback engine couldn’t start on this machine — see Settings → Playback";
+export const VIDEO_UNAVAILABLE_ERROR = "Video playback isn’t available on this system";
+// A resolver answered with something that is neither a file nor an http(s) URL
+// — the engine has no way to open it.
+export const UNPLAYABLE_SOURCE_ERROR = "This track’s source can’t be played";
 
-export function mediaErrorMessage(code: number): string {
-  return MEDIA_ERROR_MESSAGES[code] || `Playback error (code ${code})`;
+/** A user-facing sentence for the engine's own error text. */
+export function engineErrorMessage(message: string | null | undefined): string {
+  const text = (message ?? "").toLowerCase();
+  if (text.includes("unrecognized file format") || text.includes("no audio or video data")) {
+    return FORMAT_PLAYBACK_ERROR;
+  }
+  if (text.includes("audio output")) return AUDIO_OUTPUT_PLAYBACK_ERROR;
+  if (text.includes("loading failed")) return LOAD_PLAYBACK_ERROR;
+  return message?.trim() ? `Playback failed: ${message.trim()}` : "Playback failed";
 }
 
-// Format/codec failures — as opposed to network or missing-file failures — are
-// the ones the native mpv engine can often play where WKWebView can't, so the
-// app offers "install the mpv engine and retry" on these. Keyed off the
-// resolved user-facing message: it only lands on one of these strings when the
-// cause really is the content, because network/missing-file cases resolve to
-// their own messages first (see describe*PlaybackFailure).
-const FORMAT_PLAYBACK_ERRORS = new Set<string>([
-  MEDIA_ERROR_MESSAGES[3],
-  MEDIA_ERROR_MESSAGES[4],
-  VIDEO_CODEC_PLAYBACK_ERROR,
-  REMOTE_FORMAT_PLAYBACK_ERROR,
-]);
-
-const FORMAT_PLAYBACK_ERROR_PATTERN =
-  /\b(not supported|unsupported|no supported source|src not supported|media_err_src_not_supported)\b/i;
-
+// Format failures, as opposed to network or missing-file ones — the split the
+// `playback_error` telemetry reports as `reason`. Keyed off the resolved
+// message: network/missing-file causes resolve to their own messages first.
 export function isFormatPlaybackError(error: string | null | undefined): boolean {
-  return !!error && (FORMAT_PLAYBACK_ERRORS.has(error) || FORMAT_PLAYBACK_ERROR_PATTERN.test(error));
+  return error === FORMAT_PLAYBACK_ERROR;
 }
 
-// Pick the user-facing message for a playback failure. `base` is the browser's
-// own diagnosis (media error code text or a play() rejection message); it is
-// kept for local tracks and for remote tracks whose source host answered the
-// probe (then the failure really is about the content, not the connection).
+// Pick the user-facing message for a remote track's failure: the network probe
+// outranks the engine's diagnosis, since a stream that can't be reached is
+// reported as a load failure too.
 export function describePlaybackFailure(
   base: string,
   isRemote: boolean,
@@ -66,17 +57,12 @@ export function describePlaybackFailure(
   if (!isRemote) return base;
   if (network === "offline") return OFFLINE_PLAYBACK_ERROR;
   if (network === "unreachable") return UNREACHABLE_PLAYBACK_ERROR;
-  // Reachable, but a format/codec failure on a remote stream: name it as a
-  // stream the built-in player can't play (the mpv engine can). Non-format
-  // failures keep the browser's own diagnosis.
-  if (isFormatPlaybackError(base)) return REMOTE_FORMAT_PLAYBACK_ERROR;
   return base;
 }
 
 // Local-track counterpart of describePlaybackFailure: `base` is kept while the
 // file is still on disk (then the failure really is about the content); a
-// missing file overrides it, since the browser reported the failed asset://
-// fetch as a format error.
+// missing file overrides it, since the engine reports it as a load failure.
 export function describeLocalPlaybackFailure(base: string, fileExists: boolean): string {
   return fileExists ? base : FILE_NOT_FOUND_PLAYBACK_ERROR;
 }
@@ -93,9 +79,9 @@ export function describeLocalPlaybackFailure(base: string, fileExists: boolean):
 export type PlayIntent = { key: string; source: "user" | "auto" };
 
 // handlePlay's `source` alone can't answer "did the user ask for this track":
-// the engine-error fallback replays the SAME track as "auto" (deliberately, so
+// the engine-error retry replays the SAME track as "auto" (deliberately, so
 // it can't reset the quality ladder it just advanced), which would make a
-// user-clicked track that fails both engines look auto-initiated and get
+// user-clicked track whose retries all fail look auto-initiated and get
 // silently skipped. Rule: a "user" play always claims the intent; an "auto"
 // play claims it only for a DIFFERENT track (a queue advance) — a same-key
 // "auto" replay inherits the standing intent.
@@ -126,9 +112,8 @@ const PROBE_TIMEOUT_MS = 4000;
 
 // Classify the network state for a failing http(s) source. `navigator.onLine ===
 // false` is trusted as offline; otherwise the source URL is probed with a no-cors
-// HEAD (media elements load cross-origin sources, but plain fetch is CORS-gated —
-// no-cors resolves opaquely when the host is reachable and rejects on a
-// network-level failure). Non-http sources (asset://, localhost transcode) never
+// HEAD (plain fetch is CORS-gated; no-cors resolves opaquely when the host is
+// reachable and rejects on a network-level failure). Non-http sources never
 // probe and report "ok".
 export async function probeNetworkStatus(src: string | null): Promise<NetworkStatus> {
   if (typeof navigator !== "undefined" && navigator.onLine === false) return "offline";

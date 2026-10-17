@@ -1,41 +1,34 @@
-// Picks which of a resolver's stream candidates to play, per the active
-// playback engine's capabilities. This is the "engine decides" half of the
-// candidate-list stream contract (see src/types/plugin.ts `StreamCandidate`):
-// the plugin enumerates what a source offers; the host selects here.
+// Picks which of a resolver's stream candidates to play. This is the "host
+// decides" half of the candidate-list stream contract (see src/types/plugin.ts
+// `StreamCandidate`): the plugin enumerates what a source offers; the host
+// selects here.
 //
-// The native mpv engine can attach a separate audio stream to a video-only
-// stream (`audio-file`), so it prefers a hi-res video-only + audio-only pair.
-// The browser <video>/<audio> element can't merge two streams, so it needs a
-// self-contained (muxed) stream. `browserUrl` is always a self-contained URL,
-// used as the element `src` AND as the safe fallback when a native play errors
-// (usePlayback re-uses the resolved source without re-resolving).
+// The mpv engine can attach a separate audio stream to a video-only stream
+// (`audio-file`), so for video it prefers a hi-res video-only + audio-only pair
+// and falls back to a self-contained (muxed) stream when no pair exists.
 //
 // Pure and unit-tested — no host/plugin imports beyond the shared type.
 import type { StreamCandidate } from "../types/plugin";
 
 export interface SelectStreamContext {
-  /** Active playback engine. `native` = mpv (can merge external audio). */
-  engine: "native" | "browser";
   /** Whether the track is being played as video. */
   video: boolean;
   /** How many of the preferred video streams to step past. Driven by
    *  `playbackRetry.streamLadderStep`, which holds it at 0 for ordinary retries
    *  — a refusal is not a property of the rung, so descending would trade
-   *  resolution away for nothing — and raises it only for a track's last native
-   *  attempt, where the alternative is the browser engine's 360p. */
+   *  resolution away for nothing — and raises it only for a track's last
+   *  attempt. */
   skipTopVideo?: number;
 }
 
 export interface SelectedStream {
-  /** Primary stream URL. For a native video pick this is video-only and must be
+  /** Primary stream URL. For a split video pick this is video-only and must be
    *  paired with `audioUrl`; otherwise it is self-contained. */
   url: string;
-  /** Companion audio stream for a native video pick (mpv attaches it). */
+  /** Companion audio stream for a split video pick (mpv attaches it). */
   audioUrl?: string;
-  /** Headers for the native source URL, when its provider requires them. */
+  /** Headers for the source URL, when its provider requires them. */
   headers?: Record<string, string>;
-  /** A self-contained URL safe for the browser element / native-error fallback. */
-  browserUrl: string;
   /** Whether the selected stream carries video. */
   video: boolean;
 }
@@ -43,13 +36,17 @@ export interface SelectedStream {
 const isVideoKind = (c: StreamCandidate) => c.kind === "video" || c.kind === "muxed";
 const isAudioKind = (c: StreamCandidate) => c.kind === "audio" || c.kind === "muxed";
 
-// Browser-safe = universally decodable by both WKWebView and WebView2: mp4/avc
-// video, m4a/aac audio. webm/vp9/opus play on WebView2 but not WKWebView, so we
-// never pick them as the browser-safe stream.
-const browserSafeVideo = (c: StreamCandidate) =>
+// avc video in mp4. Video picks take it over any quality the other codecs
+// offer — not for compatibility (mpv decodes all of them) but for cost: avc is
+// hardware-decoded everywhere, while AV1 is hardware-decoded only on recent
+// chips (Apple M3+), so a 1440p/4K VP9/AV1 pick can mean a software decode
+// eating CPU and battery for a video in a window, on a heavier stream.
+const commonVideo = (c: StreamCandidate) =>
   (c.container === "mp4" || (c.vcodec ?? "").startsWith("avc")) &&
   (c.kind === "video" || (c.acodec ?? "").startsWith("mp4a") || (c.acodec ?? "").startsWith("aac"));
-const browserSafeAudio = (c: StreamCandidate) =>
+// m4a/aac audio. Only a tiebreak: audio is cheap to decode in any codec, so
+// quality decides first (opus at 160k beats m4a at 128k).
+const commonAudio = (c: StreamCandidate) =>
   c.container === "m4a" || (c.acodec ?? "").startsWith("mp4a") || (c.acodec ?? "").startsWith("aac");
 
 // Higher is better: resolution first, then bitrate. Stable across equal keys.
@@ -59,40 +56,45 @@ function byQualityDesc(a: StreamCandidate, b: StreamCandidate): number {
   return (b.tbr ?? 0) - (a.tbr ?? 0);
 }
 
-// Prefer browser-safe first (mp4/avc, m4a/aac), then quality — so the muxed /
-// browser stream is always element-playable when such a stream exists. `skip`
-// steps down that same order, for retrying after a stream failed to open.
+// Prefer the given encodings first, then quality. `skip` steps down that same
+// order, for retrying after a stream failed to open.
 function pickBest(
   candidates: StreamCandidate[],
   eligible: (c: StreamCandidate) => boolean,
-  preferSafe: (c: StreamCandidate) => boolean,
+  prefer: (c: StreamCandidate) => boolean,
   skip = 0,
 ): StreamCandidate | null {
   const pool = candidates.filter(eligible);
   if (pool.length === 0) return null;
-  const safe = pool.filter(preferSafe).sort(byQualityDesc);
-  if (skip <= 0) return safe.length ? safe[0] : pool.slice().sort(byQualityDesc)[0];
-  // Ranked preference order, browser-safe first then the rest, so a ladder that
-  // runs past the end of the safe streams keeps descending instead of stopping.
-  const unsafe = pool.filter((c) => !safe.includes(c)).sort(byQualityDesc);
-  const ordered = [...safe, ...unsafe];
+  const preferred = pool.filter(prefer).sort(byQualityDesc);
+  if (skip <= 0) return preferred.length ? preferred[0] : pool.slice().sort(byQualityDesc)[0];
+  // Ranked preference order, preferred first then the rest, so a ladder that
+  // runs past the end of the preferred streams keeps descending instead of
+  // stopping.
+  const rest = pool.filter((c) => !preferred.includes(c)).sort(byQualityDesc);
+  const ordered = [...preferred, ...rest];
   return skip < ordered.length ? ordered[skip] : null;
 }
 
-/**
- * Choose the stream(s) to play from a resolver's candidate list.
- * Returns null when no candidate can satisfy the request.
- */
+// Quality first, `prefer` only between equal-quality candidates.
+function pickByQuality(
+  candidates: StreamCandidate[],
+  eligible: (c: StreamCandidate) => boolean,
+  prefer: (c: StreamCandidate) => boolean,
+): StreamCandidate | null {
+  const pool = candidates.filter(eligible);
+  if (pool.length === 0) return null;
+  return pool.slice().sort((a, b) => byQualityDesc(a, b) || Number(prefer(b)) - Number(prefer(a)))[0];
+}
+
 /**
  * Does this selected candidate still need classifying as a URL, rather than
  * being turned straight into an http `EngineSource`?
  *
  * A candidate is only a URL, and not every plugin scheme resolves to the
  * network: one may name a file already on this disk (the qBittorrent plugin's
- * `qbt://` resolves to the downloaded file). Handing that to the caller as
- * `{ kind: "http" }` gives the media element a raw `file://` src it cannot load
- * — local files must go through `convertFileSrc` — and tells mpv a local file is
- * a network stream.
+ * `qbt://` resolves to the downloaded file). Handing that to the engine as
+ * `{ kind: "http" }` would tell mpv a local file is a network stream.
  *
  * A split video pick is the exception: `audioUrl` and `headers` have nowhere to
  * ride through the generic classifier, and a split pair is always http anyway.
@@ -102,6 +104,10 @@ export function selectedNeedsClassifying(sel: SelectedStream): boolean {
   return !/^https?:\/\//.test(sel.url);
 }
 
+/**
+ * Choose the stream(s) to play from a resolver's candidate list.
+ * Returns null when no candidate can satisfy the request.
+ */
 export function selectStream(
   candidates: StreamCandidate[],
   ctx: SelectStreamContext,
@@ -109,42 +115,29 @@ export function selectStream(
   if (!candidates || candidates.length === 0) return null;
 
   if (ctx.video) {
-    // Best self-contained video stream (muxed) — the browser src + native-error
-    // fallback. Prefer a browser-safe muxed stream; else any muxed.
-    const muxed =
-      pickBest(candidates, (c) => c.kind === "muxed", browserSafeVideo) ??
-      // No muxed at all → some sources expose a single self-contained HLS/DASH
-      // manifest tagged `muxed`; already covered above. As a last resort use the
-      // best video candidate so the browser at least shows a picture.
-      pickBest(candidates, isVideoKind, browserSafeVideo);
-    if (ctx.engine === "native") {
-      // Only the video rung steps down. The companion audio stream is small,
-      // and nothing suggests it is what a refusal was about — stepping it too
-      // would trade audio quality away for no reason.
-      const videoOnly = pickBest(candidates, (c) => c.kind === "video", browserSafeVideo, ctx.skipTopVideo ?? 0);
-      const audioOnly = pickBest(candidates, (c) => c.kind === "audio", browserSafeAudio);
-      if (videoOnly && audioOnly) {
-        return {
-          url: videoOnly.url,
-          audioUrl: audioOnly.url,
-          headers: videoOnly.headers,
-          browserUrl: muxed?.url ?? videoOnly.url,
-          video: true,
-        };
-      }
-      // No usable split pair — fall back to the muxed stream for mpv too.
+    // Only the video rung steps down. The companion audio stream is small,
+    // and nothing suggests it is what a refusal was about — stepping it too
+    // would trade audio quality away for no reason.
+    const videoOnly = pickBest(candidates, (c) => c.kind === "video", commonVideo, ctx.skipTopVideo ?? 0);
+    const audioOnly = pickByQuality(candidates, (c) => c.kind === "audio", commonAudio);
+    if (videoOnly && audioOnly) {
+      return { url: videoOnly.url, audioUrl: audioOnly.url, headers: videoOnly.headers, video: true };
     }
-    if (muxed) return { url: muxed.url, headers: muxed.headers, browserUrl: muxed.url, video: true };
+    // No usable split pair — the best self-contained stream. Some sources
+    // expose a single HLS/DASH manifest tagged `muxed`; as a last resort take
+    // the best video candidate so there is at least a picture.
+    const muxed =
+      pickBest(candidates, (c) => c.kind === "muxed", commonVideo) ??
+      pickBest(candidates, isVideoKind, commonVideo);
+    if (muxed) return { url: muxed.url, headers: muxed.headers, video: true };
     return null;
   }
 
-  // Audio: the native engine can play opus/webm; the browser element wants
-  // m4a/aac. Prefer a pure audio-only stream (a muxed stream would pull video
+  // Audio: prefer a pure audio-only stream (a muxed stream would pull video
   // bytes we don't need) and only fall back to muxed when no audio-only exists.
-  // `browserUrl` is always a browser-safe audio stream when one exists.
   const bestAudio =
-    pickBest(candidates, (c) => c.kind === "audio", browserSafeAudio) ??
-    pickBest(candidates, isAudioKind, browserSafeAudio);
+    pickByQuality(candidates, (c) => c.kind === "audio", commonAudio) ??
+    pickByQuality(candidates, isAudioKind, commonAudio);
   if (!bestAudio) return null;
-  return { url: bestAudio.url, headers: bestAudio.headers, browserUrl: bestAudio.url, video: false };
+  return { url: bestAudio.url, headers: bestAudio.headers, video: false };
 }

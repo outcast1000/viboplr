@@ -14,10 +14,10 @@ Gated behind the in-app **Settings → General → "Anonymous usage statistics"*
 toggle (default on / opt-out). Events (all anonymous, enum/count only):
 
 - `app_installed` — once per install
-- `app_started` — per launch (`{ channel, build, tracks_bucket, collections, plugins_enabled }`) → installs / DAU / MAU / retention / OS + version + library-size cohorts
-- `track_played` `{ media: audio|video, source }`, `engine_selected` `{ engine }`, `collection_added` `{ kind }`, `plugin_installed` `{ id }`, `skin_applied`
+- `app_started` — per launch (`{ channel, mpv_capable, mpv_video, tracks_bucket, collections, plugins_enabled }`) → installs / DAU / MAU / retention / OS + version + library-size cohorts
+- `track_played` `{ media: audio|video, source }`, `collection_added` `{ kind }`, `plugin_installed` `{ id }`, `skin_applied`
 - **Feature use:** `play` `{ source, count }` (source = play origin: album/artist/tag/radio/playlist/plugin/…), `radio_started`, `plugin_action` `{ plugin_id, action_id }`, `playlist_saved` `{ format, mode? }` (m3u / mixtape), `playlist_loaded` `{ format, mode? }` (m3u / m3u8 / mixtape), `nav_click` `{ view }` (sidebar navigation)
-- **Reliability:** `playback_error` `{ engine, source, reason, error_kind }`, `engine_fallback` `{ code, error_kind }`, `stream_resolve_failed` `{ source, error_kind, providers_tried }`, `download_failed` `{ error_kind }`, `app_error` `{ scope, error_kind }` (uncaught frontend error / unhandled rejection; **capped at 20 per session** so a throwing render loop can't flood the backend or skew error rates), `scan_completed` `{ added_bucket, removed_bucket }`, `dependency_missing` `{ name }`
+- **Reliability:** `playback_error` `{ source, reason, error_kind }`, `engine_retry` `{ code, error_kind }` (a remote stream re-resolved after an engine error), `stream_resolve_failed` `{ source, error_kind, providers_tried }`, `download_failed` `{ error_kind }`, `app_error` `{ scope, error_kind }` (uncaught frontend error / unhandled rejection; **capped at 20 per session** so a throwing render loop can't flood the backend or skew error rates), `scan_completed` `{ added_bucket, removed_bucket }`, `dependency_missing` `{ name }`
 
 `tracks_bucket` / `*_bucket` are coarse ranges (`0`, `1-99`, `100-999`, `1k-10k`, `10k-50k`, `50k+`); `source` is a scheme class (`local` / `web` / `subsonic` / …). Never a title, path, URL, or query.
 

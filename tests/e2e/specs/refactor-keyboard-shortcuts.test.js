@@ -64,8 +64,8 @@ test('Cmd/Ctrl+arrows move the caret in a search box instead of skipping tracks'
   await page.locator('.entity-list-item').first().waitFor({ state: 'visible', timeout: 10000 });
   await page.locator('.entity-list-item').first().dblclick();
   await expect(page.locator('.now-title')).toContainText('First Song');
-  // Stop before queueing a second track. The mock's audio is a ~0.25s silent
-  // clip, so a playing First Song ends on its own and advances to whatever is
+  // Stop before queueing a second track. The mock's fake engine plays every
+  // track for ~0.25s, so a playing First Song ends on its own and advances to whatever is
   // queued next — which made this test pass or fail on how fast it ran. Stopped,
   // only a key that wrongly reaches "next" can change the title.
   await page.locator('.now-playing button[title="Stop"]').click();

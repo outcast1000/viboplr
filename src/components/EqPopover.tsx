@@ -109,11 +109,7 @@ export function EqPopover({
   // Portalled out of whichever bar mounted it. `z-index` only ever ranks within
   // the nearest stacking context, and in audio fullscreen the whole surface is
   // one (`.audio-fs`, z-index 999) — so in place the panel was capped below the
-  // queue drawer (fixed, z-index 1000 at the root) and opened underneath it. The
-  // target is `document.fullscreenElement ?? document.body` for the same reason
-  // as `SourceIndicator`'s panel: inside DOM `:fullscreen` the browser paints
-  // only that subtree, so a panel parked at the app root would never appear over
-  // browser-engine fullscreen video.
+  // queue drawer (fixed, z-index 1000 at the root) and opened underneath it.
   return createPortal(
     <div
       className="eq-popover"
@@ -298,6 +294,6 @@ export function EqPopover({
         </button>
       </div>
     </div>,
-    document.fullscreenElement ?? document.body,
+    document.body,
   );
 }

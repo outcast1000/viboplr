@@ -52,20 +52,6 @@ pub async fn pick_forgotten_mixes(state: State<'_, AppState>, max_mixes: usize, 
     run_db_read(move || db.pick_forgotten_mixes(max_mixes, mix_size).map_err(|e| e.to_string())).await
 }
 
-/// ReplayGain values for the track at `path` (parsed from its `extra_tags` JSON).
-/// Resolved on demand at play time, mirroring the name/path-based image lookups.
-#[tauri::command]
-pub async fn get_replaygain_by_path(
-    state: State<'_, AppState>,
-    path: String,
-) -> Result<Option<ReplayGain>, String> {
-    let db = state.db.clone();
-    run_db_read(move || {
-        db.get_replaygain_by_path(&path).map_err(|e| e.to_string())
-    })
-    .await
-}
-
 /// Raw extra tags (the catch-all of file/Subsonic tag keys with no dedicated
 /// column) for a library track, as a JSON object. Shown in Track Details.
 #[tauri::command]
@@ -402,10 +388,9 @@ pub async fn resolve_dropped_paths(paths: Vec<String>) -> Result<Vec<DroppedTrac
     .map_err(|e| e.to_string())?
 }
 
-/// Whether a local file currently exists on disk. Used by the playback error
-/// path to tell a missing file apart from a genuinely unsupported format —
-/// WKWebView reports a failed asset:// fetch as MEDIA_ERR_SRC_NOT_SUPPORTED,
-/// the same code as an undecodable file.
+/// Whether a local file currently exists on disk. Used by stream resolution to
+/// check that a library copy is still there before playing it, so a row whose
+/// file is gone falls through to the next copy.
 #[tauri::command]
 pub fn file_exists(path: String) -> bool {
     std::path::Path::new(&path).exists()

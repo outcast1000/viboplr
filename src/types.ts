@@ -112,10 +112,9 @@ export interface QueueTrack {
   file_size?: number | null;
 }
 
-// Pre-`convertFileSrc` origin of a resolved track, for the native (mpv)
-// engine, which takes raw filesystem paths / http(s) URLs instead of webview
-// asset URLs. `null`/absent means the source is webview-only (e.g. a
-// transcode-server stream) and must play through the browser engine.
+// What the engine opens for a resolved track: a raw filesystem path or an
+// http(s) URL (not a webview asset URL). `null`/absent means the resolver found
+// nothing the engine can open, and the play fails with that message.
 export type EngineSource =
   | { kind: "file"; path: string }
   // `audioUrl` (http video only): a separate audio stream the native mpv engine

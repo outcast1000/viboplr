@@ -4,10 +4,22 @@ import type { QueueTrack, ResolvedTrackSource, EngineSource } from "../types";
 import type { ScrobbleOutcome } from "../utils/scrobblers";
 import { isVideoTrack, shouldScrobble } from "../utils";
 import { parseUrlScheme, isLocalTrack } from "../queueEntry";
-import { needsTranscode } from "./useStreamResolution";
 import { store } from "../store";
 import { driveProgressMachine } from "../playback/progressMachine";
-import { mediaErrorMessage, describePlaybackFailure, describeLocalPlaybackFailure, probeNetworkStatus, VIDEO_CODEC_PLAYBACK_ERROR, isFormatPlaybackError, nextPlayIntent, shouldAutoSkipFailure, MAX_CONSECUTIVE_AUTO_SKIPS, type PlayIntent } from "../playback/playbackErrors";
+import {
+  describePlaybackFailure,
+  describeLocalPlaybackFailure,
+  engineErrorMessage,
+  probeNetworkStatus,
+  isFormatPlaybackError,
+  nextPlayIntent,
+  shouldAutoSkipFailure,
+  MAX_CONSECUTIVE_AUTO_SKIPS,
+  ENGINE_UNAVAILABLE_ERROR,
+  VIDEO_UNAVAILABLE_ERROR,
+  UNPLAYABLE_SOURCE_ERROR,
+  type PlayIntent,
+} from "../playback/playbackErrors";
 import { track as trackTelemetry, sourceClass } from "../telemetry";
 import { classifyErrorKind } from "../utils/errorKind";
 import {
@@ -23,45 +35,34 @@ import {
   type EngineBufferEvent,
   type EngineLevelEvent,
 } from "../playback/nativeEngine";
-import { bufferedEndAt } from "../playback/bufferState";
 import { updatePlaybackBuffer, clearPlaybackBuffer } from "../playback/bufferStore";
 import { setPlaybackLevel, clearPlaybackLevel } from "../playback/levelStore";
 import { subscribe, combineUnlisten } from "../utils/tauriEvents";
 import { setPlaybackPosition, getPlaybackPosition } from "../playback/positionStore";
 import { noteNativeFailure, clearNativeRetries, streamLadderStep } from "../playback/playbackRetry";
-
-/** Native attempts allowed for one remote track before it goes to the browser
- *  engine. Three because each one costs a fresh resolve (a yt-dlp run, seconds)
- *  and descends a rung: 1080p → 720p → 480p is already a far better floor than
- *  the browser's 360p, and a fourth would mostly buy delay. */
-const NATIVE_RETRY_ATTEMPTS = 3;
-import {
-  BANDS,
-  BAND_Q,
-  NUM_BANDS,
-  SHELF_BASS_FREQ,
-  SHELF_TREBLE_FREQ,
-  applyGainsToFilters,
-  type EqClipProtection,
-  type EqMode,
-} from "../eqPresets";
-
+import type { EqClipProtection, EqMode } from "../eqPresets";
 import { useAssignRef } from "./useLatestRef";
+
+/** Engine attempts allowed for one remote track before its failure is shown.
+ *  Three because each one costs a fresh resolve (a yt-dlp run, seconds) and the
+ *  last descends a rung of the stream ladder (see playbackRetry); a fourth
+ *  would mostly buy delay. */
+const NATIVE_RETRY_ATTEMPTS = 3;
+
+/** Prefix of the keys `playClip` mints. The engine's events carry the key, and
+ *  the main session ignores every one of these. */
+const CLIP_KEY_PREFIX = "clip:";
+
 function logPlayback(message: string) {
   // Fire-and-forget: this IS the logger. Reporting its own failure through
   // console.error would recurse into the error log for no user-visible gain.
   invoke("write_frontend_log", { level: "info", message, section: "playback" }).catch(() => {}); // eslint-disable-line no-restricted-syntax
 }
 
-// Master-bus limiter ceiling (dBFS) engaged for a simple-mode bass/treble boost.
-// The limiter catches boosted peaks ~1 dB below full scale instead of clipping —
-// so the boost stays loud rather than dropping the whole signal's level.
-const LIMITER_CEILING_DB = -1;
-
 // A play request is "current" only while no later request has started. Used to
 // decide whether a caught playback error / loading-state reset belongs to the
-// active track or to a superseded one whose play() was aborted by the newer
-// request's pause/load. Pure so it can be unit-tested without the hook.
+// active track or to a superseded one. Pure so it can be unit-tested without
+// the hook.
 export function isCurrentPlayGeneration(captured: number, current: number): boolean {
   return captured === current;
 }
@@ -72,12 +73,10 @@ export type HandlePlayOutcome = "play" | "bail" | "retry" | "fail";
 //
 // `resolveTrackSrc` returns an empty-src sentinel whenever ITS resolve generation
 // was bumped mid-flight — which happens not only on a newer play but also when a
-// concurrent preload/prefetch resolves (or when a reused, already-superseded
-// preload promise is awaited). Conflating "empty src" with "I was superseded by a
-// newer play" is the bug behind the Next-stops-playback freeze: handlePlay pauses
-// the outgoing audio up front, so a silent bail while THIS play is still current
-// leaves the player paused with the now-playing bar stuck on the previous track
-// and the queue index already advanced — and nothing logged.
+// concurrent preload/prefetch resolves. Conflating "empty src" with "I was
+// superseded by a newer play" is the bug behind the Next-stops-playback freeze:
+// a silent bail while THIS play is still current leaves the player stuck on the
+// previous track with the queue index already advanced — and nothing logged.
 //
 //  - playStillCurrent=false → a newer handlePlay bumped playGeneration and owns
 //    currentTrack; bail silently regardless of src.
@@ -95,69 +94,6 @@ export function decideHandlePlayOutcome(
   return alreadyRetried ? "fail" : "retry";
 }
 
-// Decides whether a media `error` event should surface as a user-facing playback
-// failure. The error handler is attached to ALL media elements (audio slot A, slot
-// B, and the <video>), but only the element currently driving playback represents a
-// real failure of the current track. During a track change the outgoing element is
-// torn down (pause → removeAttribute("src") → load()) and the inactive audio slot
-// may still hold a preloaded source; either can fire a spurious `error` that, if
-// surfaced, shows "Playback failed" while the active element plays the new track
-// fine. Mirrors getMediaElement(): for a video track the <video> is the active
-// surface; otherwise the active audio slot is. Pure so it can be unit-tested.
-export function isActiveMediaElement(
-  fired: "A" | "B" | "video",
-  activeSlot: "A" | "B",
-  currentIsVideo: boolean,
-): boolean {
-  if (fired === "video") return currentIsVideo;
-  return !currentIsVideo && fired === activeSlot;
-}
-
-// Whether a `timeupdate` may drive the preload→crossfade transition machine. It
-// runs only in the settled playing state: the firing element is the active slot
-// AND no explicit play (handlePlay/handlePlayUrl) is mid-transition — i.e. between
-// "user picked a track" and "the new source is installed and playing". During that
-// window the outgoing element can keep firing `timeupdate` (WKWebView does not
-// reliably honor pause()), and it is still the active slot because the swap hasn't
-// happened yet; letting it start a crossfade hands a fade to a track the incoming
-// explicit play doesn't own (the "started at very low volume" bug). Pure so it can
-// be unit-tested without the hook.
-export function canDriveTransitionMachine(firedIsActive: boolean, transitioning: boolean): boolean {
-  return firedIsActive && !transitioning;
-}
-
-// Picks the [incoming, outgoing] crossfade gain nodes for the slot that just
-// became active. Captured ONCE when a fade starts and reused for every tick — the
-// interval must keep ramping the SAME pair even if `activeSlotRef` changes
-// underneath it (e.g. an explicit play forces slot A mid-fade). Re-deriving the
-// pair from the live ref each tick is what let a stray slot swap pump the incoming
-// track's gain down to ~0. Pure/generic so it can be unit-tested with stand-in
-// nodes.
-export function crossfadeGainPair<T>(activeSlot: "A" | "B", gainA: T, gainB: T): { incoming: T; outgoing: T } {
-  return activeSlot === "A" ? { incoming: gainA, outgoing: gainB } : { incoming: gainB, outgoing: gainA };
-}
-
-/**
- * Set a media element's playback rate the way a turntable behaves.
- *
- * `preservesPitch` defaults to TRUE, which time-stretches to hold the original
- * pitch — right for a podcast, wrong for a deck. A turntable resamples: 45 on a
- * 33 pressing plays faster AND higher, and that is the effect. The
- * webkit-prefixed name is what older Safari / some WKWebView builds honour, so
- * set both and let the unsupported one be ignored.
- *
- * Exported for the unit test — this is the one line that decides whether the
- * feature is a deck or a speed-reader, and it is invisible in a screenshot.
- */
-export function applyRateTo(el: HTMLMediaElement | null, rate: number): void {
-  if (!el) return;
-  type PitchPreserving = { preservesPitch?: boolean; webkitPreservesPitch?: boolean };
-  const p = el as HTMLMediaElement & PitchPreserving;
-  p.preservesPitch = false;
-  p.webkitPreservesPitch = false;
-  el.playbackRate = rate;
-}
-
 export function usePlayback(
   restoredRef: React.RefObject<boolean>,
   peekNextRef: React.RefObject<() => QueueTrack | null>,
@@ -172,16 +108,14 @@ export function usePlayback(
   onScrobbleRef: React.RefObject<(track: QueueTrack) => ScrobbleOutcome>,
   resolveTrackSrcRef: React.RefObject<(track: QueueTrack, opts?: { preload?: boolean }) => Promise<ResolvedTrackSource>>,
   prefetchNextRef: React.RefObject<() => void>,
-  transcodeSessionRef: React.RefObject<{ sessionId: string; baseUrl: string; durationSecs: number | null; seekOffset: number } | null>,
-  // True when the mpv engine is compiled in AND the user selected it in
-  // Settings. App owns the capability probe + setting; this ref combines them.
+  // True once libmpv has loaded. App owns the capability probe. Nothing plays
+  // without it — a play then surfaces ENGINE_UNAVAILABLE_ERROR.
   useNativeEngineRef: React.RefObject<boolean>,
-  // True when the engine can also render video natively (macOS full build,
-  // engine selected). Gates routing video tracks to the engine.
+  // True when the engine can also render video (macOS and Windows). Gates
+  // video tracks.
   useNativeVideoRef: React.RefObject<boolean>,
-  // App points this at `() => handleNext("auto")` — the engine-side equivalent
-  // of the media elements' `ended` (fires when a native track ends with
-  // nothing gapless-armed).
+  // App points this at `() => handleNext("auto")` — fires when a track ends
+  // with nothing gapless-armed.
   onNativeAutoEndedRef: React.RefObject<() => void>,
   // App points this at "toast + handleNext('auto')" — the auto-skip surface for
   // a playback failure on a track the queue advanced to (not a user click).
@@ -204,7 +138,7 @@ export function usePlayback(
    * draw one of the two.
    *
    * Self-clearing on the rising edge of `playing`, so no play path has to
-   * remember to reset it (the native engine's included).
+   * remember to reset it.
    */
   const [stopped, setStopped] = useState(false);
   useEffect(() => {
@@ -217,11 +151,9 @@ export function usePlayback(
   const [durationSecs, setDurationSecs] = useState(0);
   const [volume, setVolume] = useState(1.0);
   const [muted, setMuted] = useState(false);
-  const [activeSlot, setActiveSlot] = useState<"A" | "B">("A");
   /**
    * Playback rate, as a deck's speed selector rather than a tempo tool: pitch
-   * rides along with it on both engines (see `preservesPitch` below and mpv's
-   * `audio-pitch-correction`).
+   * rides along with it (mpv's `audio-pitch-correction` is off).
    *
    * NOT persisted, on purpose. A rate is audible but easy to forget you set, and
    * one restored silently at 1.35x on a fresh launch reads as "my library got
@@ -242,9 +174,9 @@ export function usePlayback(
   // boosts pump on dense material) or "headroom" (attenuate by the boost
   // amount; clean but quieter). See EqClipProtection in eqPresets.ts.
   const [eqClipProtection, setEqClipProtection] = useState<EqClipProtection>("limiter");
-  // ReplayGain: per-track loudness normalization applied via a per-chain gain node.
-  // Mode "off" | "track" | "album"; preamp dB is added on top; preventClip caps the
-  // gain so the (normalized) peak stays <= 0 dBFS.
+  // ReplayGain: per-track loudness normalization, applied by the engine (mpv
+  // reads the tags itself). Mode "off" | "track" | "album"; preamp dB is added
+  // on top; preventClip caps the gain so the (normalized) peak stays <= 0 dBFS.
   const [rgMode, setRgMode] = useState<"off" | "track" | "album">("off");
   const [rgPreampDb, setRgPreampDb] = useState<number>(0);
   const [rgPreventClip, setRgPreventClip] = useState<boolean>(true);
@@ -258,91 +190,85 @@ export function usePlayback(
   // progress in between — the circuit breaker's counter (see
   // surfacePlaybackFailure). Reset on user plays and on real progress ticks.
   const autoSkipStreakRef = useRef(0);
-  // Synchronous guard against concurrent transcode starts. transcodeSessionRef
-  // is only set after `await start_transcode` resolves, so two callers firing
-  // in the same tick (play().catch + onLoadedMetadata/onMediaError) could both
-  // pass that guard. This ref is set synchronously before the await.
-  const transcodeStartingRef = useRef(false);
-  // Monotonic id bumped on every play request (handlePlay/handlePlayUrl). When a
-  // newer request starts, it pauses/reloads the audio elements, which rejects the
-  // previous request's pending `play()` promise with an AbortError ("The operation
-  // was aborted."). That rejection is expected, not a real failure — by capturing
-  // the id at the start of each request and comparing on completion, a superseded
-  // request silently discards its outcome instead of flashing a playback-error modal.
+  // Monotonic id bumped on every play request. A superseded request (a newer
+  // play started while this one was resolving) discards its outcome instead of
+  // flashing a playback-error modal or claiming the now-playing bar.
   const playGenerationRef = useRef(0);
-  // True while an explicit play (handlePlay/handlePlayUrl) is resolving and
-  // installing its source. Set synchronously before the resolve await and cleared
-  // once the new source is installed (or the attempt ends), guarded by play
-  // generation so a superseded play can't clear a newer one's flag. While true the
-  // timeupdate-driven preload→crossfade machine is gated off (canDriveTransitionMachine)
-  // so a not-fully-stopped outgoing element can't start a fade the incoming play
-  // doesn't own.
-  const transitioningRef = useRef(false);
-  // Synchronous re-entrancy guard for fullscreen toggling. requestFullscreen /
-  // exitFullscreen are activation-consuming in WKWebView: a second call fired
-  // before the first transition settles rejects with "Cannot request fullscreen
-  // without transient activation". We set this on the first call and clear it on
-  // the next `fullscreenchange` (or on rejection), so rapid double-clicks become
-  // a no-op instead of an unhandled rejection.
-  const fullscreenPendingRef = useRef(false);
 
-  const audioRefA = useRef<HTMLAudioElement>(null);
-  const audioRefB = useRef<HTMLAudioElement>(null);
-  const videoRef = useRef<HTMLVideoElement>(null);
-  const activeSlotRef = useRef(activeSlot);
-  useAssignRef(activeSlotRef, activeSlot);
   // Mirror for the once-mounted engine-event subscriptions, which would
   // otherwise close over the first render's currentTrack.
   const currentTrackRef = useRef<QueueTrack | null>(currentTrack);
   useAssignRef(currentTrackRef, currentTrack);
 
-  // --- Native (mpv) engine session state ------------------------------------
-  // Non-null while the mpv engine owns playback of `key` (the media elements
-  // are all torn down for the session's duration). The key doubles as the
-  // native play-generation guard: engine events carrying another key are stale.
-  const nativeSessionRef = useRef<{ key: string } | null>(null);
+  // --- Engine session state -------------------------------------------------
+  // Non-null while the engine is playing (or paused on) `key` for the main
+  // player. The key doubles as the play-generation guard for engine events:
+  // events carrying another key are stale. Null with a currentTrack means the
+  // track is loaded but not open in the engine (restored at launch, cued by
+  // loadPaused, or handed over to a clip) — the next play opens it.
+  const nativeSessionRef = useRef<{ key: string; track: QueueTrack } | null>(null);
   // The track the engine last reported a position for: proof it has opened
   // that file, so its live decode facts (codec, rate) describe it.
   const nativeReportingKeyRef = useRef<string | null>(null);
-  /** Whether the native engine is decoding `trackKey` right now — its media
-   *  info is about that track, not the one before. */
+  /** Whether the engine is decoding `trackKey` right now — its media info is
+   *  about that track, not the one before. */
   const isEngineDecoding = useCallback(
     (trackKey: string) => nativeSessionRef.current?.key === trackKey && nativeReportingKeyRef.current === trackKey,
     [],
   );
-  // Tracks that failed native playback this session — resolution/preload skip
-  // them so they route through the browser engine (per-track fallback).
-  const nativeBlockedKeysRef = useRef<Set<string>>(new Set());
-  // Gapless-armed next track (mirrors preloadedTrackRef for the native path).
-  // `src` keeps the webview URL so waveforms keep working after promotion.
-  const nativePreloadedRef = useRef<{ key: string; track: QueueTrack; src: string | null } | null>(null);
+  // Tracks whose preload failed past their retries this session. They are not
+  // armed for gapless again — the explicit play at the track boundary opens
+  // them, and surfaces the failure if it recurs.
+  const unarmableKeysRef = useRef<Set<string>>(new Set());
+  // Gapless-armed next track. `src` keeps the webview URL so waveforms keep
+  // working after promotion; `engineSource` becomes the session's source then.
+  const nativePreloadedRef = useRef<{
+    key: string;
+    track: QueueTrack;
+    src: string | null;
+    engineSource: EngineSource;
+  } | null>(null);
+  // The source the last preload was handed to the engine with, set BEFORE the
+  // engine_preload call — a refusal can arrive before nativePreloadedRef is
+  // armed, and its retry decision needs that track's source, not the session's.
+  const preloadEngineSourceRef = useRef<{ key: string; source: EngineSource } | null>(null);
   const nativePreloadingRef = useRef(false);
-  // Last position reported by engine-position — the resume point for the
-  // per-track browser fallback on engine-error.
+  // Last position reported by engine-position — the resume point for a retry
+  // after an engine error, and for resuming a session handed over to a clip.
   const nativeLastPositionRef = useRef(0);
   // True between issuing engine_start_crossfade and the engine's
   // track-changed (or any session reset) — stops the progress machine from
   // re-triggering the fade every position tick.
   const nativeFadingRef = useRef(false);
-  // True while the native session is a VIDEO session: the engine renders into
-  // a native layer under the webview and App punches the CSS hole + reports
-  // the container bounds while this is set.
+  // The source the current session was opened from. A retry after an engine
+  // error is only worth it for a remote one: a local file's failure is
+  // deterministic (a codec the engine can't decode).
+  const lastEngineSourceRef = useRef<EngineSource | null>(null);
+  // The clip (see playClip) that owns the engine right now, if any.
+  const clipKeyRef = useRef<string | null>(null);
+  const clipSeqRef = useRef(0);
+  // Told when a main play or Stop takes the engine from that clip — its
+  // events stop arriving then, so without this the owner waits forever.
+  const clipLostRef = useRef<(() => void) | null>(null);
+  // True while the session is a VIDEO session: the engine renders into a native
+  // layer under the webview and App punches the CSS hole + reports the
+  // container bounds while this is set.
   const [nativeVideoActive, setNativeVideoActive] = useState(false);
-  // True once the current native video session is actually presenting frames
-  // (the `engine-playback-restart` signal — mpv is displaying its first frame;
-  // NOT `engine-position`/VO-reconfig, which fire before the frame is on
-  // screen). App keeps the see-through hole opaque until this flips, so a fresh
-  // start never reveals the transparent window before mpv has painted into the
+  // True once the current video session is actually presenting frames (the
+  // `engine-playback-restart` signal — mpv is displaying its first frame; NOT
+  // `engine-position`/VO-reconfig, which fire before the frame is on screen).
+  // App keeps the see-through hole opaque until this flips, so a fresh start
+  // never reveals the transparent window before mpv has painted into the
   // child. Reset per session start. There is deliberately no wall-clock
   // fallback: a 1.5s timer used to reveal a slow-loading or broken video over
   // an empty surface, showing the desktop through the hole. A video with no
   // picture keeps the hole opaque (app background) instead.
   const [nativeVideoPresenting, setNativeVideoPresenting] = useState(false);
   const nativeVideoPresentingRef = useRef(false);
-  // Fullscreen for native video sessions = WINDOW fullscreen + the
-  // `.video-container--native-fs` full-window pin (DOM element-fullscreen
-  // would move the webview to its own space, away from the native layer).
-  // This state is the source of truth; the window follows it.
+  // Fullscreen for video = WINDOW fullscreen + the `.video-container--native-fs`
+  // full-window pin (DOM element-fullscreen would move the webview to its own
+  // space, away from the native layer). This state is the source of truth; the
+  // window follows it.
   const [nativeFullscreen, setNativeFullscreen] = useState(false);
   // Live stream title (ICY StreamTitle) for internet-radio sessions — the
   // song the station is currently playing. Null for ordinary tracks (the
@@ -362,15 +288,7 @@ export function usePlayback(
     setIcyTitle(null);
     clearPlaybackBuffer();
     clearPlaybackLevel();
-    browserPlaybackStartedRef.current = false;
   }
-
-  // Browser-engine stall detection is armed only once playback has actually
-  // begun. A media element fires `waiting` during its *initial* load as well,
-  // and mpv's `paused-for-cache` does not — without this gate the two engines
-  // would report different things, and every track start on the browser engine
-  // would flash "Buffering…" for what is just an ordinary load.
-  const browserPlaybackStartedRef = useRef(false);
 
   function setWindowFullscreen(fullscreen: boolean) {
     import("../utils/windowFullscreen")
@@ -378,9 +296,9 @@ export function usePlayback(
       .catch((e) => console.error("Failed to set window fullscreen:", e));
   }
 
-  // Leaving the native video session (track ended, fallback, stop) must also
-  // leave fullscreen — otherwise the window stays fullscreen with the app
-  // surfaces hidden by the native-fs CSS.
+  // Leaving the video session (track ended, stop, error) must also leave
+  // fullscreen — otherwise the window stays fullscreen with the app surfaces
+  // hidden by the native-fs CSS.
   useEffect(() => {
     if (!nativeVideoActive && nativeFullscreen) {
       setNativeFullscreen(false);
@@ -388,14 +306,9 @@ export function usePlayback(
     }
   }, [nativeVideoActive, nativeFullscreen]);
 
-  const pendingSrcRef = useRef<string | null>(null);
-  const pendingAutoPlayRef = useRef(true);
+  // Where the next open of the current track starts: set by seeking while no
+  // session is open, by loadPaused, and by an engine-error retry.
   const pendingSeekRef = useRef(0);
-  // Key of a video whose <video> element currently holds only a restored
-  // first-frame preview (src loaded, never played) — see loadRestoredVideoPreview.
-  // While set, handlePause routes the first play through handlePlay so stream
-  // resolution + the transcode fallback run, instead of a bare el.play().
-  const previewLoadedKeyRef = useRef<string | null>(null);
   // `scrobbledRef`: this play was offered to a scrobbler (so it is handed
   // over at most once). `scrobbled`: some scrobbler took it — the bar's
   // checkmark. They differ when every scrobbler is off for this media type.
@@ -405,8 +318,8 @@ export function usePlayback(
   // Bumped by every reset, so a late `settled` answer can't put a checkmark
   // on the next play.
   const scrobbleGenRef = useRef(0);
-  // Runs inside the position handlers, so it must never throw into them —
-  // that would skip the tick's preload / crossfade decisions.
+  // Runs inside the position handler, so it must never throw into it — that
+  // would skip the tick's preload / crossfade decisions.
   function crossScrobbleThreshold(track: QueueTrack) {
     let outcome: ScrobbleOutcome;
     try {
@@ -436,9 +349,11 @@ export function usePlayback(
   }
   const [playbackError, setPlaybackError] = useState<string | null>(null);
   const [failedTrack, setFailedTrack] = useState<QueueTrack | null>(null);
+  // The webview URL of the resolved source — not what the engine plays, but
+  // what the waveform's Web Audio provider fetches.
   const [currentAssetUrl, setCurrentAssetUrl] = useState<string | null>(null);
-  // Last source URL handed to playWithSrc — read by the play-failure catch
-  // blocks, where currentAssetUrl would be a stale closure.
+  // Last source URL handed to playWithSrc — read by the play-failure paths,
+  // where currentAssetUrl would be a stale closure.
   const lastPlaySrcRef = useRef<string | null>(null);
   const [loadingTrack, setLoadingTrack] = useState<QueueTrack | null>(null);
   const playStartedAtRef = useRef(0);
@@ -448,69 +363,30 @@ export function usePlayback(
   const playingRef = useRef(playing);
   useAssignRef(playingRef, playing);
 
-  // Preload state (refs for use in event handlers without stale closures)
-  const preloadedTrackRef = useRef<QueueTrack | null>(null);
-  const preloadReadyRef = useRef(false);
-  const isPreloadingRef = useRef(false);
   const prefetchRequestedRef = useRef(false);
-  const preloadPromiseRef = useRef<{ key: string; promise: Promise<ResolvedTrackSource> } | null>(null);
-  // Tier-1 video preload: the next VIDEO track can't share the audio preload
-  // elements or a crossfade (single video surface), but we can still pre-resolve
-  // its stream URL ahead of time so the transition doesn't wait on a slow
-  // resolver (e.g. yt-dlp). Cached by key here; consumed once by handlePlay.
+  // Tier-1 video preload: the next VIDEO track can't be gapless-armed (the
+  // standby deck has no video surface), but its stream URL can be pre-resolved
+  // so the transition doesn't wait on a slow resolver (e.g. yt-dlp). Cached by
+  // key here; consumed once by handlePlay.
   const videoPreresolvedRef = useRef<{ key: string; resolved: ResolvedTrackSource } | null>(null);
   const videoPreresolvingRef = useRef(false);
   // Key we've already attempted to pre-resolve for the current preload window.
-  // A video next-track never sets preloadedKey/isPreloading (no gapless deck to
-  // arm), so driveProgressMachine re-issues its preloadTrack on every ~4 Hz
-  // tick; without this the resolve is re-run whenever the success cache above
-  // isn't set (e.g. the shared resolve generation was bumped mid-flight, so the
+  // A video next-track never sets preloadedKey/isPreloading (nothing to arm),
+  // so driveProgressMachine re-issues its preloadTrack on every ~4 Hz tick;
+  // without this the resolve is re-run whenever the success cache above isn't
+  // set (e.g. the shared resolve generation was bumped mid-flight, so the
   // resolve returned the empty-src sentinel), firing yt-dlp again and again.
   // Reset per track change in invalidatePreload() so a new next-track re-tries.
   const videoPreresolveAttemptedKeyRef = useRef<string | null>(null);
 
-  // Crossfade state
-  const isCrossfadingRef = useRef(false);
-  const crossfadeTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
-  const crossfadeOutgoingRef = useRef<HTMLAudioElement | null>(null);
   const volumeRef = useRef(volume);
   const mutedRef = useRef(muted);
-  const wasPlayingBeforeHideRef = useRef(false);
-
-  function effectiveVolume(): number {
-    return mutedRef.current ? 0 : volumeRef.current;
-  }
-
-  // DIAGNOSTIC (no behavior change): a "shadow" track is an audio element still
-  // producing sound while it is NOT the active slot and no crossfade is running.
-  // That orphan state is the suspected cause of the rare "two tracks at once /
-  // pause leaves one playing" bug. We can't reproduce it on demand, so we log
-  // full state the moment it appears in the wild to pin down the trigger.
-  function diagnoseShadowPlayback(origin: string): void {
-    const a = audioRefA.current;
-    const b = audioRefB.current;
-    if (!a || !b) return;
-    const aPlaying = !a.paused && !a.ended;
-    const bPlaying = !b.paused && !b.ended;
-    if (aPlaying && bPlaying && !isCrossfadingRef.current) {
-      logPlayback(
-        `SHADOW DETECTED (${origin}): both A & B playing outside a crossfade. ` +
-          `active=${activeSlotRef.current} ` +
-          `A{src=${a.src ? "set" : "empty"} t=${a.currentTime.toFixed(1)} paused=${a.paused} ended=${a.ended}} ` +
-          `B{src=${b.src ? "set" : "empty"} t=${b.currentTime.toFixed(1)} paused=${b.paused} ended=${b.ended}} ` +
-          `crossfadeTimer=${crossfadeTimerRef.current !== null} ` +
-          `preloaded=${preloadedTrackRef.current?.title ?? "none"} ` +
-          `current=${currentTrack?.title ?? "none"}`,
-      );
-    }
-  }
+  const playbackRateRef = useRef(playbackRate);
+  useAssignRef(playbackRateRef, playbackRate);
 
   // Diagnostic for the Next-stops-playback class of bug: a play request that does
-  // NOT cleanly start its track. handlePlay pauses the outgoing audio up front, so
-  // any non-"play" outcome means audio is stopped — and if it happened while the
-  // queue index already advanced, the now-playing bar is left stale. Captures the
-  // full generation/element snapshot so a recurrence is explainable from the log
-  // instead of being invisible (the original bug logged nothing at all).
+  // NOT cleanly start its track. Captures the generation snapshot so a recurrence
+  // is explainable from the log instead of being invisible.
   //   bail  → superseded by a newer play (expected on rapid skipping): file log only.
   //   retry → resolve superseded but this play is still current (the regression
   //           condition): also surfaced in the devtools console.
@@ -519,269 +395,28 @@ export function usePlayback(
     outcome: HandlePlayOutcome,
     track: QueueTrack,
     capturedGen: number,
-    reusedPreload: boolean,
     hadSrc: boolean,
   ): void {
     if (outcome === "play") return;
-    const a = audioRefA.current;
-    const b = audioRefB.current;
     const detail =
       `track="${track.artist_name ?? "?"} — ${track.title}" key=${track.key} ` +
       `playGen captured=${capturedGen} current=${playGenerationRef.current} ` +
-      `reusedPreload=${reusedPreload} resolvedSrc=${hadSrc ? "set" : "EMPTY"} ` +
-      `active=${activeSlotRef.current} ` +
-      `A{paused=${a?.paused} ended=${a?.ended}} B{paused=${b?.paused} ended=${b?.ended}} ` +
-      `crossfading=${isCrossfadingRef.current} nowPlaying="${currentTrack?.title ?? "none"}"`;
+      `resolvedSrc=${hadSrc ? "set" : "EMPTY"} session=${nativeSessionRef.current?.key ?? "none"} ` +
+      `nowPlaying="${currentTrack?.title ?? "none"}"`;
     logPlayback(`PLAY ${outcome.toUpperCase()}: ${detail}`);
     if (outcome === "retry" || outcome === "fail") {
       console.warn(`[playback] play ${outcome}: ${detail}`);
     }
   }
 
-  const audioCtxRef = useRef<AudioContext | null>(null);
-  const sourceARef = useRef<MediaElementAudioSourceNode | null>(null);
-  const sourceBRef = useRef<MediaElementAudioSourceNode | null>(null);
-  const filtersARef = useRef<BiquadFilterNode[]>([]);
-  const filtersBRef = useRef<BiquadFilterNode[]>([]);
-  // Simple-mode shelf nodes, tuple [lowshelf (bass), highshelf (treble)] per chain.
-  // Always present in the graph at 0 dB when unused, so switching modes is a gain
-  // write — no graph rebuild, no audio glitch (even mid-crossfade).
-  const shelvesARef = useRef<BiquadFilterNode[]>([]);
-  const shelvesBRef = useRef<BiquadFilterNode[]>([]);
-  const xfadeGainARef = useRef<GainNode | null>(null);
-  const xfadeGainBRef = useRef<GainNode | null>(null);
-  // ReplayGain gain node per chain (at the head of each chain, pre-EQ).
-  const rgGainARef = useRef<GainNode | null>(null);
-  const rgGainBRef = useRef<GainNode | null>(null);
-  const masterGainRef = useRef<GainNode | null>(null);
-  // Brick-wall limiter on the master bus, engaged only while a simple-mode boost
-  // is active. Prevents shelf boosts from clipping without dropping overall level.
-  const limiterRef = useRef<DynamicsCompressorNode | null>(null);
-  const playbackRateRef = useRef(playbackRate);
-  const eqEnabledRef = useRef(eqEnabled);
-  const eqModeRef = useRef<EqMode>(eqMode);
-  const eqGainsRef = useRef<number[]>(eqGains);
-  const eqPreGainDbRef = useRef<number>(eqPreGainDb);
-  const eqBassDbRef = useRef<number>(eqBassDb);
-  const eqTrebleDbRef = useRef<number>(eqTrebleDb);
-  const eqClipProtectionRef = useRef<EqClipProtection>(eqClipProtection);
-  const rgModeRef = useRef(rgMode);
-  const rgPreampDbRef = useRef(rgPreampDb);
-  const rgPreventClipRef = useRef(rgPreventClip);
-  useAssignRef(playbackRateRef, playbackRate);
-  useAssignRef(eqEnabledRef, eqEnabled);
-  useAssignRef(eqModeRef, eqMode);
-  useAssignRef(eqGainsRef, eqGains);
-  useAssignRef(eqPreGainDbRef, eqPreGainDb);
-  useAssignRef(eqBassDbRef, eqBassDb);
-  useAssignRef(eqTrebleDbRef, eqTrebleDb);
-  useAssignRef(eqClipProtectionRef, eqClipProtection);
-  useAssignRef(rgModeRef, rgMode);
-  useAssignRef(rgPreampDbRef, rgPreampDb);
-  useAssignRef(rgPreventClipRef, rgPreventClip);
-
-  function masterGainValue(): number {
-    // Advanced mode: the user sets pre-gain manually. Simple mode's default
-    // ("limiter" clip protection) does NOT attenuate — dropping the whole
-    // signal to make room for a boost is heard as "quieter" (especially the
-    // bass on small speakers); the master-bus limiter catches boosted peaks
-    // instead. In "headroom" clip protection that trade flips: attenuate by
-    // the boost amount and leave the limiter disengaged, so a heavy boost
-    // can't pump the mix.
-    let preGainDb = 0;
-    if (eqEnabledRef.current) {
-      if (eqModeRef.current !== "simple") {
-        preGainDb = eqPreGainDbRef.current;
-      } else if (eqClipProtectionRef.current === "headroom") {
-        preGainDb = -Math.max(eqBassDbRef.current, eqTrebleDbRef.current, 0);
-      }
-    }
-    const linear = Math.pow(10, preGainDb / 20);
-    return effectiveVolume() * linear;
-  }
-
-  // The limiter only needs to act when a simple-mode boost can push peaks past
-  // the ceiling; cuts and the flat state can't clip, so it stays disengaged
-  // (threshold at 0 dB → effectively transparent) to keep the dry path clean.
-  // In "headroom" clip protection it stays disengaged even while boosting —
-  // masterGainValue() has already made the room.
-  function limiterThresholdDb(): number {
-    const boosting = eqEnabledRef.current
-      && eqModeRef.current === "simple"
-      && eqClipProtectionRef.current !== "headroom"
-      && Math.max(eqBassDbRef.current, eqTrebleDbRef.current) > 0;
-    return boosting ? LIMITER_CEILING_DB : 0;
-  }
-
-  function applyLimiter(): void {
-    const lim = limiterRef.current;
-    if (!lim) return;
-    const ctx = audioCtxRef.current;
-    const t = ctx ? ctx.currentTime : 0;
-    // Ramp the threshold so engaging/releasing the limiter doesn't click.
-    lim.threshold.setTargetAtTime(limiterThresholdDb(), t, 0.02);
-  }
-
-  function applyEqToFilters(): void {
-    const enabled = eqEnabledRef.current;
-    const simple = enabled && eqModeRef.current === "simple";
-    // Peaking bands carry advanced mode; they sit flat in simple/disabled.
-    const gains = (enabled && !simple) ? eqGainsRef.current : new Array(NUM_BANDS).fill(0);
-    if (filtersARef.current.length) applyGainsToFilters(filtersARef.current, gains);
-    if (filtersBRef.current.length) applyGainsToFilters(filtersBRef.current, gains);
-    // Shelves carry simple mode; they sit flat otherwise.
-    const bass = simple ? eqBassDbRef.current : 0;
-    const treble = simple ? eqTrebleDbRef.current : 0;
-    if (shelvesARef.current.length) {
-      shelvesARef.current[0].gain.value = bass;
-      shelvesARef.current[1].gain.value = treble;
-    }
-    if (shelvesBRef.current.length) {
-      shelvesBRef.current[0].gain.value = bass;
-      shelvesBRef.current[1].gain.value = treble;
-    }
-  }
-
-  function ensureAudioGraph(): AudioContext | null {
-    if (audioCtxRef.current) {
-      if (audioCtxRef.current.state === "suspended") {
-        audioCtxRef.current.resume().catch(console.error);
-      }
-      return audioCtxRef.current;
-    }
-    const elA = audioRefA.current;
-    const elB = audioRefB.current;
-    if (!elA || !elB) return null;
-    const Ctor = window.AudioContext || (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
-    if (!Ctor) {
-      console.error("AudioContext not supported");
-      return null;
-    }
-    const ctx = new Ctor();
-    audioCtxRef.current = ctx;
-    if (ctx.state === "suspended") {
-      ctx.resume().catch(console.error);
-    }
-
-    // Master bus: [both chains] -> masterGain -> limiter -> destination.
-    // The limiter is a DynamicsCompressorNode tuned as a near-brick-wall limiter
-    // (high ratio, fast attack). It sits idle (threshold 0 dB) unless a simple-mode
-    // boost engages it, so normal playback and advanced mode are unaffected.
-    const limiter = ctx.createDynamicsCompressor();
-    limiter.threshold.value = limiterThresholdDb();
-    limiter.knee.value = 0;       // hard knee — true limiting, not soft compression
-    limiter.ratio.value = 20;     // max ratio ≈ brick wall
-    limiter.attack.value = 0.003; // 3 ms — catch transients before they clip
-    limiter.release.value = 0.25;
-    limiter.connect(ctx.destination);
-    limiterRef.current = limiter;
-
-    const masterGain = ctx.createGain();
-    masterGain.gain.value = masterGainValue();
-    masterGain.connect(limiter);
-    masterGainRef.current = masterGain;
-
-    function buildChain(el: HTMLAudioElement): {
-      source: MediaElementAudioSourceNode;
-      filters: BiquadFilterNode[];
-      shelves: BiquadFilterNode[];
-      xfadeGain: GainNode;
-      rgGain: GainNode;
-    } {
-      const source = ctx.createMediaElementSource(el);
-      const filters: BiquadFilterNode[] = [];
-      for (let i = 0; i < NUM_BANDS; i++) {
-        const f = ctx.createBiquadFilter();
-        f.type = "peaking";
-        f.frequency.value = BANDS[i];
-        f.Q.value = BAND_Q;
-        f.gain.value = 0;
-        filters.push(f);
-      }
-      // Simple-mode shelves, after the peaking bank, at unity (0 dB) until engaged.
-      const lowShelf = ctx.createBiquadFilter();
-      lowShelf.type = "lowshelf";
-      lowShelf.frequency.value = SHELF_BASS_FREQ;
-      lowShelf.gain.value = 0;
-      const highShelf = ctx.createBiquadFilter();
-      highShelf.type = "highshelf";
-      highShelf.frequency.value = SHELF_TREBLE_FREQ;
-      highShelf.gain.value = 0;
-      const shelves = [lowShelf, highShelf];
-
-      const xfadeGain = ctx.createGain();
-      xfadeGain.gain.value = 1;
-
-      // ReplayGain node at the head of the chain (pre-EQ): a per-track loudness
-      // adjustment on the source signal. Clipping from RG + EQ boosts is caught
-      // by the shared master-bus limiter downstream.
-      const rgGain = ctx.createGain();
-      rgGain.gain.value = 1;
-
-      source.connect(rgGain);
-      rgGain.connect(filters[0]);
-      for (let i = 0; i < filters.length - 1; i++) filters[i].connect(filters[i + 1]);
-      filters[filters.length - 1].connect(lowShelf);
-      lowShelf.connect(highShelf);
-      highShelf.connect(xfadeGain);
-      xfadeGain.connect(masterGain);
-      return { source, filters, shelves, xfadeGain, rgGain };
-    }
-
-    const a = buildChain(elA);
-    const b = buildChain(elB);
-    sourceARef.current = a.source;
-    sourceBRef.current = b.source;
-    filtersARef.current = a.filters;
-    filtersBRef.current = b.filters;
-    shelvesARef.current = a.shelves;
-    shelvesBRef.current = b.shelves;
-    xfadeGainARef.current = a.xfadeGain;
-    xfadeGainBRef.current = b.xfadeGain;
-    rgGainARef.current = a.rgGain;
-    rgGainBRef.current = b.rgGain;
-
-    applyEqToFilters();
-    applyLimiter();
-    return ctx;
-  }
-
-  function getActiveAudioElement(): HTMLAudioElement | null {
-    return activeSlotRef.current === "A" ? audioRefA.current : audioRefB.current;
-  }
-
-  function getInactiveAudioElement(): HTMLAudioElement | null {
-    return activeSlotRef.current === "A" ? audioRefB.current : audioRefA.current;
-  }
-
-  // Forcibly silence a media element. pause() alone is not reliable on WKWebView —
-  // it can leave `.paused` false and keep the element emitting `timeupdate` / sound
-  // (the cause behind the CROSSFADE WARN / SHADOW diagnostics). Detaching the source
-  // and reloading drives the element to NETWORK_EMPTY, which also prevents a stray
-  // `ended` from firing. Use this wherever an element must truly go quiet.
-  function stopMediaElement(el: HTMLMediaElement | null) {
-    if (!el) return;
-    el.pause();
-    el.removeAttribute("src");
-    el.load();
-  }
-
-  // Reveal the native video surface for the current session: flip presenting so
-  // App drops the opaque backstop over the hole, and tear down any restored
-  // preview <video> frame that was bridging the gap. Ordering matters — reveal
-  // FIRST (mpv's first frame is up behind the transparent hole), then remove the
-  // preview one frame later: the preview still and mpv's first frame are the
-  // same picture, so this hands off with no gap to background/desktop. Idempotent
-  // (first caller wins); driven by `engine-playback-restart` with `hasVideo`.
+  // Reveal the video surface for the current session: flip presenting so App
+  // drops the opaque backstop over the hole (and the cached still bridging it).
+  // Idempotent (first caller wins); driven by `engine-playback-restart` with
+  // `hasVideo`.
   function markNativeVideoPresenting() {
     if (nativeVideoPresentingRef.current) return;
     nativeVideoPresentingRef.current = true;
     setNativeVideoPresenting(true);
-    // Clear the preview frame a beat after the reveal, only while a native
-    // session still owns the element (a browser fallback may have reclaimed it).
-    requestAnimationFrame(() => {
-      if (nativeSessionRef.current) stopMediaElement(videoRef.current);
-    });
   }
 
   function resetNativeVideoPresentation() {
@@ -789,115 +424,25 @@ export function usePlayback(
     setNativeVideoPresenting(false);
   }
 
-  // ReplayGain --------------------------------------------------------------
-  type ReplayGainInfo = {
-    track_gain_db: number | null;
-    track_peak: number | null;
-    album_gain_db: number | null;
-    album_peak: number | null;
-  };
-  // Track key whose RG is (being) applied to each chain — guards against a slow
-  // async resolve landing after the chain has already moved on to another track.
-  const rgSlotKeyARef = useRef<string | null>(null);
-  const rgSlotKeyBRef = useRef<string | null>(null);
-
-  function setRgGain(slot: "A" | "B", linear: number): void {
-    const node = slot === "A" ? rgGainARef.current : rgGainBRef.current;
-    if (!node) return;
-    const ctx = audioCtxRef.current;
-    // Ramp to avoid a click when normalization changes between tracks.
-    if (ctx) node.gain.setTargetAtTime(linear, ctx.currentTime, 0.05);
-    else node.gain.value = linear;
+  /** Forget the open session without touching the engine (the caller stops,
+   *  replaces or hands it over). Clears every per-session readout. */
+  function endNativeSession() {
+    nativeSessionRef.current = null;
+    nativePreloadedRef.current = null;
+    nativeFadingRef.current = false;
+    setNativeVideoActive(false);
+    resetNativeVideoPresentation();
+    clearStreamReadouts();
   }
 
-  // Resolve and apply ReplayGain for the track loaded on `slot`. No-op (unity
-  // gain) when RG is off, the track has no path, or it carries no RG values.
-  async function applyReplayGain(slot: "A" | "B", track: QueueTrack | null): Promise<void> {
-    if (slot === "A") rgSlotKeyARef.current = track?.key ?? null;
-    else rgSlotKeyBRef.current = track?.key ?? null;
-
-    if (rgModeRef.current === "off" || !track || !track.path) {
-      setRgGain(slot, 1);
-      return;
-    }
-    let info: ReplayGainInfo | null = null;
-    try {
-      info = await invoke<ReplayGainInfo | null>("get_replaygain_by_path", { path: track.path });
-    } catch (e) {
-      console.error("Failed to resolve ReplayGain:", e);
-      setRgGain(slot, 1);
-      return;
-    }
-    // Bail if this chain moved on to another track while we awaited.
-    const stillCurrent =
-      (slot === "A" ? rgSlotKeyARef.current : rgSlotKeyBRef.current) === track.key;
-    if (!stillCurrent) return;
-
-    if (!info) {
-      setRgGain(slot, 1);
-      return;
-    }
-    const album = rgModeRef.current === "album";
-    const gainDb = album
-      ? info.album_gain_db ?? info.track_gain_db
-      : info.track_gain_db ?? info.album_gain_db;
-    if (gainDb == null) {
-      setRgGain(slot, 1);
-      return;
-    }
-    let linear = Math.pow(10, (gainDb + rgPreampDbRef.current) / 20);
-    if (rgPreventClipRef.current) {
-      const peak = album
-        ? info.album_peak ?? info.track_peak
-        : info.track_peak ?? info.album_peak;
-      if (peak && peak > 0) linear = Math.min(linear, 1 / peak);
-    }
-    setRgGain(slot, linear);
-  }
-
-  function getMediaElement(): HTMLAudioElement | HTMLVideoElement | null {
-    if (currentTrack && isVideoTrack(currentTrack)) {
-      return videoRef.current;
-    }
-    return getActiveAudioElement();
-  }
-
-  // Sync volume/mute refs and media elements when either changes
+  // Mirror volume/mute to the engine (cached backend-side until it runs).
   useEffect(() => {
     volumeRef.current = volume;
     mutedRef.current = muted;
-    const out = effectiveVolume();
-    // The mpv engine tracks volume/mute directly; no-op when it isn't running.
     nativeEngine.setVolume(volume, muted).catch(console.error);
-    // Video bypasses Web Audio, so its volume is set directly.
-    if (videoRef.current) videoRef.current.volume = out;
-    if (masterGainRef.current) {
-      masterGainRef.current.gain.value = masterGainValue();
-      return;
-    }
-    // Pre-graph fallback: until ensureAudioGraph runs, the audio elements
-    // play through their native path so el.volume still works.
-    if (audioRefA.current) audioRefA.current.volume = out;
-    if (audioRefB.current) audioRefB.current.volume = out;
   }, [volume, muted]);
 
   useEffect(() => {
-    eqEnabledRef.current = eqEnabled;
-    eqModeRef.current = eqMode;
-    eqGainsRef.current = eqGains;
-    eqPreGainDbRef.current = eqPreGainDb;
-    eqBassDbRef.current = eqBassDb;
-    eqTrebleDbRef.current = eqTrebleDb;
-    eqClipProtectionRef.current = eqClipProtection;
-    // Lazily build the Web Audio graph the first time EQ is actually engaged.
-    // Until then, audio plays through the native HTMLMediaElement path for
-    // snappier play/pause/mute response.
-    if (eqEnabled && !audioCtxRef.current) ensureAudioGraph();
-    applyEqToFilters();
-    applyLimiter();
-    if (masterGainRef.current) masterGainRef.current.gain.value = masterGainValue();
-    // Mirror to the mpv engine (cached backend-side until it runs; no-op on
-    // incapable builds).
     nativeEngine.setEq({
       enabled: eqEnabled,
       mode: eqMode,
@@ -909,14 +454,6 @@ export function usePlayback(
     }).catch(console.error);
   }, [eqEnabled, eqMode, eqGains, eqPreGainDb, eqBassDb, eqTrebleDb, eqClipProtection]);
 
-  // Apply ReplayGain to the active chain when the current track changes or the RG
-  // settings change. The inactive (preloaded) chain is handled in preloadNext.
-  useEffect(() => {
-    applyReplayGain(activeSlotRef.current, currentTrack);
-  }, [currentTrack, rgMode, rgPreampDb, rgPreventClip]);
-
-  // Mirror ReplayGain settings to the mpv engine, which reads the RG tags
-  // natively (per deck, per file) — no per-track resolve needed there.
   useEffect(() => {
     nativeEngine.setReplayGain({
       mode: rgMode,
@@ -925,111 +462,13 @@ export function usePlayback(
     }).catch(console.error);
   }, [rgMode, rgPreampDb, rgPreventClip]);
 
-  /**
-   * Push the playback rate to whichever engine is rendering.
-   *
-   * BOTH audio elements, not just the active one: the idle element is what
-   * gapless/crossfade preloads into, and one left at 1.0 would snap back to
-   * normal speed at the track change. Same reason the mpv side applies to both
-   * decks. `applyRateTo` is reused by preloadNext for an element armed later.
-   *
-   * `preservesPitch = false` is the whole point. It defaults to TRUE, which
-   * time-stretches and holds the original pitch — right for a podcast, wrong for
-   * a deck. A turntable resamples, so 45 on a 33 pressing is faster and higher,
-   * and that is the effect. The webkit-prefixed name is still what older Safari
-   * and some WKWebView builds honour, so set both.
-   */
+  // Push the playback rate to the engine. mpv applies it to BOTH decks — the
+  // idle one is what gapless preloads into, and a deck left at 1.0 would snap
+  // back to normal speed at the track change.
   useEffect(() => {
-    for (const el of [audioRefA.current, audioRefB.current, videoRef.current]) {
-      applyRateTo(el, playbackRate);
-    }
     nativeEngine.setSpeed(playbackRate).catch(console.error);
   }, [playbackRate]);
 
-  // Load video source once the element is available after render
-  useEffect(() => {
-    if (pendingSrcRef.current && currentTrack && isVideoTrack(currentTrack) && videoRef.current) {
-      const src = pendingSrcRef.current;
-      const autoPlay = pendingAutoPlayRef.current;
-      pendingSrcRef.current = null;
-      pendingAutoPlayRef.current = true;
-      const seekTo = pendingSeekRef.current;
-      pendingSeekRef.current = 0;
-      videoRef.current.src = src;
-      videoRef.current.volume = effectiveVolume();
-      if (seekTo > 0) videoRef.current.currentTime = seekTo;
-      if (autoPlay) {
-        videoRef.current.play().catch(e => console.error("Video play error:", e));
-      }
-    }
-  }, [currentTrack]);
-
-  // Paint the first frame of a video that was restored in the paused state on
-  // startup. The restore path only sets currentTrack (no src resolution), so a
-  // restored-paused video would show an empty/black <video> until the user
-  // pressed play. Resolve the local source and load it without autoplay so the
-  // element decodes a frame. Scoped to local (file://) video: remote/plugin
-  // resolution can be slow (e.g. yt-dlp) and shouldn't run eagerly for a track
-  // the user may never resume. Real playback still flows through handlePlay.
-  async function loadRestoredVideoPreview(track: QueueTrack) {
-    if (!isVideoTrack(track) || !isLocalTrack(track)) return;
-    // Never spin up the ffmpeg transcode server just for a restored first-frame
-    // preview: mkv/avi/wmv would each launch a transcode session on every
-    // startup (and the webview <video> can't decode them without it anyway).
-    // They play fine on demand when the user presses play — native mpv, or a
-    // transcode session on the browser engine.
-    if (needsTranscode(track)) return;
-    let resolved: ResolvedTrackSource;
-    try {
-      resolved = await resolveTrackSrcRef.current(track);
-    } catch (e) {
-      console.error("Failed to resolve restored video preview:", e);
-      return;
-    }
-    if (!resolved.src) return;
-    const el = videoRef.current;
-    // Bail if the element vanished, this track is no longer current, or the user
-    // already started playback (which sets src via handlePlay/playWithSrc) — don't
-    // clobber a live session with a paused preview.
-    if (!el || el.src) return;
-    if (currentTrack && currentTrack.key !== track.key) return;
-    el.src = resolved.src;
-    el.preload = "auto";
-    el.volume = effectiveVolume();
-    previewLoadedKeyRef.current = track.key;
-  }
-
-  // Persist state
-  // Resume playback if the browser auto-paused it when the page became hidden (e.g. window minimized)
-  useEffect(() => {
-    function handleVisibilityChange() {
-      if (document.visibilityState === "hidden") {
-        const el = activeSlotRef.current === "A" ? audioRefA.current : audioRefB.current;
-        const vid = videoRef.current;
-        const anyPlaying = (el && !el.paused) || (vid && !vid.paused);
-        wasPlayingBeforeHideRef.current = !!anyPlaying;
-      } else if (document.visibilityState === "visible") {
-        if (wasPlayingBeforeHideRef.current) {
-          wasPlayingBeforeHideRef.current = false;
-          const el = activeSlotRef.current === "A" ? audioRefA.current : audioRefB.current;
-          const vid = videoRef.current;
-          if (el && el.paused && el.src) el.play().catch(console.error);
-          if (vid && vid.paused && vid.src) vid.play().catch(console.error);
-        }
-      }
-    }
-    document.addEventListener("visibilitychange", handleVisibilityChange);
-    return () => document.removeEventListener("visibilitychange", handleVisibilityChange);
-  }, []);
-
-  // The playback position is deliberately not persisted: a restored track
-  // always starts from the top (owner decision). It used to be written to the
-  // store every 5s while playing and never read back — and every store write
-  // rewrites the whole app-state.json.
-  // Log on an actual track change, not on every replacement of the object.
-  // `currentTrack` is re-created whenever anything patches it (the durable-like
-  // reconcile, a metadata edit, an image landing), so keying the log on object
-  // identity printed "Track changed" three times in 22ms for one play.
   const lastLoggedKeyRef = useRef<string | null>(null);
   useEffect(() => {
     if (currentTrack && currentTrack.key !== lastLoggedKeyRef.current) {
@@ -1039,35 +478,23 @@ export function usePlayback(
       lastLoggedKeyRef.current = null;
     }
   }, [currentTrack]);
+  // Persist volume and mute (guarded by restoredRef so startup defaults
+  // don't overwrite the saved values before restore completes)
   useEffect(() => { if (restoredRef.current) store.set("volume", volume).catch(console.error); }, [volume]);
   useEffect(() => { if (restoredRef.current) store.set("muted", muted).catch(console.error); }, [muted]);
 
   function invalidatePreload() {
-    cancelCrossfade();
-    preloadedTrackRef.current = null;
-    preloadReadyRef.current = false;
-    isPreloadingRef.current = false;
-    preloadPromiseRef.current = null;
     videoPreresolvedRef.current = null;
     videoPreresolveAttemptedKeyRef.current = null;
     if (nativePreloadedRef.current) {
       nativePreloadedRef.current = null;
       nativeEngine.clearPreload().catch(console.error);
     }
-
-    const inactiveEl = getInactiveAudioElement();
-    if (inactiveEl) {
-      inactiveEl.pause();
-      inactiveEl.removeAttribute("src");
-      inactiveEl.load();
-    }
   }
 
   // Tier-1 video preload: pre-resolve the next VIDEO's stream URL during the
-  // current track (the slow part for e.g. yt-dlp) and cache it by key. We
-  // deliberately do NOT prime a media element or arm gapless/crossfade for video
-  // (single video surface) — handlePlay consults this cache. Shared by the
-  // browser and native preload paths; self-guarded so the machine may call it
+  // current track (the slow part for e.g. yt-dlp) and cache it by key —
+  // handlePlay consults this cache. Self-guarded so the machine may call it
   // every tick harmlessly.
   async function preresolveVideoNext(nextTrack: QueueTrack) {
     if (videoPreresolvingRef.current) return;
@@ -1093,121 +520,42 @@ export function usePlayback(
     }
   }
 
-  async function preloadNext(nextTrack: QueueTrack) {
-    if (isPreloadingRef.current) return;
-    if (isVideoTrack(nextTrack)) {
-      // No audio-element preload / crossfade for video, but still pre-resolve.
-      preloadedTrackRef.current = null;
-      preloadReadyRef.current = false;
-      preresolveVideoNext(nextTrack);
-      return;
-    }
-
-    isPreloadingRef.current = true;
-    logPlayback(`Preload: resolving "${nextTrack.artist_name ?? "?"} — ${nextTrack.title}"`);
-    const resolvePromise = resolveTrackSrcRef.current(nextTrack, { preload: true });
-    preloadPromiseRef.current = { key: nextTrack.key, promise: resolvePromise };
-    try {
-      const resolved = await resolvePromise;
-      // Nothing to arm — the resolver is holding off after a recent failure
-      // (useStreamResolution's RESOLVE_FAILURE_TTL_MS).
-      if (!resolved.src) return;
-      logPlayback(`Preload: resolved "${nextTrack.title}"`);
-
-      // Resolution can reveal that a path-less/remote next track is actually a
-      // video (its local copy was matched here). The audio preload elements
-      // can't play video, so abort — handlePlay will resolve again and route it
-      // to the <video> element. handleGaplessNext only fires when a preload is
-      // marked ready, so leaving it unset is enough to force the explicit path.
-      const enriched = resolved.patch ? { ...nextTrack, ...resolved.patch } : nextTrack;
-      if (isVideoTrack(enriched)) {
-        preloadedTrackRef.current = null;
-        preloadReadyRef.current = false;
-        return;
-      }
-
-      const inactiveEl = getInactiveAudioElement();
-      if (!inactiveEl) return;
-
-      inactiveEl.src = resolved.src;
-      // CRITICAL: a preloaded element must only buffer, never play, until
-      // startCrossfade/handleGaplessNext plays it intentionally. The inactive
-      // slot is usually a torn-down former-outgoing element whose `.paused` reads
-      // stale-`false` on WKWebView (see stopMediaElement's note) — and assigning a
-      // fresh `src` to an element whose paused flag is false makes WKWebView START
-      // PLAYING on assignment. That auto-start is the "two tracks at once / pause
-      // leaves one playing" bug: the preload sounds alongside the active track with
-      // no crossfade, and handlePause (active slot only) can't reach it. pause() is
-      // reliable now that a src is present, so force it back to paused immediately.
-      inactiveEl.pause();
-      inactiveEl.volume = effectiveVolume();
-      inactiveEl.preload = "auto";
-      // Arm the preloaded element at the current rate too, or the gapless
-      // hand-off drops back to 1x exactly as the next track starts.
-      applyRateTo(inactiveEl, playbackRateRef.current);
-      // Pre-apply RG to the inactive chain so the gapless/crossfade swap is already
-      // normalized when this track becomes active.
-      applyReplayGain(activeSlotRef.current === "A" ? "B" : "A", nextTrack);
-
-      // `enriched`, not `nextTrack`: the gapless swap publishes this object via
-      // setCurrentTrack, so storing the unpatched one drops whatever resolution
-      // discovered about the track (its real container, or the local file a
-      // path-less entry matched). The native preload path already keeps the
-      // enriched track for the same reason.
-      preloadedTrackRef.current = enriched;
-      preloadReadyRef.current = false;
-
-      const onCanPlay = () => {
-        logPlayback(`Preload: audio ready for "${nextTrack.title}"`);
-        preloadReadyRef.current = true;
-        // Belt-and-suspenders: WKWebView can (re)start a freshly-src'd element on
-        // its own once it has buffered. A ready preload must still be silent until
-        // it's intentionally played, so re-assert paused here too.
-        if (!inactiveEl.paused) inactiveEl.pause();
-        inactiveEl.removeEventListener("canplay", onCanPlay);
-      };
-      inactiveEl.addEventListener("canplay", onCanPlay);
-    } catch (e) {
-      console.error("Preload error:", e);
-      logPlayback(`Preload: failed for "${nextTrack.title}" — ${e instanceof Error ? e.message : String(e)}`);
-      preloadedTrackRef.current = null;
-    } finally {
-      isPreloadingRef.current = false;
-      preloadPromiseRef.current = null;
-    }
-  }
-
-  // --- Native (mpv) engine session -----------------------------------------
-  // While a native session owns playback the media elements are torn down;
-  // the `engine-*` events below stand in for timeupdate/ended/error. Only
+  // --- Engine session -------------------------------------------------------
+  // The `engine-*` events below are the player's whole view of playback. Only
   // reads refs, so the once-captured closure in the mount effect stays valid.
 
   async function nativePreloadNext(next: QueueTrack) {
     if (nativePreloadingRef.current) return;
     if (isVideoTrack(next)) {
-      // The standby deck has no video surface, so no native gapless/crossfade for
+      // The standby deck has no video surface, so no gapless/crossfade for
       // video — but still pre-resolve the URL so the transition doesn't wait.
       preresolveVideoNext(next);
       return;
     }
-    if (nativeBlockedKeysRef.current.has(next.key)) return;
+    if (unarmableKeysRef.current.has(next.key)) return;
     nativePreloadingRef.current = true;
     logPlayback(`Native preload: resolving "${next.artist_name ?? "?"} — ${next.title}"`);
     try {
       const resolved = await resolveTrackSrcRef.current(next, { preload: true });
       if (!resolved.src) return;
       const enriched = resolved.patch ? { ...next, ...resolved.patch } : next;
-      // Not natively playable (video / webview-only source): stay unarmed —
-      // the engine's `engine-ended` then routes the next track through the
-      // explicit handlePlay path, which picks the right surface.
+      // Video, or a source the engine can't open: stay unarmed — the engine's
+      // `engine-ended` then routes the next track through the explicit
+      // handlePlay path, which surfaces whatever is wrong with it.
       if (isVideoTrack(enriched) || !resolved.engineSource) return;
       if (!nativeSessionRef.current) return; // session ended while resolving
+      preloadEngineSourceRef.current = { key: enriched.key, source: resolved.engineSource };
       await nativeEngine.preload({
         source: resolved.engineSource,
         trackKey: enriched.key,
         crossfade: crossfadeSecsRef.current > 0,
       });
-      nativePreloadedRef.current = { key: enriched.key, track: enriched, src: resolved.src };
+      nativePreloadedRef.current = {
+        key: enriched.key,
+        track: enriched,
+        src: resolved.src,
+        engineSource: resolved.engineSource,
+      };
       logPlayback(`Native preload: armed "${enriched.title}"`);
     } catch (e) {
       console.error("Native preload error:", e);
@@ -1230,12 +578,13 @@ export function usePlayback(
         // (background, then desktop) until mpv's real first present. The
         // accurate signal is `engine-playback-restart` (see its subscription).
 
-        // Scrobble threshold — mirrors onTimeUpdate.
         const track = currentTrackRef.current;
         // Real playback progress — a track is actually playing, so the streak
         // of consecutive auto-skipped failures (surfacePlaybackFailure's
         // circuit breaker) starts over.
         if (autoSkipStreakRef.current !== 0 && payload.positionSecs > 1) autoSkipStreakRef.current = 0;
+        // Scrobble threshold check (Last.FM rules). Who records the play, per
+        // media type, is Settings → Playback → Scrobbling — decided by App's onScrobble.
         if (!scrobbledRef.current && track && shouldScrobble(payload.positionSecs, track.duration_secs)) {
           crossScrobbleThreshold(track);
         }
@@ -1255,7 +604,7 @@ export function usePlayback(
           rate: playbackRateRef.current,
         });
         if (actions.requestPrefetch) {
-          logPlayback(`Prefetch: requesting auto-continue (native, ${(duration - payload.positionSecs).toFixed(1)}s remaining)`);
+          logPlayback(`Prefetch: requesting auto-continue (${(duration - payload.positionSecs).toFixed(1)}s remaining)`);
           prefetchRequestedRef.current = true;
           prefetchNextRef.current();
         }
@@ -1279,10 +628,10 @@ export function usePlayback(
       subscribe<EngineTrackChangedEvent>("engine-track-changed", ({ payload }) => {
         const promoted = nativePreloadedRef.current;
         if (!promoted || promoted.key !== payload.trackKey) return;
-        // Mirror of handleGaplessNext's state updates for an engine-side swap.
+        // The engine swapped to the armed track (gapless or crossfade).
         // Armed tracks are always audio (video is never gapless/crossfade-armed).
         nativePreloadedRef.current = null;
-        nativeSessionRef.current = { key: promoted.key };
+        nativeSessionRef.current = { key: promoted.key, track: promoted.track };
         nativeLastPositionRef.current = 0;
         nativeFadingRef.current = false;
         setNativeVideoActive(false);
@@ -1293,6 +642,8 @@ export function usePlayback(
         setCurrentTrack(promoted.track);
         prefetchRequestedRef.current = false;
         setCurrentAssetUrl(promoted.src);
+        lastPlaySrcRef.current = promoted.src;
+        lastEngineSourceRef.current = promoted.engineSource;
         setPlaybackPosition(0);
         setDurationSecs(promoted.track.duration_secs ?? 0);
         resetScrobble();
@@ -1301,20 +652,14 @@ export function usePlayback(
       }),
       subscribe<EngineEndedEvent>("engine-ended", ({ payload }) => {
         if (nativeSessionRef.current?.key !== payload.trackKey) return;
-        nativeSessionRef.current = null;
-        nativePreloadedRef.current = null;
-        nativeFadingRef.current = false;
-        setNativeVideoActive(false);
-        resetNativeVideoPresentation();
-        clearStreamReadouts();
+        endNativeSession();
         onNativeAutoEndedRef.current();
       }),
       subscribe<EnginePlaybackRestartEvent>("engine-playback-restart", ({ payload }) => {
         // mpv is now displaying the first frame after load — the accurate
         // "surface has real pixels" signal (the decode clock / VO reconfig both
         // fire earlier, before the frame is actually on screen). Reveal the
-        // native hole now; it's been held opaque, with the restored preview
-        // frame bridging it, since the session started.
+        // native hole now; it's been held opaque since the session started.
         // Only when mpv has a picture: a video whose picture failed to decode
         // still restarts (audio-only), and revealing over that empty surface
         // shows the desktop through the transparent window. The hole stays
@@ -1324,6 +669,9 @@ export function usePlayback(
         markNativeVideoPresenting();
       }),
       subscribe<EngineStateEvent>("engine-state", ({ payload }) => {
+        // The one event whose key is optional — so a clip's play/pause can't
+        // be told from the main session's by the key check below alone.
+        if (payload.trackKey?.startsWith(CLIP_KEY_PREFIX) || clipKeyRef.current) return;
         if (!nativeSessionRef.current) return;
         if (payload.trackKey && payload.trackKey !== nativeSessionRef.current.key) return;
         setPlaying(payload.playing);
@@ -1357,43 +705,40 @@ export function usePlayback(
         }
       }),
       subscribe<EngineErrorEvent>("engine-error", ({ payload }) => {
-        // A REMOTE source gets a few more native attempts before it is written
-        // off, each one re-resolved so it plays a freshly signed URL. That is
-        // the whole of the recovery: the refusals are random (~1 in 4) and a new
+        // A clip's failure belongs to whoever played the clip.
+        if (payload.trackKey.startsWith(CLIP_KEY_PREFIX)) return;
+        // A REMOTE source gets a few more attempts before its failure is shown,
+        // each one re-resolved so it plays a freshly signed URL. That is the
+        // whole of the recovery: the refusals are random (~1 in 4) and a new
         // link is a new draw, so the retries stay at FULL quality — only the
-        // last one steps down a rung, and only because its alternative is the
-        // browser engine (see playbackRetry.streamLadderStep). The browser
-        // fallback is a silent quality cut, not a like-for-like retry: it can
-        // only play a self-contained stream, and on YouTube the only
-        // self-contained format is 360p. One transient refusal used to pin the
-        // track to 360p for the rest of the session.
+        // last one steps down a rung (see playbackRetry.streamLadderStep).
         // Local files are excluded: those failures are deterministic (a codec
-        // mpv can't decode), so more attempts only delay the fallback.
-        const remote = /^https?:/i.test(lastPlaySrcRef.current ?? "");
+        // mpv can't decode), so more attempts only delay the message.
+        const session = nativeSessionRef.current?.key === payload.trackKey ? nativeSessionRef.current : null;
+        const failedSource = session
+          ? lastEngineSourceRef.current
+          : preloadEngineSourceRef.current?.key === payload.trackKey
+            ? preloadEngineSourceRef.current.source
+            : null;
+        const remote = failedSource?.kind === "http";
         const failures = noteNativeFailure(payload.trackKey);
         const retryNatively = remote && failures < NATIVE_RETRY_ATTEMPTS;
-        // Blocklist regardless of which role the key held — a failed preload
-        // must not be retried natively either.
-        if (!retryNatively) nativeBlockedKeysRef.current.add(payload.trackKey);
         if (nativePreloadedRef.current?.key === payload.trackKey) nativePreloadedRef.current = null;
-        if (nativeSessionRef.current?.key !== payload.trackKey) {
+        if (!session) {
           // A refused PRELOAD (the standby deck, not the playing track). Logged
           // here because nothing else records it: the next preload tick just
           // re-resolves, so without this the file log shows the retries but
           // never mpv's reason for refusing.
-          console.error(`[mpv] Native preload failed (${payload.code}) for ${payload.trackKey}:`, payload.message);
+          if (!retryNatively) unarmableKeysRef.current.add(payload.trackKey);
+          console.error(`[mpv] Preload failed (${payload.code}) for ${payload.trackKey}:`, payload.message);
           logPlayback(
             retryNatively
-              ? `Native preload error (${payload.code}) key=${payload.trackKey} — will re-resolve (attempt ${failures + 1}): ${payload.message}`
-              : `Native preload error (${payload.code}) key=${payload.trackKey} — native blocked after ${failures} attempt(s), will play on the browser engine: ${payload.message}`,
+              ? `Preload error (${payload.code}) key=${payload.trackKey} — will re-resolve (attempt ${failures + 1}): ${payload.message}`
+              : `Preload error (${payload.code}) key=${payload.trackKey} — not arming it again after ${failures} attempt(s): ${payload.message}`,
           );
           return;
         }
-        nativeSessionRef.current = null;
-        nativeFadingRef.current = false;
-        setNativeVideoActive(false);
-        resetNativeVideoPresentation();
-        clearStreamReadouts();
+        endNativeSession();
         const sourceOrigin = lastPlaySrcRef.current
           ? (() => {
               try { return new URL(lastPlaySrcRef.current).origin; }
@@ -1401,319 +746,75 @@ export function usePlayback(
             })()
           : "unknown source";
         console.error(
-          `[mpv] Native playback failed (${payload.code}) for ${payload.trackKey} from ${sourceOrigin}:`,
+          `[mpv] Playback failed (${payload.code}) for ${payload.trackKey} from ${sourceOrigin}:`,
           payload.message,
         );
         logPlayback(
           retryNatively
-            ? `Native engine error (${payload.code}) key=${payload.trackKey} — re-resolving and retrying natively (attempt ${failures + 1}, stream ladder step ${streamLadderStep(payload.trackKey)}): ${payload.message}`
-            : `Native engine error (${payload.code}) key=${payload.trackKey} — falling back to browser engine after ${failures} native attempt(s): ${payload.message}`,
+            ? `Engine error (${payload.code}) key=${payload.trackKey} — re-resolving and retrying (attempt ${failures + 1}, stream ladder step ${streamLadderStep(payload.trackKey)}): ${payload.message}`
+            : `Engine error (${payload.code}) key=${payload.trackKey} — giving up after ${failures} attempt(s): ${payload.message}`,
         );
-        trackTelemetry(retryNatively ? "engine_retry" : "engine_fallback", { code: payload.code, error_kind: classifyErrorKind(payload.message) });
-        const track = currentTrackRef.current;
-        if (track && track.key === payload.trackKey) {
-          // Replay the same track at the same position — natively again while
-          // the ladder has rungs left (with a freshly resolved source), on the
-          // browser engine once the key is blocklisted. `noteNativeFailure`
-          // above already recorded both facts, and it had to run BEFORE this
-          // replay: handlePlay resolves synchronously from here.
+        // The session's own track, not currentTrackRef: right after a gapless
+        // promotion that ref still holds the previous track until React
+        // commits, and bailing on the mismatch left the bar "playing" silence.
+        const track = session.track;
+        if (retryNatively) {
+          trackTelemetry("engine_retry", { code: payload.code, error_kind: classifyErrorKind(payload.message) });
+          // Replay the same track at the same position with a freshly resolved
+          // source. `noteNativeFailure` above had to run BEFORE this replay:
+          // handlePlay resolves synchronously from here.
           pendingSeekRef.current = nativeLastPositionRef.current;
           handlePlayRef.current(track, "auto");
+          return;
         }
+        setPlaying(false);
+        surfacePlaybackFailureRef.current(engineErrorMessage(payload.message), track, lastPlaySrcRef.current);
       }),
     );
   }, []);
-
-  function finishCrossfade() {
-    const outgoing = crossfadeOutgoingRef.current;
-    if (outgoing) {
-      outgoing.pause();
-      outgoing.removeAttribute("src");
-      outgoing.load();
-      // DIAGNOSTIC: verify the outgoing element actually stopped. If WKWebView
-      // left it playing here, isCrossfadingRef is about to flip false and the
-      // element becomes an untracked orphan (the shadow bug).
-      if (!outgoing.paused) {
-        logPlayback("CROSSFADE WARN (finish): outgoing element still playing after pause()/load()");
-      }
-    }
-
-    // Set incoming element to full volume
-    const activeEl = getActiveAudioElement();
-    if (activeEl) activeEl.volume = effectiveVolume();
-    if (xfadeGainARef.current) xfadeGainARef.current.gain.value = 1;
-    if (xfadeGainBRef.current) xfadeGainBRef.current.gain.value = 1;
-
-    if (crossfadeTimerRef.current !== null) {
-      clearInterval(crossfadeTimerRef.current);
-      crossfadeTimerRef.current = null;
-    }
-    isCrossfadingRef.current = false;
-    crossfadeOutgoingRef.current = null;
-  }
-
-  function cancelCrossfade() {
-    if (!isCrossfadingRef.current) return;
-
-    if (crossfadeTimerRef.current !== null) {
-      clearInterval(crossfadeTimerRef.current);
-      crossfadeTimerRef.current = null;
-    }
-
-    const outgoing = crossfadeOutgoingRef.current;
-    if (outgoing) {
-      outgoing.pause();
-      outgoing.removeAttribute("src");
-      outgoing.load();
-      // DIAGNOSTIC: see finishCrossfade — same orphan risk on the cancel path.
-      if (!outgoing.paused) {
-        logPlayback("CROSSFADE WARN (cancel): outgoing element still playing after pause()/load()");
-      }
-    }
-
-    // Snap incoming to full volume
-    const activeEl = getActiveAudioElement();
-    if (activeEl) activeEl.volume = effectiveVolume();
-    if (xfadeGainARef.current) xfadeGainARef.current.gain.value = 1;
-    if (xfadeGainBRef.current) xfadeGainBRef.current.gain.value = 1;
-
-    isCrossfadingRef.current = false;
-    crossfadeOutgoingRef.current = null;
-  }
-
-  function startCrossfade() {
-    if (isCrossfadingRef.current) return;
-    if (!preloadedTrackRef.current || !preloadReadyRef.current) return;
-
-    const nextTrack = preloadedTrackRef.current;
-    logPlayback(`Crossfade: starting into "${nextTrack.artist_name ?? "?"} — ${nextTrack.title}"`);
-    const outgoingEl = getActiveAudioElement();
-    const incomingEl = getInactiveAudioElement();
-
-    if (!outgoingEl || !incomingEl) return;
-
-    // Capture incomingEl in a const that TS knows is non-null for the closure
-    const incoming = incomingEl;
-
-    isCrossfadingRef.current = true;
-    crossfadeOutgoingRef.current = outgoingEl;
-
-    // Swap active slot immediately (ref + state)
-    const newSlot = activeSlotRef.current === "A" ? "B" : "A";
-    activeSlotRef.current = newSlot;
-    setActiveSlot(newSlot);
-
-    // Update track state for incoming
-    trackChangeSourceRef.current = "auto";
-    playIntentRef.current = nextPlayIntent(playIntentRef.current, nextTrack.key, "auto");
-    setCurrentTrack(nextTrack);
-    prefetchRequestedRef.current = false;
-    setCurrentAssetUrl(incoming.src);
-    setPlaybackPosition(0);
-    setDurationSecs(nextTrack.duration_secs ?? 0);
-    resetScrobble();
-    playStartedAtRef.current = Math.floor(Date.now() / 1000);
-
-    // Start incoming element
-    incoming.volume = effectiveVolume();
-    // Capture the gain pair ONCE for the whole fade — the interval must keep
-    // ramping these same nodes even if activeSlotRef changes underneath it (an
-    // explicit play forces slot A mid-fade); re-deriving from the live ref each
-    // tick is what pumped the incoming track's gain to ~0.
-    const { incoming: incomingGain, outgoing: outgoingGain } =
-      crossfadeGainPair(activeSlotRef.current, xfadeGainARef.current, xfadeGainBRef.current);
-    if (incomingGain) incomingGain.gain.value = 0;
-    if (outgoingGain) outgoingGain.gain.value = 1;
-    // If the incoming element's play() rejects (WKWebView intermittently throws
-    // AbortError/NotAllowedError when a racing load()/pause() interrupts it), the
-    // crossfade machinery would otherwise fade the outgoing track to silence with
-    // nothing taking its place — a silent stop mid-track-change. Recover by
-    // cancelling the fade and re-playing the next track via the explicit path.
-    incoming.play().catch((e) => {
-      console.error("Crossfade incoming play failed, recovering:", e);
-      cancelCrossfade();
-      handlePlay(nextTrack, "auto");
-    });
-
-    advanceIndexRef.current();
-
-    // Clear preload state
-    preloadedTrackRef.current = null;
-    preloadReadyRef.current = false;
-
-    // setInterval crossfade loop (works when page is hidden, unlike rAF)
-    const startTime = performance.now();
-    const fadeDuration = crossfadeSecsRef.current * 1000;
-
-    crossfadeTimerRef.current = setInterval(() => {
-      const elapsed = performance.now() - startTime;
-      const progress = Math.min(elapsed / fadeDuration, 1);
-
-      if (audioCtxRef.current) {
-        // Drive the captured pair, not whatever activeSlotRef currently points at.
-        if (incomingGain) incomingGain.gain.value = progress;
-        if (outgoingGain) outgoingGain.gain.value = 1 - progress;
-      } else {
-        const vol = effectiveVolume();
-        if (crossfadeOutgoingRef.current) crossfadeOutgoingRef.current.volume = vol * (1 - progress);
-        incoming.volume = vol * progress;
-      }
-
-      if (progress >= 1) {
-        finishCrossfade();
-      }
-    }, 16);
-  }
-
-  /**
-   * The active element ended: swap in the preloaded track if one is armed.
-   * Returns true only for that swap, which promotes the next track but leaves
-   * the queue index to the caller (`onEnded` advances it).
-   */
-  function handleGaplessNext(): boolean {
-    // Ended mid-crossfade: the element that ended is the INCOMING one (the
-    // outgoing slot's `ended` is filtered out by onEndedSlotA/B), i.e. a track
-    // shorter than the fade. startCrossfade already advanced the index onto it,
-    // so returning true here made onEnded advance a second time with nothing
-    // playing. Snap the fade to its end and let the ordinary end-of-track path
-    // play what follows — the same "ended-mid-fade" rule the mpv engine applies.
-    if (isCrossfadingRef.current) {
-      logPlayback("Crossfade: incoming track ended mid-fade — finishing the fade and advancing");
-      finishCrossfade();
-      return false;
-    }
-
-    if (!preloadedTrackRef.current || !preloadReadyRef.current) return false;
-
-    const nextTrack = preloadedTrackRef.current;
-    const inactiveEl = getInactiveAudioElement();
-    const activeEl = getActiveAudioElement();
-
-    if (!inactiveEl) return false;
-
-    // Stop the old active element
-    if (activeEl) {
-      activeEl.pause();
-      activeEl.removeAttribute("src");
-      activeEl.load();
-    }
-
-    // Play the preloaded element immediately. If play() rejects (WKWebView can
-    // throw AbortError/NotAllowedError when the load()/pause() above races it),
-    // recover via the explicit play path instead of leaving the swap silent —
-    // currentTrack has already advanced, so handlePlay re-plays the same track.
-    inactiveEl.volume = effectiveVolume();
-    inactiveEl.play().catch((e) => {
-      console.error("Gapless next play failed, recovering:", e);
-      handlePlay(nextTrack, "auto");
-    });
-
-    // Swap active slot
-    const newSlot = activeSlotRef.current === "A" ? "B" : "A";
-    setActiveSlot(newSlot);
-    activeSlotRef.current = newSlot;
-
-    trackChangeSourceRef.current = "auto";
-    playIntentRef.current = nextPlayIntent(playIntentRef.current, nextTrack.key, "auto");
-    setCurrentTrack(nextTrack);
-    prefetchRequestedRef.current = false;
-    setCurrentAssetUrl(inactiveEl.src);
-    setPlaybackPosition(0);
-    setDurationSecs(nextTrack.duration_secs ?? 0);
-    // New element, new buffer — the outgoing track's readouts don't describe it.
-    clearStreamReadouts();
-    resetScrobble();
-    playStartedAtRef.current = Math.floor(Date.now() / 1000);
-
-    // Clear preload state
-    preloadedTrackRef.current = null;
-    preloadReadyRef.current = false;
-
-    return true;
-  }
 
   async function handlePlay(track: QueueTrack, source: "user" | "auto" = "user") {
     // A deliberate play is a fresh start, so it starts at the top of the stream
     // ladder again — a track that stepped down to 480p an hour ago must not stay
     // there for the session. The engine-error replay comes through as "auto",
     // which is exactly the path that must NOT reset the ladder it just advanced.
-    if (source === "user") clearNativeRetries(track.key);
+    if (source === "user") {
+      clearNativeRetries(track.key);
+      unarmableKeysRef.current.delete(track.key);
+    }
     // A user play is fresh intent: it claims the failure-surfacing intent and
     // restarts the auto-skip breaker. An "auto" play claims intent only for a
     // different track — see nextPlayIntent for why a same-key replay must not.
     if (source === "user") autoSkipStreakRef.current = 0;
     playIntentRef.current = nextPlayIntent(playIntentRef.current, track.key, source);
     const generation = ++playGenerationRef.current;
-    // Mark the explicit-play transition window: until the new source is installed,
-    // the timeupdate-driven preload→crossfade machine must stay gated off so a
-    // not-fully-stopped outgoing element can't start a fade against the replaced
-    // track. Cleared in `finally` (guarded by generation).
-    transitioningRef.current = true;
-    // If a decoded preview frame for THIS track is already painted in the
-    // <video> element and we're about to play it as native video, keep that
-    // frame up: it bridges the gap over the (opaque) hole until the native
-    // engine presents, instead of collapsing to the app background. It's torn
-    // down by markNativeVideoPresenting once mpv's first frame is on screen. A
-    // never-played preview fires no timeupdate/ended, so keeping it is safe from
-    // the stray-event concern below.
-    const keepPreviewFrame =
-      isVideoTrack(track) &&
-      previewLoadedKeyRef.current === track.key &&
-      useNativeEngineRef.current &&
-      useNativeVideoRef.current &&
-      !nativeBlockedKeysRef.current.has(track.key);
-    // A real playback session supersedes any restored preview frame.
-    previewLoadedKeyRef.current = null;
-    if (eqEnabledRef.current) ensureAudioGraph();
-    cancelCrossfade();
-    // Forcibly tear down the outgoing media synchronously — not just pause(). The
-    // resolveTrackSrc / playWithSrc await window can be long (plugin stream
-    // resolvers), and a merely-paused element keeps firing `timeupdate` on WKWebView
-    // (pause() is not reliably honored), which would drive the preload→crossfade
-    // machine against a track that's being replaced — and could finish naturally,
-    // firing onEnded → handleNext("auto") → addToQueueAndPlay against the
-    // already-replaced queue. Detaching the source (stopMediaElement) removes both
-    // the stray timeupdate and the stray `ended` at the source.
-    [audioRefA.current, audioRefB.current].forEach(stopMediaElement);
-    if (!keepPreviewFrame) stopMediaElement(videoRef.current);
-    // Reuse in-flight preload resolution for the same track instead of starting over
-    const inflight = preloadPromiseRef.current;
-    const reusePreload = inflight !== null && inflight.key === track.key;
-    const resolvePromise = reusePreload ? inflight.promise : null;
     // Tier-1: reuse a pre-resolved VIDEO source prepared during the previous
     // track (captured before invalidatePreload clears it). Single-use.
     const preVideo = videoPreresolvedRef.current;
-    const reuseVideoResolved =
-      !resolvePromise && preVideo && preVideo.key === track.key ? preVideo.resolved : null;
+    const reuseVideoResolved = preVideo && preVideo.key === track.key ? preVideo.resolved : null;
     invalidatePreload();
     setPlaybackError(null);
     setLoadingTrack(track);
 
     try {
-      // First resolution: reuse the in-flight preload promise for this track if we
-      // have one, else a pre-resolved video source, else resolve fresh.
-      let resolved = resolvePromise
-        ? await resolvePromise
-        : reuseVideoResolved
-          ? reuseVideoResolved
-          : await resolveTrackSrcRef.current(track);
+      // Nothing can play without the engine — say so before running a resolver
+      // that may take seconds (yt-dlp) only to fail at the end.
+      if (!useNativeEngineRef.current) throw new Error(ENGINE_UNAVAILABLE_ERROR);
+      let resolved = reuseVideoResolved ?? await resolveTrackSrcRef.current(track);
       if (reuseVideoResolved) logPlayback(`Play: used pre-resolved video "${track.title}"`);
       // resolveTrackSrc returns an empty-src sentinel whenever ITS resolve
       // generation was bumped mid-flight — by a newer play, but ALSO by a
-      // concurrent preload/prefetch or by awaiting an already-superseded reused
-      // preload promise. Only the first case (a newer *play*) is safe to bail on
-      // silently (that play owns currentTrack). An empty src while THIS play is
-      // still current means the *resolve* was superseded but nothing else will
-      // start the track — and we've already paused the outgoing audio, so a silent
-      // return would freeze playback on the previous track with the queue index
-      // already advanced. Recover by re-resolving once.
+      // concurrent preload/prefetch. Only the first case (a newer *play*) is
+      // safe to bail on silently (that play owns currentTrack). An empty src
+      // while THIS play is still current means the *resolve* was superseded but
+      // nothing else will start the track. Recover by re-resolving once.
       let decision = decideHandlePlayOutcome(
         isCurrentPlayGeneration(generation, playGenerationRef.current),
         !!resolved.src,
         false,
       );
       if (decision === "retry") {
-        diagnosePlayOutcome("retry", track, generation, reusePreload, !!resolved.src);
+        diagnosePlayOutcome("retry", track, generation, !!resolved.src);
         resolved = await resolveTrackSrcRef.current(track);
         decision = decideHandlePlayOutcome(
           isCurrentPlayGeneration(generation, playGenerationRef.current),
@@ -1721,59 +822,50 @@ export function usePlayback(
           true,
         );
       }
-      // A newer play request superseded this one — it owns currentTrack/audio now.
+      // A newer play request superseded this one — it owns currentTrack now.
       if (decision === "bail") {
-        diagnosePlayOutcome("bail", track, generation, reusePreload, !!resolved.src);
+        diagnosePlayOutcome("bail", track, generation, !!resolved.src);
         return;
       }
       // Still no source after a fresh resolve while we're the current play — a
       // genuine failure. Throw into the catch so the error modal / failed-track UI
-      // surfaces it instead of leaving playback paused with a stale now-playing bar.
+      // surfaces it instead of leaving playback stuck on a stale now-playing bar.
       if (decision === "fail") {
-        diagnosePlayOutcome("fail", track, generation, reusePreload, !!resolved.src);
+        diagnosePlayOutcome("fail", track, generation, !!resolved.src);
         throw new Error("Couldn't find a playable source for this track");
       }
       // Resolution may have discovered the real local file for a path-less /
       // remote track (e.g. a Home track-row that only carried title+artist).
-      // Merge that metadata in so playWithSrc routes video → <video> and the
-      // now-playing UI classifies it correctly via currentTrack.
+      // Merge that metadata in so the session opens as the right media type and
+      // the now-playing UI classifies it correctly via currentTrack.
       const playTrack = resolved.patch ? { ...track, ...resolved.patch } : track;
-      await playWithSrc(playTrack, resolved.src, source, resolved.engineSource, keepPreviewFrame);
+      await playWithSrc(playTrack, resolved.src, source, resolved.engineSource ?? null);
     } catch (e) {
-      // A newer play request has superseded this one: its synchronous
-      // pause/load aborted this request's in-flight play(). The rejection is
-      // expected and belongs to a track that's no longer current — discard it.
+      // A newer play request has superseded this one — its outcome belongs to a
+      // track that's no longer current. Discard it.
       if (!isCurrentPlayGeneration(generation, playGenerationRef.current)) return;
       console.error("Playback error:", e);
-      // Resolution failed before playWithSrc ever ran, so a previous native
-      // session (if any) was never told to stop — it would otherwise keep
-      // playing/rendering underneath the error modal. Tear it down here,
-      // mirroring handleStop's native cleanup.
+      // A session still open here belongs to the previous track (this one never
+      // opened) — it would otherwise keep playing underneath the error modal.
       if (nativeSessionRef.current) {
-        nativeSessionRef.current = null;
-        nativePreloadedRef.current = null;
-        nativeFadingRef.current = false;
-        setNativeVideoActive(false);
-        resetNativeVideoPresentation();
+        endNativeSession();
         nativeEngine.stop().catch(console.error);
       }
+      setPlaying(false);
       setCurrentTrack(track);
       // Nothing loaded: the previous track's length doesn't describe this one.
       setDurationSecs(0);
       surfacePlaybackFailure(e instanceof Error ? e.message : String(e), track, lastPlaySrcRef.current);
     } finally {
-      // Only the current play closes the transition window — a superseded play
-      // must not clear the newer one's flag (the newer play owns it and will clear
-      // it in its own finally once its source is installed).
       if (isCurrentPlayGeneration(generation, playGenerationRef.current)) {
         setLoadingTrack(null);
-        transitioningRef.current = false;
       }
     }
   }
 
-  // Latest handlePlay for the once-mounted engine-event subscriptions (the
-  // function is recreated every render; the effect's closure would go stale).
+  // Latest handlePlay / surfacePlaybackFailure for the once-mounted engine-event
+  // subscriptions (the functions are recreated every render; the effect's
+  // closure would go stale).
   const handlePlayRef = useRef(handlePlay);
   useAssignRef(handlePlayRef, handlePlay);
 
@@ -1781,108 +873,17 @@ export function usePlayback(
     pendingSeekRef.current = secs;
   }
 
-  async function handlePlayUrl(track: QueueTrack, url: string) {
-    // Always user-initiated (see the playWithSrc call below) — fresh intent.
-    autoSkipStreakRef.current = 0;
-    playIntentRef.current = nextPlayIntent(playIntentRef.current, track.key, "user");
-    const generation = ++playGenerationRef.current;
-    transitioningRef.current = true;
-    if (eqEnabledRef.current) ensureAudioGraph();
-    cancelCrossfade();
-    invalidatePreload();
-    setPlaybackError(null);
-    setLoadingTrack(track);
-
-    try {
-      await playWithSrc(track, url, "user", url.startsWith("http") ? { kind: "http", url } : null);
-    } catch (e) {
-      // Superseded by a newer play request — see handlePlay for details.
-      if (!isCurrentPlayGeneration(generation, playGenerationRef.current)) return;
-      console.error("Playback error:", e);
-      setCurrentTrack(track);
-      // Nothing loaded: the previous track's length doesn't describe this one.
-      setDurationSecs(0);
-      surfacePlaybackFailure(e instanceof Error ? e.message : String(e), track, lastPlaySrcRef.current);
-    } finally {
-      if (isCurrentPlayGeneration(generation, playGenerationRef.current)) {
-        setLoadingTrack(null);
-        transitioningRef.current = false;
-      }
-    }
-  }
-
-  async function attemptTranscodeFallback(track: QueueTrack): Promise<boolean> {
-    if (!isVideoTrack(track)) return false;
-    // A transcode is already starting in a racing caller (play().catch +
-    // onLoadedMetadata/onMediaError can fire together). That path owns the
-    // outcome — report "handled" so this caller doesn't show the error modal.
-    if (transcodeStartingRef.current) return true;
-    // We already established a transcode session and it's still erroring — the
-    // fallback genuinely didn't help, so let the caller surface the modal.
-    if (transcodeSessionRef.current) return false;
-    const path = track.path;
-    if (!path) return false;
-    const parsed = parseUrlScheme(path);
-    if (parsed.scheme !== "file") return false;
-
-    transcodeStartingRef.current = true;
-    let result: { url: string; sessionId: string; durationSecs: number | null };
-    try {
-      result = await invoke<{ url: string; sessionId: string; durationSecs: number | null }>("start_transcode", { path: parsed.path });
-    } finally {
-      transcodeStartingRef.current = false;
-    }
-    transcodeSessionRef.current = {
-      sessionId: result.sessionId,
-      baseUrl: result.url.replace(/\?seek=.*$/, ""),
-      durationSecs: result.durationSecs ?? null,
-      seekOffset: 0,
-    };
-    if (result.durationSecs && result.durationSecs > 0) {
-      setDurationSecs(result.durationSecs);
-    }
-    if (videoRef.current) {
-      videoRef.current.src = result.url;
-      videoRef.current.volume = effectiveVolume();
-      videoRef.current.play().catch(console.error);
-      setPlaying(true);
-      // Clear any "not supported" modal a racing detector may have shown —
-      // the transcoded H.264 stream is now playing successfully.
-      setPlaybackError(null);
-      setFailedTrack(null);
-    }
-    return true;
-  }
-
-  async function playWithSrc(track: QueueTrack, src: string, source: "user" | "auto" = "user", engineSource?: EngineSource | null, keepVideoElement = false) {
-    // Claim the crossfade machinery, not just the elements. A fade may have
-    // (re)started during the caller's async resolve window, and since this function
-    // forces slot A below, a surviving interval would keep ramping the active slot's
-    // gain after we install the new source (→ "started at very low volume"). Idempotent
-    // when no fade is running. (handlePlay/handlePlayUrl also gate the machine via
-    // transitioningRef; this is the second line of defense at the moment of takeover.)
-    cancelCrossfade();
-    // Stop all elements. The <video> is kept ONLY when a restored preview frame is
-    // bridging the hole for a native-video start (keepVideoElement) — tearing it
-    // down here is what collapsed the frame to the app background. markNativeVideo-
-    // Presenting clears it once mpv actually presents; the native branch below never
-    // uses the element, and the browser fallback path overwrites its src.
-    [audioRefA.current, audioRefB.current].forEach(stopMediaElement);
-    if (videoRef.current && !keepVideoElement) {
-      videoRef.current.pause();
-      videoRef.current.removeAttribute("src");
-      videoRef.current.load();
-    }
-
+  async function playWithSrc(track: QueueTrack, src: string, source: "user" | "auto", engineSource: EngineSource | null) {
     const seekTo = pendingSeekRef.current;
 
     trackChangeSourceRef.current = source;
     setCurrentTrack(track);
     prefetchRequestedRef.current = false;
     setCurrentAssetUrl(src);
-    // Recorded so a play() rejection's catch can probe the failing source's host
+    // Recorded so the failure paths can probe the failing source's host
     // (state would be a stale closure there) — see surfacePlaybackFailure.
     lastPlaySrcRef.current = src;
+    lastEngineSourceRef.current = engineSource;
     setPlaybackPosition(seekTo > 0 ? seekTo : 0);
     setDurationSecs(track.duration_secs ?? 0);
     clearStreamReadouts();
@@ -1892,136 +893,57 @@ export function usePlayback(
     resumeScrobbleRef.current = null;
     resetScrobble(resumed ?? undefined);
     playStartedAtRef.current = resumed?.startedAt ?? Math.floor(Date.now() / 1000);
-
-    // Always reset to slot A on explicit play
-    setActiveSlot("A");
-    activeSlotRef.current = "A";
-
     pendingSeekRef.current = 0;
 
-    // Route eligible tracks to the native mpv engine — audio everywhere the
-    // engine exists, video additionally gated on the platform's native video
-    // capability. On a play-command failure fall straight through to the
-    // browser engine (and blocklist the key so the gapless preload path skips
-    // native for it too).
     const isVideo = isVideoTrack(track);
-    if (
-      useNativeEngineRef.current &&
-      engineSource &&
-      (!isVideo || useNativeVideoRef.current) &&
-      !nativeBlockedKeysRef.current.has(track.key)
-    ) {
-      nativePreloadedRef.current = null;
-      nativeFadingRef.current = false;
-      nativeLastPositionRef.current = seekTo > 0 ? seekTo : 0;
-      nativeSessionRef.current = { key: track.key };
-      // New session: hold the hole opaque until this session's first frame
-      // presents (engine-playback-restart with a picture), so start never
-      // flashes transparent over an empty native surface.
-      resetNativeVideoPresentation();
-      try {
-        await nativeEngine.play({
-          source: engineSource,
-          trackKey: track.key,
-          seekSecs: seekTo > 0 ? seekTo : null,
-          volume: volumeRef.current,
-          muted: mutedRef.current,
-          video: isVideo,
-        });
-        setPlaying(true);
-        setNativeVideoActive(isVideo);
-        return;
-      } catch (e) {
-        console.error("Native engine play failed, falling back to browser engine:", e);
-        logPlayback(`Native play failed for "${track.title}" — browser fallback: ${e instanceof Error ? e.message : String(e)}`);
-        nativeSessionRef.current = null;
-        nativeBlockedKeysRef.current.add(track.key);
-        resetNativeVideoPresentation();
-      }
-    }
-    setNativeVideoActive(false);
-    // Leaving a native session for the element path: silence the engine.
-    if (nativeSessionRef.current) {
-      nativeSessionRef.current = null;
-      nativePreloadedRef.current = null;
-      nativeEngine.stop().catch(console.error);
-    }
+    if (!useNativeEngineRef.current) throw new Error(ENGINE_UNAVAILABLE_ERROR);
+    if (!engineSource) throw new Error(UNPLAYABLE_SOURCE_ERROR);
+    if (isVideo && !useNativeVideoRef.current) throw new Error(VIDEO_UNAVAILABLE_ERROR);
 
-    if (isVideoTrack(track)) {
-      if (videoRef.current) {
-        videoRef.current.src = src;
-        videoRef.current.volume = effectiveVolume();
-        if (seekTo > 0) videoRef.current.currentTime = seekTo;
-        try {
-          await videoRef.current.play();
-        } catch (playErr) {
-          const handled = await attemptTranscodeFallback(track);
-          if (!handled) throw playErr;
-        }
-      } else {
-        pendingSrcRef.current = src;
-        if (seekTo > 0) pendingSeekRef.current = seekTo;
-      }
-    } else {
-      if (audioRefA.current) {
-        audioRefA.current.src = src;
-        audioRefA.current.volume = effectiveVolume();
-        if (seekTo > 0) audioRefA.current.currentTime = seekTo;
-        await audioRefA.current.play();
-      }
+    // Opening the track replaces whatever the engine held — the previous
+    // track, or a clip.
+    takeEngineFromClip();
+    nativePreloadedRef.current = null;
+    nativeFadingRef.current = false;
+    nativeLastPositionRef.current = seekTo > 0 ? seekTo : 0;
+    nativeSessionRef.current = { key: track.key, track };
+    resetNativeVideoPresentation();
+    try {
+      await nativeEngine.play({
+        source: engineSource,
+        trackKey: track.key,
+        seekSecs: seekTo > 0 ? seekTo : null,
+        volume: volumeRef.current,
+        muted: mutedRef.current,
+        video: isVideo,
+      });
+    } catch (e) {
+      // The play command itself was refused (not a decode failure, which
+      // arrives as engine-error). Only this session's own failure is ours to
+      // clear — a newer play may already have replaced it.
+      if (nativeSessionRef.current?.key === track.key) endNativeSession();
+      throw e;
     }
+    setPlaying(true);
+    setNativeVideoActive(isVideo);
   }
 
   function handlePause() {
-    // Native session: the engine owns play/pause; the media elements are empty.
-    // Optimistic UI flip as on the element path; engine-state reconciles.
+    // Open session: the engine owns play/pause. Optimistic UI flip;
+    // engine-state reconciles.
     if (nativeSessionRef.current) {
       const shouldPause = playing;
       setPlaying(!shouldPause);
       nativeEngine.setPaused(shouldPause).catch((e) => {
-        console.error("Native pause toggle failed:", e);
+        console.error("Pause toggle failed:", e);
         setPlaying(shouldPause);
       });
       return;
     }
-    const el = getMediaElement();
-    if (!el) return;
-    if (el.paused) {
-      // If no source loaded (e.g. restored track), or the element only holds a
-      // restored first-frame preview (loadRestoredVideoPreview set src but never
-      // played), do a full play so stream resolution + transcode fallback run.
-      if (!el.src || el.readyState === 0 || previewLoadedKeyRef.current) {
-        if (currentTrack) handlePlay(currentTrack);
-        return;
-      }
-      // If EQ is engaged the element plays through the Web Audio graph; an
-      // idle AudioContext gets auto-suspended by WKWebView and stays silent
-      // after el.play() until resumed. Resume it synchronously so audio comes
-      // back immediately, not on the next graph nudge.
-      if (audioCtxRef.current?.state === "suspended") {
-        audioCtxRef.current.resume().catch(console.error);
-      }
-      // Flip the UI optimistically: the native 'play' event round-trips
-      // through WKWebView's media pipeline tens of ms after we call play(),
-      // which makes the button visibly lag the click. onPlay reconciles the
-      // truth (idempotent); revert if play() actually rejects.
-      setPlaying(true);
-      el.play().catch(e => {
-        console.error("Resume playback failed:", e);
-        setPlaying(false);
-      });
-    } else {
-      cancelCrossfade();
-      // Optimistic pause for the same reason — don't wait for the 'pause'
-      // event to flip the icon. pause() itself is synchronous.
-      setPlaying(false);
-      el.pause();
-      // DIAGNOSTIC: the user-facing symptom is "I pressed pause and a track
-      // kept playing". After pausing the active element, check whether the
-      // OTHER element is still producing sound — that confirms an orphan that
-      // handlePause can't reach (it only acts on the active slot).
-      diagnoseShadowPlayback("handlePause");
-    }
+    // Nothing open in the engine (restored at launch, cued by loadPaused,
+    // handed over to a clip, or after an error): a play opens the track,
+    // starting where pendingSeekRef says.
+    if (currentTrack) handlePlay(currentTrack);
   }
 
   /**
@@ -2033,31 +955,20 @@ export function usePlayback(
    * obviously, which could otherwise only change track by starting the music and
    * then stopping it again, blipping a fraction of a second of audio each time.
    *
-   * "Loaded but never played" is not a new state to the app: a restored track
-   * sits in exactly it on every launch, and `handlePause` already knows to turn
-   * the next play into a full `handlePlay` when the element holds no source. So
-   * this leans on that rather than inventing a parallel one — DETACHING the
-   * outgoing source is what makes it work, since an element left holding the old
-   * track would happily resume THAT on the next press.
+   * "Loaded but not open" is not a new state to the app: a restored track sits
+   * in exactly it on every launch, and `handlePause` turns the next play into a
+   * full `handlePlay` when no session is open. So this closes the session —
+   * leaving it open would let the next press resume the OLD track.
    *
-   * The position rides on the same `pendingSeekRef` the seek-then-play path uses,
-   * so the eventual play starts where the needle was put rather than at zero.
+   * The position rides on `pendingSeekRef`, so the eventual play starts where
+   * the needle was put rather than at zero.
    */
   function loadPaused(track: QueueTrack, positionSecs = 0) {
-    cancelCrossfade();
     invalidatePreload();
     if (nativeSessionRef.current) {
-      nativeSessionRef.current = null;
-      nativePreloadedRef.current = null;
-      nativeFadingRef.current = false;
+      endNativeSession();
       nativeEngine.stop().catch(console.error);
     }
-    setNativeVideoActive(false);
-    resetNativeVideoPresentation();
-    clearStreamReadouts();
-    // Not merely paused: the next play must re-resolve and re-install, or it
-    // would resume whatever this element was still holding.
-    [audioRefA.current, audioRefB.current].forEach(stopMediaElement);
     setPlaying(false);
     // NOT stopped any more. `stopped` means "no position — send the arm home",
     // and a track loaded at a position is the opposite of that. It self-clears on
@@ -2080,12 +991,12 @@ export function usePlayback(
   /**
    * Replace the file under the track that is playing (the in-app replace).
    * The player lets go of the file first — the engine is stopped and awaited,
-   * the media elements detached, since on Windows an open handle makes the
-   * swap fail — then `apply` runs, and the same session resumes: same key,
-   * same position, playing only if it was, and the scrobble state carried
-   * over, so the resumed track is neither announced as a new play nor counted
-   * twice. `next` maps apply's result to the track to resume (the new file);
-   * when apply throws, the original track resumes and the error is rethrown.
+   * since on Windows an open handle makes the swap fail — then `apply` runs,
+   * and the same session resumes: same key, same position, playing only if it
+   * was, and the scrobble state carried over, so the resumed track is neither
+   * announced as a new play nor counted twice. `next` maps apply's result to
+   * the track to resume (the new file); when apply throws, the original track
+   * resumes and the error is rethrown.
    */
   async function swapCurrentFile<T>(apply: () => Promise<T>, next: (result: T) => QueueTrack): Promise<T> {
     const track = currentTrackRef.current;
@@ -2093,15 +1004,11 @@ export function usePlayback(
     const position = getPlaybackPosition();
     const wasPlaying = playingRef.current;
     resumeScrobbleRef.current = { key: track.key, crossed: scrobbledRef.current, accepted: scrobbleAcceptedRef.current, startedAt: playStartedAtRef.current };
-    cancelCrossfade();
     invalidatePreload();
     if (nativeSessionRef.current) {
-      nativeSessionRef.current = null;
-      nativePreloadedRef.current = null;
-      nativeFadingRef.current = false;
+      endNativeSession();
       await nativeEngine.stop().catch((e) => console.error("Failed to stop the engine before a file swap:", e));
     }
-    [audioRefA.current, audioRefB.current, videoRef.current].forEach(stopMediaElement);
     setLoadingTrack(track);
     let resumeWith = track;
     try {
@@ -2120,43 +1027,103 @@ export function usePlayback(
   }
 
   function handleStop() {
-    cancelCrossfade();
     invalidatePreload();
-    if (nativeSessionRef.current) {
-      nativeSessionRef.current = null;
-      nativePreloadedRef.current = null;
-      nativeFadingRef.current = false;
-      nativeEngine.stop().catch(console.error);
-    }
-    setNativeVideoActive(false);
-    resetNativeVideoPresentation();
-    clearStreamReadouts();
-    const el = getMediaElement();
-    if (el) {
-      el.pause();
-      el.currentTime = 0;
-    }
+    takeEngineFromClip();
+    if (nativeSessionRef.current) endNativeSession();
+    nativeEngine.stop().catch(console.error);
+    pendingSeekRef.current = 0;
     setPlaying(false);
     setStopped(true);
     setPlaybackPosition(0);
     setCurrentAssetUrl(null);
   }
 
+  // --- Clips ----------------------------------------------------------------
+  // A short piece of audio played outside the queue (the Music Quiz's
+  // snippets). The engine is one shared resource, so a clip takes it over: the
+  // main session is closed first, keeping its place, and the next main play
+  // reopens the track where it stood. Clip keys carry CLIP_KEY_PREFIX, so the
+  // main session's event handlers ignore everything a clip reports; the caller
+  // subscribes to the `engine-*` events for the key it gets back.
+
+  /** Hand the engine over: close the main session, keeping its place. */
+  function yieldEngine() {
+    invalidatePreload();
+    if (nativeSessionRef.current) {
+      pendingSeekRef.current = nativeLastPositionRef.current;
+      endNativeSession();
+    }
+    setPlaying(false);
+  }
+
+  /** A main play or Stop is taking the engine: forget the clip and tell its
+   *  owner, whose `engine-*` events end here. */
+  function takeEngineFromClip() {
+    if (!clipKeyRef.current) return;
+    const lost = clipLostRef.current;
+    clipKeyRef.current = null;
+    clipLostRef.current = null;
+    lost?.();
+  }
+
+  /** Play a clip from `source`, starting at `seekSecs`. `key` is what its
+   *  `engine-*` events carry — returned at once, since they can arrive before
+   *  `started` settles. `onLost` runs if a main play or Stop takes the engine
+   *  before the clip is stopped (not when a newer clip replaces it). */
+  function playClip(
+    source: EngineSource,
+    seekSecs = 0,
+    opts: { onLost?: () => void } = {},
+  ): { key: string; started: Promise<void> } {
+    const key = `${CLIP_KEY_PREFIX}${++clipSeqRef.current}`;
+    if (!useNativeEngineRef.current) return { key, started: Promise.reject(new Error(ENGINE_UNAVAILABLE_ERROR)) };
+    // A main play still resolving (a slow yt-dlp lookup) was asked for before
+    // this clip: retire it, or it would land on top of the clip seconds later.
+    // Its handlePlay sees the newer generation and bails without an error.
+    playGenerationRef.current++;
+    setLoadingTrack(null);
+    yieldEngine();
+    clipKeyRef.current = key;
+    clipLostRef.current = opts.onLost ?? null;
+    const started = nativeEngine.play({
+      source,
+      trackKey: key,
+      seekSecs: seekSecs > 0 ? seekSecs : null,
+      volume: volumeRef.current,
+      muted: mutedRef.current,
+      video: false,
+    });
+    return { key, started };
+  }
+
+  /** Move a playing clip's position. No-op once the clip lost the engine. */
+  function seekClip(key: string, secs: number) {
+    if (clipKeyRef.current !== key) return;
+    nativeEngine.seek(secs).catch((e) => console.error("Failed to seek the clip:", e));
+  }
+
+  /** Stop a clip. No-op once the clip lost the engine (a main play took it). */
+  function stopClip(key: string) {
+    if (clipKeyRef.current !== key) return;
+    clipKeyRef.current = null;
+    clipLostRef.current = null;
+    nativeEngine.stop().catch((e) => console.error("Failed to stop the clip:", e));
+  }
+
   // Surface a playback failure to the user. The base message shows immediately,
   // then the real cause is probed and the message upgraded when the content
-  // isn't the actual problem (WKWebView reports a failed source fetch as "not
-  // supported", see playbackErrors.ts): remote tracks probe the network for a
-  // connectivity error; local tracks probe the disk for a missing file. The
-  // functional upgrade only replaces the exact base message, so it never reopens
-  // a dismissed modal or clobbers a newer failure.
+  // isn't the actual problem (the engine reports a failed fetch and a missing
+  // file as load failures, see playbackErrors.ts): remote tracks probe the
+  // network for a connectivity error; local tracks probe the disk for a missing
+  // file. The functional upgrade only replaces the exact base message, so it
+  // never reopens a dismissed modal or clobbers a newer failure.
   function surfacePlaybackFailure(base: string, track: QueueTrack | null, src: string | null) {
-    // Anonymous reliability signal: playback failed (after any native→browser
-    // fallback). Coarse class only — never the error text, title, or path.
-    // `reason` is the original two-way split (dashboards key on it); the
-    // bucketed `error_kind` is the finer breakdown of the same failure.
-    // Fired for BOTH surfaces below — an auto-skipped failure is still a failure.
+    // Anonymous reliability signal: playback failed. Coarse class only — never
+    // the error text, title, or path. `reason` is the original two-way split
+    // (dashboards key on it); the bucketed `error_kind` is the finer breakdown
+    // of the same failure. Fired for BOTH surfaces below — an auto-skipped
+    // failure is still a failure.
     trackTelemetry("playback_error", {
-      engine: nativeSessionRef.current ? "native" : "browser",
       source: sourceClass(track?.path ?? null),
       reason: isFormatPlaybackError(base) ? "format" : "other",
       error_kind: classifyErrorKind(base),
@@ -2201,56 +1168,8 @@ export function usePlayback(
       setPlaybackError(prev => (prev === base ? refined : prev));
     });
   }
-
-  function onMediaError(e: React.SyntheticEvent<HTMLAudioElement | HTMLVideoElement>) {
-    const el = e.currentTarget;
-    const err = el.error;
-    if (!err) return;
-    // Ignore errors from an element that isn't the one currently driving playback.
-    // The handler is shared by audio slot A, slot B, and the <video>; during a track
-    // change the outgoing element is torn down and the inactive audio slot may hold a
-    // preloaded src, and either can fire a spurious error. Attributing those to the
-    // now-current track shows a false "Playback failed" while the active element plays
-    // fine. A genuine failure of the current track always fires on the active element.
-    const fired: "A" | "B" | "video" =
-      el === videoRef.current ? "video" : el === audioRefA.current ? "A" : "B";
-    if (!isActiveMediaElement(fired, activeSlotRef.current, !!(currentTrack && isVideoTrack(currentTrack)))) {
-      logPlayback(`Ignoring media error from non-active element ${fired} (code ${err.code}); active playback continues`);
-      return;
-    }
-    // A restored first-frame preview (loadRestoredVideoPreview loaded the source
-    // but the user hasn't pressed play yet) that failed to decode — e.g. HEVC/x265
-    // in an mp4 the webview <video> can't handle. Do NOT spin up the ffmpeg
-    // transcode server (which also autoplays) or surface an error modal for a frame
-    // nobody asked to play: leave the preview blank and wait. previewLoadedKeyRef
-    // stays set so the first real play routes through handlePlay, which re-resolves
-    // properly — native mpv (decodes HEVC), or a transcode session on the browser
-    // engine. This is the whole point of the preview being a decode probe, not a
-    // playback commitment.
-    if (currentTrack && previewLoadedKeyRef.current === currentTrack.key) {
-      logPlayback(`Restored preview for "${currentTrack.title}" couldn't decode in the webview (code ${err.code}); deferring to first play.`);
-      return;
-    }
-    const msg = mediaErrorMessage(err.code);
-    console.error("Media error:", msg, err.message);
-    const failingSrc = el.currentSrc || null;
-
-    // Attempt transcode fallback for decode/format errors on local video tracks
-    if ((err.code === 3 || err.code === 4) && currentTrack) {
-      const track = currentTrack;
-      attemptTranscodeFallback(track)
-        .then((handled) => {
-          if (!handled) surfacePlaybackFailure(msg, track, failingSrc);
-        })
-        .catch((te) => {
-          console.error("Transcode fallback failed:", te);
-          surfacePlaybackFailure(msg, track, failingSrc);
-        });
-      return;
-    }
-
-    surfacePlaybackFailure(msg, currentTrack, failingSrc);
-  }
+  const surfacePlaybackFailureRef = useRef(surfacePlaybackFailure);
+  useAssignRef(surfacePlaybackFailureRef, surfacePlaybackFailure);
 
   function clearPlaybackError() {
     setPlaybackError(null);
@@ -2277,282 +1196,32 @@ export function usePlayback(
   }
 
   function handleSeek(secs: number) {
-    if (nativeSessionRef.current) {
-      nativeLastPositionRef.current = secs;
-      nativeEngine.seek(secs).catch(console.error);
-      setPlaybackPosition(secs);
-      return;
-    }
-    const el = getMediaElement();
-    if (!el) return;
-
-    if (transcodeSessionRef.current && currentTrack && isVideoTrack(currentTrack)) {
-      transcodeSessionRef.current.seekOffset = secs;
-      const url = `${transcodeSessionRef.current.baseUrl}?seek=${secs}`;
-      (el as HTMLVideoElement).src = url;
-      (el as HTMLVideoElement).play().catch(console.error);
-      setPlaybackPosition(secs);
-      return;
-    }
-
-    el.currentTime = secs;
+    nativeLastPositionRef.current = secs;
     setPlaybackPosition(secs);
+    if (nativeSessionRef.current) {
+      nativeEngine.seek(secs).catch(console.error);
+      return;
+    }
+    // No session open: the next play starts here.
+    pendingSeekRef.current = secs;
   }
 
-  // Relative seek (skip forward/back). For a transcoded video the element's
-  // currentTime is relative to the current ffmpeg segment, which restarts at 0
-  // on every seek — so the true position is currentTime + seekOffset. Reading
-  // el.currentTime directly here would make a skip-ahead jump back to the start.
+  // Relative seek (skip forward/back), clamped to the track.
   function seekBy(deltaSecs: number) {
-    if (nativeSessionRef.current) {
-      const current = nativeLastPositionRef.current;
-      const target = durationSecs > 0
-        ? Math.max(0, Math.min(durationSecs, current + deltaSecs))
-        : Math.max(0, current + deltaSecs);
-      handleSeek(target);
-      return;
-    }
-    const el = getMediaElement();
-    if (!el) return;
-
-    const transcodeSession = (transcodeSessionRef.current && currentTrack && isVideoTrack(currentTrack))
-      ? transcodeSessionRef.current
-      : null;
-    const offset = transcodeSession ? transcodeSession.seekOffset : 0;
-    const current = el.currentTime + offset;
-    const duration = transcodeSession?.durationSecs ?? (isFinite(el.duration) ? el.duration : 0);
-    const target = duration > 0
-      ? Math.max(0, Math.min(duration, current + deltaSecs))
+    const current = nativeSessionRef.current ? nativeLastPositionRef.current : getPlaybackPosition();
+    const target = durationSecs > 0
+      ? Math.max(0, Math.min(durationSecs, current + deltaSecs))
       : Math.max(0, current + deltaSecs);
     handleSeek(target);
   }
 
-  function isActiveElement(el: HTMLMediaElement): boolean {
-    if (currentTrack && isVideoTrack(currentTrack)) {
-      return el === videoRef.current;
-    }
-    return el === getActiveAudioElement();
-  }
-
-  function onTimeUpdate(e: React.SyntheticEvent<HTMLAudioElement | HTMLVideoElement>) {
-    const el = e.target as HTMLMediaElement;
-    // Run shadow detection BEFORE the active-element guard: a timeupdate from
-    // the INACTIVE element while it's playing (and no crossfade) is exactly the
-    // orphan we're hunting. The active-element guard below would hide it.
-    diagnoseShadowPlayback("timeupdate");
-    const isActive = isActiveElement(el);
-    if (!isActive) return;
-
-    const transcodeSession = (transcodeSessionRef.current && currentTrack && isVideoTrack(currentTrack))
-      ? transcodeSessionRef.current
-      : null;
-    const transcodeOffset = transcodeSession ? transcodeSession.seekOffset : 0;
-    const absolutePosition = el.currentTime + transcodeOffset;
-    setPlaybackPosition(absolutePosition);
-
-    // Real playback progress — resets the auto-skip failure streak, mirroring
-    // the engine-position handler (surfacePlaybackFailure's circuit breaker).
-    if (autoSkipStreakRef.current !== 0 && absolutePosition > 1) autoSkipStreakRef.current = 0;
-    // Scrobble threshold check (Last.FM rules). Who records the play, per
-    // media type, is Settings → Playback → Scrobbling — decided by App's onScrobble.
-    if (!scrobbledRef.current && currentTrack && shouldScrobble(absolutePosition, currentTrack.duration_secs)) {
-      crossScrobbleThreshold(currentTrack);
-    }
-
-    const transcodeDuration = transcodeSession?.durationSecs ?? null;
-    const effectiveDuration = transcodeDuration ?? (isFinite(el.duration) ? el.duration : 0);
-    const effectivePosition = transcodeSession ? absolutePosition : el.currentTime;
-    // Gate the preload→crossfade machine: only in the settled playing state (active
-    // element + no explicit play mid-transition). During a transition the outgoing
-    // element can keep firing timeupdate (WKWebView ignores pause()) while it's still
-    // the active slot — letting it start a fade hands one to a track the incoming
-    // explicit play doesn't own. Position/scrobble above still run; only the machine
-    // is gated.
-    if (canDriveTransitionMachine(isActive, transitioningRef.current)) {
-      const actions = driveProgressMachine({
-        position: effectivePosition,
-        duration: effectiveDuration,
-        crossfadeSecs: crossfadeSecsRef.current,
-        next: peekNextRef.current(),
-        preloadedKey: preloadedTrackRef.current?.key ?? null,
-        preloadReady: preloadReadyRef.current,
-        isPreloading: isPreloadingRef.current,
-        isCrossfading: isCrossfadingRef.current,
-        prefetchRequested: prefetchRequestedRef.current,
-        prefetchLeadSecs: prefetchLeadRef?.current,
-        rate: playbackRateRef.current,
-      });
-      if (actions.requestPrefetch) {
-        logPlayback(`Prefetch: requesting auto-continue (${(effectiveDuration - effectivePosition).toFixed(1)}s remaining)`);
-        prefetchRequestedRef.current = true;
-        prefetchNextRef.current();
-      }
-      if (actions.invalidatePreload) invalidatePreload();
-      if (actions.preloadTrack) preloadNext(actions.preloadTrack);
-      if (actions.startCrossfade) startCrossfade();
-    }
-  }
-
-  // ---- Browser-engine buffer readout -------------------------------------
-  // The element reports a *range list* rather than mpv's scalars, but the same
-  // two numbers fall out of it: the covering range's end is the buffered edge,
-  // and `end - currentTime` is the readahead mpv reports directly. Driven by
-  // events, never polled — a fully-buffered element simply stops firing
-  // `progress` and the last value stands.
-
-  function onMediaProgress(e: React.SyntheticEvent<HTMLAudioElement | HTMLVideoElement>) {
-    const el = e.target as HTMLMediaElement;
-    if (!isActiveElement(el)) return;
-    // Remote sources only, matching the engine's `demuxer-via-network` gate.
-    // A local file's ranges fill in bursts as the webview reads it off disk,
-    // and a seek bar that dims a file the user already owns is a lie about
-    // the one case where nothing can possibly be missing.
-    const track = currentTrackRef.current;
-    if (!track || isLocalTrack(track)) return;
-    const bufferedToSecs = bufferedEndAt(el.buffered, el.currentTime);
-    const readaheadSecs = bufferedToSecs == null ? null : Math.max(0, bufferedToSecs - el.currentTime);
-    updatePlaybackBuffer({ bufferedToSecs, readaheadSecs });
-  }
-
-  /** The element ran dry mid-playback (or is fetching a seek target). */
-  function onMediaWaiting(e: React.SyntheticEvent<HTMLAudioElement | HTMLVideoElement>) {
-    const el = e.target as HTMLMediaElement;
-    if (!isActiveElement(el) || !browserPlaybackStartedRef.current) return;
-    updatePlaybackBuffer({ stalled: true });
-  }
-
-  /** Data arrived and playback is running again. Also the signal that arms
-   *  stall detection for this session — see `browserPlaybackStartedRef`. */
-  function onMediaPlaying(e: React.SyntheticEvent<HTMLAudioElement | HTMLVideoElement>) {
-    const el = e.target as HTMLMediaElement;
-    if (!isActiveElement(el)) return;
-    browserPlaybackStartedRef.current = true;
-    updatePlaybackBuffer({ stalled: false });
-  }
-
-  function onLoadedMetadata(e: React.SyntheticEvent<HTMLAudioElement | HTMLVideoElement>) {
-    const el = e.target as HTMLMediaElement;
-    if (!isActiveElement(el)) return;
-    const transcodeDuration = (transcodeSessionRef.current && currentTrack && isVideoTrack(currentTrack))
-      ? transcodeSessionRef.current.durationSecs
-      : null;
-    if (transcodeDuration && transcodeDuration > 0) {
-      setDurationSecs(transcodeDuration);
-    } else if (isFinite(el.duration)) {
-      setDurationSecs(el.duration);
-    }
-
-    // A zero-width video means the container parsed but the video stream
-    // couldn't be decoded. If we're already playing a transcoded stream, the
-    // output is valid H.264 — ignore. Otherwise, try the ffmpeg fallback first
-    // and only surface the modal if that fails (mirrors onMediaError).
-    if (el instanceof HTMLVideoElement && el.videoWidth === 0 && !transcodeSessionRef.current) {
-      el.pause();
-      el.removeAttribute("src");
-      el.load();
-      // A restored preview probe (loadRestoredVideoPreview, not yet played) whose
-      // video stream the webview can't decode — the common HEVC/x265-in-mp4 case:
-      // the container parses (so this fires) but videoWidth stays 0. Don't spin up
-      // the ffmpeg transcode server (which also autoplays) or show a codec modal
-      // for a frame nobody asked to play. Defer to the first real play, which
-      // re-resolves via handlePlay — native mpv decodes HEVC directly; the browser
-      // engine transcodes then. previewLoadedKeyRef stays set so play routes there.
-      if (currentTrack && previewLoadedKeyRef.current === currentTrack.key) {
-        logPlayback(`Restored preview for "${currentTrack.title}" has no webview-decodable video; deferring to first play.`);
-        return;
-      }
-      if (currentTrack) {
-        const track = currentTrack;
-        attemptTranscodeFallback(track)
-          .then((handled) => {
-            if (!handled) {
-              setPlaybackError(VIDEO_CODEC_PLAYBACK_ERROR);
-              setFailedTrack(track);
-              setPlaying(false);
-            }
-          })
-          .catch((te) => {
-            console.error("Transcode fallback failed:", te);
-            setPlaybackError(VIDEO_CODEC_PLAYBACK_ERROR);
-            setFailedTrack(track);
-            setPlaying(false);
-          });
-      } else {
-        setPlaybackError(VIDEO_CODEC_PLAYBACK_ERROR);
-        setFailedTrack(currentTrack);
-        setPlaying(false);
-      }
-    }
-  }
-
-  function onPlay() { setPlaying(true); }
-  function onPause() {
-    if (!wasPlayingBeforeHideRef.current) setPlaying(false);
-  }
-
-  // Slot-safe event handlers that use activeSlotRef (not stale state)
-  function onEndedSlotA(callback: () => void) {
-    if (activeSlotRef.current === "A") callback();
-  }
-  function onEndedSlotB(callback: () => void) {
-    if (activeSlotRef.current === "B") callback();
-  }
-  function onPlaySlotA() {
-    if (activeSlotRef.current === "A") onPlay();
-  }
-  function onPlaySlotB() {
-    if (activeSlotRef.current === "B") onPlay();
-  }
-  function onPauseSlotA() {
-    if (activeSlotRef.current === "A") onPause();
-  }
-  function onPauseSlotB() {
-    if (activeSlotRef.current === "B") onPause();
-  }
-
   function toggleFullscreen() {
-    // Native video session: window fullscreen + the native-fs container pin
-    // (see the nativeFullscreen state above).
-    if (nativeSessionRef.current && currentTrack && isVideoTrack(currentTrack)) {
-      const next = !nativeFullscreen;
-      setNativeFullscreen(next);
-      setWindowFullscreen(next);
-      return;
-    }
-    const container = videoRef.current?.parentElement;
-    if (!container) return;
-    // Ignore a toggle while a previous enter/exit is still in flight — firing a
-    // second activation-consuming call mid-transition is what triggers WKWebView's
-    // "Cannot request fullscreen without transient activation" rejection.
-    if (fullscreenPendingRef.current) return;
-    fullscreenPendingRef.current = true;
-    // Clear the guard exactly once, on whichever fires first: the transition's
-    // `fullscreenchange`, a promise rejection, or a fail-safe timeout. The timeout
-    // matters — if `fullscreenchange` never arrives (e.g. the macOS fullscreen
-    // animation is interrupted/cancelled) the guard would otherwise stay stuck at
-    // `true`, silently turning every later toggle into a no-op until some unrelated
-    // fullscreenchange happened to clear it. 2s comfortably outlasts a real
-    // transition, so by then it's either done (already cleared) or genuinely wedged.
-    let cleared = false;
-    let failSafe: ReturnType<typeof setTimeout>;
-    const clear = () => {
-      if (cleared) return;
-      cleared = true;
-      clearTimeout(failSafe);
-      document.removeEventListener("fullscreenchange", clear);
-      fullscreenPendingRef.current = false;
-    };
-    document.addEventListener("fullscreenchange", clear, { once: true });
-    failSafe = setTimeout(clear, 2000);
-    const onError = (e: unknown) => {
-      clear();
-      console.error("Failed to toggle fullscreen:", e);
-    };
-    if (document.fullscreenElement) {
-      document.exitFullscreen().catch(onError);
-    } else {
-      container.requestFullscreen().catch(onError);
-    }
+    // Video fullscreen = window fullscreen + the native-fs container pin (see
+    // the nativeFullscreen state above). Audio fullscreen is App's overlay.
+    if (!nativeVideoActive) return;
+    const next = !nativeFullscreen;
+    setNativeFullscreen(next);
+    setWindowFullscreen(next);
   }
 
   return {
@@ -2564,19 +1233,10 @@ export function usePlayback(
     durationSecs, setDurationSecs,
     volume, setVolume,
     muted, setMuted, toggleMute,
-    activeSlot,
-    audioRefA, audioRefB, videoRef,
-    getMediaElement,
-    handlePlay, setPendingSeek, handlePlayUrl, handlePause, handleStop, loadPaused, swapCurrentFile,
-    loadRestoredVideoPreview,
+    handlePlay, setPendingSeek, handlePause, handleStop, loadPaused, swapCurrentFile,
     handleVolume, volumeOverrideRef, handleSeek, seekBy,
-    handleGaplessNext, invalidatePreload,
-    onTimeUpdate, onLoadedMetadata, onPlay, onPause, onMediaError,
-    onMediaProgress, onMediaWaiting, onMediaPlaying,
-    isActiveElement,
-    onEndedSlotA, onEndedSlotB,
-    onPlaySlotA, onPlaySlotB,
-    onPauseSlotA, onPauseSlotB,
+    invalidatePreload,
+    playClip, seekClip, stopClip,
     toggleFullscreen,
     nativeVideoActive,
     nativeVideoPresenting,
@@ -2598,3 +1258,5 @@ export function usePlayback(
     rgPreventClip, setRgPreventClip,
   };
 }
+
+export type PlaybackApi = ReturnType<typeof usePlayback>;

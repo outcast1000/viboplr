@@ -26,7 +26,6 @@ export interface DiagnosticEnvironment {
   os: string;
   arch: string;
   profile: string;
-  engine: string;
   mpvCapable: boolean;
   mpvVideo: boolean;
   loggingEnabled: boolean;
@@ -150,7 +149,7 @@ export function buildDiagnosticReport(input: DiagnosticInput): string {
   const facts = [
     `**App**: ${env.appVersion} (${env.channel})`,
     `**OS**: ${env.os} ${env.arch}`,
-    `**Engine**: ${env.engine} (libmpv ${env.mpvCapable ? "loaded" : "unavailable"}, native video ${env.mpvVideo ? "yes" : "no"})`,
+    `**Engine**: libmpv ${env.mpvCapable ? "loaded" : "unavailable"}, native video ${env.mpvVideo ? "yes" : "no"}`,
     `**Library**: ${input.trackCount ?? "unknown"} tracks` +
       (input.collections.length ? ` · sources: ${input.collections.join(", ")}` : " · no sources"),
     `**Profile**: ${env.profile}`,
@@ -230,7 +229,6 @@ interface DiagnosticFacts {
 
 export interface DiagnosticSources {
   channel: string;
-  engine: string;
   mpvCapable: boolean;
   mpvVideo: boolean;
   plugins: DiagnosticPlugin[];
@@ -270,7 +268,6 @@ export async function collectDiagnosticReport(sources: DiagnosticSources): Promi
       os: facts?.os ?? "unknown",
       arch: facts?.arch ?? "unknown",
       profile: facts?.profile ?? "unknown",
-      engine: sources.engine,
       mpvCapable: sources.mpvCapable,
       mpvVideo: sources.mpvVideo,
       loggingEnabled: facts?.loggingEnabled ?? false,

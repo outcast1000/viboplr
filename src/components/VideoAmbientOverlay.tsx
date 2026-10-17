@@ -17,8 +17,11 @@ interface VideoAmbientOverlayProps {
   getAlbumImage: (name: string, artistName?: string | null) => string | null;
   getArtistImage: (name: string) => string | null;
   onPlayQueueIndex?: (index: number) => void;
-  /** Toggle the shared <video> in/out of fullscreen. */
+  /** Toggle the video in/out of fullscreen. */
   onToggleFullscreen?: () => void;
+  /** Whether the video is fullscreen now (window fullscreen — there is no DOM
+   *  `:fullscreen` element to ask), so the button shows enter or exit. */
+  isFullscreen?: boolean;
   /** Parsed synced LRC for the current video, or null when unavailable / not a
    *  good enough duration match. When present, the subtitle toggle button is
    *  shown here. The subtitle text itself is rendered centrally by
@@ -43,6 +46,7 @@ export function VideoAmbientOverlay({
   getArtistImage,
   onPlayQueueIndex,
   onToggleFullscreen,
+  isFullscreen = false,
   syncedLyricLines,
   subtitlesOn,
   onToggleSubtitles,
@@ -52,15 +56,6 @@ export function VideoAmbientOverlay({
   const rootRef = useRef<HTMLDivElement>(null);
   // Bump on track change to re-trigger the intro slide-in animation.
   const [introKey, setIntroKey] = useState(0);
-
-  // Mirror document fullscreen state so the FS button shows enter/exit correctly.
-  const [isFullscreen, setIsFullscreen] = useState(false);
-  useEffect(() => {
-    const onChange = () => setIsFullscreen(!!document.fullscreenElement);
-    onChange();
-    document.addEventListener("fullscreenchange", onChange);
-    return () => document.removeEventListener("fullscreenchange", onChange);
-  }, []);
 
   // Read-only tags for the intro label. The overlay only has a QueueTrack (no DB
   // id), so resolve to a library row by metadata first; tags show only for

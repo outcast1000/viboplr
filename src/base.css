@@ -35,8 +35,8 @@
   --like-rgb: 255, 77, 106;
   --dislike: #ff9500;
   --dislike-rgb: 255, 149, 0;
-  /* Letterbox / pillarbox fill behind video (both the browser <video> container
-     and the native mpv layer). Independent from --bg-primary so a light skin can
+  /* Letterbox / pillarbox fill behind video (the video container and the mpv
+     layer under it). Independent from --bg-primary so a light skin can
      keep a cinema-black surround without darkening the whole app. Defaults to
      black; skinnable via the optional video-bg color key. */
   --video-bg: #000000;

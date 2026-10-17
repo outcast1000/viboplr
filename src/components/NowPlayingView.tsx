@@ -373,7 +373,7 @@ export function NowPlayingView({
     );
   }
 
-  // Video: the shared <video> element is layered over this area by App.tsx
+  // Video: the video container is layered over this area by App.tsx
   // (.video-container--theater). We only reserve space + show metadata.
   if (isVideo) {
     return (

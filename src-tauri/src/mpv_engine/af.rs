@@ -1,7 +1,6 @@
 //! EQ → ffmpeg filtergraph mapping for the mpv engine.
 //!
-//! Mirrors the Web Audio graph in `src/hooks/usePlayback.ts` /
-//! `src/eqPresets.ts`: 10 peaking biquads (advanced mode) or two shelves
+//! Implements the EQ model defined in `src/eqPresets.ts`: 10 peaking biquads (advanced mode) or two shelves
 //! (simple mode), pre-gain, and a brick-wall limiter engaged only while a
 //! simple-mode boost can clip. The constants below are the single Rust copy of
 //! the eqPresets.ts values — the unit tests pin them so drift is caught.

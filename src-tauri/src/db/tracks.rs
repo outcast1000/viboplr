@@ -202,25 +202,6 @@ impl Database {
         Ok(())
     }
 
-    /// Read ReplayGain values for a track by its full scheme-prefixed path
-    /// (`file://…`, `subsonic://…`), parsed from the `extra_tags` JSON. Matches the
-    /// same computed-path expression as `find_track_id_by_path` (the stored
-    /// `t.path` is relative for local / a remote id, not the full URI). Returns
-    /// None when no row matches, the row has no `extra_tags`, or it carries no RG.
-    pub fn get_replaygain_by_path(&self, full_path: &str) -> SqlResult<Option<crate::models::ReplayGain>> {
-        let conn = self.reader();
-        let sql = format!("SELECT t.extra_tags FROM tracks t \
-            LEFT JOIN collections co ON t.collection_id = co.id \
-            WHERE {PATH_EXPR} = ?1 \
-            AND t.extra_tags IS NOT NULL \
-            AND (t.collection_id IS NULL OR co.enabled = 1) \
-            LIMIT 1");
-        let json: Option<String> = conn
-            .query_row(&sql, params![full_path], |row| row.get(0))
-            .optional()?;
-        Ok(json.and_then(|j| crate::models::ReplayGain::from_extra_tags_json(&j)))
-    }
-
     /// Raw `extra_tags` JSON string for a library track by id (the catch-all of
     /// file/Subsonic tag keys with no dedicated column). None if the track has none.
     pub fn get_extra_tags(&self, track_id: i64) -> SqlResult<Option<String>> {

@@ -1,13 +1,5 @@
 import { useEffect, useState } from "react";
 
-interface MpvSuggestion {
-  /** libmpv isn't loaded yet, so the button must download the engine first. */
-  needsInstall: boolean;
-  /** Download in progress — pauses auto-skip and disables the button. */
-  installing: boolean;
-  onEnable: () => void;
-}
-
 interface Props {
   error: string;
   trackTitle: string | null;
@@ -15,21 +7,17 @@ interface Props {
   onSkip: () => void;
   /** Opens the diagnostic report, prefilled with this failure. */
   onReportProblem: () => void;
-  /** When set, offer the native mpv engine as a fix for this format error. */
-  mpvSuggestion?: MpvSuggestion | null;
 }
 
 const AUTO_SKIP_SECS = 15;
 
-export default function PlaybackErrorModal({ error, trackTitle, onDismiss, onSkip, onReportProblem, mpvSuggestion }: Props) {
+export default function PlaybackErrorModal({ error, trackTitle, onDismiss, onSkip, onReportProblem }: Props) {
   const [remaining, setRemaining] = useState(AUTO_SKIP_SECS);
   const [reported, setReported] = useState(false);
 
-  // Hold the auto-skip while the engine is downloading — skipping mid-install
-  // would throw away the file the user just asked us to make playable. Also
-  // hold it once the user opens a report: auto-skipping this dialog out from
-  // under them would take the failure details with it.
-  const paused = !!mpvSuggestion?.installing || reported;
+  // Hold the auto-skip once the user opens a report: auto-skipping this dialog
+  // out from under them would take the failure details with it.
+  const paused = reported;
 
   useEffect(() => {
     if (paused) return;
@@ -52,24 +40,6 @@ export default function PlaybackErrorModal({ error, trackTitle, onDismiss, onSki
         <h2 className="ds-modal-title">Playback Failed</h2>
         {trackTitle && <p className="playback-error-track">{trackTitle}</p>}
         <p className="playback-error-message">{error}</p>
-        {mpvSuggestion && (
-          <div className="playback-error-mpv">
-            <p className="playback-error-mpv-hint">
-              The mpv engine plays formats the built-in player can’t — FLAC, OPUS, ALAC and more.
-            </p>
-            <button
-              className="ds-btn ds-btn--primary"
-              onClick={mpvSuggestion.onEnable}
-              disabled={mpvSuggestion.installing}
-            >
-              {mpvSuggestion.installing
-                ? "Downloading engine…"
-                : mpvSuggestion.needsInstall
-                  ? "Install mpv engine & play"
-                  : "Play with mpv engine"}
-            </button>
-          </div>
-        )}
         {!paused && (
           <p className="playback-error-countdown">
             Skipping to next track in {remaining}s...

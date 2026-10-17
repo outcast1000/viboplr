@@ -115,9 +115,12 @@ pub fn sync_collection(
                 } else if let Some(tag_id) = album_genre_tag_id {
                     let _ = db.add_track_tag(track_db_id, tag_id);
                 }
-                // OpenSubsonic ReplayGain → extra_tags (parsed on demand at play time,
-                // same as file-tag RG). Legacy servers omit it, leaving extra_tags null.
-                if let Some(et) = crate::models::ReplayGain::to_extra_tags_json(
+                // OpenSubsonic ReplayGain → extra_tags, under the same keys as
+                // file-tag RG — for display only (track page → Details). Playback
+                // ReplayGain is mpv's, read from the stream's own tags, so a
+                // server that transcodes (dropping them) plays un-normalized.
+                // Legacy servers omit it, leaving extra_tags null.
+                if let Some(et) = crate::models::replaygain_extra_tags_json(
                     track.rg_track_gain,
                     track.rg_track_peak,
                     track.rg_album_gain,

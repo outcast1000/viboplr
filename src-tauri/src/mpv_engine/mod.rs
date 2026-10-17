@@ -3,8 +3,9 @@
 //! Compiled into every build; libmpv itself is loaded at runtime (`ffi.rs`) —
 //! from the bundled Frameworks dir (Full build), the downloadable engine
 //! component (`component.rs`), the dev vendor dir, or a system install. When
-//! no library is available, `engine_capabilities` reports `mpv: false` and
-//! the frontend stays on the browser engine.
+//! no library is available, `engine_capabilities` reports `mpv: false`; this
+//! is the only playback path, so playback is unavailable and the frontend
+//! shows the recovery path (install the engine component).
 //!
 //! Audio-only (`vo=null`, `video=no`), built around **two decks** (libmpv
 //! handles) in a ping-pong arrangement:
@@ -14,7 +15,7 @@
 //!   `StartFile` promotes the armed key.
 //! - **Crossfade** (crossfade on): the next track is loaded *paused* on the
 //!   standby deck; `start_crossfade` swaps roles and a ramp thread fades the
-//!   deck volumes (linear, matching the browser engine's curve). If the active
+//!   deck volumes (linear in gain). If the active
 //!   track reaches EOF before the fade was triggered, the armed deck is
 //!   promoted with a hard cut as a safety net.
 //!
@@ -23,7 +24,7 @@
 //! `EngineHandle` so settings set before the engine exists apply at creation.
 //!
 //! Event contract (all payloads carry `track_key` so the frontend can drop
-//! stale events, mirroring the browser path's play-generation guard):
+//! stale events from a superseded play, the frontend's play-generation guard):
 //! `engine-position` (~4 Hz while playing), `engine-duration`,
 //! `engine-track-changed {reason}`, `engine-ended`, `engine-state`,
 //! `engine-error {code}`, `engine-buffer` (demuxer cache state — see
@@ -210,8 +211,8 @@ pub struct EngineHandle {
 }
 
 impl EngineHandle {
-    /// Lazily create the engine on first use so sessions on the browser engine
-    /// never open an audio device.
+    /// Lazily create the engine on first use so the app doesn't open an audio
+    /// device until something actually plays.
     pub fn ensure(&self, app: &tauri::AppHandle) -> Result<Arc<Engine>, String> {
         let mut guard = self.inner.lock().unwrap();
         if let Some(engine) = guard.as_ref() {
@@ -247,7 +248,7 @@ impl EngineHandle {
         }
         // Give the static-OpenSSL TLS stack a CA store (see set_tls_ca_file).
         // On failure we log and leave verification ON — https sources then
-        // fail closed and fall back to the browser engine per-track.
+        // fail closed with an engine error.
         match ca_bundle {
             Some(ca) => {
                 if let Err(e) = engine.set_tls_ca_file(&ca) {
@@ -776,8 +777,8 @@ impl Engine {
 
     /// The linear amplitude a deck should play at: the user's 0..1 volume, or
     /// silence while muted. This — not mpv's property value — is the quantity
-    /// the crossfade ramps, so a fade is linear in amplitude exactly like the
-    /// browser engine's `el.volume = vol * progress`.
+    /// the crossfade ramps, so a fade is linear in amplitude
+    /// (`gain = vol * progress`).
     fn out_gain(volume: f64, muted: bool) -> f64 {
         if muted { 0.0 } else { volume.clamp(0.0, 1.0) }
     }
@@ -786,11 +787,10 @@ impl Engine {
     ///
     /// mpv's `volume` is **not** a linear gain: it cubes it internally
     /// (`gain = (volume/100)³`, inherited from mplayer's softvol curve), while
-    /// the browser engine's `HTMLMediaElement.volume` *is* linear amplitude.
-    /// Passing the slider straight through therefore made the two engines agree
-    /// only at 0 and 1 and put the slider's 30% at 0.3³ = 2.7% gain (-31 dB) —
-    /// audible as "everything below a third is silent". Sending the cube root
-    /// makes mpv's cube hand back the gain that was asked for.
+    /// the app's volume slider is linear amplitude. Passing the slider straight
+    /// through therefore put its 30% at 0.3³ = 2.7% gain (-31 dB) — audible as
+    /// "everything below a third is silent". Sending the cube root makes mpv's
+    /// cube hand back the gain that was asked for.
     fn mpv_volume(gain: f64) -> f64 {
         // One decimal: an integer step near the top of the cube root is ~3% of
         // gain, which is a coarse jump for a slider drag.
@@ -1049,7 +1049,8 @@ impl Engine {
             .and_then(|_| incoming.set_property("pause", false))
             .map_err(|e| format!("mpv crossfade start failed: {e}"))?;
 
-        // Track state swaps at fade START (parity with the browser engine).
+        // Track state swaps at fade START, so the UI shows the incoming track
+        // as soon as it becomes audible.
         (self.sink)(
             "engine-track-changed",
             json!({ "trackKey": key, "reason": "crossfade" }),
@@ -1922,9 +1923,9 @@ fn run_event_loop(
             Ok(_) => {}
             Err(e) if is_busy_device_failure(&e, deck, &state) => {
                 // The pinned device is held by another process. Not a decode
-                // failure: the browser engine can't reach the device either
-                // (a shared-mode open fails too while it's held), so keep the
-                // track and let the output watchdog retry. mpv would otherwise
+                // failure, and no other output path exists (a shared-mode open
+                // fails too while it's held), so keep the track and let the
+                // output watchdog retry. mpv would otherwise
                 // move on to a gapless arm, which can't open the device either.
                 if let Err(e) = client.command("playlist-clear", &[]) {
                     log::error!("mpv-engine: playlist-clear after busy device failed: {e}");

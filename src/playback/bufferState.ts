@@ -1,13 +1,7 @@
-// Buffer/readahead state for the track currently playing, normalized across
-// the two engines. Both report the same two facts — "is playback stalled
-// waiting for data" and "how far ahead is data available" — through completely
-// different channels, so this module is where they meet:
-//
-// - **mpv engine:** the `engine-buffer` event (mpv's `paused-for-cache`,
-//   `demuxer-cache-time`, `demuxer-cache-duration`).
-// - **browser engine:** the media element's `waiting`/`playing` events plus
-//   `HTMLMediaElement.buffered` — readahead is `bufferedEnd - currentTime`,
-//   the same quantity mpv reports directly.
+// Buffer/readahead state for the track currently playing: "is playback
+// stalled waiting for data" and "how far ahead is data available", from the
+// engine's `engine-buffer` event (mpv's `paused-for-cache`,
+// `demuxer-cache-time`, `demuxer-cache-duration`).
 //
 // `null` means *unknown*, not *nothing buffered*. A local file often reports
 // nothing at all, and rendering "0% buffered" for a file sitting on disk would
@@ -28,30 +22,6 @@ export interface PlaybackBuffer {
   readaheadSecs: number | null;
   /** Absolute track position (secs) that buffered data reaches, or null. */
   bufferedToSecs: number | null;
-}
-
-/** How far outside a buffered range the play position may sit and still count
- *  as inside it. The element's `currentTime` and its own range bounds drift by
- *  a frame or so, and a hairline gap must not read as "nothing is buffered". */
-const RANGE_SLACK_SECS = 0.25;
-
-/** End of the buffered range covering `position`, or null when no range does.
- *  Only the covering range counts: data buffered *after* a gap can't be played
- *  through, so drawing the seek bar out to it would promise a smooth ride the
- *  element can't deliver. */
-export function bufferedEndAt(
-  ranges: TimeRanges | null | undefined,
-  position: number,
-): number | null {
-  if (!ranges) return null;
-  for (let i = 0; i < ranges.length; i++) {
-    const start = ranges.start(i);
-    const end = ranges.end(i);
-    if (position >= start - RANGE_SLACK_SECS && position <= end + RANGE_SLACK_SECS) {
-      return end;
-    }
-  }
-  return null;
 }
 
 /** How close (secs) the buffered edge may sit to the duration and still count
@@ -94,9 +64,9 @@ function sameBuffer(a: PlaybackBuffer, b: PlaybackBuffer): boolean {
 }
 
 /** Fold a partial update into the previous state. Returns the previous object
- *  identity when nothing moved, so React bails out of the re-render — the
- *  browser engine's `progress` handler fires several times a second and would
- *  otherwise re-render the whole now-playing bar for no visible change. */
+ *  identity when nothing moved, so React bails out of the re-render — a
+ *  filling stream reports several times a second and would otherwise
+ *  re-render the whole now-playing bar for no visible change. */
 export function applyBuffer(
   prev: PlaybackBuffer | null,
   patch: Partial<PlaybackBuffer>,

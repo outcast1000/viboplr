@@ -1,33 +1,49 @@
 import { describe, it, expect } from "vitest";
 import {
-  mediaErrorMessage,
+  engineErrorMessage,
   describePlaybackFailure,
   describeLocalPlaybackFailure,
   OFFLINE_PLAYBACK_ERROR,
   UNREACHABLE_PLAYBACK_ERROR,
   FILE_NOT_FOUND_PLAYBACK_ERROR,
-  REMOTE_FORMAT_PLAYBACK_ERROR,
+  FORMAT_PLAYBACK_ERROR,
+  LOAD_PLAYBACK_ERROR,
+  AUDIO_OUTPUT_PLAYBACK_ERROR,
   isFormatPlaybackError,
   nextPlayIntent,
   shouldAutoSkipFailure,
   MAX_CONSECUTIVE_AUTO_SKIPS,
 } from "../playback/playbackErrors";
 
-describe("mediaErrorMessage", () => {
-  it("maps the four MediaError codes", () => {
-    expect(mediaErrorMessage(1)).toBe("Playback aborted");
-    expect(mediaErrorMessage(2)).toBe("Network error during playback");
-    expect(mediaErrorMessage(3)).toContain("decoded");
-    expect(mediaErrorMessage(4)).toBe("File format not supported");
+describe("engineErrorMessage", () => {
+  it("names a file mpv can't demux as a format failure", () => {
+    expect(engineErrorMessage("unrecognized file format (-17)")).toBe(FORMAT_PLAYBACK_ERROR);
+    expect(engineErrorMessage("no audio or video data played")).toBe(FORMAT_PLAYBACK_ERROR);
   });
 
-  it("falls back to a generic message for unknown codes", () => {
-    expect(mediaErrorMessage(9)).toBe("Playback error (code 9)");
+  it("names a load failure as one — the describe* probes then find the real cause", () => {
+    expect(engineErrorMessage("loading failed (-13)")).toBe(LOAD_PLAYBACK_ERROR);
+  });
+
+  it("names an audio device that won't open", () => {
+    expect(engineErrorMessage("audio output initialization failed (-18)")).toBe(AUDIO_OUTPUT_PLAYBACK_ERROR);
+  });
+
+  it("keeps an unknown message rather than inventing a cause", () => {
+    expect(engineErrorMessage("something new")).toBe("Playback failed: something new");
+    expect(engineErrorMessage("")).toBe("Playback failed");
+    expect(engineErrorMessage(null)).toBe("Playback failed");
+  });
+
+  it("is a format error only for the format message", () => {
+    expect(isFormatPlaybackError(FORMAT_PLAYBACK_ERROR)).toBe(true);
+    expect(isFormatPlaybackError(LOAD_PLAYBACK_ERROR)).toBe(false);
+    expect(isFormatPlaybackError(null)).toBe(false);
   });
 });
 
 describe("describePlaybackFailure", () => {
-  const base = "File format not supported";
+  const base = LOAD_PLAYBACK_ERROR;
 
   it("keeps the base message for local tracks regardless of network state", () => {
     expect(describePlaybackFailure(base, false, "offline")).toBe(base);
@@ -35,53 +51,29 @@ describe("describePlaybackFailure", () => {
     expect(describePlaybackFailure(base, false, "ok")).toBe(base);
   });
 
-  it("reworks a reachable remote FORMAT error into a stream-specific message (still a format error → mpv offer)", () => {
-    const msg = describePlaybackFailure(base, true, "ok");
-    expect(msg).toBe(REMOTE_FORMAT_PLAYBACK_ERROR);
-    expect(isFormatPlaybackError(msg)).toBe(true);
+  it("keeps the base for a reachable remote track — then the failure is about the content", () => {
+    expect(describePlaybackFailure(base, true, "ok")).toBe(base);
+    expect(describePlaybackFailure(FORMAT_PLAYBACK_ERROR, true, "ok")).toBe(FORMAT_PLAYBACK_ERROR);
   });
 
-  it("reworks WebKit's unsupported-source play rejection into the stream-specific message", () => {
-    const base = "Failed to load because no supported source was found.";
-    expect(describePlaybackFailure(base, true, "ok"))
-      .toBe(REMOTE_FORMAT_PLAYBACK_ERROR);
-    expect(isFormatPlaybackError(base)).toBe(true);
-  });
-
-  it("keeps a NON-format base for reachable remote tracks (e.g. a resolution failure)", () => {
-    const notFound = "Couldn't find a playable source for this track";
-    expect(describePlaybackFailure(notFound, true, "ok")).toBe(notFound);
-    expect(isFormatPlaybackError(notFound)).toBe(false);
-  });
-
-  it("reports offline instead of 'not supported' for remote tracks with no connection", () => {
+  it("reports offline instead of a load failure for remote tracks with no connection", () => {
     expect(describePlaybackFailure(base, true, "offline")).toBe(OFFLINE_PLAYBACK_ERROR);
   });
 
   it("reports an unreachable source for remote tracks when the host does not answer", () => {
     expect(describePlaybackFailure(base, true, "unreachable")).toBe(UNREACHABLE_PLAYBACK_ERROR);
   });
-
-  it("also overrides play() rejection messages, not just media error text", () => {
-    expect(describePlaybackFailure("The operation is not supported.", true, "offline"))
-      .toBe(OFFLINE_PLAYBACK_ERROR);
-  });
 });
 
 describe("describeLocalPlaybackFailure", () => {
-  const base = "File format not supported";
+  const base = LOAD_PLAYBACK_ERROR;
 
   it("keeps the base message while the file exists on disk", () => {
     expect(describeLocalPlaybackFailure(base, true)).toBe(base);
   });
 
-  it("reports a missing file instead of 'not supported' when the file is gone", () => {
+  it("reports a missing file instead of a load failure when the file is gone", () => {
     expect(describeLocalPlaybackFailure(base, false)).toBe(FILE_NOT_FOUND_PLAYBACK_ERROR);
-  });
-
-  it("also overrides play() rejection messages, not just media error text", () => {
-    expect(describeLocalPlaybackFailure("The operation is not supported.", false))
-      .toBe(FILE_NOT_FOUND_PLAYBACK_ERROR);
   });
 });
 

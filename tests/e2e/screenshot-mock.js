@@ -10,7 +10,9 @@ window.__TAURI_INTERNALS__.metadata = {
   currentWebview: { windowLabel: 'main', label: 'main' },
 };
 
-const SILENT_WAV = 'data:audio/wav;base64,UklGRiQAAABXQVZFZm10IBAAAAABAAEARKwAAIhYAQACABAAZGF0YQAAAAA=';
+// What convertFileSrc answers for anything that isn't a mock cover: playback
+// goes through the fake engine below, so this only has to be a harmless image.
+const BLANK_IMAGE = 'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7';
 
 // Real album cover art URLs from Apple Music / iTunes CDN
 const ALBUM_COVER_URLS = {
@@ -49,9 +51,9 @@ const mockImageMap = {};
 window.__TAURI_INTERNALS__.convertFileSrc = function (filePath, _protocol) {
   // If this is a mock image path, return the real cover art URL
   if (filePath && filePath.startsWith('/mock/images/')) {
-    return mockImageMap[filePath] || SILENT_WAV;
+    return mockImageMap[filePath] || BLANK_IMAGE;
   }
-  return SILENT_WAV;
+  return BLANK_IMAGE;
 };
 
 const callbacks = new Map();
@@ -69,6 +71,68 @@ window.__TAURI_INTERNALS__.callbacks = callbacks;
 
 const eventListeners = new Map();
 window.__TAURI_EVENT_PLUGIN_INTERNALS__.unregisterListener = function (event, id) { callbacks.delete(id); };
+
+function emitEvent(event, payload) {
+  for (const id of eventListeners.get(event) || []) {
+    const cb = callbacks.get(id);
+    if (cb) cb({ event, id, payload });
+  }
+}
+
+// Fake native engine (see tauri-mock.js for the full one). Screenshots want a
+// track that stays playing, so a session advances in real time and never ends:
+// no `engine-ended`, and no `engine-duration` either — the player keeps the
+// track's own tagged length, which is what the seek bar should read.
+const SHOT_ENGINE_DURATION_SECS = 3600; // only caps the position clock
+let shotEngine = null;
+let shotEngineTimer = null;
+function shotEngineStopTimer() {
+  if (shotEngineTimer) clearInterval(shotEngineTimer);
+  shotEngineTimer = null;
+}
+function shotEngineTick(s) {
+  shotEngineStopTimer();
+  shotEngineTimer = setInterval(() => {
+    if (shotEngine !== s || s.paused) return;
+    s.position = Math.min(s.duration - 1, s.position + 0.25);
+    emitEvent('engine-position', { trackKey: s.trackKey, positionSecs: s.position, durationSecs: null });
+  }, 250);
+}
+function handleEngineCommand(cmd, args) {
+  switch (cmd) {
+    case 'engine_capabilities':
+      return { mpv: true, video: true, component: null };
+    case 'engine_play': {
+      const s = { trackKey: args.trackKey, duration: SHOT_ENGINE_DURATION_SECS, position: args.seekSecs || 0, paused: false };
+      shotEngine = s;
+      setTimeout(() => {
+        if (shotEngine !== s) return;
+        emitEvent('engine-state', { trackKey: s.trackKey, playing: true });
+        emitEvent('engine-playback-restart', { trackKey: s.trackKey, hasVideo: !!args.video });
+        shotEngineTick(s);
+      }, 10);
+      return null;
+    }
+    case 'engine_set_paused': {
+      const s = shotEngine;
+      if (!s) return null;
+      s.paused = !!(args && args.paused);
+      setTimeout(() => {
+        if (shotEngine === s) emitEvent('engine-state', { trackKey: s.trackKey, playing: !s.paused });
+      }, 0);
+      return null;
+    }
+    case 'engine_seek':
+      if (shotEngine) shotEngine.position = (args && args.secs) || 0;
+      return null;
+    case 'engine_stop':
+      shotEngineStopTimer();
+      shotEngine = null;
+      return null;
+    default:
+      return null;
+  }
+}
 
 // ── Mock Data ──────────────────────────────────────────────
 
@@ -333,6 +397,8 @@ window.__TAURI_INTERNALS__.invoke = async function (cmd, args) {
     if (cmd.startsWith('plugin:webview')) return null;
     return null;
   }
+
+  if (cmd.startsWith('engine_')) return handleEngineCommand(cmd, args);
 
   switch (cmd) {
     case 'get_profile_info': return { storePath: 'mock-store.json' };

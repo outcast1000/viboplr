@@ -32,7 +32,8 @@ Measured on macOS with an env-gated probe (`VIBOPLR_AUDIO_PROBE=1`,
 ### Enabling
 
 1. Toggle in the now-playing bar (next to the EQ group). Available only when
-   `mpvCapable && playbackEngine === "native"` and on macOS (see Platform). Otherwise hidden.
+   `mpvCapable` and on macOS (see Platform). Otherwise hidden. (There is no other engine —
+   the browser engine and its `playbackEngine` setting were removed.)
 2. Confirmation modal (first time; "Don't ask again" persisted as `confirmBitPerfect`, same
    pattern as `confirmTrashDelete`). Copy:
 
@@ -119,11 +120,9 @@ Only positive, verified evidence turns the badge green.
 
 ## Non-native tracks
 
-Tracks the engine can't play (per-track browser-engine fallback) play through the shared
-WebKit output while mpv may still hold the hog. **To verify in implementation:** whether mpv
-releases the exclusive AO when the deck idles; if not, such a track would be silent. Minimum
-behaviour: the badge shows "Not bit-perfect: browser engine", and the engine must release the
-device before a fallback track plays.
+Obsolete: the per-track browser-engine fallback was removed, so every track plays through
+mpv and there is no "not native" state. While the app is playing but the engine reports no
+track (between tracks), the badge reads **pending** — no verdict yet.
 
 ## Platform
 

@@ -142,17 +142,18 @@ describe("normalizeTitle", () => {
 });
 
 describe("eligibleQuizTracks", () => {
-  it("keeps local and subsonic tracks in browser-playable formats", () => {
+  it("keeps local and subsonic tracks, whatever their format", () => {
     const ok1 = makeTrack();
     const ok2 = makeTrack({ path: "subsonic://1/abc", format: "flac" });
     const noId = makeTrack({ id: null });
     const noArtist = makeTrack({ artist_name: null });
     const short = makeTrack({ duration_secs: 20 });
     const pluginScheme = makeTrack({ path: "custom://xyz" });
-    const badFormat = makeTrack({ format: "ape" });
+    // Every format the library indexes plays through the engine.
+    const ape = makeTrack({ format: "ape" });
     const noFormat = makeTrack({ format: null });
-    const result = eligibleQuizTracks([ok1, ok2, noId, noArtist, short, pluginScheme, badFormat, noFormat]);
-    expect(result).toEqual([ok1, ok2]);
+    const result = eligibleQuizTracks([ok1, ok2, noId, noArtist, short, pluginScheme, ape, noFormat]);
+    expect(result).toEqual([ok1, ok2, ape, noFormat]);
   });
 
   it("hasEnoughQuizTracks requires 4 distinct titles", () => {

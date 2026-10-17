@@ -41,8 +41,6 @@ mod update_checker;
 mod video_frames;
 mod storyboard;
 mod waveform;
-mod stream_relay;
-mod transcode_server;
 mod window_arrangement;
 mod plugin_worker;
 mod plugin_signing;
@@ -230,7 +228,6 @@ macro_rules! invoke_handler {
             commands::read_file_tags,
             commands::get_local_lyrics,
             commands::get_file_size,
-            commands::get_replaygain_by_path,
             commands::get_track_extra_tags,
             commands::replace_track_tags,
             commands::resolve_subsonic_download_url,
@@ -345,9 +342,6 @@ macro_rules! invoke_handler {
             browse_window::close_browse_window,
             browse_window::browse_window_set_visible,
             browse_window::browse_window_send,
-            commands::start_transcode,
-            commands::stop_transcode,
-            commands::register_stream_relay,
             commands::engine_capabilities,
             commands::engine_component_status,
             commands::engine_component_install,
@@ -1571,13 +1565,6 @@ pub fn run() {
                 });
             }
 
-            let transcode_sessions: transcode_server::Sessions =
-                Arc::new(tokio::sync::Mutex::new(std::collections::HashMap::new()));
-            let stream_relays: stream_relay::Relays = Default::default();
-            let transcode_port = timer.time("start_transcode_server", || {
-                transcode_server::start_sync(transcode_sessions.clone(), stream_relays.clone())
-            });
-
             // Clone values before moving into AppState, for use in update checker
             let checker_app_dir = app_dir.clone();
             let checker_native_dir = native_plugins_dir.clone();
@@ -1628,9 +1615,6 @@ pub fn run() {
                     )),
                     resyncing_collections: Arc::clone(&resyncing_collections),
                     cursor_tracker_active: Arc::clone(&cursor_tracker_active),
-                    transcode_port,
-                    transcode_sessions,
-                    stream_relays,
                     dep_cache,
                     pending_app_update: tokio::sync::Mutex::new(None),
                     mpv_engine: Default::default(),

@@ -8,7 +8,6 @@ const STORE_DEFAULTS = {
   view: "all",
   volume: 1.0,
   crossfadeSecs: 3,
-  playbackEngine: "native",
   audioExclusive: false,
   betaUpdates: false,
   windowWidth: null,
@@ -67,8 +66,9 @@ const STORE_DEFAULTS = {
 // at startup. positionSecs / currentTrackEntry were write-only (the restored
 // track always starts from the top), and positionSecs alone made the store
 // rewrite the whole file every 5s of playback. heroTvEffect / miniSizeMigrated
-// belonged to 0.9-era migrations that have since been removed.
-export const RETIRED_STORE_KEYS = ["positionSecs", "currentTrackEntry", "heroTvEffect", "miniSizeMigrated", "miniTitleScroll"] as const;
+// belonged to 0.9-era migrations that have since been removed. playbackEngine
+// chose between mpv and the browser engine, which is gone.
+export const RETIRED_STORE_KEYS = ["positionSecs", "currentTrackEntry", "heroTvEffect", "miniSizeMigrated", "miniTitleScroll", "playbackEngine"] as const;
 
 export interface AppStore {
   get<T>(key: string): Promise<T | undefined>;

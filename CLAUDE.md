@@ -106,9 +106,9 @@ the most animation-heavy surface in the app — it was simply unmeasurable befor
 
 `fullscreen=on|off` dispatches through App's `toggleFullscreenForTrack`, so audio gets the
 `AudioFullscreen` overlay and video gets its own path — the probe does not re-derive that branch.
-"Am I fullscreen?" is one read covering all three surfaces (`audioFullscreen ||
-playback.nativeFullscreen || document.fullscreenElement`), because native mpv video uses *window*
-fullscreen and never sets a DOM `:fullscreen` element. It is also reported in the dump, so a test
+"Am I fullscreen?" is one read covering both surfaces (`audioFullscreen ||
+playback.nativeFullscreen`) — both are *window* fullscreen and neither sets a DOM `:fullscreen`
+element, so `document.fullscreenElement` can't answer it. It is also reported in the dump, so a test
 can assert the state actually landed.
 
 `quit=on` flushes the store and exits. `quitApp()` in `appControl.mjs` prefers it over
@@ -249,6 +249,8 @@ Features that were deliberately removed. Re-adding them as core is a regression,
 
 - **P2P engine.** The libp2p engine (`src-tauri/src/p2p/`, `commands/p2p.rs`, the `api.p2p` plugin bridge) was removed. There is no `p2p_*` command and no `api.p2p` namespace. Peer transfer is a networking source like any other — it belongs in a plugin, per the plugin-first rule. Do not re-add `p2p-sharing` to the gallery `index.json`; the plugin still exists but has no host to answer it.
 - **Core YouTube search.** There is no core "Find in YouTube" action and no `search_youtube` command. YouTube search/playback is owned entirely by the yt-dlp plugin. There is no per-track YouTube URL storage. The older `youtube` plugin was **de-registered from the gallery** (2026-08-10) as `ytdlp` supersedes it — do not re-add `youtube` to the gallery `index.json`. Unlike `p2p-sharing` it still works, and installed copies keep being offered updates from their own `updateUrl`; only discovery was removed.
+- **Browser playback engine.** Playback is libmpv only (`src-tauri/src/mpv_engine/`). The webview `<audio>`/`<video>` path — A/B elements, the Web Audio EQ/limiter/ReplayGain graph, JS crossfade, DOM `:fullscreen` video, the per-track fallback from mpv on `engine-error`, the Settings engine selector and its `playbackEngine` store key (now in `RETIRED_STORE_KEYS`) — was removed. Do not re-add a webview playback path or any fallback engine: when libmpv can't load nothing plays, the play fails with `ENGINE_UNAVAILABLE_ERROR`, and Settings → Playback offers the replacement copy (the engine component). A remote source that errors gets re-resolved retries; that is the whole recovery.
+- **Transcode server / stream relay.** `transcode_server.rs`, `start_transcode`/`stop_transcode`, `needsTranscode` and the dormant chunk relay (`stream_relay.rs`, `register_stream_relay`) were deleted. mpv plays mkv/avi/wmv natively and fetches remote streams itself, so there is nothing to transcode or proxy. ffmpeg stays for video frames, storyboards, waveforms and download conversion only.
 
 ## Rules
 

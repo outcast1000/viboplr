@@ -29,7 +29,6 @@ describe("readPersistedSettings", () => {
       ["volume", 0.5],
       ["muted", true],
       ["crossfadeSecs", 3], // default-seeded key present in the merged cache
-      ["playbackEngine", "native"],
       ["miniMode", true],
       ["fullWindowWidth", 1200],
       ["fullWindowHeight", 800],
@@ -47,7 +46,6 @@ describe("readPersistedSettings", () => {
     expect(s.vol).toBe(0.5);
     expect(s.muted).toBe(true);
     expect(s.crossfadeSecs).toBe(3);
-    expect(s.playbackEngine).toBe("native");
     expect(s.miniMode).toBe(true);
     expect(s.fullWindowWidth).toBe(1200);
     expect(s.fullWindowHeight).toBe(800);

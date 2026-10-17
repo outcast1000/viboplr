@@ -1,49 +1,10 @@
 import { describe, it, expect } from "vitest";
 import {
   applyBuffer,
-  bufferedEndAt,
   bufferedFraction,
   formatReadahead,
   type PlaybackBuffer,
 } from "../playback/bufferState";
-
-/** Minimal stand-in for the element's TimeRanges (jsdom won't build one). */
-function ranges(...spans: Array<[number, number]>): TimeRanges {
-  return {
-    length: spans.length,
-    start: (i: number) => spans[i][0],
-    end: (i: number) => spans[i][1],
-  } as TimeRanges;
-}
-
-describe("bufferedEndAt", () => {
-  it("returns the end of the range covering the play position", () => {
-    expect(bufferedEndAt(ranges([0, 45]), 12)).toBe(45);
-  });
-
-  it("ignores ranges the position isn't inside", () => {
-    // A seek left a stale range behind and started a new one. Reporting the
-    // old range's end would draw a buffered edge the element can't play to.
-    expect(bufferedEndAt(ranges([0, 20], [120, 160]), 130)).toBe(160);
-  });
-
-  it("returns null when a gap separates the position from every range", () => {
-    expect(bufferedEndAt(ranges([0, 20], [120, 160]), 60)).toBeNull();
-  });
-
-  it("tolerates the position sitting a frame outside its own range", () => {
-    // currentTime and the range bounds drift; a hairline overshoot must not
-    // read as "nothing is buffered" and blank the indicator mid-playback.
-    expect(bufferedEndAt(ranges([10, 45]), 45.1)).toBe(45);
-    expect(bufferedEndAt(ranges([10, 45]), 9.9)).toBe(45);
-  });
-
-  it("is null when the element has no ranges at all", () => {
-    expect(bufferedEndAt(ranges(), 0)).toBeNull();
-    expect(bufferedEndAt(null, 0)).toBeNull();
-    expect(bufferedEndAt(undefined, 0)).toBeNull();
-  });
-});
 
 describe("bufferedFraction", () => {
   it("converts an absolute buffered end to a 0..1 fraction", () => {

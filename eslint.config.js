@@ -116,12 +116,12 @@ export default tseslint.config(
 
       // ---- Warning backlog -------------------------------------------------
       // Real signal, but each is a class too large to clear in one pass. Counts
-      // as of 2026-10-14 (220 in all). They are a ratchet, and the total is
+      // as of 2026-10-17 (210 in all). They are a ratchet, and the total is
       // enforced: `npm run lint` passes `--max-warnings` at that total, so a
       // change that adds one fails. When you clear some, lower the cap in
       // package.json (and these counts) in the same change.
       //
-      //   react-hooks/exhaustive-deps  123  Dominated by things that ARE stable
+      //   react-hooks/exhaustive-deps  117  Dominated by things that ARE stable
       //                                     but that the rule cannot prove:
       //                                     `restoredRef` (a ref arrives as a
       //                                     parameter), 41 citations of stable
@@ -145,8 +145,10 @@ export default tseslint.config(
       //                                     genuine render-phase ref reads.
       //   react-hooks/set-state-in-effect 70 Derive-state-in-effect. A real
       //                                     architectural backlog, kept visible.
-      //   react-hooks/immutability       1  usePlayback's onMediaPlaying writes
-      //                                     a ref an effect also reads. The ten
+      //   react-hooks/immutability       0  The last hit (usePlayback's
+      //                                     onMediaPlaying writing a ref an
+      //                                     effect also read) went with the
+      //                                     browser engine. The ten
       //                                     "accessed before declared" hits were
       //                                     cleared 2026-10-14 by declaring
       //                                     callbacks above the effects that
@@ -154,21 +156,16 @@ export default tseslint.config(
       //                                     self-scheduling rAF loops and one
       //                                     self-recursive retry out of their
       //                                     own useCallback.
-      //   react-hooks/purity             4  KEEP. Highest signal here: its two
+      //   react-hooks/purity             1  KEEP. Highest signal here: its two
       //                                     original hits were Math.random()
       //                                     during render, and one was a real
       //                                     bug (a "random" sort re-dealing on
       //                                     every memo recompute — now seeded,
       //                                     see useEntityDetail.seededRandom).
-      //                                     The remaining four are benign: one
-      //                                     older, and three in usePlayback's
-      //                                     crossfade / gapless hand-off
-      //                                     (Date.now, performance.now), which
-      //                                     run from timers and media events,
-      //                                     never during render. The compiler
-      //                                     only started analysing that far
-      //                                     when the position-persist helper
-      //                                     was removed (2026-10-13).
+      //                                     The remaining one is benign. Three
+      //                                     more, in usePlayback's browser
+      //                                     crossfade / gapless hand-off, went
+      //                                     with the browser engine.
       "react-hooks/refs": "warn",
       "react-hooks/set-state-in-effect": "warn",
       "react-hooks/set-state-in-render": "warn",

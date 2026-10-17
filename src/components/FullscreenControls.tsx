@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import type { QueueTrack, ResolvedSource } from "../types";
 import { resolveImageUrl } from "../utils/resolveImageUrl";
-import { formatDuration, isVideoTrack } from "../utils";
+import { formatDuration } from "../utils";
 import { usePlaybackPosition } from "../playback/positionStore";
 import { useIdleVisibility } from "../hooks/useIdleVisibility";
 import { SeekLadder, SeekHoverBubble, SeekMarkers, seekHoverAt, hasFilmstrip, type SeekHover } from "./SeekSurface";
@@ -68,23 +68,14 @@ interface FullscreenControlsProps {
   /** Same pins as the docked bar (utils/playerBarPins) — one rule, both bars. */
   playerBarPins: PlayerBarPins;
   onPlayerBarPinsChange: (next: PlayerBarPins) => void;
-  /** Whether mpv is driving the current video — the one case where video can be
-      EQ'd. Mirrors the now-playing bar's availability rule. */
-  nativeVideoActive?: boolean;
   /** The winning stream resolver, for the `SourceIndicator` on the subtitle line.
       Same prop, same component, same slot as the docked bar. */
   resolvedSource?: ResolvedSource | null;
   /**
-   * Treat this as a live fullscreen presentation even though there is no DOM
-   * `:fullscreen` element.
-   *
-   * Two surfaces need it, both of which use WINDOW fullscreen: the audio /
-   * visualizer overlay (see AudioFullscreen) and **native mpv video**
-   * (`.video-container--native-fs`). In both, `document.fullscreenElement` is
-   * null, so the idle auto-hide and the cursor-hiding — both gated on it — never
-   * arm and the controls sit permanently over the picture. Only the browser
-   * engine's video fullscreen is a real DOM `:fullscreen`, which is detected
-   * without help.
+   * This is a live fullscreen presentation. Both fullscreens are WINDOW
+   * fullscreen — the audio / visualizer overlay (see AudioFullscreen) and video
+   * (`.video-container--native-fs`) — so there is no DOM `:fullscreen` element
+   * to detect, and the idle auto-hide and cursor-hiding are gated on this.
    */
   active?: boolean;
 }
@@ -100,7 +91,7 @@ export function FullscreenControls({
   onPause, onStop, onNext, onPrevious,
   onSeek, onVolume, onMute,
   onToggleLike, onToggleDislike, onToggleFullscreen, showQueue, onToggleQueue, hasSubtitles, subtitlesOn, onToggleSubtitles, onNavigateToArtistByName, onNavigateToAlbumByName,
-  eq, bitPerfect = null, playerBarPins, onPlayerBarPinsChange, nativeVideoActive = false, resolvedSource = null,
+  eq, bitPerfect = null, playerBarPins, onPlayerBarPinsChange, resolvedSource = null,
   active = false,
 }: FullscreenControlsProps) {
   // Subscribed here (not passed from App) so the ~4 Hz position tick — and the
@@ -108,12 +99,7 @@ export function FullscreenControls({
   const positionSecs = usePlaybackPosition();
   const buffer = usePlaybackBuffer();
   const bufferedPct = bufferedFraction(buffer?.bufferedToSecs ?? null, durationSecs);
-  const [domFullscreen, setDomFullscreen] = useState(false);
-  // Either kind of fullscreen counts: the video path uses a DOM :fullscreen
-  // element, the audio path uses window fullscreen + a pinned overlay.
-  const isFullscreen = active || domFullscreen;
-  // Same rule as the now-playing bar: audio always, video only under mpv.
-  const eqAvailable = !currentTrack || !isVideoTrack(currentTrack) || nativeVideoActive;
+  const isFullscreen = active;
   const overlayRef = useRef<HTMLDivElement>(null);
   // Scrub preview: pct picks the storyboard tile, x positions the bubble
   // (px within .fs-seek-wrap).
@@ -128,14 +114,6 @@ export function FullscreenControls({
     hold: !playing,
     getTarget: () => overlayRef.current?.parentElement ?? null,
   });
-
-  // Track DOM fullscreen state. Leaving it re-shows via the hook's `enabled`
-  // gate, so there is nothing to unwind here.
-  useEffect(() => {
-    const onChange = () => setDomFullscreen(!!document.fullscreenElement);
-    document.addEventListener("fullscreenchange", onChange);
-    return () => document.removeEventListener("fullscreenchange", onChange);
-  }, []);
 
   // The EQ popover is a 600px panel you read as much as you drag, and the Audio
   // options menu is a native menu, so the idle timer must not yank the bar out
@@ -267,7 +245,6 @@ export function FullscreenControls({
           {eq && (
             <AudioOptionsGroup
               eq={eq}
-              eqAvailable={eqAvailable}
               bitPerfect={bitPerfect}
               pins={playerBarPins}
               onPinsChange={onPlayerBarPinsChange}

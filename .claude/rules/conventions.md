@@ -4,7 +4,7 @@ All new code must follow these conventions. When touching existing code that vio
 
 ## Enforcement
 
-Some of these are now checked by **`npm run lint`** (ESLint flat config, `eslint.config.js`) rather than only by review. It gates on **errors**, and on the **warning total**: warnings are a declared, counted backlog documented in that file, capped by `--max-warnings` in the `lint` script (220), so a change that adds one fails. Clearing some? Lower the cap in the same change. `npm run test:all` runs it first.
+Some of these are now checked by **`npm run lint`** (ESLint flat config, `eslint.config.js`) rather than only by review. It gates on **errors**, and on the **warning total**: warnings are a declared, counted backlog documented in that file, capped by `--max-warnings` in the `lint` script (210), so a change that adds one fails. Clearing some? Lower the cap in the same change. `npm run test:all` runs it first.
 
 | Rule | Enforced as | Convention |
 |---|---|---|
@@ -13,7 +13,7 @@ Some of these are now checked by **`npm run lint`** (ESLint flat config, `eslint
 | Rules of hooks, unused vars, `no-var`, `prefer-const` | error | — |
 | Bare `console.log` in `src/**` | warning | Use `console.debug` for tracing and `console.error` for failures. Currently **0** — keep it there. |
 | `@typescript-eslint/no-explicit-any` in `src/**` | warning | Currently **0** in production code — keep it there (tests are exempt). |
-| `react-hooks/exhaustive-deps`, `set-state-in-effect`, `refs`, `immutability`, `purity` | warning | Known backlog (220, capped by `--max-warnings`); don't add to it. Per-rule counts and what each one's hits actually are live in `eslint.config.js`. |
+| `react-hooks/exhaustive-deps`, `set-state-in-effect`, `refs`, `immutability`, `purity` | warning | Known backlog (210, capped by `--max-warnings`); don't add to it. Per-rule counts and what each one's hits actually are live in `eslint.config.js`. |
 
 Rules deliberately **off**, each with its reasoning in `eslint.config.js`:
 
@@ -24,7 +24,7 @@ Rules deliberately **off**, each with its reasoning in `eslint.config.js`:
 
 **Don't silence a rule without reading its hits.** `react-hooks/purity` had two, and one was a real bug: a "random" track sort calling `Math.random()` inside a `useMemo`, so it re-dealt the order on every recompute instead of only when the user asked (fixed by seeding from `shuffleKey` — see `useEntityDetail.seededRandom`). The cheapest-looking group can be the one carrying the defect.
 
-**`react-hooks/refs` cannot be an error here**, and the reason is worth knowing before trying: the React Compiler treats any property access on a hook-return object that *contains* a ref as a ref access, so all ~93 of its remaining reports are `playback.*` reads (`usePlayback` returns `audioRefA`/`videoRef` alongside plain state), plus ~20 "ref passed to a function" advisories — i.e. this app's core architecture. That is why the render-body *write* check is a separate, precise selector.
+**`react-hooks/refs` cannot be an error here**, and the reason is worth knowing before trying: the React Compiler treats any property access on a hook-return object that *contains* a ref as a ref access, so `playback.*` reads in App.tsx report as ref reads (`usePlayback` still returns `volumeOverrideRef` / `trackChangeSourceRef` alongside plain state; destructuring the return removes them), plus "ref passed to a function" advisories — current counts live in `eslint.config.js`. That is why the render-body *write* check is a separate, precise selector.
 
 ## Canonical Actions
 

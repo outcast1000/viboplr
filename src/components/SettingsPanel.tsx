@@ -1257,8 +1257,6 @@ interface SettingsPanelProps {
   engineComponentInstalling: InstallProgress | null;
   onEngineComponentInstall: () => Promise<void>;
   onEngineComponentUninstall: () => Promise<void>;
-  playbackEngine: "browser" | "native";
-  onPlaybackEngineChange: (engine: "browser" | "native") => void;
   audioExclusive: boolean;
   onAudioExclusiveChange: (enabled: boolean) => void;
   /** For the bit-perfect indicator on the exclusive-audio row. */
@@ -1396,8 +1394,6 @@ export function SettingsPanel({
   engineComponentInstalling,
   onEngineComponentInstall,
   onEngineComponentUninstall,
-  playbackEngine,
-  onPlaybackEngineChange,
   audioExclusive,
   onAudioExclusiveChange,
   eqEnabled,
@@ -1842,20 +1838,19 @@ export function SettingsPanel({
                 <div className="settings-group" id="playback-engine">
                   <div className="settings-group-title">Playback</div>
                   <div className="settings-card">
-                    {/* Always rendered. libmpv ships bundled in every release, so
-                        this row is where the engine is chosen, not an offer that
-                        appears once something is downloadable — the old
-                        `mpvCapable || available` gate hid the engine choice
-                        entirely on exactly the machines that needed explaining. */}
+                    {/* Always rendered. libmpv ships bundled in every release and
+                        is the only way anything plays, so this row's job is to say
+                        whether it loaded — and, on the machines where it didn't,
+                        to explain that and offer the replacement copy. */}
                     <div className="settings-row">
                       <div className="settings-row-info">
                         <span className="settings-label">Playback engine<HelpLink anchor="playback-engine" topic="the playback engine" /></span>
                         <span className="settings-description">
                           {mpvCapable
-                            ? "mpv plays every format natively with sample-accurate gapless; on macOS it also renders video (beta). Switching stops playback."
+                            ? "Vibo plays through mpv: every format natively, with sample-accurate gapless, and video on macOS and Windows."
                             : !mpvProbed
-                              ? "Checking which engines this machine can use…"
-                              : "The mpv engine ships with Vibo but couldn't load on this machine, so playback is using the browser engine."}
+                              ? "Checking the playback engine…"
+                              : "The mpv engine ships with Vibo but couldn't load on this machine, so nothing can play. A replacement copy usually fixes it."}
                         </span>
                         {engineComponentError && (
                           <span className="settings-description" style={{ color: "var(--error)" }}>
@@ -1864,14 +1859,7 @@ export function SettingsPanel({
                         )}
                       </div>
                       {mpvCapable ? (
-                        <select
-                          className="ds-select"
-                          value={playbackEngine}
-                          onChange={e => onPlaybackEngineChange(e.target.value as "browser" | "native")}
-                        >
-                          <option value="browser">Browser</option>
-                          <option value="native">mpv</option>
-                        </select>
+                        <span className="settings-value">mpv</span>
                       ) : !mpvProbed ? (
                         <span className="ds-spinner ds-spinner--sm" />
                       ) : (
@@ -1930,7 +1918,7 @@ export function SettingsPanel({
                         </span>
                       </div>
                     )}
-                    {mpvCapable && playbackEngine === "native" && (
+                    {mpvCapable && (
                       <div className="settings-row" id="exclusive-audio">
                         <div className="settings-row-info">
                           <span className="settings-label">Exclusive audio access<HelpLink anchor="exclusive-audio" topic="exclusive audio access" /></span>

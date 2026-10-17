@@ -948,7 +948,6 @@ export interface PluginPlaybackAPI {
    *  the EQ and **before** ReplayGain and the volume, so neither moves it.
    *  The handler gets `null` when the reading stops being true — paused,
    *  stopped, track change, Bit-perfect mode — and drops any level it holds.
-   *  **Native (mpv) engine only:** on the browser engine it never fires.
    *  A reading describes the latest decoded chunk, not every sample, so treat
    *  it as a meter to draw with decay, not a true-peak measurement.
    *
@@ -1044,8 +1043,8 @@ export interface PluginPlaybackAPI {
     scheme: string,
     /** Return a bare URL for a single self-contained stream, or a candidate
      *  list when the source offers multiple streams (e.g. YouTube's split
-     *  video-only + audio-only formats) and the host should pick per its active
-     *  engine — see `StreamCandidate` / `opts.externalAudio`. `null` = no match.
+     *  video-only + audio-only formats) and the host should pick — see
+     *  `StreamCandidate` / `opts.externalAudio`. `null` = no match.
      *
      *  Alongside `candidates` you may report `sourceUrl` — the page the stream
      *  came from, the same field `onStreamResolve` returns. Do: a track played
@@ -1091,25 +1090,26 @@ export interface PluginPlaybackAPI {
 }
 
 /** One playable stream a resolver offers for a source. The host picks among
- *  candidates per its active playback engine: the native mpv engine can merge a
- *  `video`-only stream with a separate `audio`-only stream (hi-res); the browser
- *  engine needs a self-contained `muxed` stream. Only the fields the host
- *  selects on are required — richer metadata (codecs/tbr) just refines the pick. */
+ *  candidates: the mpv engine can merge a `video`-only stream with a separate
+ *  `audio`-only stream (hi-res), and falls back to a self-contained `muxed`
+ *  stream when there is no pair. Only the fields the host selects on are
+ *  required — richer metadata (codecs/tbr) just refines the pick. */
 export interface StreamCandidate {
   url: string;
-  /** `muxed` = video+audio in one stream (browser-safe); `video`/`audio` = a
+  /** `muxed` = video+audio in one stream; `video`/`audio` = a
    *  single track that must be paired (mpv attaches the audio to the video). */
   kind: "muxed" | "video" | "audio";
   /** Pixel height for `video`/`muxed` streams (drives the resolution pick). */
   height?: number;
-  /** Container, e.g. "mp4" | "webm" | "m4a" — the browser prefers mp4/m4a. */
+  /** Container, e.g. "mp4" | "webm" | "m4a" — the host prefers mp4 video over any
+   *  resolution (hardware decode), and m4a audio only at equal bitrate. */
   container?: string;
   vcodec?: string;
   acodec?: string;
   /** Total bitrate (kbps); tiebreaks equal-resolution/quality candidates. */
   tbr?: number;
   /** Request headers the source requires for this signed URL. The host passes
-   *  these only to native playback; browser elements manage their own headers. */
+   *  them to the engine with the request. */
   headers?: Record<string, string>;
   label?: string;
 }
@@ -1127,7 +1127,7 @@ export interface StreamResolveResult {
    *  format is 360p, so a "watch this" resolved by metadata could never play at
    *  more than 360p however good the source was. The host runs its own
    *  `selectStream` over these; `url` stays the self-contained fallback for when
-   *  no candidate suits the active engine. */
+   *  no candidate suits. */
   candidates?: StreamCandidate[];
   /** Display name for the resolver-chain entry that won ("yt-dlp", "Library"). */
   label: string;
@@ -1140,8 +1140,7 @@ export interface StreamResolveResult {
   /** Request headers `url` requires. Signed CDN links are commonly bound to the
    *  User-Agent — and sometimes Referer/Origin — that minted them, so a bare GET
    *  gets a 403; yt-dlp reports them per-format as `http_headers`. Passed to
-   *  **native playback only**, exactly like `StreamCandidate.headers`: a browser
-   *  media element manages its own headers and cannot be told otherwise. Omit
+   *  the engine with the request, exactly like `StreamCandidate.headers`. Omit
    *  when the URL is fetchable with defaults. */
   headers?: Record<string, string>;
 }
@@ -1161,10 +1160,9 @@ export interface PluginTrack {
   /** What the track IS — audio or video — when the plugin knows (a filename it
    * read, a source that only serves video). Advisory and provisional: it drives
    * pre-play presentation and routing (queue row icon, theater vs audio
-   * element), and whatever a resolve later reads off the real file wins. This
+   * surface), and whatever a resolve later reads off the real file wins. This
    * is deliberately a KIND, not a container: a `format` claim ("mkv") is
-   * something a plugin usually can't know and has teeth the claimant shouldn't
-   * pull (`needsTranscode`). Same trust level as `onStreamResolve`'s
+   * something a plugin usually can't know. Same trust level as `onStreamResolve`'s
    * `video: true`. Replaces the URI-extension side channel (a literal `.mp4`
    * appended to an encoded ref) for new code; older hosts ignore it. */
   kind?: "audio" | "video";

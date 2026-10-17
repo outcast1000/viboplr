@@ -2,6 +2,14 @@
 
 ## Summary
 
+> **Since written:** the webview `<video>` element (and the browser engine with it) was
+> removed. Video is rendered natively by mpv into a layer under the webview that tracks
+> `.video-container`; the container holds a `.video-surface` (clicks, plus the cached first
+> frame until mpv presents). Wherever this spec says "the `<video>` element", read
+> `.video-container`, and for `requestFullscreen()` / `.video-container:fullscreen` read window
+> fullscreen + `.video-container--native-fs` — the no-remount rule below still holds, because
+> the native surface follows that container's bounds.
+
 A new sidebar **destination view** called **Now Playing** that shows the currently
 playing track in a lean-back, full-column layout. The centerpiece is **type-driven**:
 
@@ -54,8 +62,8 @@ container; CSS (`.video-container:fullscreen { … }`) restyles it. We do the sa
 plain class instead of the native API:
 
 - Keep `<video>` mounted in `.video-container` where it is today — **never** move it in
-  the DOM, **never** portal it (that would tear down the media element and kill any
-  active transcode session).
+  the DOM, **never** portal it (that would tear down the media element; today, with
+  native video, it would break the bounds the native surface tracks).
 - When `view === "nowplaying"` **and** the current track is a video, add a
   `.video-container--theater` class. That class position:absolute-fills the main column
   area (over the NowPlayingView body), centered, `object-fit` per `fitMode`.

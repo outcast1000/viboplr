@@ -123,9 +123,10 @@ test('track url is stamped with file:// scheme', async ({ page }) => {
   await page.locator('.entity-list-item').first().dblclick();
   await expect(page.locator('.queue-item')).toHaveCount(1);
 
-  // The track's url should have been stamped (via stampUrl) with file:// scheme.
-  // We can verify by checking the audio element's src — the mock convertFileSrc
-  // returns a data URI, so if src is set the stamping + resolution chain worked.
-  const audioSrc = await page.locator('audio').first().evaluate(el => el.src);
-  expect(audioSrc).toContain('data:audio/wav');
+  // The track's file:// path must survive into the queue entry and through the
+  // resolution chain: the (fake) native engine is asked to open the local file
+  // itself, as a `file` source carrying the bare filesystem path.
+  await expect.poll(() => page.evaluate(() =>
+    (window.__TEST_ENGINE__.calls.find(c => c.cmd === 'engine_play') || {}).args?.source ?? null,
+  )).toEqual({ kind: 'file', path: '/music/Artist A/Album X/01 First Song.flac' });
 });

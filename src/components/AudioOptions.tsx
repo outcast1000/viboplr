@@ -17,8 +17,6 @@ import { bitPerfectOnBar, eqOnBar, type PlayerBarPins } from "../utils/playerBar
  */
 interface AudioOptionsGroupProps {
   eq: EqControls;
-  /** EQ can't run on browser-engine video (see EqControlGroup). */
-  eqAvailable: boolean;
   /** Native engine on macOS or Windows; null hides every Bit-perfect affordance. */
   bitPerfect: BitPerfectControl | null;
   pins: PlayerBarPins;
@@ -31,10 +29,10 @@ interface AudioOptionsGroupProps {
   remoteHost?: EqHost;
 }
 
-export function AudioOptionsGroup({ eq, eqAvailable, bitPerfect, pins, onPinsChange, onHoldChange, remoteHost }: AudioOptionsGroupProps) {
+export function AudioOptionsGroup({ eq, bitPerfect, pins, onPinsChange, onHoldChange, remoteHost }: AudioOptionsGroupProps) {
   const [eqOpen, setEqOpen] = useState(false);
   const suspendedReason = bitPerfect?.on ? BIT_PERFECT_EQ_REASON : null;
-  const eqUsable = eqAvailable && !suspendedReason;
+  const eqUsable = !suspendedReason;
 
   const handleEqOpenChange = useCallback((open: boolean) => {
     setEqOpen(open);
@@ -48,7 +46,7 @@ export function AudioOptionsGroup({ eq, eqAvailable, bitPerfect, pins, onPinsCha
 
   const openMenu = useCallback((e: React.MouseEvent<HTMLButtonElement>) => {
     const rect = e.currentTarget.getBoundingClientRect();
-    const eqNote = suspendedReason ? " (paused by Bit-perfect)" : !eqAvailable ? " (not available for this video)" : "";
+    const eqNote = suspendedReason ? " (paused by Bit-perfect)" : "";
     const specs: MenuItemSpec[] = [
       { kind: "check", text: `Equalizer${eqNote}`, checked: eq.enabled, enabled: eqUsable, action: () => eq.onEnabledChange(!eq.enabled) },
       { kind: "item", text: "Equalizer settings…", enabled: eqUsable, action: () => handleEqOpenChange(true) },
@@ -71,7 +69,7 @@ export function AudioOptionsGroup({ eq, eqAvailable, bitPerfect, pins, onPinsCha
     showNativeMenu(rect.left, rect.bottom, specs)
       .catch((err) => console.error("Failed to show audio options menu:", err))
       .finally(() => onHoldChange?.("audio-menu", false));
-  }, [eq, eqAvailable, eqUsable, suspendedReason, bitPerfect, pins, onPinsChange, onHoldChange, handleEqOpenChange]);
+  }, [eq, eqUsable, suspendedReason, bitPerfect, pins, onPinsChange, onHoldChange, handleEqOpenChange]);
 
   return (
     <>
@@ -93,7 +91,6 @@ export function AudioOptionsGroup({ eq, eqAvailable, bitPerfect, pins, onPinsCha
       {eqOnBar(pins, eq.enabled, eqOpen) && (
         <EqControlGroup
           eq={eq}
-          available={eqAvailable}
           open={eqOpen}
           onOpenChange={handleEqOpenChange}
           suspendedReason={suspendedReason}

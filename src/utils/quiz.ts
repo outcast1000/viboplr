@@ -97,25 +97,17 @@ export function normalizeTitle(title: string): string {
     .toLowerCase();
 }
 
-// Formats the webview <audio> element can decode. Non-browser-native formats
-// (APE, WV, DSF, …) only play through the mpv engine, which the quiz's private
-// audio element can't use — so they're excluded from the question pool.
-const BROWSER_PLAYABLE_FORMATS = new Set([
-  "mp3", "flac", "m4a", "aac", "ogg", "oga", "opus", "wav", "webm",
-]);
-
 /**
  * Tracks usable as quiz questions: library rows with a title + artist, long
- * enough to cut a snippet from, on a source the quiz's own <audio> element can
- * play (local file or Subsonic stream) in a browser-decodable format.
+ * enough to cut a snippet from, on a source the quiz can open without a
+ * resolver (a local file or a Subsonic stream). Every format the library
+ * indexes plays through the engine, so format doesn't matter.
  */
 export function eligibleQuizTracks(tracks: Track[]): Track[] {
   return tracks.filter((t) => {
     if (t.id == null || !t.title?.trim() || !t.artist_name?.trim()) return false;
     if (t.duration_secs == null || t.duration_secs < 45) return false;
-    const playableSource = isLocalTrack(t) || !!t.path?.startsWith("subsonic://");
-    if (!playableSource) return false;
-    return !!t.format && BROWSER_PLAYABLE_FORMATS.has(t.format.toLowerCase());
+    return isLocalTrack(t) || !!t.path?.startsWith("subsonic://");
   });
 }
 

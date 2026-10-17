@@ -14,7 +14,6 @@ function makeInput(overrides: Partial<DiagnosticInput> = {}): DiagnosticInput {
       os: "macos",
       arch: "aarch64",
       profile: "default",
-      engine: "native",
       mpvCapable: true,
       mpvVideo: true,
       loggingEnabled: true,

@@ -51,7 +51,6 @@ import { timeAsync, getTimingEntries, type TimingEntry } from "./startupTiming";
 import { usePlayback } from "./hooks/usePlayback";
 import { probeEngineCapabilities, nativeEngine, type EngineCapabilities } from "./playback/nativeEngine";
 import { useEngineComponent } from "./hooks/useEngineComponent";
-import { isFormatPlaybackError } from "./playback/playbackErrors";
 import { getPlaybackPosition, subscribePlaybackPosition } from "./playback/positionStore";
 import { useStreamResolution } from "./hooks/useStreamResolution";
 import { useDownloadOrchestration } from "./hooks/useDownloadOrchestration";
@@ -381,9 +380,9 @@ function App() {
   const crossfadeSecsRef = useRef(3);
   const [crossfadeSecs, setCrossfadeSecs] = useState(3);
   useAssignRef(crossfadeSecsRef, crossfadeSecs);
-  // Native (mpv) playback engine: capability is a build fact (probed once via
-  // engine_capabilities), the choice is a persisted setting. usePlayback routes
-  // per-track through the combined ref.
+  // The mpv playback engine: whether libmpv loaded is probed once via
+  // engine_capabilities (re-probed after a replacement-copy install). Nothing
+  // plays without it.
   const [mpvCapable, setMpvCapable] = useState(false);
   const [mpvVideoCapable, setMpvVideoCapable] = useState(false);
   // Gates the see-through hole opaque until bounds have settled (this timer,
@@ -392,19 +391,17 @@ function App() {
   // actually on screen) so a fresh start also stays opaque until mpv is
   // painting, not just until the settle timer elapses. See `.mpv-video-ready`.
   const [videoReady, setVideoReady] = useState(false);
-  // mpv is the primary engine — default to native, gated by `mpvCapable` below
-  // (falls back to the browser engine when libmpv can't be loaded, and per-track
-  // on any engine-error). An explicit user choice is restored on startup.
-  const [playbackEngine, setPlaybackEngine] = useState<"browser" | "native">("native");
+  // The video container — the rect the engine's native video surface follows.
+  const videoContainerRef = useRef<HTMLDivElement>(null);
   const [audioExclusive, setAudioExclusive] = usePersistedSetting("audioExclusive", false, restoredRef);
   // Update channel: default stable-only; beta is an explicit opt-in.
   const [betaUpdates, setBetaUpdates] = usePersistedSetting("betaUpdates", false, restoredRef);
   // Anonymous usage telemetry: default on (opt-out). See telemetry.ts.
   const [telemetryEnabled, setTelemetryEnabled] = usePersistedSetting("telemetryEnabled", true, restoredRef);
   const useNativeEngineRef = useRef(false);
-  useAssignRef(useNativeEngineRef, mpvCapable && playbackEngine === "native");
+  useAssignRef(useNativeEngineRef, mpvCapable);
   const useNativeVideoRef = useRef(false);
-  useAssignRef(useNativeVideoRef, mpvCapable && mpvVideoCapable && playbackEngine === "native");
+  useAssignRef(useNativeVideoRef, mpvCapable && mpvVideoCapable);
   // Assigned to `() => handleNext("auto")` once handleNext exists below.
   const nativeEndedRef = useRef<() => void>(() => {});
   // Auto-skip surface for a playback failure on an auto-advanced track: toast +
@@ -426,11 +423,8 @@ function App() {
   // parallel with the rest of restore, awaited right before appRestoring
   // flips false) — see the comment there for why.
   // Downloadable libmpv component (Settings > Playback); re-probes
-  // capabilities after install so the native engine unlocks live.
+  // capabilities after install so the engine unlocks live.
   const engineComponent = useEngineComponent(applyEngineCapabilities);
-  // Track a format-failed file to replay once the mpv engine is enabled from
-  // the Playback Failed modal (the retry effect below fires when it's ready).
-  const pendingMpvRetryRef = useRef<QueueTrack | null>(null);
   // Settings → Playback → Scrobbling: which scrobblers (local history + plugins) record
   // audio and/or video plays (utils/scrobblers.ts).
   const [scrobbleSettings, setScrobbleSettings] = usePersistedSetting<ScrobbleSettings>("scrobbleSettings", DEFAULT_SCROBBLE_SETTINGS, restoredRef);
@@ -522,7 +516,8 @@ function App() {
     if (parsed.scheme === "plugin") {
       const { url: resolved } = await resolveStreamByUriRef.current(parsed.protocol, parsed.id, null);
       if (resolved.startsWith("file://")) return { src: convertFileSrc(resolved.substring(7)), engineSource: { kind: "file", path: resolved.substring(7) } };
-      return { src: resolved, engineSource: resolved.startsWith("http") ? { kind: "http", url: resolved } : null };
+      if (!resolved.startsWith("http")) throw new Error(`Unplayable stream URL from the ${parsed.protocol} plugin`);
+      return { src: resolved, engineSource: { kind: "http", url: resolved } };
     }
     if (parsed.scheme === "external") throw new Error("Cannot play external track directly — requires stream resolver");
     const streamUrl = await invoke<string>("resolve_subsonic_location", { location: parsed.url });
@@ -533,12 +528,11 @@ function App() {
   // The built chain's `source`s, in order — state (not just the ref) so a
   // metadata-only track's Download affordance re-renders when it changes.
   const [resolverSources, setResolverSources] = useState<string[]>([]);
-  const transcodeSessionRef = useRef<{ sessionId: string; baseUrl: string; durationSecs: number | null; seekOffset: number } | null>(null);
   // How early, in seconds before a track ends, auto-continue is asked for the
   // next one — longer when a plugin may answer (utils/autoContinue.ts →
   // prefetchLeadSecs). Assigned once plugins and the library count exist.
   const prefetchLeadRef = useRef(LIBRARY_PREFETCH_LEAD_SECS);
-  const playback = usePlayback(restoredRef, peekNextRef, crossfadeSecsRef, advanceIndexRef, onScrobbleRef, resolveTrackSrcRef, prefetchNextRef, transcodeSessionRef, useNativeEngineRef, useNativeVideoRef, nativeEndedRef, playbackAutoSkipRef, prefetchLeadRef);
+  const playback = usePlayback(restoredRef, peekNextRef, crossfadeSecsRef, advanceIndexRef, onScrobbleRef, resolveTrackSrcRef, prefetchNextRef, useNativeEngineRef, useNativeVideoRef, nativeEndedRef, playbackAutoSkipRef, prefetchLeadRef);
 
   const [trackRank, setTrackRank] = useState<number | null>(null);
   const [artistRank, setArtistRank] = useState<number | null>(null);
@@ -954,7 +948,10 @@ function App() {
   // audio to the overlay. Cmd/Ctrl+F and the now-playing bar's button both call
   // this rather than re-deriving the rule, so the key and the button can never
   // disagree about which surface answers.
-  const canFullscreen = !!playback.currentTrack;
+  // A video goes fullscreen only once the engine has it open — its fullscreen
+  // is the native surface's, and there is none before the first play.
+  const canFullscreen = !!playback.currentTrack
+    && (!isVideoTrack(playback.currentTrack) || playback.nativeVideoActive);
   const toggleFullscreenForTrack = useCallback(() => {
     const t = playback.currentTrack;
     if (!t) return;
@@ -1065,7 +1062,6 @@ function App() {
   // once on mount, so the report describes the moment the user asked.
   const buildDiagnosticSources = useCallback((context: DiagnosticContext | null): DiagnosticSources => ({
     channel: betaUpdates ? "beta" : "stable",
-    engine: mpvCapable && playbackEngine === "native" ? "native" : "browser",
     mpvCapable,
     mpvVideo: mpvVideoCapable,
     plugins: plugins.pluginStates.map((p) => ({
@@ -1082,7 +1078,7 @@ function App() {
       origin: d.origin,
     })),
     context,
-  }), [betaUpdates, mpvCapable, mpvVideoCapable, playbackEngine, plugins.pluginStates, dependencies.deps]);
+  }), [betaUpdates, mpvCapable, mpvVideoCapable, plugins.pluginStates, dependencies.deps]);
 
   // Set of currently loaded & active plugin ids — passed to Home so it keeps the
   // cached shelves of a plugin that registers them late (see useHome prune).
@@ -1185,8 +1181,8 @@ function App() {
   }, [appRestoring, plugins.pluginsLoaded, dependencies]);
 
   // Playback source-resolution engine. The refs it drives are created above (so
-  // usePlayback can consume them); this wires the resolver chain + transcode
-  // lifecycle and exposes the render-facing resolution state.
+  // usePlayback can consume them); this wires the resolver chain and exposes
+  // the render-facing resolution state.
   // Toasts — created before stream resolution and the updater so their
   // failure/fallback paths can surface feedback.
   const notifications = useToasts();
@@ -1202,7 +1198,7 @@ function App() {
   // Bit-perfect mode (native engine, macOS + Windows): session-only overlay
   // the engine applies — see useBitPerfect / mpv_engine/output.rs.
   const bitPerfect = useBitPerfect({
-    available: (IS_MAC || IS_WINDOWS) && mpvCapable && playbackEngine === "native",
+    available: (IS_MAC || IS_WINDOWS) && mpvCapable,
     platform: IS_WINDOWS ? "windows" : "mac",
     playing: playback.playing,
     currentKey: playback.currentTrack?.key ?? null,
@@ -1219,13 +1215,11 @@ function App() {
 
   const { resolvingStatus, resolveFailures, resolvedSource } = useStreamResolution({
     resolveTrackSrcRef,
-    transcodeSessionRef,
     resolveStreamByUriRef,
     streamResolversRef,
     resolveStreamByUri: plugins.resolveStreamByUri,
     streamUriResolverOwner: plugins.streamUriResolverOwner,
     pluginNames: plugins.pluginNames,
-    requireDep: dependencies.requireDep,
     useNativeVideoRef,
     preferVideoRef,
     queue: queueHook.queue,
@@ -1284,7 +1278,7 @@ function App() {
     if (!playback.nativeVideoActive) return;
     let last = "";
     const push = () => {
-      const container = playback.videoRef.current?.parentElement;
+      const container = videoContainerRef.current;
       if (!container) return;
       const rect = container.getBoundingClientRect();
       const z = zoom.uiZoomRef.current || 1;
@@ -1298,8 +1292,8 @@ function App() {
         .catch(console.error);
     };
     // Keep the hole opaque until bounds have settled + the first frame is up,
-    // then reveal. A (re)establish re-arms it — video (re)start, or the <video>
-    // reparenting when this effect re-runs on a view/fullscreen change — so
+    // then reveal. A (re)establish re-arms it — video (re)start, or the
+    // container moving when this effect re-runs on a view/fullscreen change — so
     // those transitions never expose the transparent window before the
     // async-positioned native child has caught up. Resize deliberately does NOT
     // re-arm it (see the ResizeObserver below), so the video stays visible and
@@ -1315,7 +1309,7 @@ function App() {
     push();
     armReveal();
     const interval = setInterval(push, 250);
-    const container = playback.videoRef.current?.parentElement;
+    const container = videoContainerRef.current;
     const ro = container
       ? new ResizeObserver(() => {
           // Track bounds every frame, but do NOT re-arm the reveal here.
@@ -1336,9 +1330,9 @@ function App() {
       clearTimeout(readyTimer);
       setVideoReady(false);
     };
-    // Re-run on view / fullscreen changes too: the shared <video> reparents
-    // into a different container when entering now-playing (theater) or
-    // fullscreen, so we must re-read the container, push bounds immediately,
+    // Re-run on view / fullscreen changes too: the video container is
+    // repositioned when entering now-playing (theater) or fullscreen, so we
+    // must re-read its bounds, push them immediately,
     // and re-point the ResizeObserver — otherwise the new container's bounds
     // lag until the next 250ms poll and the grown hole flashes the transparent
     // window. (These are the layout vars declared before this effect.)
@@ -1358,7 +1352,7 @@ function App() {
     document.body.classList.toggle("window-transparent", seeThrough);
   }, [mini.miniMode, playback.nativeVideoActive, playback.nativeVideoPresenting]);
 
-  // Native video fullscreen has no DOM :fullscreen state, so Escape must be
+  // Video fullscreen is window fullscreen with no DOM :fullscreen state, so Escape must be
   // handled explicitly (capture phase so a focused list's Escape handling
   // doesn't swallow it).
   useEffect(() => {
@@ -2061,7 +2055,7 @@ function App() {
   useEffect(() => {
     if (!("mediaSession" in navigator)) return;
     navigator.mediaSession.setActionHandler("play", () => {
-      playback.getMediaElement()?.play().catch(console.error);
+      if (!playback.playing) playback.handlePause();
     });
     navigator.mediaSession.setActionHandler("pause", () => playback.handlePause());
     navigator.mediaSession.setActionHandler("previoustrack", () => queueHook.playPrevious());
@@ -3076,14 +3070,12 @@ function App() {
     }
   });
 
-  // Declarative fullscreen for the probe. "Am I fullscreen?" needs all three
-  // reads OR'd: the audio overlay, native mpv video (which uses *window*
-  // fullscreen and never sets a DOM :fullscreen element) and browser video.
-  // Checking only `document.fullscreenElement` would silently no-op on the
-  // default engine.
+  // Declarative fullscreen for the probe. "Am I fullscreen?" is both reads
+  // OR'd: the audio overlay and video. Both are *window* fullscreen and never
+  // set a DOM :fullscreen element, so `document.fullscreenElement` can't tell.
   const setProbeFullscreenRef = useRef((_on: boolean) => {});
   useAssignRef(setProbeFullscreenRef, (on: boolean) => {
-    const now = audioFullscreen || playback.nativeFullscreen || document.fullscreenElement !== null;
+    const now = audioFullscreen || playback.nativeFullscreen;
     if (on === now) return;
     // Entering needs a track; leaving must work regardless of what's playing.
     if (on && !canFullscreen) return;
@@ -3162,7 +3154,7 @@ function App() {
       view: library.view,
       playing: playback.playing,
       miniMode: mini.miniMode,
-      fullscreen: audioFullscreen || playback.nativeFullscreen || document.fullscreenElement !== null,
+      fullscreen: audioFullscreen || playback.nativeFullscreen,
       currentTrack: track ? `${track.artist_name ?? "?"} — ${track.title}` : null,
       backendTimings,
       frontendTimings: getTimingEntries(),
@@ -3371,17 +3363,15 @@ function App() {
       // catches internally) right before appRestoring flips false, so
       // mpvCapable/mpvVideoCapable are guaranteed settled by the time the
       // restored queue/track become playable. Without this, the first play
-      // after launch (e.g. a restored video) could read a stale
-      // mpvCapable=false and fall through to the browser engine — invisible
-      // for most formats, but visible for codecs (e.g. HEVC) the webview
-      // <video> can't decode, which then fall to the ffmpeg transcode path.
+      // after launch could read a stale mpvCapable=false and fail with
+      // "the playback engine couldn't start".
       const engineCapabilityPromise = probeEngineCapabilities().then(applyEngineCapabilities);
       try {
         await timeAsync("store.init", () => store.init());
         // Startup always lands on Home; `view` and selected-entity state are
         // intentionally not restored (see readPersistedSettings).
         const {
-          vol, muted: savedMuted, crossfadeSecs: cf, playbackEngine: savedPlaybackEngine, audioExclusive: savedAudioExclusive, betaUpdates: savedBetaUpdates, telemetryEnabled: savedTelemetryEnabled, trackVideoHistory: savedTrackVideoHistory, scrobbleSettings: savedScrobbleSettings, scrobblerStatus: savedScrobblerStatus, preferVideoResolution: savedPreferVideoResolution, videoSubtitles: savedVideoSubtitles, miniMode: wasMini,
+          vol, muted: savedMuted, crossfadeSecs: cf, audioExclusive: savedAudioExclusive, betaUpdates: savedBetaUpdates, telemetryEnabled: savedTelemetryEnabled, trackVideoHistory: savedTrackVideoHistory, scrobbleSettings: savedScrobbleSettings, scrobblerStatus: savedScrobblerStatus, preferVideoResolution: savedPreferVideoResolution, videoSubtitles: savedVideoSubtitles, miniMode: wasMini,
           fullWindowWidth: fww, fullWindowHeight: fwh, fullWindowX: fwx, fullWindowY: fwy,
           trackSortField: tSortField, trackSortDir: tSortDir, trackColumns: tCols, trackViewMode: savedTrackViewMode,
           videoLayout: savedVideoLayout,
@@ -3424,11 +3414,6 @@ function App() {
           if (savedMuted) notify("Audio is muted from your last session");
         }
         if (cf !== undefined && cf !== null) setCrossfadeSecs(cf);
-        // Native is the default (store seeds "native"); honor an explicit
-        // choice in either direction so a user who picked Browser stays there.
-        if (savedPlaybackEngine === "native" || savedPlaybackEngine === "browser") {
-          setPlaybackEngine(savedPlaybackEngine);
-        }
         if (savedAudioExclusive) {
           setAudioExclusive(true);
           // Cached engine-side until the engine exists; no-op where libmpv
@@ -3457,15 +3442,11 @@ function App() {
               store.get<boolean>("telemetryInstallReported").catch(() => null),
               probeEngineCapabilities(),
             ]);
-            // Effective audio engine: the user's choice (default native) gated by
-            // whether libmpv actually loaded on this machine. There is one build
-            // and it always bundles libmpv, so there is no flavor to report —
-            // `mpv_capable` is the only thing that actually varies per machine.
-            const engineChoice = savedPlaybackEngine === "browser" ? "browser" : "native";
-            const effectiveEngine = caps.mpv && engineChoice === "native" ? "native" : "browser";
+            // There is one build and it always bundles libmpv, so there is no
+            // flavor to report — `mpv_capable` is the only thing that actually
+            // varies per machine.
             trackTelemetry("app_started", {
               channel: savedBetaUpdates ? "beta" : "stable",
-              engine: effectiveEngine,
               mpv_capable: caps.mpv ? "yes" : "no",
               mpv_video: caps.video ? "yes" : "no",
               ...(trackCount != null ? { tracks_bucket: bucketCount(trackCount) } : {}),
@@ -3677,8 +3658,8 @@ function App() {
       // never wedge the whole restore behind it — queue/track restoration and
       // library load both happen after this point. On timeout, mpvCapable
       // simply settles a moment later via the same promise's applyEngineCapabilities
-      // callback (still attached, still running) and only the very next play
-      // risks the original browser-engine fallback race this was meant to close.
+      // callback (still attached, still running) and only a play in that window
+      // fails with "the playback engine couldn't start".
       await timeAsync("engineCapabilities", () =>
         Promise.race([
           engineCapabilityPromise,
@@ -3712,10 +3693,6 @@ function App() {
     if (track) {
       playback.setCurrentTrack(track);
       playback.setDurationSecs(track.duration_secs ?? 0);
-      // Restore lands paused (no autoplay). For a video track that means an
-      // empty <video> until the user presses play — load the first frame so the
-      // theater/preview surface isn't black. No-op for audio / non-local video.
-      playback.loadRestoredVideoPreview(track).catch(console.error);
       pendingRestoreTrackRef.current = null;
     }
     if (queue) {
@@ -4208,7 +4185,6 @@ function App() {
   useInAppKeyboardShortcuts({
     library, playback, queueHook, mini,
     volume: controlsVolume,
-    getMediaElement: playback.getMediaElement,
     handleSeek: playback.handleSeek,
     handlePause: playback.handlePause,
     currentTrack: playback.currentTrack,
@@ -4407,9 +4383,8 @@ function App() {
   }, [endOfQueue]);
 
   useAssignRef(mediaSessionNextRef, () => handleNext());
-  // Engine-side "ended with nothing gapless-armed" — the native equivalent of
-  // the media elements' `ended` (gapless is engine-internal, so no
-  // handleGaplessNext check here).
+  // Engine-side "ended with nothing gapless-armed" (gapless and crossfade
+  // hand over inside the engine, so reaching here means the queue advances).
   useAssignRef(nativeEndedRef, () => handleNext("auto"));
 
   // UI verbs for the control API (ui.navigate / ui.action / ui.get). Each one
@@ -4456,7 +4431,7 @@ function App() {
       }
     }
   };
-  const fullscreenNow = () => audioFullscreen || playback.nativeFullscreen || document.fullscreenElement !== null;
+  const fullscreenNow = () => audioFullscreen || playback.nativeFullscreen;
   const uiAction = async (a: UiAction) => {
     switch (a.action) {
       case "queuePanel":
@@ -4711,31 +4686,6 @@ function App() {
     stop: playback.handleStop,
   });
 
-  // Mounted once (the <audio>/<video> listeners), so everything it calls goes
-  // through a latest ref rather than this render's closures.
-  const handleGaplessNextRef = useLatestRef(playback.handleGaplessNext);
-  const handleNextRef = useLatestRef(handleNext);
-  const onEnded = useCallback(async () => {
-    // A gapless swap promotes the preloaded track but leaves the queue index to
-    // its caller. (A crossfade advances it itself and never gets here — see
-    // handleGaplessNext.)
-    if (handleGaplessNextRef.current()) {
-      advanceIndexRef.current();
-      return;
-    }
-    handleNextRef.current("auto");
-  }, [handleGaplessNextRef, handleNextRef]);
-
-  useEffect(() => {
-    const video = playback.videoRef.current;
-    if (video) {
-      video.addEventListener("ended", onEnded);
-    }
-    return () => {
-      if (video) video.removeEventListener("ended", onEnded);
-    };
-  }, [onEnded]);
-
   async function handleAddFolder() {
     const selected = await open({ directory: true, multiple: false });
     if (selected) {
@@ -4786,54 +4736,6 @@ function App() {
       console.error("Failed to persist crossfadeSecs:", e);
     });
   }
-
-  function handlePlaybackEngineChange(engine: "browser" | "native") {
-    if (engine === playbackEngine) return;
-    // A manual switch cancels any pending "install mpv & retry" so the old
-    // failed track can't get auto-replayed by the retry effect.
-    pendingMpvRetryRef.current = null;
-    // Clean cut: no mid-track engine handoff. The user re-starts playback on
-    // whichever engine they switched to.
-    playback.handleStop();
-    // Bit-perfect mode belongs to the native engine; leaving it ends the mode.
-    if (engine !== "native" && bitPerfect.on) void bitPerfect.disable();
-    setPlaybackEngine(engine);
-    trackTelemetry("engine_selected", { engine });
-    store.set("playbackEngine", engine).catch((e) => {
-      console.error("Failed to persist playbackEngine:", e);
-    });
-  }
-
-  // Playback Failed modal → "Install mpv engine & play": download libmpv if
-  // needed, switch to the native engine, and replay the file that WKWebView
-  // couldn't. The replay is deferred to the effect below so it runs after
-  // mpvCapable/playbackEngine (and useNativeEngineRef) have settled.
-  async function handleEnableMpvAndRetry() {
-    const track = playback.failedTrack;
-    if (!track) return;
-    pendingMpvRetryRef.current = track;
-    try {
-      if (!mpvCapable) {
-        await engineComponent.install(); // refreshes capabilities → flips mpvCapable
-      }
-      setPlaybackEngine("native");
-      store.set("playbackEngine", "native").catch((e) => {
-        console.error("Failed to persist playbackEngine:", e);
-      });
-      playback.clearPlaybackError();
-    } catch (e) {
-      console.error("Failed to enable the mpv engine for playback:", e);
-      pendingMpvRetryRef.current = null; // leave the error modal up to Skip/Dismiss
-    }
-  }
-
-  useEffect(() => {
-    const track = pendingMpvRetryRef.current;
-    if (track && mpvCapable && playbackEngine === "native") {
-      pendingMpvRetryRef.current = null;
-      playback.handlePlay(track, "user");
-    }
-  }, [mpvCapable, playbackEngine]);
 
   function handleAudioExclusiveChange(enabled: boolean) {
     setAudioExclusive(enabled); // persistence: usePersistedSetting
@@ -5549,6 +5451,9 @@ function App() {
   // CSS, like theater/fullscreen — no remount); theater and native fullscreen
   // still win, and a collapsed queue has no room so the video hides with it.
   const videoPlaying = !!(playback.currentTrack && isVideoTrack(playback.currentTrack));
+  // The still shown in the video surface until mpv presents: the current
+  // track's own artwork, which for a local video is its cached first frame.
+  const videoStill = videoPlaying ? resolveImageUrl(playback.currentTrack?.image_url ?? null) ?? null : null;
   const videoInQueue = videoPlaying && videoLayout.dockSide === "queue" && !videoTheater && !playback.nativeFullscreen && !queueCollapsed;
 
   // Arrow key navigation helpers for search bars
@@ -5789,7 +5694,6 @@ function App() {
     onNavigateToArtistByName: library.navigateToArtistByName,
     onNavigateToAlbumByName: (name: string, artistName?: string | null) =>
       library.navigateToAlbumByName(name, artistName ?? undefined),
-    nativeVideoActive: playback.nativeVideoActive,
     eq: eqControls,
     bitPerfect: bitPerfect.control,
     playerBarPins,
@@ -5817,34 +5721,6 @@ function App() {
     <VideoFrameQueueProvider>
     <VideoFrameQueueRefBridge refOut={videoFrameQueueRef} />
     <div className={`app ${appRestoring ? "app-restoring" : ""} ${playback.currentTrack && isVideoTrack(playback.currentTrack) ? "video-mode" : ""} ${playback.nativeVideoActive ? "mpv-video-hole" : ""} ${playback.nativeVideoActive && videoTheater ? "mpv-hole-theater" : ""} ${playback.nativeVideoActive && videoReady && playback.nativeVideoPresenting ? "mpv-video-ready" : ""} ${playback.nativeFullscreen ? "mpv-native-fs" : ""} queue-open ${queueCollapsed ? "queue-collapsed" : ""} ${mini.miniMode ? "mini-mode" : ""} ${sidebarCollapsed ? "sidebar-collapsed" : ""} ${videoInQueue ? "video-in-queue" : ""} ${audioFullscreen ? "audio-fs-open" : ""} ${audioFullscreen && fsQueueOpen ? "fs-queue-revealed" : ""}`} style={{ "--queue-width": `${queueWidth}px`, "--video-queue-size": `${videoLayout.sizes.queue}px` } as React.CSSProperties}>
-      {/* Hidden audio elements (A/B for gapless playback) */}
-      <audio
-        ref={playback.audioRefA}
-        crossOrigin="anonymous"
-        onTimeUpdate={playback.onTimeUpdate}
-        onLoadedMetadata={playback.onLoadedMetadata}
-        onPlay={playback.onPlaySlotA}
-        onPause={playback.onPauseSlotA}
-        onEnded={() => playback.onEndedSlotA(onEnded)}
-        onError={playback.onMediaError}
-        onProgress={playback.onMediaProgress}
-        onWaiting={playback.onMediaWaiting}
-        onPlaying={playback.onMediaPlaying}
-      />
-      <audio
-        ref={playback.audioRefB}
-        crossOrigin="anonymous"
-        onTimeUpdate={playback.onTimeUpdate}
-        onLoadedMetadata={playback.onLoadedMetadata}
-        onPlay={playback.onPlaySlotB}
-        onPause={playback.onPauseSlotB}
-        onEnded={() => playback.onEndedSlotB(onEnded)}
-        onError={playback.onMediaError}
-        onProgress={playback.onMediaProgress}
-        onWaiting={playback.onMediaWaiting}
-        onPlaying={playback.onMediaPlaying}
-      />
-
       <Sidebar
         view={view}
         selectedTrack={library.selectedTrack}
@@ -6403,8 +6279,9 @@ function App() {
               stops the moment the user navigates away */}
           {view === "quiz" && (
             <MusicQuizView
-              onPauseMainPlayback={() => { if (playback.playing) playback.handlePause(); }}
-              volume={playback.volume}
+              playClip={playback.playClip}
+              seekClip={playback.seekClip}
+              stopClip={playback.stopClip}
             />
           )}
 
@@ -6554,8 +6431,6 @@ function App() {
               engineComponentInstalling={engineComponent.installing}
               onEngineComponentInstall={engineComponent.install}
               onEngineComponentUninstall={engineComponent.uninstall}
-              playbackEngine={playbackEngine}
-              onPlaybackEngineChange={handlePlaybackEngineChange}
               audioExclusive={audioExclusive}
               onAudioExclusiveChange={handleAudioExclusiveChange}
               eqEnabled={playback.eqEnabled}
@@ -6693,6 +6568,7 @@ function App() {
           </div>
         )}
         <div
+          ref={videoContainerRef}
           className={`video-container${videoLayout.isCollapsed && !videoInQueue ? " collapsed" : ""}${videoTheater ? " video-container--theater" : ""}${playback.nativeFullscreen ? " video-container--native-fs" : ""}${videoInQueue ? " video-container--in-queue" : ""}`}
           data-fit={videoLayout.fitMode}
           onContextMenu={(e) => {
@@ -6736,20 +6612,19 @@ function App() {
               title="Drag to resize"
             />
           )}
-          <video
-            ref={playback.videoRef}
-            tabIndex={-1}
-            onTimeUpdate={playback.onTimeUpdate}
-            onLoadedMetadata={playback.onLoadedMetadata}
-            onPlay={playback.onPlay}
-            onPause={playback.onPause}
-            onError={playback.onMediaError}
-            onProgress={playback.onMediaProgress}
-            onWaiting={playback.onMediaWaiting}
-            onPlaying={playback.onMediaPlaying}
+          {/* The engine draws the picture into a native layer under the webview;
+              this surface only takes the clicks, and shows the video's cached
+              first frame until mpv is presenting (a restored or loading video
+              would otherwise be an empty box). */}
+          <div
+            className="video-surface"
             onClick={playback.handlePause}
             onDoubleClick={playback.toggleFullscreen}
-          />
+          >
+            {videoStill && !playback.nativeVideoPresenting && (
+              <img className="video-still" src={videoStill} alt="" draggable={false} />
+            )}
+          </div>
           {/* One subtitle layer for every video mode — the container is only
               repositioned (never remounted), so this serves the docked preview,
               the theater, and fullscreen alike. */}
@@ -6808,12 +6683,11 @@ function App() {
               same component from the same `fullscreenControlsProps`, which is what
               makes the two surfaces identical rather than merely similar — see the
               AudioFullscreen render near the app root. */}
-          {/* `active` is needed for the NATIVE (mpv) video fullscreen, which is
-              window fullscreen and so has no DOM `:fullscreen` element — the bar
-              is revealed by `.video-container--native-fs`, but the idle auto-hide
-              and cursor-hiding are gated on the flag, so without this they never
-              armed and the controls sat permanently over the video. The browser
-              engine's DOM fullscreen is detected on its own. */}
+          {/* `active` is needed because video fullscreen is window fullscreen and
+              so has no DOM `:fullscreen` element — the bar is revealed by
+              `.video-container--native-fs`, but the idle auto-hide and
+              cursor-hiding are gated on the flag, so without this they never
+              armed and the controls sat permanently over the video. */}
           <FullscreenControls
             {...fullscreenControlsProps}
             onToggleFullscreen={playback.toggleFullscreen}
@@ -6831,6 +6705,7 @@ function App() {
               lyricsOffsetSecs={lyricsOffsetSecs}
               onLyricsOffsetChange={handleLyricsOffsetChange}
               onToggleFullscreen={playback.toggleFullscreen}
+              isFullscreen={playback.nativeFullscreen}
               syncedLyricLines={videoSyncedLyricLines}
               subtitlesOn={videoSubtitlesOn}
               onToggleSubtitles={handleToggleSubtitles}
@@ -7218,8 +7093,8 @@ function App() {
         <PlaybackErrorModal
           error={playback.playbackError}
           trackTitle={playback.failedTrack?.title ?? null}
-          onDismiss={() => { pendingMpvRetryRef.current = null; playback.clearPlaybackError(); }}
-          onSkip={() => { pendingMpvRetryRef.current = null; playback.clearPlaybackError(); handleNext(); }}
+          onDismiss={playback.clearPlaybackError}
+          onSkip={() => { playback.clearPlaybackError(); handleNext(); }}
           onReportProblem={() => setReportProblem({
             title: "Playback failed",
             context: {
@@ -7228,21 +7103,10 @@ function App() {
                 `Error: ${playback.playbackError}`,
                 `Source: ${sourceClass(playback.failedTrack?.path ?? null)}`,
                 `Format: ${playback.failedTrack?.format ?? "unknown"}`,
-                `Engine: ${mpvCapable && playbackEngine === "native" ? "native" : "browser"}`,
+                `Engine: ${mpvCapable ? "mpv" : "not loaded"}`,
               ],
             },
           })}
-          mpvSuggestion={
-            isFormatPlaybackError(playback.playbackError)
-              && !(mpvCapable && playbackEngine === "native")
-              && (mpvCapable || (engineComponent.status?.available ?? false))
-              ? {
-                  needsInstall: !mpvCapable,
-                  installing: engineComponent.installing !== null,
-                  onEnable: handleEnableMpvAndRetry,
-                }
-              : null
-          }
         />
       )}
 
@@ -7391,7 +7255,6 @@ function App() {
         storyboard={storyboard}
         seekMarkers={seekMarkers}
         currentTrack={playback.currentTrack}
-        nativeVideoActive={playback.nativeVideoActive}
         playing={playback.playing}
         durationSecs={playback.durationSecs}
         scrobbled={playback.scrobbled}

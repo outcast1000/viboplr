@@ -82,10 +82,10 @@ describe("resolveBitPerfectState", () => {
     expect(resolveBitPerfectState({ ...good, devicePresent: false, hoggedByUs: false }, playingQ1).kind).toBe("gone");
   });
 
-  it("is idle when nothing plays, and not-native when the app plays but the engine doesn't", () => {
+  it("is idle when nothing plays, and pending when the app plays but the engine hasn't reported", () => {
     const stopped = { ...good, trackKey: null, srcRate: null, outRate: null };
     expect(resolveBitPerfectState(stopped, { playing: false, currentKey: null }).kind).toBe("idle");
-    expect(resolveBitPerfectState(stopped, playingQ1).kind).toBe("not-native");
+    expect(resolveBitPerfectState(stopped, playingQ1).kind).toBe("pending");
   });
 
   it("treats a report about another track as stale, not a verdict", () => {

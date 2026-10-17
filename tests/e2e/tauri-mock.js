@@ -11,13 +11,14 @@ window.__TAURI_INTERNALS__.metadata = {
   currentWebview: { windowLabel: 'main', label: 'main' },
 };
 
-// Mock convertFileSrc — return a tiny silent WAV data URI so the browser
-// can actually load/play it (asset:// URLs don't work outside Tauri).
-// 0.25s of actual 8-bit silence — a zero-sample WAV makes the media element
-// fire 'error', which cascades into app-side retry/fallback paths mid-test.
-const SILENT_WAV = 'data:audio/wav;base64,UklGRvQHAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YdAHAACAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgA==';
+// Mock convertFileSrc. Playback no longer goes through it (the native engine
+// opens the file itself — see the fake engine below); it still feeds <img src>
+// for local art and the webview URL `usePlayback` records as the source, so it
+// only has to return something harmless. A 1x1 transparent GIF loads as an
+// image without a network request.
+const BLANK_IMAGE = 'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7';
 window.__TAURI_INTERNALS__.convertFileSrc = function (_filePath, _protocol) {
-  return SILENT_WAV;
+  return BLANK_IMAGE;
 };
 
 // Callback registry (used by event system)
@@ -52,6 +53,135 @@ window.__TAURI_EVENT_PLUGIN_INTERNALS__.unregisterListener = function (
 ) {
   callbacks.delete(id);
 };
+
+// Deliver a Tauri event to every handler the app registered for it, in the
+// shape `@tauri-apps/api/event` hands its callbacks.
+function emitEvent(event, payload) {
+  const ids = eventListeners.get(event) || [];
+  for (const id of ids) {
+    const cb = callbacks.get(id);
+    if (cb) cb({ event, id, payload });
+  }
+}
+
+// --- Fake native engine ------------------------------------------------------
+// The mpv engine is the only playback path, so the suite needs one to play
+// anything. This answers the `engine_*` commands (src/playback/nativeEngine.ts)
+// and emits the `engine-*` events usePlayback subscribes to, the way the real
+// engine does: state → duration → playback-restart, position ticks, then
+// `engine-ended`.
+//
+// Every track lasts ENGINE_DURATION_SECS (0.25s) whatever its tagged length —
+// the timing the old silent-WAV <audio> clip gave the suite, and that specs
+// lean on: a playing track ends almost at once and advances to what is queued
+// next. A spec that needs a longer track sets `window.__E2E_ENGINE_DURATION__`
+// (seconds) before playing.
+//
+// `engine_preload` deliberately arms nothing (no `engine-track-changed`), so
+// the queue always advances through engine-ended → handleNext.
+//
+// `window.__TEST_ENGINE__` exposes `calls` ({ cmd, args } per engine command),
+// `emit` (deliver any event) and `current` (the open session, or null).
+const ENGINE_DURATION_SECS = 0.25;
+const ENGINE_TICK_MS = 50;
+const ENGINE_START_MS = 10;
+const testEngine = (window.__TEST_ENGINE__ = { calls: [], emit: emitEvent, current: null });
+let engineTimer = null;
+let engineSpeed = 1;
+
+function engineStopTimers() {
+  if (engineTimer) clearInterval(engineTimer);
+  engineTimer = null;
+}
+
+function engineEmitPosition(s) {
+  emitEvent('engine-position', { trackKey: s.trackKey, positionSecs: s.position, durationSecs: s.duration });
+}
+
+function engineFinish(s) {
+  if (testEngine.current !== s) return;
+  engineStopTimers();
+  testEngine.current = null;
+  emitEvent('engine-ended', { trackKey: s.trackKey });
+}
+
+function engineStartTicking(s) {
+  engineStopTimers();
+  engineTimer = setInterval(() => {
+    if (testEngine.current !== s || s.paused) return;
+    s.position = Math.min(s.duration, s.position + (ENGINE_TICK_MS / 1000) * s.speed);
+    engineEmitPosition(s);
+    if (s.position >= s.duration) engineFinish(s);
+  }, ENGINE_TICK_MS);
+}
+
+function handleEngineCommand(cmd, args) {
+  testEngine.calls.push({ cmd, args });
+  switch (cmd) {
+    case 'engine_capabilities':
+      return { mpv: true, video: true, component: null };
+    case 'engine_play': {
+      engineStopTimers();
+      const override = window.__E2E_ENGINE_DURATION__;
+      const duration = typeof override === 'number' && override > 0 ? override : ENGINE_DURATION_SECS;
+      const s = {
+        trackKey: args.trackKey,
+        source: args.source,
+        video: !!args.video,
+        duration,
+        position: Math.min(duration, args.seekSecs || 0),
+        paused: false,
+        speed: engineSpeed,
+      };
+      testEngine.current = s;
+      setTimeout(() => {
+        if (testEngine.current !== s) return;
+        emitEvent('engine-state', { trackKey: s.trackKey, playing: true });
+        emitEvent('engine-duration', { trackKey: s.trackKey, durationSecs: s.duration });
+        emitEvent('engine-playback-restart', { trackKey: s.trackKey, hasVideo: s.video });
+        engineEmitPosition(s);
+        engineStartTicking(s);
+      }, ENGINE_START_MS);
+      return null;
+    }
+    case 'engine_set_paused': {
+      const s = testEngine.current;
+      if (!s) return null;
+      s.paused = !!(args && args.paused);
+      if (s.paused) engineStopTimers();
+      else engineStartTicking(s);
+      setTimeout(() => {
+        if (testEngine.current === s) emitEvent('engine-state', { trackKey: s.trackKey, playing: !s.paused });
+      }, 0);
+      return null;
+    }
+    case 'engine_seek': {
+      const s = testEngine.current;
+      if (!s) return null;
+      s.position = Math.max(0, Math.min(s.duration, (args && args.secs) || 0));
+      setTimeout(() => {
+        if (testEngine.current !== s) return;
+        engineEmitPosition(s);
+        if (s.position >= s.duration) engineFinish(s);
+      }, 0);
+      return null;
+    }
+    case 'engine_stop':
+      // Like the real engine's own stop: the session just goes, silently.
+      engineStopTimers();
+      testEngine.current = null;
+      return null;
+    case 'engine_set_speed':
+      engineSpeed = (args && args.speed) || 1;
+      if (testEngine.current) testEngine.current.speed = engineSpeed;
+      return null;
+    // Everything else (preload, clear_preload, start_crossfade, volume, eq,
+    // replaygain, meter, video bounds/background, audio info, exclusive,
+    // bit-perfect, device queries) is accepted and does nothing.
+    default:
+      return null;
+  }
+}
 
 // Test tracks for library
 const TEST_TRACKS = [
@@ -176,6 +306,8 @@ window.__TAURI_INTERNALS__.invoke = async function (cmd, args) {
 
     return null;
   }
+
+  if (cmd.startsWith('engine_')) return handleEngineCommand(cmd, args);
 
   // App commands — return empty/default data so the UI renders
   switch (cmd) {
@@ -478,12 +610,6 @@ window.__TAURI_INTERNALS__.invoke = async function (cmd, args) {
     // `window.__E2E_CUES__` (a CueSheetRow-shaped object), served for any song.
     case 'cue_sheet_get':
       return (typeof window !== 'undefined' && window.__E2E_CUES__) || null;
-    case 'search_youtube':
-      return { url: 'https://www.youtube.com/watch?v=mock123', video_title: args.title };
-    case 'yt_dlp_check':
-      return '2025.12.08';
-    case 'yt_dlp_extract_audio_url':
-      return SILENT_WAV;
     case 'assistant_pause_get':
       return false;
     case 'assistant_pause_set':

@@ -10,8 +10,8 @@
   position: relative;
 }
 
-/* Native (mpv) video on macOS: the engine renders into a native layer BELOW
-   the transparent webview, so while a native video session is active these
+/* Video: the engine renders into a native layer BELOW the transparent webview
+   (macOS; a child window on Windows), so while a video session is active these
    rules punch a see-through hole exactly at the video container. The window
    and body are already transparent (mini-player heritage); `.search-bar` and
    `.content` inherited the .app background, so they get their own — every
@@ -29,8 +29,17 @@
 .app.mpv-video-hole .video-container {
   background: transparent;
 }
-/* (The <video> element stays in the DOM for its click/double-click handlers;
-   with no src it paints nothing, so it doesn't cover the hole.) */
+/* The surface inside the container takes the clicks (pause, double-click for
+   fullscreen) and shows a cached still until mpv presents. It paints nothing
+   else, so it doesn't cover the hole. */
+.video-surface {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+}
 
 /* Theater mode: the (transparent) container overlays the WHOLE main column,
    so .content — which sits BEHIND it — must not paint either. (In dock mode
@@ -106,40 +115,25 @@
   width: 0 !important;
 }
 
-.video-container video {
-  cursor: pointer;
-}
-
-.video-container[data-fit="contain"] video {
+/* The still follows the same fit as the video mpv will draw over it. */
+.video-still {
   width: 100%;
   height: 100%;
   object-fit: contain;
+  pointer-events: none;
+  user-select: none;
 }
 
-.video-container[data-fit="fit-width"] video {
-  width: 100%;
+.video-container[data-fit="fit-width"] .video-still {
   height: auto;
-  object-fit: contain;
 }
 
-.video-container[data-fit="fit-height"] video {
+.video-container[data-fit="fit-height"] .video-still {
   width: auto;
-  height: 100%;
-  object-fit: contain;
 }
 
-.video-container[data-fit="fill"] video {
-  width: 100%;
-  height: 100%;
+.video-container[data-fit="fill"] .video-still {
   object-fit: cover;
-}
-
-.video-container:fullscreen {
-  height: 100vh !important;
-}
-
-.video-container:fullscreen video {
-  max-height: none;
 }
 
 /* Fullscreen video controls overlay */
@@ -161,12 +155,8 @@
   display: none;
 }
 
-.video-container:fullscreen .fs-controls {
-  display: block;
-}
-
-/* Theater mode: the same <video> element fills the main content area while
-   the Now Playing view is active (no remount — mirrors the fullscreen trick). */
+/* Theater mode: the video container fills the main content area while the Now
+   Playing view is active (repositioned, never remounted). */
 .video-container--theater {
   position: absolute;
   inset: 0;
@@ -185,7 +175,7 @@
   width: auto !important;
 }
 
-/* "Queue" placement: the same <video> element is pinned to the bottom of the
+/* "Queue" placement: the video container is pinned to the bottom of the
    queue panel (column 3), above the now-playing bar. Like theater/fullscreen it
    stays a child of .main in the DOM and is only repositioned via CSS (no remount,
    so the native mpv session and playback survive). Width tracks the resizable
@@ -247,7 +237,7 @@
 }
 
 /* Docked preview: hover-revealed action cluster in the video's top-right corner
-   (the docked .fs-controls strip is hidden outside :fullscreen, so these are the
+   (the docked .fs-controls strip is hidden outside fullscreen, so these are the
    only on-video affordances over the preview). Mirrors .video-ambient-fs. */
 .video-dock-actions {
   position: absolute;
@@ -287,8 +277,8 @@
 .video-dock-btn.is-off {
   color: var(--text-tertiary);
 }
-/* In real fullscreen the .fs-controls overlay owns the controls. */
-.video-container:fullscreen .video-dock-actions {
+/* In fullscreen the .fs-controls overlay owns the controls. */
+.video-container--native-fs .video-dock-actions {
   display: none;
 }
 

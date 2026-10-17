@@ -11,7 +11,6 @@ use crate::models::*;
 use crate::scanner;
 use crate::skins;
 use crate::subsonic::SubsonicClient;
-use crate::transcode_server;
 
 // --- command submodules (split out of this file) ---
 mod app;
@@ -50,8 +49,6 @@ mod recent_plays;
 pub use recent_plays::*;
 mod skins_cmd;
 pub use skins_cmd::*;
-mod transcode;
-pub use transcode::*;
 mod updates;
 pub use updates::*;
 mod waveforms;
@@ -133,9 +130,6 @@ pub struct AppState {
     pub plugin_install_cancel: Arc<Mutex<HashSet<String>>>,
     pub resyncing_collections: Arc<Mutex<HashSet<i64>>>,
     pub cursor_tracker_active: Arc<AtomicBool>,
-    pub transcode_port: u16,
-    pub transcode_sessions: transcode_server::Sessions,
-    pub stream_relays: crate::stream_relay::Relays,
     pub dep_cache: Arc<crate::dependencies::DepCache>,
     /// Update found by the last `app_update_check`, consumed by install.
     pub pending_app_update: tokio::sync::Mutex<Option<tauri_plugin_updater::Update>>,
@@ -1007,27 +1001,6 @@ pub fn is_collection_due_for_auto_update(collection: &Collection, now_secs: i64)
     }
 }
 
-#[derive(Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct TranscodeInfo {
-    pub url: String,
-    pub session_id: String,
-    pub duration_secs: Option<f64>,
-}
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 /// Shared test factory for a fully-formed `AppState` over an in-memory DB.
 /// Module-level (not inside `mod tests`) so command submodules' test modules
 /// (e.g. `collections::tests`) can reuse it via `use super::*`.
@@ -1053,9 +1026,6 @@ pub(crate) fn test_app_state() -> AppState {
         plugin_install_cancel: Arc::new(Mutex::new(HashSet::new())),
         resyncing_collections: Arc::new(Mutex::new(HashSet::new())),
         cursor_tracker_active: Arc::new(AtomicBool::new(false)),
-        transcode_port: 0,
-        transcode_sessions: Arc::new(tokio::sync::Mutex::new(std::collections::HashMap::new())),
-        stream_relays: Default::default(),
         dep_cache: Arc::new(crate::dependencies::DepCache::new()),
         pending_app_update: tokio::sync::Mutex::new(None),
         mpv_engine: Default::default(),

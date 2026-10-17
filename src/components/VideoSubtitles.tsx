@@ -4,7 +4,7 @@ import "./VideoSubtitles.css";
 
 /**
  * Subtitle-style current synced line (+ the upcoming line, dimmer) rendered over
- * the shared <video>. Mounted as a direct child of `.video-container`, so this
+ * the video. Mounted as a direct child of `.video-container`, so this
  * single instance serves every video mode — the docked preview, the Now Playing
  * theater, and fullscreen — without per-surface duplication (CSS reshapes it per
  * mode).

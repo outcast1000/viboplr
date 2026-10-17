@@ -44,11 +44,11 @@ export const SCENES = [
   {
     id: "settings-playback", kind: "still",
     page: "audiophiles", slot: "Settings → Playback",
-    // `exclusive-audio` is a row near the engine select; the group anchor
+    // `exclusive-audio` is a row just below the engine row; the group anchor
     // `playback-engine` is tall enough that centring it scrolls past the
-    // engine rows (seen on the first run). Without the native engine the row
+    // engine rows (seen on the first run). Without libmpv loaded the row
     // doesn't exist, the scroll is a no-op and the tab opens at its top —
-    // which is the engine select, so either way the shot is right.
+    // which is the engine row, so either way the shot is right.
     steps: [{ navigate: { settings: "exclusive-audio" } }],
     expect: { view: "settings" },
   },

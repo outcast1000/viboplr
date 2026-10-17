@@ -38,10 +38,6 @@ export interface EqControls {
 
 interface EqGroupProps {
   eq: EqControls;
-  /** EQ is available for audio always, and for video only on the native mpv
-   *  engine (lavfi graph on the deck). Browser-engine video can't be EQ'd — its
-   *  `<video>` element isn't wired into the Web Audio graph. */
-  available: boolean;
   /** Fired whenever the popover opens or closes, so a host with an idle
    *  auto-hide (the fullscreen bar) can hold itself open while it is up. */
   onOpenChange?: (open: boolean) => void;
@@ -69,10 +65,10 @@ function isShaping(eq: EqControls): boolean {
  * Bass/Treble sliders and fullscreen showed a lone icon, so "the same EQ" was
  * two different controls depending on the chrome.
  */
-export function EqControlGroup({ eq, available, onOpenChange, suspendedReason, open }: EqGroupProps) {
+export function EqControlGroup({ eq, onOpenChange, suspendedReason, open }: EqGroupProps) {
   return (
     <>
-      {available && !suspendedReason && eq.showBarControl && (
+      {!suspendedReason && eq.showBarControl && (
         <EqBarControl
           mode={eq.mode}
           enabled={eq.enabled}
@@ -85,13 +81,13 @@ export function EqControlGroup({ eq, available, onOpenChange, suspendedReason, o
           onEnsureEnabled={() => { if (!eq.enabled) eq.onEnabledChange(true); }}
         />
       )}
-      <EqButton eq={eq} available={available} onOpenChange={onOpenChange} suspendedReason={suspendedReason} open={open} />
+      <EqButton eq={eq} onOpenChange={onOpenChange} suspendedReason={suspendedReason} open={open} />
     </>
   );
 }
 
-export function EqButton({ eq, available: availableForTrack, onOpenChange, suspendedReason, open: openProp }: EqGroupProps) {
-  const available = availableForTrack && !suspendedReason;
+export function EqButton({ eq, onOpenChange, suspendedReason, open: openProp }: EqGroupProps) {
+  const available = !suspendedReason;
   const [internalOpen, setInternalOpen] = useState(false);
   const open = openProp ?? internalOpen;
   const anchorRef = useRef<HTMLButtonElement>(null);
@@ -101,9 +97,9 @@ export function EqButton({ eq, available: availableForTrack, onOpenChange, suspe
     onOpenChange?.(next);
   }, [onOpenChange, openProp]);
 
-  // Availability can drop out from under an open popover (the queue advances to
-  // a browser-engine video), which unmounts it. Report the close too, or a host
-  // that pinned itself open on our word stays pinned forever.
+  // Availability can drop out from under an open popover (Bit-perfect turning
+  // on), which unmounts it. Report the close too, or a host that pinned itself
+  // open on our word stays pinned forever.
   useEffect(() => {
     if (!available && open) setOpenState(false);
   }, [available, open, setOpenState]);
@@ -115,7 +111,7 @@ export function EqButton({ eq, available: availableForTrack, onOpenChange, suspe
         className={`g-btn g-btn-sm now-playing-eq-btn${available && isShaping(eq) ? " active" : ""}`}
         onClick={() => { if (available) setOpenState(!open); }}
         disabled={!available}
-        title={suspendedReason ?? (available ? "Equalizer" : "EQ unavailable for video on the browser engine")}
+        title={suspendedReason ?? "Equalizer"}
         aria-label="Equalizer"
       >
         <svg width="13" height="13" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true">

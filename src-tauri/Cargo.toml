@@ -61,8 +61,7 @@ axum = "0.8"
 # OS entropy for the control API's bearer token (control_api.rs) — the minimal
 # primitive (rand's own backend) rather than the full rand crate.
 getrandom = "0.3"
-tokio = { version = "1", features = ["rt-multi-thread", "sync", "process", "io-util", "time"] }
-tokio-util = { version = "0.7", features = ["io"] }
+tokio = { version = "1", features = ["rt-multi-thread", "sync", "time"] }
 trash = "5"
 tauri-plugin-aptabase = "1.0.0"
 

@@ -28,10 +28,9 @@
    briefly covering the stage's edge. Persistent panels reserve space, transient
    ones cover. */
 
-/* .fs-controls is `display: none` until a :fullscreen ancestor shows it (see
-   TrackDetailView.css). This container is fullscreen by window, not by DOM, so
-   it has to opt the bar in itself — otherwise the shared controls would render
-   and stay invisible. */
+/* .fs-controls is `display: none` until a fullscreen container shows it (see
+   TrackDetailView.css). This container opts the bar in itself — otherwise the
+   shared controls would render and stay invisible. */
 .audio-fs .fs-controls {
   display: block;
 }

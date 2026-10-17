@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Help — Vibo</title>
-  <meta name="description" content="Plain-language explanations of Vibo's settings and features — playback engines, exclusive audio, ReplayGain, profiles, and more.">
+  <meta name="description" content="Plain-language explanations of Vibo's settings and features — the playback engine, exclusive audio, ReplayGain, profiles, and more.">
   <link rel="canonical" href="https://viboplr.com/help.html">
   <meta property="og:type" content="website">
   <meta property="og:url" content="https://viboplr.com/help.html">
@@ -75,18 +75,17 @@
     <div class="container">
       <div class="docs-body reveal">
         <h2>Playback engine</h2>
-        <p class="docs-lead">Vibo can play audio through two different engines: the browser engine and mpv.</p>
-        <p>The <strong>Browser</strong> engine plays audio through the system webview. It works everywhere, and it is what Vibo falls back to if mpv can't load or can't play a particular track.</p>
-        <p>The <strong>mpv</strong> engine is a native audio engine built on <a href="https://mpv.io" target="_blank" rel="noopener">libmpv</a>, the same playback core used by the mpv media player. Compared to the browser engine it:</p>
+        <p class="docs-lead">Everything Vibo plays — music and video — goes through mpv.</p>
+        <p>The <strong>mpv</strong> engine is a native playback engine built on <a href="https://mpv.io" target="_blank" rel="noopener">libmpv</a>, the same playback core used by the mpv media player. It:</p>
         <ul class="docs-list">
-          <li>Decodes every supported format natively — FLAC, ALAC, Opus, and friends — without transcoding.</li>
+          <li>Decodes every supported format natively — FLAC, ALAC, Opus, DSD, MKV video and friends — without transcoding.</li>
           <li>Plays back-to-back tracks with sample-accurate gapless transitions.</li>
-          <li>On macOS, also renders video natively (beta).</li>
+          <li>Renders video natively on macOS and Windows.</li>
           <li>Unlocks <a href="#exclusive-audio">exclusive audio access</a> for bit-perfect output.</li>
         </ul>
-        <p>The <strong>mpv engine</strong> is built on libmpv, which ships bundled with every copy of Vibo &mdash; there is one download, there are no editions to choose between, and mpv is the engine Vibo uses by default. It works offline out of the box. (On the rare machine where the bundled library can't load, Settings &rarr; Playback says so and offers to fetch a replacement copy.) If the engine can't play a particular track, Vibo automatically falls back to the browser engine for that track.</p>
+        <p>libmpv ships bundled with every copy of Vibo &mdash; there is one download, there are no editions to choose between, and nothing to switch. It works offline out of the box, and Settings &rarr; Playback simply shows <strong>mpv</strong>.</p>
         <div class="docs-note">
-          Switching engines stops the current playback — playback resumes on the new engine with the next track you play.
+          If the bundled engine can't load on your machine, nothing can play: a track you start says <em>"The playback engine couldn't start on this machine"</em>, and Settings &rarr; Playback explains it and offers <strong>Try a replacement copy</strong>, which downloads a fresh copy of the engine. It takes effect without a restart.
         </div>
       </div>
     </div>
@@ -113,7 +112,6 @@
         <ul class="docs-list">
           <li><strong>Waiting for the device</strong> — another app holds it exclusively. Playback starts by itself once that app lets go. On macOS you can click the button to play through the shared mixer instead; on Windows an app holding the device exclusively blocks shared playback too, so the only way through is to close it or switch off its exclusive mode.</li>
           <li><strong>Device limit</strong> — the device can't run at the file's sample rate (for example a 48 kHz headset playing a 96 kHz file), so that track is resampled.</li>
-          <li><strong>Browser engine</strong> — a track that can't play on the mpv engine goes through the shared mixer.</li>
         </ul>
         <p><strong>Volume while it's on.</strong> The audio leaves Vibo at full digital level, so Vibo's volume control sets the <em>device's own</em> volume instead — the samples stay untouched. Enabling the mode lowers the device to match your current volume, so it doesn't get louder, and turning it off puts the device back where it was. A device with no volume control of its own (many DACs) keeps Vibo's volume fixed at 100%: set the level on the DAC or amplifier, and <strong>turn it down before enabling</strong>.</p>
         <p>On a Mac, the volume keys and the menu-bar slider <strong>can't reach the device while Vibo holds it</strong>: macOS moves its system output to another device (you may see an unrelated device, such as a monitor, in the volume pop-up). Use Vibo's volume control instead. On Windows the volume keys keep working for a device with its own volume control, since they set the same level Vibo does. Windows also needs "Allow applications to take exclusive control of this device" switched on for the device (Sound settings → the device → Advanced; it's on by default). If the pinned device is unplugged, the mode turns itself off. Bit-perfect mode is available on macOS and Windows.</p>
@@ -124,7 +122,7 @@
           <li>Changes <strong>apply from the next track</strong>, when the device is reopened.</li>
         </ul>
         <div class="docs-note">
-          Available only with the <a href="#playback-engine">mpv playback engine</a>.
+          Available on macOS and Windows, once the <a href="#playback-engine">playback engine</a> has loaded.
         </div>
       </div>
     </div>
@@ -136,7 +134,7 @@
       <div class="docs-body reveal">
         <h2>Crossfade</h2>
         <p class="docs-lead">Fade the current track out while the next one fades in.</p>
-        <p>The slider sets the overlap length, up to 10 seconds. At <strong>0 (Off)</strong>, tracks instead play <em>gapless</em> — the next track starts the instant the current one ends, which is what you want for live albums and continuous mixes. With the mpv engine, gapless transitions are sample-accurate.</p>
+        <p>The slider sets the overlap length, up to 10 seconds. At <strong>0 (Off)</strong>, tracks instead play <em>gapless</em> — the next track starts the instant the current one ends, which is what you want for live albums and continuous mixes. Gapless transitions are sample-accurate.</p>
         <p>Video tracks never crossfade, and crossfade is unavailable while <a href="#exclusive-audio">exclusive audio access</a> is active.</p>
       </div>
     </div>
@@ -242,7 +240,7 @@
         <h2>Anonymous usage statistics</h2>
         <p class="docs-lead">Optional, anonymous data that helps us understand how Vibo is used — with no way to identify you.</p>
         <p>Vibo is local-first, and this is the one place it phones home. When enabled, it sends anonymous usage events to our own self-hosted <a href="https://aptabase.com" target="_blank" rel="noopener">Aptabase</a> instance — a privacy-first analytics tool with no cookies and no persistent device identifier. Each event carries only coarse system properties (operating system, app version, language) and a session id that resets after inactivity.</p>
-        <p><strong>What's sent:</strong> that the app was installed and launched (along with your OS, app version, and a rough <em>bucketed</em> library size — e.g. "1k&ndash;10k tracks"), plus a handful of anonymous, count-only signals — a track was played, music was started from somewhere (an album, artist, radio station, or playlist), a radio station was started, a plugin feature was used, a playlist or mixtape was saved or loaded, the sidebar was used to navigate, which playback engine you picked, a music source was added, a plugin was installed, a skin was applied. It also reports <em>reliability</em> signals when something breaks — a track that failed to play, a fallback between playback engines, a failed download or scan, a missing companion tool — so problems can be found and fixed even when no one files a report.</p>
+        <p><strong>What's sent:</strong> that the app was installed and launched (along with your OS, app version, and a rough <em>bucketed</em> library size — e.g. "1k&ndash;10k tracks"), plus a handful of anonymous, count-only signals — a track was played, music was started from somewhere (an album, artist, radio station, or playlist), a radio station was started, a plugin feature was used, a playlist or mixtape was saved or loaded, the sidebar was used to navigate, a music source was added, a plugin was installed, a skin was applied. It also reports <em>reliability</em> signals when something breaks — a track that failed to play, a stream the player had to retry, a failed download or scan, a missing companion tool — so problems can be found and fixed even when no one files a report.</p>
         <p><strong>What's never sent:</strong> track, artist, or album names; file paths; your library contents; or anything that could identify you personally.</p>
         <p>It's on by default and completely optional — turn it off any time in <strong>Settings &rarr; General &rarr; Anonymous usage statistics</strong>. There's nothing to lose by leaving it on, and it directly helps decide what to build and fix next.</p>
       </div>

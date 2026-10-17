@@ -8,7 +8,7 @@ import {
   cycleRestingSize, isAlwaysExpanded, MINI_RESTING_SIZE_LABELS, MINI_WIDTH_SIZE_LABELS,
   type MiniRestingSize, type MiniWidthSize,
 } from "../hooks/useMiniMode";
-import { formatDuration, isVideoTrack } from "../utils";
+import { formatDuration } from "../utils";
 import type { EqControls } from "./EqButton";
 import type { BitPerfectControl } from "./BitPerfectButton";
 import { AudioOptionsGroup } from "./AudioOptions";
@@ -89,9 +89,6 @@ interface NowPlayingBarProps {
   /** Plugin ticks on the playing track's seek bar (`api.playback.setMarkers`). */
   seekMarkers?: readonly SeekMarker[];
   currentTrack: QueueTrack | null;
-  /** Native mpv video session active — EQ works on video there (lavfi graph),
-   * unlike the browser engine where the <video> isn't in the Web Audio graph. */
-  nativeVideoActive: boolean;
   playing: boolean;
   durationSecs: number;
   scrobbled: boolean;
@@ -199,7 +196,7 @@ export const NowPlayingBar = memo(function NowPlayingBar({
   waveformPeaks,
   storyboard,
   seekMarkers,
-  currentTrack, nativeVideoActive, playing,
+  currentTrack, playing,
   durationSecs, scrobbled,
   icyTitle,
   trackRank,
@@ -262,11 +259,6 @@ export const NowPlayingBar = memo(function NowPlayingBar({
   // x positions the floating time bubble (px within .now-seek-wrap).
   const [seekHover, setSeekHover] = useState<SeekHover | null>(null);
   const seekWrapRef = useRef<HTMLDivElement>(null);
-  const isVideo = currentTrack ? isVideoTrack(currentTrack) : false;
-  // EQ is available for audio always, and for video only on the native mpv
-  // engine (lavfi graph on the deck). Browser-engine video can't be EQ'd —
-  // its <video> element isn't wired into the Web Audio graph.
-  const eqAvailable = !isVideo || nativeVideoActive;
   // Bundled for EqButton, which the fullscreen bar renders from the same shape.
   const eqControls: EqControls = {
     enabled: eqEnabled, mode: eqMode, preset: eqPreset, gains: eqGains,
@@ -684,7 +676,6 @@ export const NowPlayingBar = memo(function NowPlayingBar({
         <div className="now-group now-group--audio" role="group" aria-label="Audio controls">
           <AudioOptionsGroup
             eq={eqControls}
-            eqAvailable={eqAvailable}
             bitPerfect={bitPerfect}
             pins={playerBarPins}
             onPinsChange={onPlayerBarPinsChange}

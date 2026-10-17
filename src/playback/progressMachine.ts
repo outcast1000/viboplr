@@ -1,8 +1,7 @@
 // The playback progress machine: given "where are we in the current track",
 // decide whether to request an auto-continue prefetch, (re)arm the next-track
-// preload, or start the crossfade. Extracted from usePlayback's `onTimeUpdate`
-// so the browser engine (timeupdate events) and the native mpv engine
-// (`engine-position` events) drive the exact same logic. Pure — unit-tested.
+// preload, or start the crossfade. Driven by usePlayback's `engine-position`
+// handler. Pure — unit-tested.
 
 import type { QueueTrack } from "../types";
 

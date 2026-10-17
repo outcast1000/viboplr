@@ -42,7 +42,7 @@ in slskd and renders its own progress, and only touches `api.downloads.enqueue`
 | Dependency notification | **Plugin-owned**, not `binaryDependencies` | `check_dependencies` iterates `REGISTRY` only (`commands/media.rs:85-91`) — a plugin-declared name outside it is silently dropped. slskd is also not a host-exec'd binary; it's a service |
 | Registry entry for slskd | **Rejected** for v1 | Needs a host release, and `ManagedSource` expects one binary + a checksums asset; slskd ships 10 zips and no checksums file |
 | Manifest `streamResolvers` | **Not declared** | That registers a *metadata* resolver in the global fallback chain — every unplayable track in the app would trigger a Soulseek search at 60 s a piece |
-| Playback of completed files | `slsk://` scheme via `onResolveStreamByUri` → `file://` | `resolveUrlDetailed` maps `file://` to `convertFileSrc` + native `{kind:"file"}` (`useStreamResolution.ts:158-163`), so it plays on both engines |
+| Playback of completed files | `slsk://` scheme via `onResolveStreamByUri` → `file://` | `resolveUrlDetailed` maps `file://` to `convertFileSrc` + native `{kind:"file"}` (`useStreamResolution.ts:158-163`), so the engine plays it |
 | Download provider role | **Import a finished file**, not fetch from Soulseek | `download_file` copies `file://` paths (`downloader.rs:408-425`); the transfer itself is far outside the 60 s resolver budget |
 | `onResolveByMetadata` | **Not registered** | Would put unbounded Soulseek waits in the app's automatic download fallback chain |
 | Remote/Docker slskd | **Degraded tier, not blocked** | slskd is server-first by design; blocking it excludes the users who already have it running |
@@ -79,7 +79,7 @@ These are load-bearing; the design is shaped around them.
 | `plugin_fetch` is text-only — no bytes, no response headers, no streaming. Returns `{status, body}` | `commands/plugins.rs:427-459` |
 | It accepts `insecure: true` — needed for slskd's default self-signed HTTPS cert | `commands/plugins.rs:429-432` |
 | Methods limited to GET/POST/PUT/DELETE/PATCH | `commands/plugins.rs:436-442` |
-| `file://` resolves to a playable local source on both engines | `useStreamResolution.ts:158-163` |
+| `file://` resolves to a playable local source for the engine | `useStreamResolution.ts:158-163` |
 | `download_file` URL-decodes and `fs::copy`s `file://` | `downloader.rs:418-425` |
 | Resolver budget is a hard 60 s | `useStreamResolution.ts:314` |
 | Host dependency badge is driven only by REGISTRY names | `App.tsx:556-575`, `commands/media.rs:85-91` |

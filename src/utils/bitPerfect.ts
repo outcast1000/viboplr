@@ -98,8 +98,6 @@ export type BitPerfectState =
   | { kind: "pending" }
   /** On, nothing playing — the device opens exclusively on the next play. */
   | { kind: "idle" }
-  /** The current track is playing through the browser engine instead. */
-  | { kind: "not-native" }
   /** Another app holds the device; playback resumes on release (mpv stalls
    *  silently on macOS, the engine retries on Windows). `canPlayShared`: turning
    *  the mode off plays through the shared mixer meanwhile — true on macOS, not
@@ -156,9 +154,9 @@ export function resolveBitPerfectState(
   if (!output) return { kind: "pending" };
   if (!output.devicePresent) return { kind: "gone" };
   if (output.trackKey === null) {
-    // The engine isn't playing. While the app is, the track went elsewhere
-    // (browser-engine fallback, which stops the engine first).
-    return ctx.playing && ctx.currentKey !== null ? { kind: "not-native" } : { kind: "idle" };
+    // The engine isn't playing. While the app says it is, the engine is
+    // between tracks and will report the next one — no verdict yet.
+    return ctx.playing && ctx.currentKey !== null ? { kind: "pending" } : { kind: "idle" };
   }
   // A report about a different track is stale (the watchdog polls) — or the
   // engine is still on the outgoing track. Neither is a verdict.
@@ -200,8 +198,6 @@ export function describeBitPerfectState(
       return { tone: "neutral", text: `Bit-perfect on ${deviceName} · checking…` };
     case "idle":
       return { tone: "neutral", text: `Bit-perfect on ${deviceName} · ready` };
-    case "not-native":
-      return { tone: "warn", text: "Not bit-perfect: this track is playing through the browser engine" };
     case "waiting":
       return {
         tone: "warn",

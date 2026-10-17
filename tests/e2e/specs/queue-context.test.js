@@ -100,7 +100,8 @@ test.skip('clearing queue removes context banner', async ({ page }) => {
 
   await expect(page.locator('.queue-context-banner')).toBeVisible({ timeout: 5000 });
 
-  // Use force:true to avoid crash from audio element teardown during clear
+  // force:true skips the actionability wait: the 0.25s fake-engine track ends
+  // and the player re-renders around the click
   await page.locator('button[title="Clear queue"]').click({ force: true });
 
   await expect(page.locator('.queue-context-banner')).not.toBeVisible({ timeout: 5000 });

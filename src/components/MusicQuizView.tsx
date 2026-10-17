@@ -1,8 +1,15 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { invoke, convertFileSrc } from "@tauri-apps/api/core";
-import type { Track } from "../types";
+import { invoke } from "@tauri-apps/api/core";
+import type { EngineSource, Track } from "../types";
 import { parseUrlScheme } from "../queueEntry";
 import { store } from "../store";
+import { subscribe, combineUnlisten } from "../utils/tauriEvents";
+import type {
+  EngineDurationEvent,
+  EngineEndedEvent,
+  EngineErrorEvent,
+  EnginePositionEvent,
+} from "../playback/nativeEngine";
 import {
   QUIZ_MODES,
   buildQuestion,
@@ -26,10 +33,16 @@ interface GameResult {
 }
 
 interface MusicQuizViewProps {
-  /** Pause the app's main playback so the mystery snippet plays alone. */
-  onPauseMainPlayback: () => void;
-  /** Main playback volume (0..1), mirrored to the quiz's own audio element. */
-  volume: number;
+  /** Play a snippet through the engine (usePlayback's clip API — it hands the
+   *  main player's place back afterwards). `key` is what the clip's `engine-*`
+   *  events carry; `onLost` runs when a main play or Stop takes the engine. */
+  playClip: (
+    source: EngineSource,
+    seekSecs?: number,
+    opts?: { onLost?: () => void },
+  ) => { key: string; started: Promise<void> };
+  seekClip: (key: string, secs: number) => void;
+  stopClip: (key: string) => void;
 }
 
 const ANSWER_LETTERS = ["A", "B", "C", "D"];
@@ -38,17 +51,18 @@ const QUIZ_POOL_SIZE = 400;
 // The clock turns urgent (red pulse) below this.
 const LOW_CLOCK_SECS = 15;
 
-/** Resolve a quiz track to something the view's own <audio> element can play. */
-async function resolveQuizSrc(track: Track): Promise<string> {
+/** Resolve a quiz track to something the engine can open. */
+async function resolveQuizSource(track: Track): Promise<EngineSource> {
   const parsed = parseUrlScheme(track.path ?? "");
-  if (parsed.scheme === "file") return convertFileSrc(parsed.path);
+  if (parsed.scheme === "file") return { kind: "file", path: parsed.path };
   if (parsed.scheme === "subsonic") {
-    return invoke<string>("resolve_subsonic_location", { location: parsed.url });
+    const url = await invoke<string>("resolve_subsonic_location", { location: parsed.url });
+    return { kind: "http", url };
   }
   throw new Error(`Unsupported quiz source: ${track.path}`);
 }
 
-export function MusicQuizView({ onPauseMainPlayback, volume }: MusicQuizViewProps) {
+export function MusicQuizView({ playClip, seekClip, stopClip }: MusicQuizViewProps) {
   const [phase, setPhase] = useState<Phase>("start");
   const [mode, setMode] = useState<QuizMode | null>(null);
   const [score, setScore] = useState(0);
@@ -65,7 +79,12 @@ export function MusicQuizView({ onPauseMainPlayback, volume }: MusicQuizViewProp
   // null = still checking the library; false = not enough playable tracks.
   const [canPlay, setCanPlay] = useState<boolean | null>(null);
 
-  const audioRef = useRef<HTMLAudioElement>(null);
+  // The snippet now playing (or last played) — its key filters the engine
+  // events, its source is what Replay reopens.
+  const clipKeyRef = useRef<string | null>(null);
+  const sourceRef = useRef<EngineSource | null>(null);
+  // The clip has reported a duration — the window is clamped once per clip.
+  const durationSeenRef = useRef(false);
   const timersRef = useRef<number[]>([]);
   // Bumped on every question load / restart / unmount so stale async work no-ops.
   const genRef = useRef(0);
@@ -93,9 +112,36 @@ export function MusicQuizView({ onPauseMainPlayback, volume }: MusicQuizViewProp
   }, []);
 
   const stopSnippet = useCallback(() => {
-    audioRef.current?.pause();
+    if (clipKeyRef.current) stopClip(clipKeyRef.current);
     setSnippetPlaying(false);
-  }, []);
+  }, [stopClip]);
+
+  /** Open the current question's source and play from the window's start. */
+  const startSnippet = useCallback(() => {
+    const source = sourceRef.current;
+    const win = windowRef.current;
+    if (!source || !win) return;
+    durationSeenRef.current = false;
+    setSnippetProgress(0);
+    // A main play (the bar, a media key, the assistant) took the engine: the
+    // clip's events stop here, so drop back to "replay" instead of freezing
+    // on "playing". Replaying takes the engine back.
+    const onLost = () => {
+      if (clipKeyRef.current !== key) return;
+      clipKeyRef.current = null;
+      setSnippetPlaying(false);
+    };
+    const { key, started } = playClip(source, win.start, { onLost });
+    clipKeyRef.current = key;
+    started
+      .then(() => {
+        if (clipKeyRef.current === key) setSnippetPlaying(true);
+      })
+      .catch((e) => {
+        console.error("Failed to start quiz snippet:", e);
+        if (clipKeyRef.current === key) snippetFailedRef.current();
+      });
+  }, [playClip]);
 
   const refreshPool = useCallback(async (): Promise<Track[] | null> => {
     try {
@@ -125,18 +171,10 @@ export function MusicQuizView({ onPauseMainPlayback, volume }: MusicQuizViewProp
     return () => {
       clearTimers();
       genRef.current++;
-      const audio = audioRef.current;
-      if (audio) {
-        audio.pause();
-        audio.removeAttribute("src");
-      }
+      if (clipKeyRef.current) stopClip(clipKeyRef.current);
+      clipKeyRef.current = null;
     };
-  }, [clearTimers]);
-
-  useEffect(() => {
-    const audio = audioRef.current;
-    if (audio) audio.volume = Math.min(1, Math.max(0, volume));
-  }, [volume, phase]);
+  }, [clearTimers, stopClip]);
 
   const finishGame = useCallback((reason: GameResult["reason"]) => {
     stopSnippet();
@@ -194,17 +232,13 @@ export function MusicQuizView({ onPauseMainPlayback, volume }: MusicQuizViewProp
       usedIdsRef.current.add(q.correct.id!);
 
       try {
-        const src = await resolveQuizSrc(q.correct);
+        const source = await resolveQuizSource(q.correct);
         if (gen !== genRef.current) return;
         windowRef.current = { start: q.snippetStart, len: q.snippetLen };
+        sourceRef.current = source;
         setQuestion(q);
         setPhase("question");
-        onPauseMainPlayback();
-        const audio = audioRef.current;
-        if (audio) {
-          audio.src = src;
-          audio.load();
-        }
+        startSnippet();
       } catch (e) {
         console.error("Failed to resolve quiz snippet source:", e);
         if (gen !== genRef.current) return;
@@ -216,7 +250,7 @@ export function MusicQuizView({ onPauseMainPlayback, volume }: MusicQuizViewProp
       }
       return;
     }
-  }, [finishGame, onPauseMainPlayback]);
+  }, [finishGame, startSnippet]);
 
   const startGame = useCallback(async (nextMode: QuizMode) => {
     clearTimers();
@@ -241,51 +275,13 @@ export function MusicQuizView({ onPauseMainPlayback, volume }: MusicQuizViewProp
     void loadQuestion();
   }, [clearTimers, refreshPool, loadQuestion]);
 
-  // --- audio element events -------------------------------------------------
+  // --- engine events --------------------------------------------------------
+  // Filtered by the clip's key: the engine also reports the main player's
+  // sessions, and an older snippet's events can still be in flight.
 
-  const handleLoadedMetadata = useCallback(() => {
-    const audio = audioRef.current;
-    const win = windowRef.current;
-    if (!audio || !win) return;
-    // The DB's duration tag can overstate the real file length (bad metadata,
-    // truncated files) — seeking past the end errors and would burn a retry.
-    // Clamp the window to what the decoder actually reports.
-    const realDuration = Number.isFinite(audio.duration) ? audio.duration : null;
-    let effectiveWin = win;
-    if (realDuration !== null && win.start >= realDuration) {
-      effectiveWin = { start: 0, len: Math.min(win.len, realDuration || win.len) };
-      windowRef.current = effectiveWin;
-    }
-    audio.currentTime = effectiveWin.start;
-    audio.play()
-      .then(() => {
-        retriesRef.current = 0;
-        setSnippetPlaying(true);
-      })
-      .catch((e) => console.error("Failed to start quiz snippet:", e));
-  }, []);
-
-  const handleTimeUpdate = useCallback(() => {
-    const audio = audioRef.current;
-    const win = windowRef.current;
-    if (!audio || !win) return;
-    const elapsed = audio.currentTime - win.start;
-    setSnippetProgress(Math.min(1, Math.max(0, elapsed / win.len)));
-    if (elapsed >= win.len) {
-      audio.pause();
-      setSnippetPlaying(false);
-      setSnippetProgress(1);
-    }
-  }, []);
-
-  // Very short tracks can hit EOF before the timeupdate cutoff fires.
-  const handleEnded = useCallback(() => {
-    setSnippetPlaying(false);
-    setSnippetProgress(1);
-  }, []);
-
-  const handleAudioError = useCallback(() => {
+  const handleSnippetError = useCallback(() => {
     console.error("Quiz snippet failed to load/decode; swapping question");
+    setSnippetPlaying(false);
     if (phase !== "question" && phase !== "loading") return;
     if (retriesRef.current < 3) {
       retriesRef.current++;
@@ -294,6 +290,50 @@ export function MusicQuizView({ onPauseMainPlayback, volume }: MusicQuizViewProp
       finishGame("error");
     }
   }, [phase, loadQuestion, finishGame]);
+  // Read by the once-mounted event subscriptions and by startSnippet.
+  const snippetFailedRef = useRef(handleSnippetError);
+  useAssignRef(snippetFailedRef, handleSnippetError);
+
+  useEffect(() => {
+    const ours = (key: string) => key === clipKeyRef.current;
+    return combineUnlisten(
+      subscribe<EngineDurationEvent>("engine-duration", ({ payload }) => {
+        if (!ours(payload.trackKey) || durationSeenRef.current) return;
+        durationSeenRef.current = true;
+        // The DB's duration tag can overstate the real file length (bad
+        // metadata, truncated files) — a window past the end would play
+        // nothing. Clamp it to what the decoder actually reports.
+        const win = windowRef.current;
+        if (!win || !(payload.durationSecs > 0) || win.start < payload.durationSecs) return;
+        windowRef.current = { start: 0, len: Math.min(win.len, payload.durationSecs) };
+        seekClip(payload.trackKey, 0);
+      }),
+      subscribe<EnginePositionEvent>("engine-position", ({ payload }) => {
+        if (!ours(payload.trackKey)) return;
+        const win = windowRef.current;
+        if (!win) return;
+        retriesRef.current = 0;
+        const elapsed = payload.positionSecs - win.start;
+        setSnippetProgress(Math.min(1, Math.max(0, elapsed / win.len)));
+        if (elapsed >= win.len) {
+          stopClip(payload.trackKey);
+          setSnippetPlaying(false);
+          setSnippetProgress(1);
+        }
+      }),
+      // Very short tracks can hit EOF before the position cutoff fires.
+      subscribe<EngineEndedEvent>("engine-ended", ({ payload }) => {
+        if (!ours(payload.trackKey)) return;
+        setSnippetPlaying(false);
+        setSnippetProgress(1);
+      }),
+      subscribe<EngineErrorEvent>("engine-error", ({ payload }) => {
+        if (!ours(payload.trackKey)) return;
+        console.error(`Quiz snippet engine error (${payload.code}):`, payload.message);
+        snippetFailedRef.current();
+      }),
+    );
+  }, [seekClip, stopClip]);
 
   // --- game actions ---------------------------------------------------------
 
@@ -326,15 +366,8 @@ export function MusicQuizView({ onPauseMainPlayback, volume }: MusicQuizViewProp
 
   const replaySnippet = useCallback(() => {
     if (phase !== "question") return;
-    const audio = audioRef.current;
-    const win = windowRef.current;
-    if (!audio || !win) return;
-    audio.currentTime = win.start;
-    setSnippetProgress(0);
-    audio.play()
-      .then(() => setSnippetPlaying(true))
-      .catch((e) => console.error("Failed to replay quiz snippet:", e));
-  }, [phase]);
+    startSnippet();
+  }, [phase, startSnippet]);
 
   const skipQuestion = useCallback(() => {
     const currentMode = modeRef.current;
@@ -552,16 +585,6 @@ export function MusicQuizView({ onPauseMainPlayback, volume }: MusicQuizViewProp
           </>
         )}
       </div>
-
-      <audio
-        ref={audioRef}
-        preload="auto"
-        style={{ display: "none" }}
-        onLoadedMetadata={handleLoadedMetadata}
-        onTimeUpdate={handleTimeUpdate}
-        onEnded={handleEnded}
-        onError={handleAudioError}
-      />
     </div>
   );
 }

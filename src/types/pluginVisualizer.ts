@@ -206,7 +206,7 @@ export interface PluginVisualizerActions {
    * Set the playback rate. 1 is normal.
    *
    * Added for the other control a deck draws: the speed selector. Pitch rides
-   * along with tempo on both engines, because that is what a turntable does —
+   * along with tempo, because that is what a turntable does —
    * this is "the deck is set to 45", not a tempo tool.
    *
    * A state, not a delta, for the same staleness reason as `setPlaying`.

@@ -102,8 +102,7 @@ The two halves meet in the product: an app written by an AI, designed from day o
 - **Tags**: Genre metadata from files stored as tags with many-to-many track relationships
 
 ### Playback
-- **Native mpv Engine**: The default engine, built on bundled libmpv — native decode of every supported format, sample-accurate gapless playback, and exclusive (bit-perfect) audio output; native video rendering on macOS and Windows
-- **Browser Engine Fallback**: HTML5 audio/video via the system webview — used automatically when mpv can't play a track
+- **Native mpv Engine**: Everything plays through bundled libmpv — native decode of every supported format, sample-accurate gapless playback, and exclusive (bit-perfect) audio output; native video rendering on macOS and Windows
 - **10-Band Equalizer & ReplayGain**: Simple bass/treble or advanced parametric EQ, plus tag-based volume normalization
 - **Crossfade & Gapless**: Configurable crossfade up to 10s; at 0, tracks transition gapless
 - **Playback Speed**: Turntable-style speed control (pitch follows tempo)
@@ -170,9 +169,9 @@ The two halves meet in the product: an app written by an AI, designed from day o
 
 ## Supported Formats
 
-**Audio** (all decoded natively by the bundled mpv engine): MP3, FLAC, AAC/M4A, ALAC, WAV, OPUS, WMA, OGG/OGA, SPX, AIFF, APE, WavPack, TTA, DSF/DFF (DSD), Musepack, MKA, CAF. On the browser fallback engine, only the webview-native formats play.
+**Audio** (all decoded natively by the bundled mpv engine): MP3, FLAC, AAC/M4A, ALAC, WAV, OPUS, WMA, OGG/OGA, SPX, AIFF, APE, WavPack, TTA, DSF/DFF (DSD), Musepack, MKA, CAF.
 
-**Video**: MP4/M4V/MOV (H.264) on both platforms; WebM (VP8/VP9) on Windows only via the browser engine. The mpv engine renders video natively on macOS and Windows.
+**Video**: MP4/M4V/MOV, WebM, MKV, AVI and WMV, rendered natively by the mpv engine on macOS and Windows.
 
 ## Development
 
