@@ -55,6 +55,20 @@ export function clampLyricOffset(secs: number): number {
   return Math.round(clamped * 10) / 10;
 }
 
+/** The persisted `lyricsOffsets` record as restored at startup: string keys
+ *  with finite offsets, each clamped; zero and anything malformed dropped
+ *  (zero is pruned on write too, so a stored zero is just noise). */
+export function coerceLyricOffsets(raw: unknown): Record<string, number> {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return {};
+  const out: Record<string, number> = {};
+  for (const [key, value] of Object.entries(raw as Record<string, unknown>)) {
+    if (typeof value !== "number") continue;
+    const secs = clampLyricOffset(value);
+    if (secs !== 0) out[key] = secs;
+  }
+  return out;
+}
+
 /** Signed, one-decimal label for the offset readout. Uses a true minus sign
  *  (U+2212) rather than a hyphen so it aligns with the `+` at the same width. */
 export function formatLyricOffset(secs: number): string {

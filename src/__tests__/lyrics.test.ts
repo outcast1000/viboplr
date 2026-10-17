@@ -9,6 +9,7 @@ import {
   hashStringToRatio,
   lyricPosition,
   clampLyricOffset,
+  coerceLyricOffsets,
   formatLyricOffset,
   lyricOffsetKey,
   centeredScrollTop,
@@ -207,6 +208,25 @@ describe("lyricPosition", () => {
 
   it("is identity at zero", () => {
     expect(lyricPosition(42.5, 0)).toBe(42.5);
+  });
+});
+
+describe("coerceLyricOffsets", () => {
+  // The startup restore: before it existed the record was written but never
+  // read back, so every launch started empty and the first nudge overwrote it.
+  it("keeps finite, non-zero offsets, clamped", () => {
+    expect(coerceLyricOffsets({ "track:a:b": 2.5, "track:c:d": -999 })).toEqual({
+      "track:a:b": 2.5,
+      "track:c:d": -LYRIC_OFFSET_MAX,
+    });
+  });
+
+  it("drops zero and non-number entries", () => {
+    expect(coerceLyricOffsets({ zero: 0, text: "3", nan: NaN, nil: null })).toEqual({});
+  });
+
+  it("reads anything that is not a plain object as empty", () => {
+    for (const raw of [null, undefined, 3, "x", [1, 2]]) expect(coerceLyricOffsets(raw)).toEqual({});
   });
 });
 

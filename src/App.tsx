@@ -15,7 +15,7 @@ import "./App.css";
 
 import type { Track, QueueTrack, View, ViewMode, ColumnConfig, SortField, SortDir, Collection, ResolvedTrackSource, Album, Artist, Tag, TrackSelection } from "./types";
 import { isVideoTrack, parseSubsonicUrl, trashLabel } from "./utils";
-import { parseLrc, syncedLyricsFitMedia, lyricOffsetKey, clampLyricOffset } from "./utils/lyrics";
+import { parseLrc, syncedLyricsFitMedia, lyricOffsetKey, clampLyricOffset, coerceLyricOffsets } from "./utils/lyrics";
 
 import { store, RETIRED_STORE_KEYS } from "./store";
 import { readPersistedSettings } from "./startup/readPersistedSettings";
@@ -3382,7 +3382,7 @@ function App() {
           minimizeToMiniPlayer: savedMinimizeToMiniPlayer,
           confirmTrashDelete: savedConfirmTrashDelete, videoStoryboards: savedVideoStoryboards,
           bitPerfectSkipConfirm: savedBitPerfectSkipConfirm,
-          radioOptions: savedRadioOptions, playerBarPins: savedPlayerBarPins,
+          radioOptions: savedRadioOptions, playerBarPins: savedPlayerBarPins, lyricsOffsets: savedLyricsOffsets,
           openNowPlayingOnPlay: savedOpenNowPlayingOnPlay, openNowPlayingOnVideoPlay: savedOpenNowPlayingOnVideoPlay,
           updateNoticeDismissed: savedUpdateNoticeDismissed,
           reduceMotion: savedReduceMotion,
@@ -3482,6 +3482,7 @@ function App() {
         if (savedVideoStoryboards === false) setVideoStoryboards(false);
         if (savedRadioOptions !== undefined) setRadioOptions(coerceRadioOptions(savedRadioOptions));
         if (savedPlayerBarPins !== undefined) setPlayerBarPins(normalizePlayerBarPins(savedPlayerBarPins));
+        if (savedLyricsOffsets !== undefined) setLyricsOffsets(coerceLyricOffsets(savedLyricsOffsets));
         if (savedUpdateNoticeDismissed) setUpdateNoticeDismissed(savedUpdateNoticeDismissed);
         if (savedReduceMotion) { setReduceMotion(true); applyReduceMotionAttr(true); }
         if (savedScrollLongTitles) setScrollLongTitles(true);
