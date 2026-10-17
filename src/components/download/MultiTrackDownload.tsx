@@ -20,7 +20,6 @@ type BatchStep = "configure" | "resolve" | "review" | "downloading" | "done";
 
 export function MultiTrackDownload({
   tracks,
-  providerId,
   providerName,
   confirmed,
   qualityOptions,
@@ -34,7 +33,6 @@ export function MultiTrackDownload({
   onPlay,
 }: {
   tracks: DownloadTrack[];
-  providerId: string;
   providerName: string;
   confirmed?: boolean;
   qualityOptions?: DownloadQualityOption[] | null;
@@ -548,7 +546,7 @@ export function MultiTrackDownload({
     <>
       <div className="dl-head">
         <h2>{headTitle}</h2>
-        <ProviderChip name={providerName} providerId={providerId} />
+        <ProviderChip name={providerName} />
       </div>
 
       {tracks.length === 0 && (

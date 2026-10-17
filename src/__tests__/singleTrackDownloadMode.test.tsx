@@ -29,7 +29,6 @@ function renderModal(props: { uri: string | null; resolveTrack?: ReturnType<type
   const utils = render(
     <SingleTrackDownload
       track={{ title: "Lady Writer", artistName: "Dire Straits", uri: props.uri }}
-      providerId="slskd:slskd-import"
       providerName="Soulseek"
       resolveTrack={props.resolveTrack as never}
       collections={[{ id: 1, name: "Music", path: "/music" }]}

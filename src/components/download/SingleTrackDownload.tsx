@@ -34,7 +34,6 @@ function formatElapsed(secs: number): string {
 
 export function SingleTrackDownload({
   track,
-  providerId,
   providerName,
   resolveTrack,
   qualityOptions,
@@ -49,7 +48,6 @@ export function SingleTrackDownload({
   onPlay,
 }: {
   track: DownloadTrack;
-  providerId: string;
   providerName: string;
   /** How to fetch this exact track (a `DownloadPlan.resolve`). Present: start
    *  on the configure step and call it. Absent: the provider's interactive
@@ -621,7 +619,7 @@ export function SingleTrackDownload({
     <>
       <div className="dl-head">
         <h2>{isUpgrade && !showDestPicker ? "Upgrade track" : "Download track"}</h2>
-        <ProviderChip name={providerName} providerId={providerId} />
+        <ProviderChip name={providerName} />
       </div>
       {step !== "configure" && (
         <p className="dl-track">

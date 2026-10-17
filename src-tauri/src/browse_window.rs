@@ -3,13 +3,6 @@ use tauri::utils::config::BackgroundThrottlingPolicy;
 use tauri::{Emitter, Manager, WebviewUrl, WebviewWindowBuilder};
 
 #[derive(Clone, Serialize)]
-struct BrowseWindowMessage {
-    label: String,
-    msg_type: String,
-    data: String,
-}
-
-#[derive(Clone, Serialize)]
 struct BrowseWindowNavigation {
     label: String,
     url: String,
@@ -400,26 +393,6 @@ pub async fn browse_window_set_visible(
         window.hide().map_err(|e| e.to_string())?;
     }
     Ok(())
-}
-
-/// Receive a message from browse-window injected JS and re-emit as a
-/// Tauri event so the frontend plugin host can forward it to the plugin.
-#[tauri::command]
-pub async fn browse_window_send(
-    app: tauri::AppHandle,
-    label: String,
-    msg_type: String,
-    data: String,
-) -> Result<(), String> {
-    app.emit(
-        "browse-window-message",
-        BrowseWindowMessage {
-            label,
-            msg_type,
-            data,
-        },
-    )
-    .map_err(|e| e.to_string())
 }
 
 #[cfg(test)]

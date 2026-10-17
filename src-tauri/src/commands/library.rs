@@ -530,7 +530,7 @@ pub fn apply_tag_to_tracks(
 }
 
 /// Recount tag usage after DB-only adds that don't recount themselves
-/// (`plugin_apply_tags[_bulk]`) — see `Database::recompute_tag_counts`.
+/// (`plugin_apply_tags_bulk`) — see `Database::recompute_tag_counts`.
 #[tauri::command]
 pub fn refresh_tag_counts(state: State<'_, AppState>) -> Result<(), String> {
     state.db.recompute_tag_counts().map_err(|e| e.to_string())

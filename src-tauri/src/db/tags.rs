@@ -311,7 +311,7 @@ impl Database {
 
     /// Recount `tags.track_count` only — the tag third of `recompute_counts`,
     /// without its artist/album recount or orphan reaping. For DB-only tag
-    /// adds that bypass `apply_tag_to_tracks` (`plugin_apply_tags[_bulk]`):
+    /// adds that bypass `apply_tag_to_tracks` (`plugin_apply_tags_bulk`):
     /// `get_tags` lists only `track_count > 0`, so without a recount a tag
     /// they create never appears in the Library at all. Cheap enough for the
     /// frontend to run once per burst of adds (utils/tagOps.ts debounces it).

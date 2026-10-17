@@ -86,7 +86,9 @@ impl Database {
     }
 
     /// Get a single cached info value by integer type ID.
-    /// Returns (value, status, fetched_at) or None.
+    /// Returns (value, status, fetched_at) or None. Test-only: the app reads
+    /// values per entity (`info_get_values_for_entity`).
+    #[cfg(test)]
     pub fn info_get_value(&self, information_type_id: i64, entity_key: &str) -> SqlResult<Option<(String, String, i64)>> {
         let conn = self.conn.lock().unwrap();
         let mut stmt = conn.prepare(

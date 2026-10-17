@@ -44,7 +44,7 @@ For each canonical action in `conventions.md`, find callers that reimplement the
 - **Show in Folder:** Grep for `invoke("show_in_folder"` outside `useContextMenuActions.ts`.
 - **Download Track:** Grep for `invoke("download_track"` outside `useDownloads.ts`.
 - **Record Play / Scrobble:** Grep for `invoke("record_play"` outside `usePlayback.ts` / `App.tsx`. Grep for duplicated scrobble-threshold logic (look for `>= 240` or `0.5 * duration` patterns).
-- **Tag Operations:** Grep for `invoke("plugin_apply_tags"` or `invoke("replace_track_tags"` outside `TrackDetailView.tsx` / related tag entry points.
+- **Tag Operations:** Grep for `invoke("plugin_apply_tags_bulk"` or `invoke("replace_track_tags"` outside `TrackDetailView.tsx` / related tag entry points.
 
 **Report format:** `file:line — <action> reimplemented; route through <canonical hook/function>`
 

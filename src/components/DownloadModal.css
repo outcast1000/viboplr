@@ -566,11 +566,6 @@
   flex-shrink: 0;
 }
 
-/* Brand mark for the YouTube provider (a logo color, not skin chrome). */
-.dl-prov--yt svg {
-  color: #ff0033;
-}
-
 /* Segmented pill control (quality / format). Wraps to a second line and can
    shrink (min-width:0) so wide/long option labels never overflow the fixed
    modal width and get clipped by its overflow-x guard. */

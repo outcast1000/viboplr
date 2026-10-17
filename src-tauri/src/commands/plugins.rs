@@ -1,15 +1,6 @@
 // Auto-split from commands.rs. See commands/mod.rs for shared types & helpers.
 use super::*;
 
-#[tauri::command]
-pub fn plugin_get_dir(state: State<'_, AppState>) -> Result<String, String> {
-    let plugins_dir = state.app_dir.join("plugins");
-    if !plugins_dir.exists() {
-        std::fs::create_dir_all(&plugins_dir).map_err(|e| e.to_string())?;
-    }
-    Ok(plugins_dir.to_string_lossy().to_string())
-}
-
 // Scan a single external "dev" plugin folder (one folder = one plugin). Unlike
 // scan_plugins_dir, the plugin id comes from the MANIFEST's "id" field (not the
 // directory name) so a dev folder named e.g. "viboplr-spotify" can correctly
@@ -347,22 +338,6 @@ pub fn plugin_set_track_likes_batch(
 }
 
 #[tauri::command]
-pub fn plugin_apply_tags(
-    state: State<'_, AppState>,
-    track_id: i64,
-    tag_names: Vec<String>,
-) -> Result<Vec<(i64, String)>, String> {
-    let mut result = Vec::new();
-    for name in &tag_names {
-        let tag_id = state.db.get_or_create_tag(name).map_err(|e| e.to_string())?;
-        state.db.add_track_tag(track_id, tag_id).map_err(|e| e.to_string())?;
-        result.push((tag_id, name.clone()));
-    }
-    let _ = state.db.update_fts_for_track(track_id);
-    Ok(result)
-}
-
-#[tauri::command]
 pub fn plugin_apply_tags_bulk(
     state: State<'_, AppState>,
     assignments: Vec<(i64, Vec<String>)>,
@@ -399,15 +374,6 @@ pub fn info_get_types_for_entity(
     entity: String,
 ) -> Result<Vec<(String, String, String, i64, i64, Vec<(String, i64)>, String)>, String> {
     state.db.info_get_types_for_entity(&entity).map_err(|e| e.to_string())
-}
-
-#[tauri::command]
-pub fn info_get_value(
-    state: State<'_, AppState>,
-    information_type_id: i64,
-    entity_key: String,
-) -> Result<Option<(String, String, i64)>, String> {
-    state.db.info_get_value(information_type_id, &entity_key).map_err(|e| e.to_string())
 }
 
 #[tauri::command]

@@ -15,7 +15,6 @@ export type { DownloadTrack } from "./download/types";
 
 interface DownloadModalProps {
   tracks: DownloadTrack[];
-  providerId: string;
   providerName: string;
   confirmed?: boolean;
   /** See `DownloadModalState.resolveTrack`. */
@@ -39,7 +38,6 @@ interface DownloadModalProps {
 
 export function DownloadModal({
   tracks,
-  providerId,
   providerName,
   confirmed,
   resolveTrack,
@@ -62,7 +60,6 @@ export function DownloadModal({
         {isSingle ? (
           <SingleTrackDownload
             track={tracks[0]}
-            providerId={providerId}
             providerName={providerName}
             resolveTrack={resolveTrack}
             qualityOptions={qualityOptions}
@@ -79,7 +76,6 @@ export function DownloadModal({
         ) : (
           <MultiTrackDownload
             tracks={tracks}
-            providerId={providerId}
             providerName={providerName}
             confirmed={confirmed}
             qualityOptions={qualityOptions}

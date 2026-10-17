@@ -6921,7 +6921,6 @@ function App() {
         return (
         <DownloadModal
           tracks={downloadModal.tracks}
-          providerId={downloadModal.providerId}
           providerName={downloadModal.providerName}
           confirmed={downloadModal.confirmed}
           resolveTrack={downloadModal.resolveTrack}

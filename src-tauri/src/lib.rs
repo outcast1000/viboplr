@@ -3,7 +3,6 @@ mod assistant_describe;
 mod assistant_write;
 mod browse_window;
 mod commands;
-mod composite_image;
 mod control_api;
 mod cue_sheets;
 mod db;
@@ -179,7 +178,6 @@ macro_rules! invoke_handler {
             commands::get_track_play_history,
             commands::get_track_play_stats,
             commands::get_auto_continue_track,
-            commands::build_radio_for_track,
             commands::build_radio_station,
             commands::pick_radio_seeds,
             commands::save_playlist_entries,
@@ -196,12 +194,10 @@ macro_rules! invoke_handler {
             commands::update_playlist_meta,
             commands::set_playlist_cover,
             commands::export_playlist_m3u,
-            commands::update_playlist_image,
             commands::update_playlist_track_metadata,
             commands::paste_clipboard_to_playlist_images,
             commands::copy_to_playlist_images,
             commands::download_url_to_playlist_images,
-            commands::generate_playlist_composite,
             commands::get_startup_timings,
             commands::write_probe_dump,
             commands::window_native_id,
@@ -214,10 +210,6 @@ macro_rules! invoke_handler {
             commands::dependency_check_updates,
             commands::plugin_exec,
             commands::plugin_exec_cancel,
-            commands::yt_dlp_check,
-            commands::ffmpeg_check,
-            commands::yt_dlp_stream_audio,
-            commands::ffmpeg_convert_audio,
             commands::get_video_frames,
             commands::extract_video_frames,
             commands::get_storyboard,
@@ -254,7 +246,6 @@ macro_rules! invoke_handler {
             commands::install_gallery_skin,
             commands::open_devtools,
             commands::open_devtools_for_window,
-            commands::plugin_get_dir,
             commands::plugin_list_installed,
             commands::plugin_read_file,
             commands::plugin_asset_path,
@@ -268,11 +259,9 @@ macro_rules! invoke_handler {
             commands::plugin_getenv,
             commands::plugin_record_history_plays_batch,
             commands::plugin_set_track_likes_batch,
-            commands::plugin_apply_tags,
             commands::plugin_apply_tags_bulk,
             commands::info_sync_types,
             commands::info_get_types_for_entity,
-            commands::info_get_value,
             commands::info_get_values_for_entity,
             commands::info_upsert_value,
             commands::info_delete_value,
@@ -341,7 +330,6 @@ macro_rules! invoke_handler {
             browse_window::browse_window_eval,
             browse_window::close_browse_window,
             browse_window::browse_window_set_visible,
-            browse_window::browse_window_send,
             commands::engine_capabilities,
             commands::engine_component_status,
             commands::engine_component_install,
@@ -1077,6 +1065,8 @@ pub fn run() {
                 let _ = std::fs::create_dir_all(app_dir.join("tag_images"));
             });
 
+            // `yt_cache` held the removed `yt_dlp_stream_audio` command's
+            // downloads; this only empties what older versions left behind.
             // Defer yt_cache cleanup to a background thread so it never blocks
             // the setup path — directory walks and unlinks add up quickly when
             // the cache has accumulated stale entries.

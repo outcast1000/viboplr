@@ -187,7 +187,7 @@ export function InformationSections({
       }
       return;
     }
-    if (actionId === "play-track" || actionId === "enqueue-track" || actionId === "play-or-youtube") {
+    if (actionId === "play-track" || actionId === "enqueue-track") {
       const p = payload as { name?: string; artist?: string } | undefined;
       if (!p?.name || !onAction) return;
       const artist = resolveArtist(p.artist);
