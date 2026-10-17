@@ -32,8 +32,24 @@ const playbackFailure: TrackFailure = {
 
 describe("mergeTrackFailure", () => {
   it("keeps the chain's record when handlePlay re-reports the same exhausted chain", () => {
-    const rereport: TrackFailure = { stage: "playback", summary: CHAIN_EXHAUSTED_MESSAGE, at: 3_000, attempts: [] };
+    const rereport: TrackFailure = { stage: "resolve", summary: CHAIN_EXHAUSTED_MESSAGE, at: 3_000, attempts: [] };
     expect(mergeTrackFailure(resolveFailure, rereport)).toBe(resolveFailure);
+  });
+
+  it("a refined re-report (offline) keeps the chain's attempts and its stage", () => {
+    const offline: TrackFailure = { stage: "resolve", summary: "You're offline", at: 3_000, attempts: [] };
+    const merged = mergeTrackFailure(resolveFailure, offline);
+    expect(merged.stage).toBe("resolve");
+    expect(merged.summary).toBe("You're offline");
+    expect(merged.attempts).toBe(resolveFailure.attempts);
+  });
+
+  it("an engine-unavailable failure never claims a source was found", () => {
+    const engine: TrackFailure = { stage: "engine", summary: "The playback engine couldn't start", at: 3_000, attempts: [] };
+    expect(mergeTrackFailure(playbackFailure, engine)).toBe(engine);
+    const d = describeTrackFailure(engine, 3_000);
+    expect(d.explanation).not.toMatch(/source was found/);
+    expect(d.rows.map((r) => r.label)).toEqual(["When"]);
   });
 
   it("an engine failure replaces an earlier resolve failure", () => {

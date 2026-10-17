@@ -22,8 +22,14 @@ export interface ResolverAttempt {
   detail?: string | null;
 }
 
+/** How far the play got before it failed:
+ *  - "engine": libmpv isn't loaded, so nothing was even asked for a source.
+ *  - "resolve": no source was found (or none could be asked).
+ *  - "playback": a source was handed to the engine and it couldn't open it. */
+export type TrackFailureStage = "engine" | "resolve" | "playback";
+
 export interface TrackFailure {
-  stage: "resolve" | "playback";
+  stage: TrackFailureStage;
   /** Short line shown after "Couldn't play · " on the queue row. */
   summary: string;
   /** Epoch ms of the (latest) failure. */
@@ -48,12 +54,15 @@ export const CHAIN_EXHAUSTED_MESSAGE = "Couldn't find a playable source for this
  * Merge an incoming failure into the entry's existing one.
  *
  * The chain records a `resolve` failure with every attempt; `handlePlay` then
- * surfaces the same failure as a bare message. Keep the record that knows more.
- * Anything else is a newer failure and replaces it.
+ * reports the same failure again with no attempts — as the bare chain message,
+ * or refined (offline). Keep the chain's attempts; take a refined summary,
+ * since it names the real cause. Anything else is a newer failure and replaces
+ * it.
  */
 export function mergeTrackFailure(existing: TrackFailure | undefined, incoming: TrackFailure): TrackFailure {
-  if (existing?.stage === "resolve" && incoming.stage === "playback" && incoming.summary === CHAIN_EXHAUSTED_MESSAGE && !incoming.engineError) {
-    return existing;
+  if (existing?.stage === "resolve" && incoming.stage === "resolve" && incoming.attempts.length === 0) {
+    if (incoming.summary === CHAIN_EXHAUSTED_MESSAGE) return existing;
+    return { ...existing, summary: incoming.summary, at: incoming.at };
   }
   return incoming;
 }
@@ -98,9 +107,11 @@ export function describeTrackFailure(f: TrackFailure, now: number = Date.now()):
   return {
     headline: f.summary,
     explanation:
-      f.stage === "resolve"
-        ? "None of your sources could find this track."
-        : "A source was found, but the player couldn't open it.",
+      f.stage === "engine"
+        ? "The player couldn't start on this machine, so no source was tried."
+        : f.stage === "resolve"
+          ? "None of your sources could find this track."
+          : "A source was found, but the player couldn't open it.",
     rows,
     attempts: f.attempts.map((a) => ({
       name: a.name,

@@ -42,7 +42,7 @@ function ref<T>(current: T) {
   return { current };
 }
 
-function mount(resolve: (t: QueueTrack) => Promise<ResolvedTrackSource>) {
+function mount(resolve: (t: QueueTrack) => Promise<ResolvedTrackSource>, opts: { engine?: boolean } = {}) {
   const outcome: PlaybackOutcomeHandlers = { failed: vi.fn(), started: vi.fn() };
   const hook = renderHook(() =>
     usePlayback(
@@ -53,7 +53,7 @@ function mount(resolve: (t: QueueTrack) => Promise<ResolvedTrackSource>) {
       ref(() => ({ offered: false, accepted: false })),
       ref(resolve),
       ref(() => {}),
-      ref(true),
+      ref(opts.engine ?? true),
       ref(true),
       ref(() => {}),
       ref(null),
@@ -82,6 +82,7 @@ describe("usePlayback → per-entry failure record", () => {
     // A local file isn't retried: its first engine error is the final one.
     emit("engine-error", { trackKey: "q:1", code: "decode", message: "loading failed (-13)" });
     expect(outcome.failed).toHaveBeenCalledWith("q:1", expect.objectContaining({
+      stage: "playback",
       engineError: "loading failed (-13)",
       tries: 1,
     }));
@@ -97,8 +98,42 @@ describe("usePlayback → per-entry failure record", () => {
   it("records a play that throws before the engine opens anything", async () => {
     const { result, outcome } = mount(async () => { throw new Error(CHAIN_EXHAUSTED_MESSAGE); });
     await act(async () => { await result.current.handlePlay(song); });
-    expect(outcome.failed).toHaveBeenCalledWith("q:1", expect.objectContaining({ summary: CHAIN_EXHAUSTED_MESSAGE }));
+    // Nothing reached the engine, so it is a resolve failure, not a source
+    // the player rejected.
+    expect(outcome.failed).toHaveBeenCalledWith("q:1", expect.objectContaining({
+      stage: "resolve",
+      summary: CHAIN_EXHAUSTED_MESSAGE,
+    }));
     expect(outcome.started).not.toHaveBeenCalled();
+  });
+
+  it("a probe answering after the user played again doesn't bring the note back", async () => {
+    const { invoke } = await import("@tauri-apps/api/core");
+    let answerProbe: (exists: boolean) => void = () => {};
+    vi.mocked(invoke).mockImplementation(async (cmd: string) => {
+      if (cmd === "file_exists") return new Promise<boolean>((r) => { answerProbe = r; });
+      return true;
+    });
+    try {
+      const { result, outcome } = mount(async () => resolved);
+      await act(async () => { await result.current.handlePlay(song); });
+      emit("engine-error", { trackKey: "q:1", code: "decode", message: "loading failed (-13)" });
+      expect(outcome.failed).toHaveBeenCalledTimes(1);
+      // Try again, and it plays — before the disk probe has answered.
+      await act(async () => { await result.current.handlePlay(song); });
+      emit("engine-position", { trackKey: "q:1", positionSecs: 0.5 });
+      await act(async () => { answerProbe(false); });
+      expect(outcome.failed).toHaveBeenCalledTimes(1);
+    } finally {
+      vi.mocked(invoke).mockReset();
+      vi.mocked(invoke).mockResolvedValue(true);
+    }
+  });
+
+  it("files a missing engine as an engine failure, not a rejected source", async () => {
+    const { result, outcome } = mount(async () => resolved, { engine: false });
+    await act(async () => { await result.current.handlePlay(song); });
+    expect(outcome.failed).toHaveBeenCalledWith("q:1", expect.objectContaining({ stage: "engine" }));
   });
 
   it("a failure after a successful play lets the next success clear it again", async () => {

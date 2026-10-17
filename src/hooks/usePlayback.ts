@@ -42,11 +42,19 @@ import { setPlaybackPosition, getPlaybackPosition } from "../playback/positionSt
 import { noteNativeFailure, clearNativeRetries, streamLadderStep } from "../playback/playbackRetry";
 import type { EqClipProtection, EqMode } from "../eqPresets";
 import { useAssignRef } from "./useLatestRef";
-import { CHAIN_EXHAUSTED_MESSAGE } from "../playback/trackFailures";
+import { CHAIN_EXHAUSTED_MESSAGE, type TrackFailureStage } from "../playback/trackFailures";
 
 /** What usePlayback tells the per-entry failure record (see its last param). */
+export interface PlaybackFailureInfo {
+  /** How far the play got — see `TrackFailureStage`. */
+  stage: TrackFailureStage;
+  summary: string;
+  engineError?: string | null;
+  tries?: number | null;
+}
+
 export interface PlaybackOutcomeHandlers {
-  failed: (key: string, info: { summary: string; engineError?: string | null; tries?: number | null }) => void;
+  failed: (key: string, info: PlaybackFailureInfo) => void;
   started: (key: string) => void;
 }
 
@@ -790,7 +798,7 @@ export function usePlayback(
           return;
         }
         setPlaying(false);
-        surfacePlaybackFailureRef.current(engineErrorMessage(payload.message), track, lastPlaySrcRef.current, {
+        surfacePlaybackFailureRef.current(engineErrorMessage(payload.message), track, lastPlaySrcRef.current, "playback", {
           engineError: payload.message,
           tries: failures,
         });
@@ -820,6 +828,9 @@ export function usePlayback(
     invalidatePreload();
     setPlaybackError(null);
     setLoadingTrack(track);
+    // Whether a source reached the engine — a failure before that is no source
+    // (or no engine), not a source the player rejected.
+    let handedToEngine = false;
 
     try {
       // Nothing can play without the engine — say so before running a resolver
@@ -864,6 +875,7 @@ export function usePlayback(
       // Merge that metadata in so the session opens as the right media type and
       // the now-playing UI classifies it correctly via currentTrack.
       const playTrack = resolved.patch ? { ...track, ...resolved.patch } : track;
+      handedToEngine = true;
       await playWithSrc(playTrack, resolved.src, source, resolved.engineSource ?? null);
     } catch (e) {
       // A newer play request has superseded this one — its outcome belongs to a
@@ -880,7 +892,11 @@ export function usePlayback(
       setCurrentTrack(track);
       // Nothing loaded: the previous track's length doesn't describe this one.
       setDurationSecs(0);
-      surfacePlaybackFailure(e instanceof Error ? e.message : String(e), track, lastPlaySrcRef.current);
+      const message = e instanceof Error ? e.message : String(e);
+      const stage: TrackFailureStage = handedToEngine
+        ? "playback"
+        : message === ENGINE_UNAVAILABLE_ERROR ? "engine" : "resolve";
+      surfacePlaybackFailure(message, track, lastPlaySrcRef.current, stage);
     } finally {
       if (isCurrentPlayGeneration(generation, playGenerationRef.current)) {
         setLoadingTrack(null);
@@ -1146,13 +1162,23 @@ export function usePlayback(
     base: string,
     track: QueueTrack | null,
     src: string | null,
+    stage: TrackFailureStage,
     engine?: { engineError: string; tries: number },
   ) {
     // The queue row keeps saying this after the toast or modal is gone — and a
     // click on it explains it (playback/trackFailures.ts).
     const recordFailure = (summary: string) => {
       if (!track) return;
-      playbackOutcomeRef?.current?.failed(track.key, { summary, engineError: engine?.engineError, tries: engine?.tries });
+      playbackOutcomeRef?.current?.failed(track.key, { stage, summary, engineError: engine?.engineError, tries: engine?.tries });
+    };
+    // The probes below answer seconds later. By then the user may have played
+    // again (Try again, another track) — and that play may already have started
+    // (clearing this record) or failed afresh (writing a newer one). Either
+    // way the refinement no longer describes the row, so it must not land.
+    const generation = playGenerationRef.current;
+    const recordRefined = (summary: string) => {
+      if (playGenerationRef.current !== generation) return;
+      recordFailure(summary);
     };
     if (track) {
       if (startedReportedKeyRef.current === track.key) startedReportedKeyRef.current = null;
@@ -1198,7 +1224,7 @@ export function usePlayback(
           const refined = describeLocalPlaybackFailure(base, exists);
           if (refined === base) return;
           setPlaybackError(prev => (prev === base ? refined : prev));
-          recordFailure(refined);
+          recordRefined(refined);
         })
         .catch((e) => console.error("Failed to probe playback file existence:", e));
       return;
@@ -1207,7 +1233,7 @@ export function usePlayback(
       const refined = describePlaybackFailure(base, true, network);
       if (refined === base) return;
       setPlaybackError(prev => (prev === base ? refined : prev));
-      recordFailure(refined);
+      recordRefined(refined);
     });
   }
   const surfacePlaybackFailureRef = useRef(surfacePlaybackFailure);

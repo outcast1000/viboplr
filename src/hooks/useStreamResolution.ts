@@ -15,6 +15,7 @@ import {
   type ResolverAttempt,
   type TrackFailure,
 } from "../playback/trackFailures";
+import type { PlaybackFailureInfo } from "./usePlayback";
 
 import { useAssignRef } from "./useLatestRef";
 import type { Notify } from "./useToasts";
@@ -241,7 +242,7 @@ export function useStreamResolution({
   const [trackFailures, setTrackFailures] = useState<Record<string, TrackFailure>>({});
   const clearResolveStageFailure = useCallback((key: string) => {
     setTrackFailures(prev => {
-      if (prev[key]?.stage !== "resolve") return prev;
+      if (!prev[key] || prev[key].stage === "playback") return prev;
       const next = { ...prev };
       delete next[key];
       return next;
@@ -786,15 +787,19 @@ export function useStreamResolution({
   }, [resolveTrackSrcRef, resolveStreamByUriRef, streamResolversRef, preferVideoRef, clearResolveStageFailure]);
 
   /** The engine gave up on an entry (after its retries) or the play threw.
-   *  Attaches what the chain tried and the source the engine was handed. */
+   *  A `playback` failure attaches what the chain tried and the source the
+   *  engine was handed; the earlier stages attach neither — no source reached
+   *  the engine, and the last one the entry resolved to may be from an earlier
+   *  play. (A `resolve` re-report keeps the chain's own record — see
+   *  `mergeTrackFailure`.) */
   const recordPlaybackFailure = useCallback(
-    (key: string, info: { summary: string; engineError?: string | null; tries?: number | null }) => {
-      const meta = sourcesByKeyRef.current[key];
+    (key: string, info: PlaybackFailureInfo) => {
+      const meta = info.stage === "playback" ? sourcesByKeyRef.current[key] : undefined;
       const incoming: TrackFailure = {
-        stage: "playback",
+        stage: info.stage,
         summary: info.summary,
         at: Date.now(),
-        attempts: attemptsByKeyRef.current.get(key) ?? [],
+        attempts: info.stage === "playback" ? attemptsByKeyRef.current.get(key) ?? [] : [],
         source: meta ? { name: meta.name, url: meta.sourceUrl ?? meta.url ?? null } : null,
         engineError: info.engineError ?? null,
         tries: info.tries ?? null,
