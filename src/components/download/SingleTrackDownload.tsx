@@ -77,6 +77,7 @@ export function SingleTrackDownload({
   preview,
   resolveMatch,
   search,
+  canChooseAnother: providerCanChooseAnother,
   qualityOptions,
   collections,
   store,
@@ -102,6 +103,7 @@ export function SingleTrackDownload({
   preview?: DownloadPlan["preview"];
   resolveMatch?: DownloadPlan["resolveMatch"];
   search?: DownloadPlan["search"];
+  canChooseAnother?: DownloadPlan["canChooseAnother"];
   qualityOptions?: DownloadQualityOption[] | null;
   collections: { id: number; name: string; path: string }[];
   store: AppStore;
@@ -672,6 +674,7 @@ export function SingleTrackDownload({
         albumTitle: getEffectiveAlbum(),
         trackNumber: getEffectiveTrackNumber(),
         coverUrl: cover ?? null,
+        isVideo: downloadIsVideo,
       });
       setDownloadResult(result);
 
@@ -876,7 +879,11 @@ export function SingleTrackDownload({
     : null;
   const oldLength = formatLength(upgradeFacts?.old?.duration_secs);
   const newLength = formatLength(upgradeFacts?.new?.duration_secs);
-  const canChooseAnother = directUri && !!search && !!resolveMatch;
+  // A plugin's search / resolveMatch are always-present lazy wrappers, so ask
+  // whether the handlers behind them are registered — otherwise the link leads
+  // to a search that can't answer or a pick that can't download.
+  const canChooseAnother = directUri && !!search && !!resolveMatch
+    && (providerCanChooseAnother?.() ?? true);
   const checkingPreview = previewState === "loading";
 
   return (

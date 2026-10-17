@@ -30,6 +30,7 @@ export interface DownloadModalState {
   preview?: DownloadPlan["preview"];
   resolveMatch?: DownloadPlan["resolveMatch"];
   search?: DownloadPlan["search"];
+  canChooseAnother?: DownloadPlan["canChooseAnother"];
 }
 
 /** The modal state for downloading one track through a plan. Every plan-based
@@ -46,6 +47,7 @@ export function planDownloadModal(track: DownloadTrack, plan: DownloadPlan): Dow
     preview: plan.preview,
     resolveMatch: plan.resolveMatch,
     search: plan.search,
+    canChooseAnother: plan.canChooseAnother,
   };
 }
 
@@ -53,7 +55,8 @@ interface UseDownloadOrchestrationDeps {
   plugins: Pick<
     ReturnType<typeof usePlugins>,
     | "pluginStates" | "invokeDownloadResolveByUri" | "invokeDownloadResolveByMetadata" | "streamUriResolverOwner"
-    | "invokeDownloadPreview" | "hasDownloadPreview" | "hasInteractiveSearch" | "invokeInteractiveResolve" | "invokeInteractiveSearch"
+    | "invokeDownloadPreview" | "hasDownloadPreview" | "hasInteractiveSearch" | "hasInteractiveResolve"
+    | "invokeInteractiveResolve" | "invokeInteractiveSearch"
   >;
   libraryTracks: Track[];
   queue: QueueTrack[];
@@ -144,6 +147,8 @@ export function useDownloadOrchestration({
             plugins.hasInteractiveSearch(ps.id, dp.id)
               ? plugins.invokeInteractiveSearch(ps.id, dp.id, query, limit)
               : Promise.resolve([]),
+          canChooseAnother: () =>
+            plugins.hasInteractiveSearch(ps.id, dp.id) && plugins.hasInteractiveResolve(ps.id, dp.id),
         });
       }
     }
@@ -152,7 +157,7 @@ export function useDownloadOrchestration({
   }, [
     plugins.pluginStates, plugins.invokeDownloadResolveByUri, plugins.invokeDownloadResolveByMetadata,
     plugins.invokeDownloadPreview, plugins.hasDownloadPreview, plugins.hasInteractiveSearch,
-    plugins.invokeInteractiveResolve, plugins.invokeInteractiveSearch,
+    plugins.hasInteractiveResolve, plugins.invokeInteractiveResolve, plugins.invokeInteractiveSearch,
   ]);
 
   // Kept in a ref so nativePlanForTrack (a stable callback) always reads the

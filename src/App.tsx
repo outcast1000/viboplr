@@ -330,7 +330,10 @@ function resolveUiEntity(s: {
 
 /** The modal-state fields a single-track plan contributes (see `planDownloadModal`). */
 function planFields(plan: DownloadPlan) {
-  return { resolveTrack: plan.resolve, preview: plan.preview, resolveMatch: plan.resolveMatch, search: plan.search };
+  return {
+    resolveTrack: plan.resolve, preview: plan.preview, resolveMatch: plan.resolveMatch, search: plan.search,
+    canChooseAnother: plan.canChooseAnother,
+  };
 }
 
 function App() {
@@ -6949,6 +6952,7 @@ function App() {
           preview={downloadModal.preview}
           resolveMatch={downloadModal.resolveMatch}
           search={downloadModal.search}
+          canChooseAnother={downloadModal.canChooseAnother}
           qualityOptions={qualityOptions}
           collections={localCollections}
           store={store}

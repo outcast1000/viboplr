@@ -63,6 +63,9 @@ export interface DownloadPlan {
   ) => Promise<DownloadResolveResult>;
   /** The provider's free-text search, to pick a different match. */
   search?: (query: string, limit: number) => Promise<InteractiveSearchResult[]>;
+  /** Whether `search` + `resolveMatch` can answer right now (asked when the
+   *  modal renders; absent = they can whenever both are present). */
+  canChooseAnother?: () => boolean;
 }
 
 type PlanTrack = Pick<QueueTrack, "title" | "artist_name" | "album_title" | "duration_secs">;
@@ -186,7 +189,7 @@ function matchCapabilities(
   p: DownloadProvider,
   uri: string | null,
   track: PlanTrack,
-): Pick<DownloadPlan, "preview" | "resolveMatch" | "search"> {
+): Pick<DownloadPlan, "preview" | "resolveMatch" | "search" | "canChooseAnother"> {
   const preview = p.preview;
   return {
     preview: preview
@@ -201,5 +204,6 @@ function matchCapabilities(
       : undefined,
     resolveMatch: p.resolveMatch,
     search: p.search,
+    canChooseAnother: p.canChooseAnother,
   };
 }

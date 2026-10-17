@@ -724,7 +724,7 @@ fn settle_ext(named_ext: String, source: &DownloadSource, temp: &Path) -> String
     let read = std::fs::File::open(temp)
         .and_then(|mut f| std::io::Read::read(&mut f, &mut head))
         .unwrap_or(0);
-    crate::downloader::sniff_audio_ext(&head[..read]).unwrap_or("mp3").to_string()
+    crate::downloader::sniff_media_ext(&head[..read], false).unwrap_or("mp3").to_string()
 }
 
 /// Land one download into a local collection: validate the destination

@@ -476,6 +476,8 @@ export function MultiTrackDownload({
               albumTitle,
               trackNumber,
               coverUrl: coverUrl ?? null,
+              isVideo: qualities.find(q => q.value === quality)?.video === true
+                || (!hasProviderQualities && !!tracks[t.index]?.isVideo),
             });
 
             // Index into library if downloaded to a collection

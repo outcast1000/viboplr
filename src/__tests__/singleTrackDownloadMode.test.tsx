@@ -191,7 +191,22 @@ describe("SingleTrackDownload review fixes", () => {
     expect(resolveTrack).not.toHaveBeenCalled();
     expect(resolveMatch.mock.calls[0][0]).toBe("ytdlp://abc");
     expect(resolveMatch.mock.calls[0][1]).toBe("video");
-    expect(invoke).toHaveBeenCalledWith("download_to_path", expect.objectContaining({ title: "Alive", artistName: "Pearl Jam" }));
+    expect(invoke).toHaveBeenCalledWith("download_to_path", expect.objectContaining({ title: "Alive", artistName: "Pearl Jam", isVideo: true }));
+  });
+
+  it("offers no different match when the provider can't search or resolve one", async () => {
+    // A plugin's search / resolveMatch always exist (lazy wrappers), so the
+    // registry's answer is what decides — not their presence.
+    const preview = vi.fn(async () => ({ match: { id: "ytdlp://abc", title: "Pearl Jam - Alive (Official Video)" } }));
+    const { findByText, queryByText } = renderWith({
+      resolveTrack: vi.fn() as never,
+      preview: preview as never,
+      resolveMatch: vi.fn() as never,
+      search: vi.fn(async () => []) as never,
+      canChooseAnother: () => false,
+    });
+    await findByText("Pearl Jam - Alive (Official Video)");
+    expect(queryByText("Choose a different match…")).toBeNull();
   });
 
   it("a match picked from the search gets its own real qualities", async () => {

@@ -3540,6 +3540,10 @@ export function usePlugins(
     return !!loadedPluginsRef.current.get(pluginId)?.interactiveSearchHandlers.get(providerId);
   }, []);
 
+  const hasInteractiveResolve = useCallback((pluginId: string, providerId: string): boolean => {
+    return !!loadedPluginsRef.current.get(pluginId)?.interactiveResolveHandlers.get(providerId);
+  }, []);
+
   const invokeDownloadPreview = useCallback(
     async (pluginId: string, providerId: string, request: DownloadPreviewRequest): Promise<DownloadPreview | null> => {
       const provider = `${pluginId}:${providerId}`;
@@ -4079,6 +4083,7 @@ export function usePlugins(
     invokeDownloadPreview,
     hasDownloadPreview,
     hasInteractiveSearch,
+    hasInteractiveResolve,
     resolveStreamByUri,
     streamUriResolverOwner,
     resolveStoryboardByUri,

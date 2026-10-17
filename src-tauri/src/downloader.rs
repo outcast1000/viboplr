@@ -99,10 +99,13 @@ pub fn sanitize_filename(name: &str) -> String {
     }
 }
 
-/// Sniff an audio file's container from its first bytes. For a download whose
-/// source named no extension (a bare stream URL, a Subsonic original of
+/// Sniff a downloaded file's container from its first bytes. For a download
+/// whose source named no extension (a bare stream URL, a Subsonic original of
 /// unknown format): naming it from the bytes is what lets the scanner index it.
-pub fn sniff_audio_ext(bytes: &[u8]) -> Option<&'static str> {
+/// `video` settles the one ambiguous case: `ftyp` opens every MP4 and M4A
+/// alike, and the major brand can't tell them apart (a DASH audio stream is
+/// branded `dash`, as is its video), so the caller says what it downloaded.
+pub fn sniff_media_ext(bytes: &[u8], video: bool) -> Option<&'static str> {
     if bytes.len() < 12 {
         return None;
     }
@@ -122,7 +125,7 @@ pub fn sniff_audio_ext(bytes: &[u8]) -> Option<&'static str> {
         return Some("aiff");
     }
     if &bytes[4..8] == b"ftyp" {
-        return Some("m4a");
+        return Some(if video { "mp4" } else { "m4a" });
     }
     None
 }
@@ -457,16 +460,25 @@ mod tests {
     }
 
     #[test]
-    fn test_sniff_audio_ext_names_common_containers() {
+    fn test_sniff_media_ext_names_common_containers() {
         let pad = |head: &[u8]| { let mut v = head.to_vec(); v.resize(16, 0); v };
-        assert_eq!(sniff_audio_ext(&pad(b"fLaC")), Some("flac"));
-        assert_eq!(sniff_audio_ext(&pad(b"ID3\x04")), Some("mp3"));
-        assert_eq!(sniff_audio_ext(&pad(b"OggS")), Some("ogg"));
-        assert_eq!(sniff_audio_ext(&pad(b"RIFF\x00\x00\x00\x00WAVE")), Some("wav"));
-        assert_eq!(sniff_audio_ext(&pad(b"FORM\x00\x00\x00\x00AIFF")), Some("aiff"));
-        assert_eq!(sniff_audio_ext(&pad(b"\x00\x00\x00 ftypM4A ")), Some("m4a"));
-        assert_eq!(sniff_audio_ext(&pad(b"<html>")), None);
-        assert_eq!(sniff_audio_ext(b"fLaC"), None, "too short to judge");
+        assert_eq!(sniff_media_ext(&pad(b"fLaC"), false), Some("flac"));
+        assert_eq!(sniff_media_ext(&pad(b"ID3\x04"), false), Some("mp3"));
+        assert_eq!(sniff_media_ext(&pad(b"OggS"), false), Some("ogg"));
+        assert_eq!(sniff_media_ext(&pad(b"RIFF\x00\x00\x00\x00WAVE"), false), Some("wav"));
+        assert_eq!(sniff_media_ext(&pad(b"FORM\x00\x00\x00\x00AIFF"), false), Some("aiff"));
+        assert_eq!(sniff_media_ext(&pad(b"\x00\x00\x00 ftypM4A "), false), Some("m4a"));
+        assert_eq!(sniff_media_ext(&pad(b"<html>"), false), None);
+        assert_eq!(sniff_media_ext(b"fLaC", false), None, "too short to judge");
+    }
+
+    #[test]
+    fn test_sniff_media_ext_names_an_mp4_video_by_the_downloaded_kind() {
+        let pad = |head: &[u8]| { let mut v = head.to_vec(); v.resize(16, 0); v };
+        // `ftyp` opens MP4 and M4A alike, so the downloaded kind decides.
+        assert_eq!(sniff_media_ext(&pad(b"\x00\x00\x00 ftypisom"), true), Some("mp4"));
+        assert_eq!(sniff_media_ext(&pad(b"\x00\x00\x00 ftypdash"), false), Some("m4a"));
+        assert_eq!(sniff_media_ext(&pad(b"fLaC"), true), Some("flac"));
     }
 
     #[test]

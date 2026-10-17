@@ -2017,6 +2017,10 @@ export interface DownloadProvider {
   ) => Promise<DownloadResolveResult>;
   /** Present when the provider offers a free-text search to pick another match. */
   search?: (query: string, limit: number) => Promise<InteractiveSearchResult[]>;
+  /** Whether `search` + `resolveMatch` can actually answer right now. A plugin
+   *  provider has both as lazy wrappers (its handlers register during
+   *  activation), so their presence says nothing; this asks the registry. */
+  canChooseAnother?: () => boolean;
   /** `onProgress` is forwarded to the provider's `api.downloads.reportProgress`
    *  calls for the duration of this resolve (see `usePlugins` resolve scopes). */
   resolveByUri: (

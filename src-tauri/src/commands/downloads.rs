@@ -393,6 +393,9 @@ pub async fn download_to_path(
     album_title: Option<String>,
     track_number: Option<u32>,
     cover_url: Option<String>,
+    // Whether this is a video download — names an extensionless MP4 `.mp4`
+    // rather than `.m4a`. Optional so an older caller keeps the audio reading.
+    is_video: Option<bool>,
     state: State<'_, AppState>,
     app: AppHandle,
 ) -> Result<DownloadPathResult, String> {
@@ -439,7 +442,7 @@ pub async fn download_to_path(
         // `.bin`, which the scanner skips — so the file would land on disk and
         // never reach the library. Name it from its first bytes instead.
         if ext.eq_ignore_ascii_case("bin") {
-            if let Some(real) = sniff_file_ext(&temp_path) {
+            if let Some(real) = sniff_file_ext(&temp_path, is_video.unwrap_or(false)) {
                 let renamed = temp_path.with_extension(format!("viboplr-dl.{}", real));
                 std::fs::rename(&temp_path, &renamed)
                     .map_err(|e| format!("Failed to rename downloaded file: {}", e))?;
@@ -496,11 +499,11 @@ pub async fn download_to_path(
 }
 
 /// The container a downloaded file's first bytes name, if any.
-fn sniff_file_ext(path: &std::path::Path) -> Option<&'static str> {
+fn sniff_file_ext(path: &std::path::Path, video: bool) -> Option<&'static str> {
     use std::io::Read;
     let mut head = [0u8; 16];
     let read = std::fs::File::open(path).and_then(|mut f| f.read(&mut head)).ok()?;
-    crate::downloader::sniff_audio_ext(&head[..read])
+    crate::downloader::sniff_media_ext(&head[..read], video)
 }
 
 /// `path` when nothing is there yet, else the first free `name (N).ext`.

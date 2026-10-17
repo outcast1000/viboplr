@@ -24,6 +24,7 @@ interface DownloadModalProps {
   preview?: DownloadPlan["preview"];
   resolveMatch?: DownloadPlan["resolveMatch"];
   search?: DownloadPlan["search"];
+  canChooseAnother?: DownloadPlan["canChooseAnother"];
   qualityOptions?: DownloadQualityOption[] | null;
   collections: { id: number; name: string; path: string }[];
   store: AppStore;
@@ -50,6 +51,7 @@ export function DownloadModal({
   preview,
   resolveMatch,
   search,
+  canChooseAnother,
   qualityOptions,
   collections,
   store,
@@ -75,6 +77,7 @@ export function DownloadModal({
             preview={preview}
             resolveMatch={resolveMatch}
             search={search}
+            canChooseAnother={canChooseAnother}
             qualityOptions={qualityOptions}
             collections={collections}
             store={store}
