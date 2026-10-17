@@ -19,20 +19,33 @@ const APOSTROPHES: [char; 6] = ['\'', '\u{2019}', '\u{2018}', '\u{02BC}', '\u{00
 
 /// The normalized (`strip_diacritics(unicode_lower(..))`) spellings a metadata
 /// match should accept for `s`: itself, plus — when it carries any apostrophe
-/// variant — the all-ASCII and all-typographic forms, which is how libraries
-/// write them. Returned as values to bind against the indexed expression, not
-/// folded into a SQL function: `strip_diacritics` backs expression indexes and
-/// persisted keys (history canonical names, `entity_likes`), so its meaning
-/// must not change.
+/// variant — the all-ASCII and all-typographic forms, plus — when it has a
+/// standalone `&` or `and` — the other conjunction ("Echo & the Bunnymen" in a
+/// streaming catalog, "Echo And The Bunnymen" in a file tag). That's how
+/// libraries write them. Returned as values to bind against the indexed
+/// expression, not folded into a SQL function: `strip_diacritics` backs
+/// expression indexes and persisted keys (history canonical names,
+/// `entity_likes`), so its meaning must not change.
 pub fn match_variants(s: &str) -> Vec<String> {
     let base = strip_diacritics(&s.to_lowercase());
     let mut out = vec![base.clone()];
+    let push = |out: &mut Vec<String>, v: String| {
+        if !out.contains(&v) {
+            out.push(v);
+        }
+    };
     if base.contains(|c| APOSTROPHES.contains(&c)) {
         for a in ['\'', '\u{2019}'] {
-            let v: String = base.chars().map(|c| if APOSTROPHES.contains(&c) { a } else { c }).collect();
-            if !out.contains(&v) {
-                out.push(v);
-            }
+            push(&mut out, base.chars().map(|c| if APOSTROPHES.contains(&c) { a } else { c }).collect());
+        }
+    }
+    // Space-delimited only, so "Anderson" and "R&B" are left alone.
+    for v in out.clone() {
+        if v.contains(" & ") {
+            push(&mut out, v.replace(" & ", " and "));
+        }
+        if v.contains(" and ") {
+            push(&mut out, v.replace(" and ", " & "));
         }
     }
     out

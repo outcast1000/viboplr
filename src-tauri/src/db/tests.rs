@@ -2155,6 +2155,30 @@ fn test_match_variants() {
     assert_eq!(match_variants("Jóga"), vec!["joga".to_string()]);
     assert_eq!(match_variants("Can\u{2019}t"), vec!["can\u{2019}t".to_string(), "can't".to_string()]);
     assert_eq!(match_variants("Can't"), vec!["can't".to_string(), "can\u{2019}t".to_string()]);
+    assert_eq!(
+        match_variants("Echo & the Bunnymen"),
+        vec!["echo & the bunnymen".to_string(), "echo and the bunnymen".to_string()]
+    );
+    assert_eq!(
+        match_variants("Echo And The Bunnymen"),
+        vec!["echo and the bunnymen".to_string(), "echo & the bunnymen".to_string()]
+    );
+    // Only a standalone conjunction — not inside a word, not an unspaced "&".
+    assert_eq!(match_variants("Anderson"), vec!["anderson".to_string()]);
+    assert_eq!(match_variants("R&B"), vec!["r&b".to_string()]);
+    // Combines with the apostrophe variants.
+    assert_eq!(match_variants("Rock 'n' Roll & Blues").len(), 4);
+}
+
+#[test]
+fn test_find_tracks_by_metadata_matches_ampersand_and_and() {
+    let db = test_db();
+    let artist = db.get_or_create_artist("Echo And The Bunnymen").unwrap();
+    insert_track(&db, "80s/killing-moon.mp3", "The Killing Moon", Some(artist), None);
+
+    let found = db.find_tracks_by_metadata("The Killing Moon", Some("Echo & the Bunnymen"), None).unwrap();
+    assert_eq!(found.len(), 1);
+    assert_eq!(found[0].title, "The Killing Moon");
 }
 
 #[test]
