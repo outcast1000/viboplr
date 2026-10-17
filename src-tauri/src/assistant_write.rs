@@ -821,15 +821,18 @@ pub fn land_download(
     }
 
     let file_size = std::fs::metadata(&dest).map(|m| m.len()).unwrap_or(0);
-    let new_id = crate::scanner::process_media_file(db, &dest, Some(collection_id), Some(root_str.as_str()));
-    if let Some(id) = new_id {
+    let ingested = crate::scanner::ingest_media_file(db, &dest, Some(collection_id), Some(root_str.as_str()));
+    if let Some((id, _)) = ingested {
         let _ = db.refresh_track_after_ingest(id);
     }
     Ok(serde_json::json!({
         "path": dest.to_string_lossy(),
         "fileSize": file_size,
-        "libraryTrackId": new_id,
-        "indexed": new_id.is_some(),
+        "libraryTrackId": ingested.map(|(id, _)| id),
+        "indexed": ingested.is_some(),
+        // A row this call created, not one it updated — the caller sends
+        // `track-added` for it (`commands::emit_track_added`).
+        "newTrack": ingested.is_some_and(|(_, is_new)| is_new),
     }))
 }
 

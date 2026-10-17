@@ -166,6 +166,7 @@ pub async fn check_path_conflict(dest_path: String) -> Result<ConflictCheck, Str
 /// that legitimately reaches it — same rule as `write_probe_dump`.
 #[tauri::command]
 pub async fn assistant_land_download(
+    app: AppHandle,
     state: State<'_, AppState>,
     collection_id: i64,
     subdir: Option<String>,
@@ -196,7 +197,7 @@ pub async fn assistant_land_download(
             (None, Some(path)) => DownloadSource::LocalFile(resolved_file_path(&path)?),
             _ => return Err("pass exactly one of sourceUrl or sourcePath".to_string()),
         };
-        assistant_write::land_download(
+        let value = assistant_write::land_download(
             &db,
             collection_id,
             subdir.as_deref().unwrap_or(""),
@@ -205,7 +206,13 @@ pub async fn assistant_land_download(
             ext.as_deref().unwrap_or(""),
             source,
             metadata,
-        )
+        )?;
+        if value["newTrack"] == true {
+            if let Some(id) = value["libraryTrackId"].as_i64() {
+                super::emit_track_added(&app, &db, id);
+            }
+        }
+        Ok(value)
     })
     .await
     .map_err(|e| e.to_string())?
@@ -459,6 +466,7 @@ pub async fn download_to_path(
 
 #[tauri::command]
 pub async fn add_downloaded_track(
+    app: AppHandle,
     path: String,
     collection_id: i64,
     state: State<'_, AppState>,
@@ -472,10 +480,13 @@ pub async fn add_downloaded_track(
         .map_err(|e| e.to_string())?
         .path;
     tauri::async_runtime::spawn_blocking(move || {
-        match scanner::process_media_file(&db, &file_path, Some(collection_id), collection_root.as_deref()) {
-            Some(track_id) => {
+        match scanner::ingest_media_file(&db, &file_path, Some(collection_id), collection_root.as_deref()) {
+            Some((track_id, is_new)) => {
                 if let Err(e) = db.refresh_track_after_ingest(track_id) {
                     log::error!("Failed to refresh track {} after ingest: {}", track_id, e);
+                }
+                if is_new {
+                    super::emit_track_added(&app, &db, track_id);
                 }
             }
             None => log::warn!("Downloaded file was not ingested: {}", file_path.display()),
@@ -577,6 +588,7 @@ pub async fn download_preview(
 
 #[tauri::command]
 pub async fn confirm_track_upgrade(
+    app: AppHandle,
     state: State<'_, AppState>,
     track_id: i64,
     new_path: String,
@@ -635,10 +647,14 @@ pub async fn confirm_track_upgrade(
         let collection_root = collection_id
             .and_then(|cid| db.get_collection_by_id(cid).ok())
             .and_then(|c| c.path);
-        match crate::scanner::process_media_file(&db, &final_path, collection_id, collection_root.as_deref()) {
-            Some(new_id) => {
+        match crate::scanner::ingest_media_file(&db, &final_path, collection_id, collection_root.as_deref()) {
+            Some((new_id, is_new)) => {
                 if let Err(e) = db.refresh_track_after_ingest(new_id) {
                     log::error!("Failed to refresh track {} after upgrade: {}", new_id, e);
+                }
+                // The old row was deleted above, so this is a new row (new id).
+                if is_new {
+                    super::emit_track_added(&app, &db, new_id);
                 }
             }
             None => log::warn!("Upgraded file was not ingested: {}", final_path.display()),
@@ -667,6 +683,7 @@ pub async fn cancel_track_upgrade(new_path: String) -> Result<(), String> {
 
 #[tauri::command]
 pub async fn save_track_as_copy(
+    app: AppHandle,
     state: State<'_, AppState>,
     track_id: i64,
     new_path: String,
@@ -708,10 +725,13 @@ pub async fn save_track_as_copy(
         let collection_root = collection_id
             .and_then(|cid| db.get_collection_by_id(cid).ok())
             .and_then(|c| c.path);
-        match crate::scanner::process_media_file(&db, &final_path, collection_id, collection_root.as_deref()) {
-            Some(new_id) => {
+        match crate::scanner::ingest_media_file(&db, &final_path, collection_id, collection_root.as_deref()) {
+            Some((new_id, is_new)) => {
                 if let Err(e) = db.refresh_track_after_ingest(new_id) {
                     log::error!("Failed to refresh track {} after save-as-copy: {}", new_id, e);
+                }
+                if is_new {
+                    super::emit_track_added(&app, &db, new_id);
                 }
             }
             None => log::warn!("Saved copy was not ingested: {}", final_path.display()),

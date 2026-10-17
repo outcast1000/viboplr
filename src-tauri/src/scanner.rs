@@ -461,6 +461,19 @@ pub fn process_media_file(db: &Arc<Database>, path: &Path, collection_id: Option
     }
 }
 
+/// `process_media_file`, also reporting whether the file was new to the
+/// library — no row for its path before this call. That is what decides a
+/// `track-added` event (`commands::emit_track_added`); an updated row is not
+/// an addition.
+pub fn ingest_media_file(db: &Arc<Database>, path: &Path, collection_id: Option<i64>, collection_root: Option<&str>) -> Option<(i64, bool)> {
+    let relative_path = match collection_root {
+        Some(root) => stored_relative_path(path, root),
+        None => path.to_string_lossy().to_string(),
+    };
+    let is_new = db.get_track_scan_state_by_path(&relative_path, collection_id).is_none();
+    process_media_file(db, path, collection_id, collection_root).map(|id| (id, is_new))
+}
+
 /// `process_media_file`, but re-reading the file even when its mtime says it
 /// is unchanged — for a file swapped in under an existing row (the assistant's
 /// replace), whose copied-in bytes can carry an mtime OLDER than the one the
@@ -794,6 +807,29 @@ mod tests {
         // Force rescan: the file is re-read and the row re-asserted from disk.
         scan_folder(&db, root.to_str().unwrap(), Some(collection.id), true, |_, _| {});
         assert!(!has_extra(&db), "force must re-read and re-assert the file");
+    }
+
+    /// `track-added` keys on this: only the first ingest of a path is new.
+    #[test]
+    fn test_ingest_media_file_reports_only_a_new_row_as_new() {
+        let tmp = tempfile::tempdir().unwrap();
+        let root = tmp.path();
+        let file = root.join("Artist - Song.mp3");
+        std::fs::write(&file, b"not really audio").unwrap();
+        let db = Arc::new(Database::new_in_memory().unwrap());
+        let collection = db
+            .add_collection("local", "t", Some(root.to_str().unwrap()), None, None, None, None, None)
+            .unwrap();
+        let root_str = root.to_str().unwrap();
+
+        let (id, is_new) = ingest_media_file(&db, &file, Some(collection.id), Some(root_str)).expect("ingested");
+        assert!(is_new, "first ingest of a path creates the row");
+
+        // Unreadable tags leave extra_tags NULL, so the backfill exception
+        // re-reads the unchanged file: same row, not an addition.
+        let (again, is_new) = ingest_media_file(&db, &file, Some(collection.id), Some(root_str)).expect("re-read");
+        assert_eq!(again, id);
+        assert!(!is_new, "an existing row is an update, not an addition");
     }
 
     /// The counting pass reports as `(found, 0)` and the scan never reports a

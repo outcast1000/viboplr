@@ -30,7 +30,7 @@ Complete reference of all functions and events available to Vibo plugins via the
 | `getMostPlayed(opts?)` | Get most played tracks, optionally by last N days | — |
 | `recordHistoryPlaysBatch(plays)` | Batch-import play history entries | **lastfm** — imports scrobble history from Last.fm API |
 | `applyTags(trackId, tagNames)` | Apply tags to a track | **auto-tagger** — applies discovered/approved tags to matching tracks |
-| `onTrackAdded(handler)` | Event: track added to library | **auto-tagger** — auto-assigns approved tags to newly added tracks |
+| `onTrackAdded(handler)` | Event: one track added outside a scan or sync (a download, an upgrade, a saved copy) — scans report once via `onScanComplete` | **auto-tagger** — auto-assigns approved tags to newly added tracks |
 | `onTrackRemoved(handler)` | Event: track removed from library | — |
 | `onScanComplete(handler)` | Event: collection scan finishes | **auto-tagger** — re-runs tag matching on new tracks after a scan |
 | `onLikeChanged(handler)` | Event: the user liked, disliked or un-liked a track, artist, album or tag — `{ kind, name, artistName, albumTitle, albumArtistName, liked, previous }`, after the save; not sent for `setTrackLikesBatch` imports | **community** — sends the user's likes to Vibo Community when they switch that on |

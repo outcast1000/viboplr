@@ -287,7 +287,7 @@ return { activate: activate, deactivate: deactivate };</pre>
                 <tr><td>findDuplicates(opts?)</td><td>Duplicate track groups by normalized title + artist, keeper-first.</td></tr>
                 <tr><td>getTrackLikeStates(tracks)</td><td>Read persisted like states for <code>{ title, artistName? }[]</code>; parallel <code>number[]</code> (<code>1</code> liked, <code>-1</code> disliked, <code>0</code> neither).</td></tr>
                 <tr><td>setTrackLikesBatch(tracks)</td><td>Persist a batch of track likes/dislikes (e.g. imported loved tracks); newer-wins merge, idempotent. Returns rows applied.</td></tr>
-                <tr><td>onTrackAdded / onTrackRemoved / onScanComplete(handler)</td><td>Library events.</td></tr>
+                <tr><td>onTrackAdded / onTrackRemoved / onScanComplete(handler)</td><td>Library events. <code>onTrackAdded</code> fires for one track added outside a scan (a download, an upgrade, a saved copy); a scan or sync reports once through <code>onScanComplete</code>, so handle both.</td></tr>
                 <tr><td>onLikeChanged(handler)</td><td>Every like, dislike or un-like the user makes on a track, artist, album or tag, after it is saved: <code>{ kind, name, artistName, albumTitle, albumArtistName, liked, previous }</code>, ratings -1/0/1. Derive "became liked" (<code>liked === 1 &amp;&amp; previous !== 1</code>) and "stopped being liked" (<code>previous === 1 &amp;&amp; liked !== 1</code>) from the pair — liked &rarr; disliked is an un-like. Not sent for <code>setTrackLikesBatch</code> imports. Needs <code>library:read</code>. The one like event; <code>onTrackLiked</code> was removed.</td></tr>
               </tbody>
             </table>

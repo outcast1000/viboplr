@@ -192,6 +192,10 @@ pub(crate) struct ServerState {
     /// Tells the webview what the assistant is doing (`assistant-activity`).
     /// Presentation only: the pause switch is enforced in `activity_middleware`.
     emit_activity: Arc<dyn Fn(&ActivityEvent) + Send + Sync>,
+    /// `track-added` for a library row a download route just created
+    /// (`commands::emit_track_added`). A closure so the router stays testable
+    /// without a Tauri app.
+    emit_track_added: Arc<dyn Fn(i64) + Send + Sync>,
     bridge_timeout: Duration,
     version: String,
     profile: String,
@@ -299,6 +303,8 @@ pub fn start(
 
     let emit_handle = app.clone();
     let activity_handle = app.clone();
+    let track_added_handle = app.clone();
+    let track_added_db = Arc::clone(&db);
     let state = ServerState {
         db,
         api: Arc::clone(api),
@@ -309,6 +315,9 @@ pub fn start(
         emit_activity: Arc::new(move |event: &ActivityEvent| {
             use tauri::Emitter;
             let _ = activity_handle.emit(assistant_activity::ACTIVITY_EVENT, event.clone());
+        }),
+        emit_track_added: Arc::new(move |track_id: i64| {
+            crate::commands::emit_track_added(&track_added_handle, &track_added_db, track_id);
         }),
         bridge_timeout: BRIDGE_TIMEOUT,
         version: version.to_string(),
@@ -2150,9 +2159,15 @@ async fn handle_track_download(
         Err(resp) => return resp,
     };
     let db = state.0.db.clone();
+    let emit_track_added = Arc::clone(&state.0.emit_track_added);
     write_op("tracks.download", move || {
         let subdir = parsed.subdir.as_deref().unwrap_or("");
         let value = assistant_write::download_track_source(&db, id, parsed.collection_id, subdir)?;
+        if value["newTrack"] == true {
+            if let Some(new_id) = value["libraryTrackId"].as_i64() {
+                emit_track_added(new_id);
+            }
+        }
         let summary = format!("downloaded track {} → {}", id, value["path"].as_str().unwrap_or("?"));
         Ok((value, summary))
     })
@@ -2229,6 +2244,7 @@ mod tests {
             api,
             emit,
             emit_activity: Arc::new(|_| {}),
+            emit_track_added: Arc::new(|_| {}),
             bridge_timeout: Duration::from_millis(50),
             version: "0.0.0-test".to_string(),
             profile: "test".to_string(),

@@ -216,6 +216,29 @@ impl Drop for ResyncGuard {
     }
 }
 
+/// `track-added` for one track that joined the library outside a scan or sync
+/// (a finished download, an upgrade's new row, a saved copy). The frontend
+/// forwards it to plugins as `track:added` (`api.library.onTrackAdded`).
+/// Scans and syncs deliberately don't send it per track: they report once via
+/// `scan-complete` / `sync-complete`, and a first scan would otherwise fire
+/// thousands — auto-tagger, for one, tags (and writes the file of) every
+/// track it is told about.
+pub fn emit_track_added<R: tauri::Runtime>(app: &AppHandle<R>, db: &Database, track_id: i64) {
+    match db.get_track_by_id(track_id) {
+        Ok(t) => {
+            let _ = app.emit("track-added", serde_json::json!({
+                "trackId": t.id,
+                "path": t.path,
+                "title": t.title,
+                "artistName": t.artist_name,
+                "albumTitle": t.album_title,
+                "collectionId": t.collection_id,
+            }));
+        }
+        Err(e) => log::warn!("track-added: couldn't read track {}: {}", track_id, e),
+    }
+}
+
 /// `full` (local collections only) bypasses the scanner's mtime fast path so
 /// every file's tags are re-read — the user's "Full rescan". Subsonic/manifest
 /// resyncs already re-fetch everything server-side, so they ignore it.
