@@ -61,6 +61,51 @@
       <div class="timeline" id="timeline">
         <div class="timeline-entry reveal">
         <div class="timeline-header">
+          <span class="timeline-version">Viboplr v1.0.111</span>
+          <span class="timeline-date">October 18, 2026</span>
+        </div>
+        <div class="timeline-body">
+          <h4>Features</h4>
+          <ul>
+          <li><strong>downloads</strong>: the modal says &quot;Add to library&quot; for files already here</li>
+          <li><strong>waveform</strong>: capture stream waveforms from the engine while they play</li>
+          <li><strong>downloads</strong>: show what will be fetched, real qualities, Artist/Album folders</li>
+          <li><strong>queue</strong>: show every playback failure on its queue row, with details on click</li>
+          <li><strong>plugins</strong>: send track-added for tracks added outside a scan</li>
+          </ul>
+          <h4>Bug Fixes</h4>
+          <ul>
+          <li><strong>tags</strong>: read audio tags in lofty's relaxed mode</li>
+          <li><strong>home</strong>: reconcile likes for a shelf playlist's backfilled tail</li>
+          <li><strong>collections</strong>: name the collection and kind of run in sync progress</li>
+          <li><strong>queue</strong>: file each playback failure under the stage it reached</li>
+          <li><strong>downloads</strong>: offer another match only when the provider can, name MP4 videos .mp4</li>
+          <li><strong>library</strong>: match &quot;&amp;&quot; and &quot;and&quot; as the same word in metadata lookups</li>
+          <li><strong>plugins</strong>: compare only major.minor.patch in minAppVersion checks</li>
+          <li><strong>lyrics</strong>: restore per-track lyrics timing offsets at startup</li>
+          <li><strong>library</strong>: match curly and straight apostrophes in metadata lookup</li>
+          <li><strong>playback</strong>: log native engine errors on preloaded tracks</li>
+          </ul>
+          <h4>Refactoring</h4>
+          <ul>
+          <li><strong>playback</strong>: remove the browser playback engine; mpv only</li>
+          </ul>
+          <h4>Chores</h4>
+          <ul>
+          <li>remove GSD .planning codebase map</li>
+          <li><strong>plugins</strong>: bundle Last.fm 1.11.0</li>
+          <li>remove dead frontend code</li>
+          <li>remove dead Tauri commands and yt-dlp leftovers</li>
+          </ul>
+        </div>
+        <div class="timeline-assets">
+            <a href="https://github.com/outcast1000/viboplr/releases/download/v1.0.111/Viboplr_1.0.111_aarch64.dmg" class="timeline-asset-link"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg> Viboplr_1.0.111_aarch64.dmg</a>
+            <a href="https://github.com/outcast1000/viboplr/releases/download/v1.0.111/Viboplr_1.0.111_x64-setup.exe" class="timeline-asset-link"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg> Viboplr_1.0.111_x64-setup.exe</a>
+        </div>
+      </div>
+      
+        <div class="timeline-entry reveal">
+        <div class="timeline-header">
           <span class="timeline-version">Viboplr v1.0.110</span>
           <span class="timeline-date">October 16, 2026</span>
         </div>
