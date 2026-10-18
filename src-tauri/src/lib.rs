@@ -354,6 +354,7 @@ macro_rules! invoke_handler {
             commands::engine_device_volume,
             commands::engine_set_video_background,
             commands::engine_get_audio_info,
+            commands::engine_wave_capture,
             commands::app_update_check,
             commands::app_update_install,
             commands::control_api_start,

@@ -610,6 +610,10 @@ window.__TAURI_INTERNALS__.invoke = async function (cmd, args) {
     // `window.__E2E_CUES__` (a CueSheetRow-shaped object), served for any song.
     case 'cue_sheet_get':
       return (typeof window !== 'undefined' && window.__E2E_CUES__) || null;
+    // The fake engine captures no waveform (useWaveform polls it for a track
+    // nothing else could draw one for).
+    case 'engine_wave_capture':
+      return null;
     case 'assistant_pause_get':
       return false;
     case 'assistant_pause_set':

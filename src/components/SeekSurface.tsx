@@ -6,6 +6,7 @@ import { formatDuration } from "../utils";
 import { tileIndexAt, type Storyboard } from "../utils/storyboard";
 import { markerLabelsNear, type SeekMarker } from "../utils/seekMarkers";
 import "./SeekSurface.css";
+import type { WaveformPeaks } from "../waveform/types";
 
 /**
  * Bubble thumbnail width.
@@ -50,7 +51,7 @@ export function hasFilmstrip(storyboard: Storyboard | null, durationSecs: number
 
 interface SeekLadderProps {
   storyboard: Storyboard | null;
-  waveformPeaks: number[] | null;
+  waveformPeaks: WaveformPeaks | null;
   positionSecs: number;
   durationSecs: number;
   hoverPct: number | null;

@@ -26,6 +26,10 @@ export interface TrackAudioFacts {
   bitrateKbps: number | null;
 }
 
+/** Bar heights for the seek bar, one per second. `null` is a second not heard
+ *  yet — only a waveform the engine is still capturing has any. */
+export type WaveformPeaks = (number | null)[];
+
 export interface WaveformRequest {
   /** The track's path — null for a metadata-only entry a stream resolver plays.
    *  The computing providers only ever see a `file://` one: the chain leaves

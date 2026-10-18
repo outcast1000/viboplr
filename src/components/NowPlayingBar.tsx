@@ -34,6 +34,7 @@ import { SourceIndicator } from "./SourceIndicator";
 import type { InvokeInfoFetch } from "../hooks/useCommunityTags";
 import "./NowPlayingBar.css";
 import { quantizeFraction } from "../utils/seekRepaint";
+import type { WaveformPeaks } from "../waveform/types";
 
 const mod = navigator.platform.includes("Mac") ? "\u2318" : "Ctrl+";
 const isMac = navigator.platform.includes("Mac");
@@ -83,7 +84,7 @@ function SlideText({ text, className }: { text: string; className?: string }) {
 }
 
 interface NowPlayingBarProps {
-  waveformPeaks: number[] | null;
+  waveformPeaks: WaveformPeaks | null;
   /** Seek-preview tiles for the current video track; null for audio. */
   storyboard: Storyboard | null;
   /** Plugin ticks on the playing track's seek bar (`api.playback.setMarkers`). */

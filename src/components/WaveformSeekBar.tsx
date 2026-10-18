@@ -1,8 +1,11 @@
-import { useRef, useEffect, useCallback } from "react";
+import { useRef, useEffect, useCallback, useMemo } from "react";
 import { seekPaintKey } from "../utils/seekRepaint";
+import type { WaveformPeaks } from "../waveform/types";
 
 interface WaveformSeekBarProps {
-  peaks: number[];
+  /** One height per second; `null` = not heard yet (a capture still building),
+   *  drawn as a flat stub. */
+  peaks: WaveformPeaks;
   progress: number; // 0..1
   /** Cursor position over the track as a 0..1 fraction, or null when not hovering.
    *  Drives the scrub preview: forward spans get an accent ghost tint, rewind
@@ -24,21 +27,27 @@ const MIN_BAR_WIDTH_PX = 3;
 /** Gap between bars, as a fraction of each bar's slot. */
 const BAR_GAP_RATIO = 0.2;
 
+/** Height of a bar for a second not heard yet: a flat stub on the axis. */
+const UNHEARD_HEIGHT = 0;
+
 /** Aggregate a fine source peak array down to `target` bars by averaging each
- *  span, so one width-independent cached array renders at any bar count. */
-function downsamplePeaks(peaks: number[], target: number): number[] {
+ *  span, so one width-independent cached array renders at any bar count. A bar
+ *  averages only the seconds heard in its span; with none it stays unheard. */
+function downsamplePeaks(peaks: WaveformPeaks, target: number): WaveformPeaks {
   if (target >= peaks.length) return peaks;
-  const out = new Array<number>(target);
+  const out: WaveformPeaks = new Array(target);
   for (let i = 0; i < target; i++) {
     const start = Math.floor((i * peaks.length) / target);
     const end = Math.max(start + 1, Math.floor(((i + 1) * peaks.length) / target));
     let sum = 0;
     let n = 0;
     for (let j = start; j < end && j < peaks.length; j++) {
-      sum += peaks[j];
+      const v = peaks[j];
+      if (v === null) continue;
+      sum += v;
       n++;
     }
-    out[i] = n > 0 ? sum / n : 0;
+    out[i] = n > 0 ? sum / n : null;
   }
   return out;
 }
@@ -56,9 +65,9 @@ function getSkinColors(canvas: HTMLCanvasElement) {
 // replaced waveform from the one on screen (a shared waveform swapped for a
 // locally computed one of the same track has the same length), and the grow
 // animation that would force the repaint is keyed loosely too.
-const peaksIds = new WeakMap<number[], number>();
+const peaksIds = new WeakMap<WaveformPeaks, number>();
 let nextPeaksId = 1;
-function peaksId(peaks: number[]): number {
+function peaksId(peaks: WaveformPeaks): number {
   let id = peaksIds.get(peaks);
   if (id === undefined) {
     id = nextPeaksId++;
@@ -159,8 +168,9 @@ export function WaveformSeekBar({ peaks, progress, hoverPct = null, bufferedPct 
         eased = barProgress < 1 ? 1 - Math.pow(1 - barProgress, 3) : 1; // ease-out cubic
       }
 
-      const topH = Math.max(2, bars[i] * topMax * eased);
-      const botH = Math.max(1, bars[i] * botMax * eased);
+      const height = bars[i] ?? UNHEARD_HEIGHT;
+      const topH = Math.max(2, height * topMax * eased);
+      const botH = Math.max(1, height * botMax * eased);
       const played = x + barWidth <= playedX;
       // Forward scrub: ghost-tint the span between the playhead and the cursor
       const ghosted = !played && hoverX != null && hoverX > playedX && x + barWidth <= hoverX;
@@ -205,15 +215,24 @@ export function WaveformSeekBar({ peaks, progress, hoverPct = null, bufferedPct 
     return false;
   }, [peaks, progress, hoverPct, bufferedPct]);
 
-  // Detect peak data change and trigger grow animation
-  const peaksKey = peaks.length > 0 ? `${peaks.length}:${peaks[0]}:${peaks[peaks.length - 1]}` : "";
+  // Detect peak data change and trigger grow animation. A capture still
+  // building is one waveform however often it fills in (and rescales to a new
+  // loudest second), so it has one key, and completing it doesn't grow again.
+  const building = useMemo(() => peaks.some((p) => p === null), [peaks]);
+  const peaksKey = peaks.length === 0
+    ? ""
+    : building
+      ? `${peaks.length}:building`
+      : `${peaks.length}:${peaks[0]}:${peaks[peaks.length - 1]}`;
   useEffect(() => {
     if (peaksKey && peaksKey !== prevPeaksKeyRef.current) {
+      const completed = prevPeaksKeyRef.current === `${peaks.length}:building`;
       prevPeaksKeyRef.current = peaksKey;
+      if (completed) return;
       growRef.current = 0;
       growStartRef.current = performance.now();
     }
-  }, [peaksKey]);
+  }, [peaksKey, peaks.length]);
 
   useEffect(() => {
     return scheduleDraw(frameRef, draw);

@@ -179,6 +179,18 @@ pub fn engine_get_audio_info(
     serde_json::to_value(info).map_err(|e| format!("serialize media info: {e}"))
 }
 
+/// What the engine has captured of a track's waveform while playing it
+/// (`mpv_engine/wave_capture.rs`): per-second RMS with `null` for unheard
+/// seconds, plus how much of the track that covers. `null` when the engine
+/// holds no capture for the key (not running, never played, long gone).
+#[tauri::command]
+pub fn engine_wave_capture(
+    state: tauri::State<'_, super::AppState>,
+    track_key: String,
+) -> Option<crate::mpv_engine::WaveSnapshot> {
+    state.mpv_engine.get().and_then(|engine| engine.wave_snapshot(&track_key))
+}
+
 /// Position the native video surface. Coordinates are top-left-origin points
 /// within the window content view (frontend pre-multiplies its zoom factor).
 #[tauri::command]

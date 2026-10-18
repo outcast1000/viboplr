@@ -30,6 +30,10 @@
 //! `engine-error {code}`, `engine-buffer` (demuxer cache state — see
 //! `BufferSnapshot`), `engine-level` (live per-channel peak/RMS, only while
 //! the meter is on — see `meter.rs`).
+//!
+//! Every deck also captures a per-second waveform of what it decodes
+//! (`wave_capture.rs`), read back on request with `wave_snapshot` — how a
+//! stream gets a seek-bar waveform without a second download.
 
 mod af;
 mod api;
@@ -38,6 +42,7 @@ pub mod component;
 pub mod ffi;
 mod http_headers;
 mod meter;
+mod wave_capture;
 #[cfg(target_os = "macos")]
 mod video_layer;
 #[cfg(windows)]
@@ -55,6 +60,8 @@ pub use ffi::set_component_dir;
 use af::{build_af_graph, replaygain_mode_value};
 use meter::{af_chain, meter_fingerprint, parse_meter, round_db, MeterFingerprint};
 use api::{mpv_end_file_reason, Event, Format, Mpv};
+use wave_capture::{parse_wave, WaveCaptures};
+pub use wave_capture::WaveSnapshot;
 use http_headers::mpv_http_header_lines;
 use serde_json::json;
 use std::collections::HashMap;
@@ -481,6 +488,10 @@ struct EngineState {
     /// The level meter is wanted (see `DspSettings::meter`). Bit-perfect mode
     /// suspends it without clearing this, like the EQ it rides beside.
     meter: bool,
+    /// The waveform capture filter is in the `af` chain (`wave_capture.rs`).
+    /// Set at creation when the loaded FFmpeg can build it; like the meter it
+    /// is off in bit-perfect mode, so no capture there ever completes.
+    wave_capture: bool,
     /// What the active deck was asked to load for the current track (URL +
     /// external audio track) — what a busy-device retry reloads.
     current_load: Option<(String, Option<String>)>,
@@ -507,6 +518,8 @@ struct Deck {
 pub struct Engine {
     decks: Vec<Deck>,
     state: Arc<Mutex<EngineState>>,
+    /// Per-deck waveform captures, fed by each deck's event loop.
+    waves: Arc<Mutex<WaveCaptures>>,
     sink: EventSink,
     /// Present in production (used for main-thread AppKit work); None in tests.
     app: Option<tauri::AppHandle>,
@@ -590,6 +603,7 @@ impl Engine {
         let engine = Arc::new(Engine {
             decks,
             state,
+            waves: Arc::new(Mutex::new(WaveCaptures::default())),
             sink,
             app,
             #[cfg(any(target_os = "macos", windows))]
@@ -598,6 +612,7 @@ impl Engine {
         for i in 0..2 {
             engine.spawn_event_thread(i)?;
         }
+        engine.enable_wave_capture();
         log::info!("mpv-engine: engine ready (event threads running)");
         Ok(engine)
     }
@@ -766,11 +781,12 @@ impl Engine {
         }
 
         let state = self.state.clone();
+        let waves = self.waves.clone();
         let sink = self.sink.clone();
         let weak = Arc::downgrade(self);
         std::thread::Builder::new()
             .name(format!("mpv-engine-events-{deck}"))
-            .spawn(move || run_event_loop(client, deck, weak, state, sink))
+            .spawn(move || run_event_loop(client, deck, weak, state, waves, sink))
             .map_err(|e| format!("failed to spawn mpv event thread: {e}"))?;
         Ok(())
     }
@@ -1239,16 +1255,17 @@ impl Engine {
         Ok(())
     }
 
-    /// The whole `af` chain: the EQ graph, then the level meter when it's on.
-    /// One writer for both, so changing either can't drop the other. Bit-perfect
-    /// mode clears the chain entirely, so the meter is off there too (its flag
-    /// is kept, and it comes back with the mode off).
+    /// The whole `af` chain: the waveform capture, the EQ graph, then the level
+    /// meter when it's on. One writer for all three, so changing one can't drop
+    /// another. Bit-perfect mode clears the chain entirely, so the meter and the
+    /// capture are off there too (their flags are kept, and they come back with
+    /// the mode off).
     pub fn apply_eq(&self, eq: &EqParams) -> Result<(), String> {
-        let (bit_perfect, meter) = {
+        let (bit_perfect, meter, capture) = {
             let st = self.state.lock().unwrap();
-            (st.bit_perfect.is_some(), st.meter)
+            (st.bit_perfect.is_some(), st.meter, st.wave_capture)
         };
-        let af = if bit_perfect { String::new() } else { af_chain(&build_af_graph(eq), meter) };
+        let af = if bit_perfect { String::new() } else { af_chain(&build_af_graph(eq), meter, capture) };
         for deck in &self.decks {
             deck.mpv
                 .set_property("af", af.as_str())
@@ -1285,6 +1302,34 @@ impl Engine {
             }
         }
         result
+    }
+
+    /// Put the waveform capture filter in the chain, once at creation. It is
+    /// always on (not on request) because the frontend only learns it wants a
+    /// capture after a cache miss and a lookup — seconds in, too late for one
+    /// that must cover the whole track. Gated like the meter, whose astats
+    /// options it shares: an `af` mpv can't build costs the next track its
+    /// audio (see `apply_meter`). A refusal here leaves the chain empty.
+    fn enable_wave_capture(&self) {
+        let version = self.decks[0].mpv.get_property::<String>("ffmpeg-version").unwrap_or_default();
+        if !meter::ffmpeg_supports_meter(&version) {
+            log::warn!("mpv-engine: no waveform capture — it needs FFmpeg 4.4 or newer (this libmpv has {version:?})");
+            return;
+        }
+        self.state.lock().unwrap().wave_capture = true;
+        if let Err(e) = self.apply_eq(&EqParams::default()) {
+            log::error!("mpv-engine: waveform capture unavailable: {e}");
+            self.state.lock().unwrap().wave_capture = false;
+            if let Err(e) = self.apply_eq(&EqParams::default()) {
+                log::error!("mpv-engine: clearing the af chain after a failed capture: {e}");
+            }
+        }
+    }
+
+    /// What has been captured of `track_key`'s waveform so far — live on a
+    /// deck, or recently finished.
+    pub fn wave_snapshot(&self, track_key: &str) -> Option<WaveSnapshot> {
+        self.waves.lock().unwrap().snapshot(track_key)
     }
 
     /// Letterbox / uncovered-window fill for native video. mpv paints black
@@ -1451,6 +1496,9 @@ impl Engine {
             let dropped = pin.is_some() && st.xfade_key.take().is_some();
             (st.bit_perfect_gen, dropped)
         };
+        // The waveform capture can't know how long it went uncounted; a track
+        // played across a toggle stays short of complete (wave_capture.rs).
+        self.waves.lock().unwrap().suspend_all();
         let standby = 1 - self.state.lock().unwrap().active;
         if dropped_xfade {
             if let Err(e) = self.decks[standby].mpv.command("stop", &[]) {
@@ -1662,13 +1710,46 @@ fn emit_buffer_if_changed(
     );
 }
 
+/// Feed `deck`'s live waveform capture one reading of its filter. Reads
+/// nothing while there is no capture to feed (idle, mid-seek, bit-perfect).
+/// Returns whether the reading carried new frames. Must be called with no
+/// lock on `state` or `waves` held.
+fn feed_wave_capture(client: &Mpv, deck: usize, state: &Mutex<EngineState>, waves: &Mutex<WaveCaptures>) -> bool {
+    {
+        let st = state.lock().unwrap();
+        if !st.wave_capture || st.bit_perfect.is_some() {
+            return false;
+        }
+    }
+    if !waves.lock().unwrap().live_mut(deck).is_some_and(|c| c.is_live()) {
+        return false;
+    }
+    let Some(reading) = client
+        .get_property::<String>(&format!("af-metadata/{}", wave_capture::WAVE_LABEL))
+        .ok()
+        .and_then(|json| parse_wave(&json))
+    else {
+        return false;
+    };
+    // The decoder's rate is the filter's input rate (resampling for the
+    // output happens after the user chain).
+    let Ok(rate) = client.get_property::<i64>("audio-params/samplerate") else {
+        return false;
+    };
+    waves.lock().unwrap().live_mut(deck).is_some_and(|capture| capture.feed(reading, rate as f64))
+}
+
 fn run_event_loop(
     client: Arc<Mpv>,
     deck: usize,
     engine: Weak<Engine>,
     state: Arc<Mutex<EngineState>>,
+    waves: Arc<Mutex<WaveCaptures>>,
     sink: EventSink,
 ) {
+    let mut last_wave_poll = Instant::now() - wave_capture::WAVE_POLL_INTERVAL;
+    // The last capture read found new frames: the deck is decoding.
+    let mut wave_advancing = false;
     let mut last_position_emit = Instant::now() - POSITION_EMIT_INTERVAL;
     let mut last_buffer_poll = Instant::now() - BUFFER_POLL_INTERVAL;
     let mut last_buffer: Option<BufferFingerprint> = None;
@@ -1694,6 +1775,14 @@ fn run_event_loop(
                 .saturating_sub(last_meter_poll.elapsed())
                 .as_secs_f64()
                 .max(0.005)
+        } else if wave_advancing {
+            // `time-pos` stops changing once the decoder reaches the end and
+            // the output drains, so the last frames would wait for EndFile —
+            // by which time the chain is gone. Keep reading while they move.
+            wave_capture::WAVE_POLL_INTERVAL
+                .saturating_sub(last_wave_poll.elapsed())
+                .as_secs_f64()
+                .max(0.005)
         } else {
             0.5
         };
@@ -1712,6 +1801,13 @@ fn run_event_loop(
             last_buffer_poll = Instant::now();
             emit_buffer_if_changed(&client, deck, &state, &sink, &mut last_buffer);
         }
+        // The counts are cumulative, so the cadence only sets how finely an
+        // interval is placed — no frame is lost between two polls. While
+        // playing, `time-pos` changes wake the loop often enough.
+        if last_wave_poll.elapsed() >= wave_capture::WAVE_POLL_INTERVAL {
+            last_wave_poll = Instant::now();
+            wave_advancing = feed_wave_capture(&client, deck, &state, &waves);
+        }
         let Some(event) = event else {
             continue;
         };
@@ -1727,26 +1823,46 @@ fn run_event_loop(
                 // even when it happens to match the last one of the previous.
                 last_buffer = None;
                 restarted = false;
-                let mut st = state.lock().unwrap();
-                if st.expecting_start[deck] {
-                    // Our own explicit loadfile (play or crossfade arm).
-                    st.expecting_start[deck] = false;
-                } else if deck == st.active {
-                    if let Some(next_key) = st.gapless_key.take() {
-                        // Gapless transition into the playlist-armed track.
-                        st.current_key = Some(next_key.clone());
-                        st.duration = None;
-                        st.pending_seek = None;
-                        st.last_pos = 0.0;
-                        if let Some(url) = st.gapless_url.take() {
-                            st.current_load = Some((url, None));
+                // This file's waveform capture key: the active deck plays the
+                // current track, the standby deck only ever holds a crossfade arm.
+                let capture_key;
+                {
+                    let mut st = state.lock().unwrap();
+                    let mut gapless = None;
+                    if st.expecting_start[deck] {
+                        // Our own explicit loadfile (play or crossfade arm).
+                        st.expecting_start[deck] = false;
+                    } else if deck == st.active {
+                        if let Some(next_key) = st.gapless_key.take() {
+                            // Gapless transition into the playlist-armed track.
+                            st.current_key = Some(next_key.clone());
+                            st.duration = None;
+                            st.pending_seek = None;
+                            st.last_pos = 0.0;
+                            if let Some(url) = st.gapless_url.take() {
+                                st.current_load = Some((url, None));
+                            }
+                            gapless = Some(next_key);
                         }
-                        drop(st);
+                    }
+                    capture_key = if deck == st.active { st.current_key.clone() } else { st.xfade_key.clone() };
+                    drop(st);
+                    if let Some(next_key) = gapless {
                         sink(
                             "engine-track-changed",
                             json!({ "trackKey": next_key, "reason": "gapless" }),
                         );
                     }
+                }
+                let mut waves = waves.lock().unwrap();
+                match capture_key {
+                    Some(key) => waves.begin(deck, &key),
+                    None => waves.finish(deck),
+                }
+            }
+            Ok(Event::Seek) => {
+                if let Some(capture) = waves.lock().unwrap().live_mut(deck) {
+                    capture.suspend();
                 }
             }
             Ok(Event::FileLoaded) => {
@@ -1772,6 +1888,12 @@ fn run_event_loop(
                 // native surface: the desktop shows through the transparent
                 // window for the whole track.
                 restarted = true;
+                // Nothing has played since the restart, so `time-pos` is where
+                // the rebuilt filter's count starts.
+                let position = client.get_property::<f64>("time-pos").unwrap_or(0.0);
+                if let Some(capture) = waves.lock().unwrap().live_mut(deck) {
+                    capture.restart(position);
+                }
                 let key = {
                     let st = state.lock().unwrap();
                     if deck != st.active { None } else { st.current_key.clone() }
@@ -1785,6 +1907,10 @@ fn run_event_loop(
                 }
             }
             Ok(Event::EndFile(reason)) => {
+                // Take the last frames before the capture is put away. Best-effort:
+                // mpv may already have torn the chain down.
+                feed_wave_capture(&client, deck, &state, &waves);
+                waves.lock().unwrap().finish(deck);
                 let action = {
                     let st = state.lock().unwrap();
                     if deck != st.active || reason != mpv_end_file_reason::Eof {
@@ -1853,6 +1979,9 @@ fn run_event_loop(
                         }
                     }
                     ("duration", PropertyData::Double(dur)) => {
+                        if let Some(capture) = waves.lock().unwrap().live_mut(deck) {
+                            capture.set_duration(dur);
+                        }
                         let key = {
                             let mut st = state.lock().unwrap();
                             if deck != st.active {
@@ -2521,6 +2650,7 @@ mod tests {
             assert_eq!(s(i, "audio-device"), "auto", "deck {i}");
             assert!(!s(i, "af").is_empty(), "deck {i}: EQ restored");
             assert!(s(i, "af").contains(meter::METER_LABEL), "deck {i}: meter restored");
+            assert!(s(i, "af").contains(wave_capture::WAVE_LABEL), "deck {i}: waveform capture restored");
             assert_eq!(s(i, "replaygain"), "track", "deck {i}: ReplayGain restored");
             assert_eq!(deck(i).get_property::<f64>("speed").unwrap(), 1.5, "deck {i}: speed restored");
             assert!(!deck(i).get_property::<bool>("audio-exclusive").unwrap(), "deck {i}: exclusive restored");
@@ -3104,7 +3234,9 @@ mod tests {
 
         let (sink, rx) = collect_events();
         let Some(engine) = try_test_engine(sink) else { return };
-        assert_eq!(af_of(&engine, 0), "", "no filter until someone asks");
+        // Only the always-on waveform capture: no meter until someone asks.
+        let af = af_of(&engine, 0);
+        assert!(af.contains(wave_capture::WAVE_LABEL) && !af.contains(meter::METER_LABEL), "no meter until someone asks: {af}");
         engine
             .play(wav.to_str().unwrap(), None, "trk:off", None, 1.0, false, false)
             .expect("play");
@@ -3207,5 +3339,183 @@ mod tests {
         engine.apply_meter(false, &eq).unwrap();
         let af = af_of(&engine, 0);
         assert!(af.contains("equalizer") && !af.contains(meter::METER_LABEL), "{af}");
+    }
+
+    /// Per-second level of the capture test files: second `i` at `LEVELS[i]`.
+    /// Steps of ~6 dB: the capture is placed per read (one or two mpv decode
+    /// bursts — a 4096-frame chunk of a WAV is ~93ms), so the read straddling
+    /// a boundary is split evenly and a loud second bleeds a little into a
+    /// quiet one. A 20 dB step makes that bleed dominate the quiet second; a
+    /// capture placed by `time-pos` instead would be ~0.5s off and miss every
+    /// step by ~50%.
+    const LEVELS: [f64; 4] = [0.5, 0.25, 0.35, 0.5];
+
+    fn stepped_amp(t: f64) -> f64 {
+        LEVELS[(t as usize).min(LEVELS.len() - 1)]
+    }
+
+    /// RMS the capture should report for a second of `write_sine_wav` at
+    /// `amp`: left at amp, right at half, averaged in the power domain.
+    fn expected_rms(amp: f64) -> f32 {
+        ((amp * amp / 2.0 + amp * amp / 8.0) / 2.0).sqrt() as f32
+    }
+
+    fn assert_levels(s: &WaveSnapshot, seconds: &[usize]) {
+        for &i in seconds {
+            let got = s.rms[i].unwrap_or_else(|| panic!("second {i} not heard: {:?}", s.rms));
+            let want = expected_rms(LEVELS[i]);
+            // Up to ~15% for the read a neighbouring second shares with this
+            // one: a read that caught two bursts straddling the boundary is
+            // split evenly, which moves a loud second's energy into a quiet
+            // one. Misplacement would be ~50% (the AO lead is ~0.5s).
+            assert!((got - want).abs() / want < 0.15, "second {i}: {got} vs {want} ({:?})", s.rms);
+        }
+    }
+
+    #[test]
+    fn test_wave_capture_records_a_whole_play_second_by_second() {
+        let dir = tempfile::tempdir().unwrap();
+        let wav = dir.path().join("steps.wav");
+        write_sine_wav(&wav, LEVELS.len() as f64, stepped_amp);
+        let (sink, rx) = collect_events();
+        let Some(engine) = try_test_engine(sink) else { return };
+        assert!(af_of(&engine, 0).contains(wave_capture::WAVE_LABEL), "the capture is on from creation");
+        engine.play(wav.to_str().unwrap(), None, "trk:steps", None, 1.0, false, false).unwrap();
+        wait_for(&rx, "engine-ended", Duration::from_secs(10));
+        let s = engine.wave_snapshot("trk:steps").expect("kept after the track ended");
+        assert_eq!(s.rms.len(), LEVELS.len());
+        // A full listen covers the track, short of at most the last decode
+        // burst or two (~93ms each): mpv drops the filter soon after EOF, and a
+        // busy machine can read too late for the final one. On a real track
+        // that is well inside the frontend's 1% allowance.
+        let heard = s.coverage * LEVELS.len() as f64;
+        assert!(heard >= LEVELS.len() as f64 - 0.2, "a full listen covers the track: {s:?}");
+        // Placed by decode position: a capture aligned to `time-pos` would be
+        // ~0.5s late and smear every step into the next second.
+        assert_levels(&s, &[0, 1, 2, 3]);
+    }
+
+    /// The track the queue advances to is captured too, by either arm: a
+    /// gapless successor (same deck) and a crossfade arm (the standby deck,
+    /// loaded paused).
+    fn assert_successor_captured(crossfade: bool) {
+        let dir = tempfile::tempdir().unwrap();
+        let a = dir.path().join("a.wav");
+        let b = dir.path().join("b.wav");
+        write_sine_wav(&a, 2.0, |_| 0.5);
+        write_sine_wav(&b, LEVELS.len() as f64, stepped_amp);
+        let (sink, rx) = collect_events();
+        let Some(engine) = try_test_engine(sink) else { return };
+        engine.play(a.to_str().unwrap(), None, "trk:a", None, 1.0, false, false).unwrap();
+        wait_for(&rx, "engine-playback-restart", Duration::from_secs(5));
+        engine.preload(b.to_str().unwrap(), None, "trk:b", crossfade).unwrap();
+        wait_for(&rx, "engine-ended", Duration::from_secs(15));
+        let s = engine.wave_snapshot("trk:b").expect("the successor has a capture");
+        let heard = s.coverage * LEVELS.len() as f64;
+        assert!(heard >= LEVELS.len() as f64 - 0.2, "crossfade={crossfade}: {s:?}");
+        assert_levels(&s, &[0, 1, 2, 3]);
+    }
+
+    #[test]
+    fn test_wave_capture_follows_a_gapless_successor() {
+        assert_successor_captured(false);
+    }
+
+    #[test]
+    fn test_wave_capture_follows_a_crossfade_arm() {
+        assert_successor_captured(true);
+    }
+
+    #[test]
+    fn test_wave_capture_places_a_seek_at_its_target() {
+        let dir = tempfile::tempdir().unwrap();
+        let wav = dir.path().join("steps.wav");
+        write_sine_wav(&wav, LEVELS.len() as f64, stepped_amp);
+        let (sink, rx) = collect_events();
+        let Some(engine) = try_test_engine(sink) else { return };
+        engine.play(wav.to_str().unwrap(), None, "trk:seek", None, 1.0, false, false).unwrap();
+        wait_for(&rx, "engine-playback-restart", Duration::from_secs(5));
+        engine.seek(2.0).unwrap();
+        wait_for(&rx, "engine-ended", Duration::from_secs(10));
+        let s = engine.wave_snapshot("trk:seek").unwrap();
+        assert_levels(&s, &[2, 3]);
+        assert!(s.coverage < 0.99, "the skipped span stays unheard: {s:?}");
+        assert!(s.rms[1].is_none(), "second 1 was skipped: {:?}", s.rms);
+    }
+
+    /// Compare the captured waveform of a real track with the ffmpeg
+    /// provider's (`waveform.rs`) for the same file. Plays the whole track at
+    /// real time (`ao=null`): no `speed` or untimed output, which would change
+    /// mpv's burst size and so how the capture places frames.
+    ///
+    /// `VIBOPLR_WAVE_COMPARE=/path/to/song.flac cargo test --lib probe_wave_capture_vs_ffmpeg -- --ignored --nocapture`
+    #[test]
+    #[ignore]
+    fn probe_wave_capture_vs_ffmpeg() {
+        let Ok(path) = std::env::var("VIBOPLR_WAVE_COMPARE") else {
+            eprintln!("[compare] set VIBOPLR_WAVE_COMPARE to a music file");
+            return;
+        };
+        let reference = crate::waveform::analyze(&path, "probe-compare").expect("ffmpeg analysis");
+        let (sink, rx) = collect_events();
+        let Some(engine) = try_test_engine(sink) else { return };
+        engine.play(&path, None, "trk:compare", None, 1.0, false, false).unwrap();
+        let ended = Instant::now() + Duration::from_secs(reference.len() as u64 + 30);
+        wait_for(&rx, "engine-ended", ended.saturating_duration_since(Instant::now()));
+        let s = engine.wave_snapshot("trk:compare").unwrap();
+        let captured: Vec<f64> = s.rms.iter().map(|v| v.unwrap_or(0.0) as f64).collect();
+        let reference: Vec<f64> = reference.iter().map(|&v| v as f64).collect();
+        eprintln!(
+            "[compare] {} buckets captured vs {} from ffmpeg, coverage {:.4}, unheard {}",
+            captured.len(),
+            reference.len(),
+            s.coverage,
+            s.rms.iter().filter(|v| v.is_none()).count()
+        );
+        let n = captured.len().min(reference.len());
+        let pearson = |a: &[f64], b: &[f64]| {
+            let (ma, mb) = (a.iter().sum::<f64>() / a.len() as f64, b.iter().sum::<f64>() / b.len() as f64);
+            let cov: f64 = a.iter().zip(b).map(|(x, y)| (x - ma) * (y - mb)).sum();
+            let va: f64 = a.iter().map(|x| (x - ma).powi(2)).sum();
+            let vb: f64 = b.iter().map(|y| (y - mb).powi(2)).sum();
+            cov / (va * vb).sqrt()
+        };
+        for lag in [-1i64, 0, 1] {
+            let (a, b): (Vec<f64>, Vec<f64>) = (0..n as i64)
+                .filter_map(|i| {
+                    let j = i + lag;
+                    (j >= 0 && (j as usize) < n).then(|| (captured[i as usize], reference[j as usize]))
+                })
+                .unzip();
+            eprintln!("[compare] pearson r at lag {lag:+}: {:.4}", pearson(&a, &b));
+        }
+        // What the user sees: the frontend's shapePeaks (normalize to the
+        // loudest second, then the 1.8 display curve, floor 0.03).
+        let shape = |v: &[f64]| {
+            let max = v.iter().cloned().fold(0.0, f64::max).max(f64::MIN_POSITIVE);
+            v.iter().map(|x| 0.03 + 0.97 * (x / max).clamp(0.0, 1.0).powf(1.8)).collect::<Vec<_>>()
+        };
+        let (sa, sb) = (shape(&captured[..n]), shape(&reference[..n]));
+        let diffs: Vec<f64> = sa.iter().zip(&sb).map(|(x, y)| (x - y).abs()).collect();
+        let mean = diffs.iter().sum::<f64>() / n as f64;
+        let max = diffs.iter().cloned().fold(0.0, f64::max);
+        let worst = diffs.iter().position(|d| *d == max).unwrap_or(0);
+        eprintln!("[compare] bar height diff: mean {mean:.4}, max {max:.4} at {worst}s (capture {:.3}, ffmpeg {:.3})", sa[worst], sb[worst]);
+        // Raw level ratio, which shows a systematic offset (downmix vs mean square).
+        let ratios: Vec<f64> = (0..n).filter(|&i| reference[i] > 1e-4).map(|i| captured[i] / reference[i]).collect();
+        let mut sorted = ratios.clone();
+        sorted.sort_by(|a, b| a.partial_cmp(b).unwrap());
+        if !sorted.is_empty() {
+            eprintln!(
+                "[compare] capture/ffmpeg RMS ratio: median {:.3}, p5 {:.3}, p95 {:.3}",
+                sorted[sorted.len() / 2],
+                sorted[sorted.len() * 5 / 100],
+                sorted[(sorted.len() * 95 / 100).min(sorted.len() - 1)]
+            );
+        }
+        eprintln!("[compare] second  capture  ffmpeg  (shaped)");
+        for i in 0..n {
+            eprintln!("[compare] {i:>5}  {:.3}    {:.3}", sa[i], sb[i]);
+        }
     }
 }

@@ -67,13 +67,18 @@ const CURVE = 1.8;
  * the display curve. Shared by every provider (see types.ts). Changing it changes the
  * look of cached waveforms too — bump the `waveformKey` prefix when it does.
  */
-export function shapePeaks(rms: readonly number[]): number[] {
+export function shapePeaks(rms: readonly number[]): number[];
+/** Unheard seconds (`null`, a capture still building) stay `null`; the rest
+ *  are shaped against the loudest second heard so far. */
+export function shapePeaks(rms: readonly (number | null)[]): (number | null)[];
+export function shapePeaks(rms: readonly (number | null)[]): (number | null)[] {
   let maxRms = 0;
   for (const v of rms) {
-    if (v > maxRms) maxRms = v;
+    if (v !== null && v > maxRms) maxRms = v;
   }
   if (maxRms === 0) maxRms = 1;
   return rms.map((v) => {
+    if (v === null) return null;
     const n = Math.min(Math.max(v, 0) / maxRms, 1);
     return MIN_HEIGHT + (1 - MIN_HEIGHT) * Math.pow(n, CURVE);
   });

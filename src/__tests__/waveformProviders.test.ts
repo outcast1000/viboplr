@@ -7,6 +7,7 @@ vi.mock("../playback/nativeEngine", () => ({ nativeEngine: engineMock }));
 
 import { analyzeWaveform, shapePeaks, WAVEFORM_PROVIDERS, waveformProviders } from "../waveform/providers";
 import { ffmpegWaveformProvider } from "../waveform/ffmpegProvider";
+import { fillCaptureGaps, isCaptureComplete } from "../waveform/engineCapture";
 import { PLUGIN_WAVEFORM_TIMEOUT_MS, pluginWaveformProvider, sanitizePluginRms, type WaveformPluginBridge } from "../waveform/pluginProvider";
 import { buildTrackAudioFacts, ENGINE_FACTS_WAIT_MS, resolveTrackAudioFacts } from "../hooks/useNowPlayingInfo";
 import type { TrackAudioFacts, WaveformAttempt, WaveformProvider, WaveformRequest } from "../waveform/types";
@@ -104,6 +105,30 @@ describe("shapePeaks", () => {
     const a = shapePeaks([0.1, 0.2, 0.4]);
     const b = shapePeaks([0.3, 0.6, 1.2]);
     a.forEach((v, i) => expect(v).toBeCloseTo(b[i]));
+  });
+
+  it("keeps a building capture's unheard seconds unheard, scaled to the loudest heard", () => {
+    const shaped = shapePeaks([0.25, null, 0.5, null]);
+    expect(shaped[1]).toBeNull();
+    expect(shaped[3]).toBeNull();
+    expect(shaped[2]).toBeCloseTo(1);
+    expect(shaped[0]).toBeCloseTo(0.03 + 0.97 * Math.pow(0.5, 1.8));
+  });
+});
+
+describe("engine capture", () => {
+  it("is complete at 99% heard, not before", () => {
+    expect(isCaptureComplete({ rms: [0.1, 0.2], coverage: 0.99, durationSecs: 2 })).toBe(true);
+    expect(isCaptureComplete({ rms: [0.1, 0.2], coverage: 0.989, durationSecs: 2 })).toBe(false);
+    expect(isCaptureComplete({ rms: [null, null], coverage: 1, durationSecs: 2 })).toBe(false);
+  });
+
+  it("fills the few unheard seconds of a complete capture from their neighbours", () => {
+    expect(fillCaptureGaps([0.2, null, null, 0.8])).toEqual([0.2, expect.closeTo(0.4), expect.closeTo(0.6), 0.8]);
+    // Ends are held flat; a gap-free capture is unchanged.
+    expect(fillCaptureGaps([null, 0.5, null])).toEqual([0.5, 0.5, 0.5]);
+    expect(fillCaptureGaps([0.1, 0.2])).toEqual([0.1, 0.2]);
+    expect(fillCaptureGaps([null, null])).toEqual([0, 0]);
   });
 });
 

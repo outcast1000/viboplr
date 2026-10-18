@@ -88,10 +88,14 @@ thread_local! {
     pub static FILTER_OVERRIDE: std::cell::RefCell<Option<String>> = const { std::cell::RefCell::new(None) };
 }
 
-/// mpv's `af` value for an EQ graph plus, optionally, the meter. The meter goes
-/// last so it measures what the EQ produced.
-pub fn af_chain(eq_graph: &str, meter: bool) -> String {
+/// mpv's `af` value for an EQ graph plus, optionally, the waveform capture
+/// and the meter. The capture goes first so a waveform doesn't depend on the
+/// listener's EQ; the meter goes last so it measures what the EQ produced.
+pub fn af_chain(eq_graph: &str, meter: bool, capture: bool) -> String {
     let mut parts = Vec::new();
+    if capture {
+        parts.push(super::wave_capture::wave_filter());
+    }
     if !eq_graph.is_empty() {
         parts.push(format!("lavfi=[{eq_graph}]"));
     }
@@ -237,12 +241,17 @@ mod tests {
 
     #[test]
     fn test_af_chain_composition() {
-        assert_eq!(af_chain("", false), "");
-        assert_eq!(af_chain("volume=-2.0dB", false), "lavfi=[volume=-2.0dB]");
-        assert_eq!(af_chain("", true), meter_filter());
+        assert_eq!(af_chain("", false, false), "");
+        assert_eq!(af_chain("volume=-2.0dB", false, false), "lavfi=[volume=-2.0dB]");
+        assert_eq!(af_chain("", true, false), meter_filter());
         assert_eq!(
-            af_chain("volume=-2.0dB", true),
+            af_chain("volume=-2.0dB", true, false),
             format!("lavfi=[volume=-2.0dB],{}", meter_filter())
+        );
+        // The capture goes first, so the waveform is the same at any EQ.
+        assert_eq!(
+            af_chain("volume=-2.0dB", true, true),
+            format!("{},lavfi=[volume=-2.0dB],{}", super::super::wave_capture::wave_filter(), meter_filter())
         );
     }
 }

@@ -53,6 +53,7 @@ pub const MPV_EVENT_IDLE: mpv_event_id = 11;
 /// first frame of the new content. Later than `time-pos`/video reconfig, so the
 /// truest "frame is on screen" signal on self-presenting VOs (Windows `vo=gpu`);
 /// the frontend reveals the native video hole on it.
+pub const MPV_EVENT_SEEK: mpv_event_id = 20;
 pub const MPV_EVENT_PLAYBACK_RESTART: mpv_event_id = 21;
 pub const MPV_EVENT_PROPERTY_CHANGE: mpv_event_id = 22;
 

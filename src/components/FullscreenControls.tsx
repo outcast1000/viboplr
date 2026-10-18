@@ -18,9 +18,10 @@ import { LikeDislikeButtons } from "./LikeDislikeButtons";
 import { BufferingChip } from "./BufferingChip";
 import { bufferedFraction } from "../playback/bufferState";
 import { usePlaybackBuffer } from "../playback/bufferStore";
+import type { WaveformPeaks } from "../waveform/types";
 
 interface FullscreenControlsProps {
-  waveformPeaks: number[] | null;
+  waveformPeaks: WaveformPeaks | null;
   /** Seek-preview tiles for the current video track; null for audio. */
   storyboard: Storyboard | null;
   /** Plugin ticks on the playing track's seek bar (`api.playback.setMarkers`). */

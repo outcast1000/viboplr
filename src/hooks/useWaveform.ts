@@ -3,7 +3,15 @@ import { invoke } from "@tauri-apps/api/core";
 import type { QueueTrack } from "../types";
 import { analyzeWaveform, shapePeaks, waveformProviders } from "../waveform/providers";
 import { isPluginWaveformProvider, type WaveformPluginBridge } from "../waveform/pluginProvider";
-import type { TrackAudioFacts } from "../waveform/types";
+import {
+  CAPTURE_POLL_MS,
+  ENGINE_CAPTURE_PROVIDER_ID,
+  fillCaptureGaps,
+  isCaptureComplete,
+  readEngineCapture,
+  type EngineWaveCapture,
+} from "../waveform/engineCapture";
+import type { TrackAudioFacts, WaveformPeaks } from "../waveform/types";
 import { resolveTrackAudioFacts } from "./useNowPlayingInfo";
 import { useLatestRef } from "./useLatestRef";
 
@@ -16,6 +24,19 @@ import { useLatestRef } from "./useLatestRef";
 // already computed — e.g. Viboplr Community), then, for a local file only, ffmpeg
 // and Web Audio. Each provider returns per-second RMS and `shapePeaks` turns it
 // into bar heights. A local cache hit asks nobody anything.
+//
+// When that chain comes back empty — a stream nobody shared — the waveform is
+// built from what the engine hears while it plays (src/waveform/engineCapture.ts):
+// drawn as it fills in, and cached and shared only once 99% of the track has
+// been heard.
+
+/** After the track changes, how long to wait before the last look at its
+ *  capture: its final second lands as it ends, when the engine puts it away. */
+const CAPTURE_FINAL_READ_MS = 1500;
+
+/** Cache keys already saved from a capture, so the last look after a track
+ *  change and the poll of a replayed copy don't save (and share) it twice. */
+const savedCaptures = new Set<string>();
 
 interface WaveformCache {
   name: string;
@@ -50,7 +71,9 @@ export interface WaveformCandidate {
  * and decoding a whole container in the webview costs orders of magnitude more than
  * an audio file. Remote streams (subsonic / plugin schemes / direct http) are
  * excluded by design — analyzing one would mean downloading it a second time (the
- * Web Audio `fetch` is CORS-blocked for them anyway).
+ * Web Audio `fetch` is CORS-blocked for them anyway). A stream gets its waveform
+ * from the engine's capture instead, built from the samples it already decodes
+ * for playback (see the hook below).
  */
 export function isWaveformComputable(
   candidate: WaveformCandidate,
@@ -97,16 +120,20 @@ export function useWaveform(
     /** Whether the native engine is decoding this track key (its live facts are about it). */
     isEngineDecoding: (trackKey: string) => boolean;
   },
-): number[] | null {
-  const [peaks, setPeaks] = useState<number[] | null>(null);
+): WaveformPeaks | null {
+  const [peaks, setPeaks] = useState<WaveformPeaks | null>(null);
   const abortRef = useRef<AbortController | null>(null);
   // The cache key whose peaks are on screen: a re-run for the same key (plugins
   // becoming ready) keeps them instead of blanking the bar.
   const shownKeyRef = useRef<string | null>(null);
+  // The cache key whose capture, still building, is on screen — also kept
+  // through a re-run, while the new run catches up with the engine.
+  const buildingKeyRef = useRef<string | null>(null);
   // The effect keys on the identity fields below; the rest (album, format…) is read
   // from here when the facts are built, so a like toggle doesn't re-run it.
   const trackRef = useLatestRef(track);
   const engineRef = useLatestRef(isEngineDecoding);
+  const trackKey = track?.key ?? null;
   const trackPath = track?.path ?? null;
   const trackName = track?.title ?? null;
   const trackArtist = track?.artist_name ?? null;
@@ -114,8 +141,9 @@ export function useWaveform(
   useEffect(() => {
     const candidate = { path: trackPath, title: trackName, isVideo, durationSecs };
     const cacheKey = isWaveformShowable(candidate) ? waveformKey(trackArtist, candidate.title, durationSecs) : null;
-    if (cacheKey === null || cacheKey !== shownKeyRef.current) {
+    if (cacheKey === null || (cacheKey !== shownKeyRef.current && cacheKey !== buildingKeyRef.current)) {
       shownKeyRef.current = null;
+      buildingKeyRef.current = null;
       setPeaks(null);
     }
     if (!isWaveformShowable(candidate) || cacheKey === null) return;
@@ -175,34 +203,95 @@ export function useWaveform(
         signal: controller.signal,
         facts: () => facts(),
       });
-      if (cancelled || !result) return;
+      if (cancelled) return;
+      if (result) {
+        const peaks = shapePeaks(result.rms);
+        console.debug(`[waveform] created new via ${result.providerId}: "${title}" (${durationSecs || peaks.length}s, ${peaks.length} buckets)`);
+        shownKeyRef.current = cacheKey;
+        setPeaks(peaks);
+        keep(result.providerId, result.rms, peaks, false);
+        return;
+      }
 
-      const peaks = shapePeaks(result.rms);
-      const duration = durationSecs || peaks.length;
-      console.debug(`[waveform] created new via ${result.providerId}: "${title}" (${duration}s, ${peaks.length} buckets)`);
-      shownKeyRef.current = cacheKey;
-      setPeaks(peaks);
+      // Nobody had it and nothing could compute it (a stream, or a local file
+      // no computing provider could read): build it from what the engine hears.
+      if (!trackKey) return;
+      capturing = true;
+      // Resolved now, while the engine still describes this track, so a capture
+      // completed after the track ended can still be shared.
+      if (bridge?.hasShareHandlers()) void facts();
+      void pollCapture(trackKey);
+    })();
 
-      const waveform: WaveformCache = { name: title, duration, peaks };
+    // Cache a finished waveform and — when the host made it, so nobody had it —
+    // offer it to the sharing plugins. One a plugin handed us is not shared back.
+    // `afterTrack`: saved after the effect moved on (a capture's last look).
+    function keep(providerId: string, rms: number[], peaks: number[], afterTrack: boolean) {
+      const waveform: WaveformCache = { name: title, duration: durationSecs || peaks.length, peaks };
       // Fire-and-forget: the waveform is already rendered from memory; a failed
       // cache write only costs a recompute next time this track plays.
       invoke("cache_waveform", { key: cacheKey, waveform }).catch(() => {}); // eslint-disable-line no-restricted-syntax
-
-      // Computed here, so nobody had it: offer it to the sharing plugins. One a
-      // plugin handed us is not shared back.
-      if (bridge && bridge.hasShareHandlers() && !isPluginWaveformProvider(result.providerId)) {
-        const rms = result.rms;
+      const bridge = plugins.current;
+      if (bridge && bridge.hasShareHandlers() && !isPluginWaveformProvider(providerId)) {
         void facts(rms.length).then((f) => {
-          if (f && !cancelled) bridge.share(f, rms);
+          if (f && (afterTrack || !cancelled)) bridge.share(f, rms);
         });
       }
-    })();
+    }
+
+    let capturing = false;
+    let pollTimer: ReturnType<typeof setTimeout> | undefined;
+
+    function saveCapture(capture: EngineWaveCapture, afterTrack: boolean) {
+      if (savedCaptures.has(cacheKey!)) return;
+      savedCaptures.add(cacheKey!);
+      const rms = fillCaptureGaps(capture.rms);
+      const peaks = shapePeaks(rms);
+      console.debug(`[waveform] captured while playing: "${title}" (${peaks.length} buckets, ${(capture.coverage * 100).toFixed(1)}% heard)`);
+      if (!afterTrack) {
+        shownKeyRef.current = cacheKey;
+        buildingKeyRef.current = null;
+        setPeaks(peaks);
+      }
+      keep(ENGINE_CAPTURE_PROVIDER_ID, rms, peaks, afterTrack);
+    }
+
+    async function pollCapture(key: string) {
+      let capture: EngineWaveCapture | null = null;
+      try {
+        capture = await readEngineCapture(key);
+      } catch (e) {
+        console.error("Failed to read the engine's waveform capture:", e);
+      }
+      if (cancelled) return;
+      if (capture && isCaptureComplete(capture)) {
+        saveCapture(capture, false);
+        return;
+      }
+      // Less than the whole track: draw what was heard, cache nothing.
+      if (capture && capture.rms.some((v) => v !== null)) {
+        buildingKeyRef.current = cacheKey;
+        setPeaks(shapePeaks(capture.rms));
+      }
+      pollTimer = setTimeout(() => void pollCapture(key), CAPTURE_POLL_MS);
+    }
 
     return () => {
       cancelled = true;
       controller.abort();
+      clearTimeout(pollTimer);
+      if (capturing && trackKey && !savedCaptures.has(cacheKey)) {
+        const key = trackKey;
+        setTimeout(() => {
+          readEngineCapture(key)
+            .then((capture) => {
+              if (capture && isCaptureComplete(capture)) saveCapture(capture, true);
+            })
+            .catch((e) => console.error("Failed to read the engine's waveform capture:", e));
+        }, CAPTURE_FINAL_READ_MS);
+      }
     };
-  }, [trackPath, trackName, trackArtist, durationSecs, isVideo, assetUrl, plugins, pluginsReady, trackRef, engineRef]);
+  }, [trackKey, trackPath, trackName, trackArtist, durationSecs, isVideo, assetUrl, plugins, pluginsReady, trackRef, engineRef]);
 
   return peaks;
 }
