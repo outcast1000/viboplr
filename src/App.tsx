@@ -2840,9 +2840,11 @@ function App() {
         if (action.tracks.length > 0) {
           const head = action.tracks.map(pluginTrackToQueueTrack);
           // Partial: start the known head now and append the rest behind the
-          // music — no modal, since audio covers the wait.
+          // music — no modal, since audio covers the wait. Through queueOps so
+          // the tail gets its like reconcile too (the replacing-play reconcile
+          // only ever sees the head).
           if (action.partial && pending) {
-            void playActions.playWithBackfill({
+            void queueOps.playWithBackfill(queueOpsDeps, {
               head,
               context: ctx ?? null,
               resolveTail: () => pending.then(ts => ts.map(pluginTrackToQueueTrack)),
@@ -2872,7 +2874,7 @@ function App() {
       case "none":
         return;
     }
-  }, [playActions, contextMenuActions, queueHook, plugins, handleReplayLatestPlay]);
+  }, [playActions, contextMenuActions, queueHook, queueOpsDeps, plugins, handleReplayLatestPlay]);
 
   const handleHomeShelfItemClick = useCallback((shelf: ResolvedShelf, item: HomeShelfItem) => {
     // The "Latest play" shelf re-resolves each tile to a fresh play (see
