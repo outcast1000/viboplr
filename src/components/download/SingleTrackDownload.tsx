@@ -28,7 +28,8 @@ import {
 } from "../../utils/downloadCompare";
 import type { AppStore } from "../../store";
 import type { DownloadPlan, ResolveTrack } from "../../utils/downloadPlan";
-import type { DownloadTrack, UpgradePreviewInfo, ConflictCheck, DownloadResult } from "./types";
+import type { DownloadTrack, UpgradePreviewInfo, ConflictCheck, DownloadResult, DownloadPurpose } from "./types";
+import { downloadWording } from "./types";
 import { ProviderChip } from "./ProviderChip";
 import { QualitySelect } from "./QualitySelect";
 import { DestField, DOWNLOAD_LAYOUT_KEY, coerceDownloadLayout, type DownloadLayout } from "./DestField";
@@ -88,6 +89,7 @@ export function SingleTrackDownload({
   onClose,
   onComplete,
   onPlay,
+  purpose,
 }: {
   track: DownloadTrack;
   /** Keys the remembered quality. */
@@ -121,7 +123,10 @@ export function SingleTrackDownload({
   onClose: () => void;
   onComplete: (message: string) => void;
   onPlay?: (path: string) => void;
+  /** See `DownloadPurpose` — only the words change. */
+  purpose?: DownloadPurpose;
 }) {
+  const words = downloadWording(purpose);
   const directUri = !!resolveTrack;
   // In plan mode the search and the match resolve are the plan's own (absent
   // when the provider has none); otherwise the modal's provider callbacks.
@@ -532,7 +537,7 @@ export function SingleTrackDownload({
       setResolveProgress(null);
       // Providers throw user-facing reasons (e.g. "YouTube rejected the
       // request with a sign-in / bot check") — show the message, not "Error:".
-      setError(`Download failed: ${e instanceof Error ? e.message : String(e)}`);
+      setError(`${words.failed}: ${e instanceof Error ? e.message : String(e)}`);
       setStep("configure");
       return;
     }
@@ -889,7 +894,7 @@ export function SingleTrackDownload({
   return (
     <>
       <div className="dl-head">
-        <h2>{isUpgrade && !showDestPicker ? "Upgrade track" : "Download track"}</h2>
+        <h2>{isUpgrade && !showDestPicker ? "Upgrade track" : words.singleTitle}</h2>
         <ProviderChip name={providerName} />
       </div>
       {step !== "configure" && (
@@ -1072,7 +1077,7 @@ export function SingleTrackDownload({
             </button>
             <button className="dl-btn-primary" onClick={handleStartDownload} disabled={resolving || checkingPreview}>
               {!resolving && <IconDownload size={15} />}
-              {resolving ? "Working…" : ownedCopy ? "Download anyway" : "Download"}
+              {resolving ? "Working…" : ownedCopy ? words.startAnyway : words.start}
             </button>
           </div>
         </>
@@ -1106,7 +1111,7 @@ export function SingleTrackDownload({
             <div className="dl-loading"><div className="ds-spinner" /><span>Saving to {destLabel}…</span></div>
           ) : (
             <>
-              <div className="dl-loading"><div className="ds-spinner" /><span>Downloading from {providerName}...</span></div>
+              <div className="dl-loading"><div className="ds-spinner" /><span>{words.working(providerName)}</span></div>
               <div className="dl-progress">
                 <div className="dl-progress-bar">
                   <div className="dl-progress-fill" style={{ width: `${downloadProgress}%` }} />
@@ -1193,7 +1198,7 @@ export function SingleTrackDownload({
       {step === "result" && downloadResult && (
         <>
           <div className="dl-success">
-            <h3>Download complete</h3>
+            <h3>{words.done}</h3>
             <div className="dl-field">
               <span>Format</span>
               <span>{downloadResult.format}</span>

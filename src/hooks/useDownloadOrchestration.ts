@@ -3,6 +3,7 @@ import { invoke } from "@tauri-apps/api/core";
 import type { Track, QueueTrack } from "../types";
 import type { DownloadProvider } from "../types/plugin";
 import type { DownloadTrack } from "../components/DownloadModal";
+import type { DownloadPurpose } from "../components/download/types";
 import type { ContextMenuState } from "../types/contextMenu";
 import { classifyEffectiveSource } from "../queueEntry";
 import { isVideoTrack } from "../utils";
@@ -31,6 +32,9 @@ export interface DownloadModalState {
   resolveMatch?: DownloadPlan["resolveMatch"];
   search?: DownloadPlan["search"];
   canChooseAnother?: DownloadPlan["canChooseAnother"];
+  /** `"import"` when the files are already here and the modal only copies
+   *  them into a collection (a plugin's `download-tracks` with `purpose`). */
+  purpose?: DownloadPurpose;
 }
 
 /** The modal state for downloading one track through a plan. Every plan-based

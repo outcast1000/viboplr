@@ -2500,7 +2500,7 @@ function App() {
         // single track with a source uri always gets a `resolveTrack` bound to
         // the plugin's uri. A row that isn't local (or can't be read) falls back
         // to the ordinary fresh download: `download_preview` needs a file on disk.
-        const p = payload as { tracks: Array<{ title: string; artist_name: string | null; album_title?: string | null; uri?: string | null; durationSecs?: number | null; libraryTrackId?: number | null }>; providerId: string; providerName: string };
+        const p = payload as { tracks: Array<{ title: string; artist_name: string | null; album_title?: string | null; uri?: string | null; durationSecs?: number | null; libraryTrackId?: number | null }>; providerId: string; providerName: string; purpose?: string };
         if (p.providerId && p.tracks && p.tracks.length > 0) {
           const provider = downloadProviders.find(dp => dp.id === p.providerId);
           const isSingle = p.tracks.length === 1;
@@ -2518,6 +2518,9 @@ function App() {
               })),
               providerId: p.providerId,
               providerName: p.providerName,
+              // The plugin's files are already here (Soulseek's "Add to
+              // library…"): same flow, but the modal says Add, not Download.
+              purpose: p.purpose === "import" ? "import" : undefined,
               // Multi-track: skip the resolve/search step and resolve each uri directly.
               confirmed: !isSingle,
               // Single track with a source uri: resolve exactly that, no search.
@@ -6945,6 +6948,7 @@ function App() {
           resolveMatch={downloadModal.resolveMatch}
           search={downloadModal.search}
           canChooseAnother={downloadModal.canChooseAnother}
+          purpose={downloadModal.purpose}
           qualityOptions={qualityOptions}
           collections={localCollections}
           store={store}

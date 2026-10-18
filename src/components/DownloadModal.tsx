@@ -8,7 +8,7 @@ import type { AppStore } from "../store";
 import type { DownloadPlan, ResolveTrack } from "../utils/downloadPlan";
 import { SingleTrackDownload } from "./download/SingleTrackDownload";
 import { MultiTrackDownload } from "./download/MultiTrackDownload";
-import type { DownloadTrack } from "./download/types";
+import type { DownloadTrack, DownloadPurpose } from "./download/types";
 import "./DownloadModal.css";
 
 export type { DownloadTrack } from "./download/types";
@@ -40,6 +40,8 @@ interface DownloadModalProps {
   onClose: () => void;
   onComplete: (message: string) => void;
   onPlay?: (path: string) => void;
+  /** See `DownloadPurpose`. */
+  purpose?: DownloadPurpose;
 }
 
 export function DownloadModal({
@@ -62,6 +64,7 @@ export function DownloadModal({
   onClose,
   onComplete,
   onPlay,
+  purpose,
 }: DownloadModalProps) {
   const isSingle = tracks.length === 1;
 
@@ -88,6 +91,7 @@ export function DownloadModal({
             onClose={onClose}
             onComplete={onComplete}
             onPlay={onPlay}
+            purpose={purpose}
           />
         ) : (
           <MultiTrackDownload
@@ -104,6 +108,7 @@ export function DownloadModal({
             onClose={onClose}
             onComplete={onComplete}
             onPlay={onPlay}
+            purpose={purpose}
           />
         )}
       </div>

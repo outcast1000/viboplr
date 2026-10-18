@@ -9,7 +9,8 @@ import { formatDuration, formatFileSize } from "../../utils";
 import { defaultQualityValue } from "../../utils/downloadQuality";
 import type { AppStore } from "../../store";
 import { IconPlay, IconFolder, IconDownload } from "../Icons";
-import type { DownloadTrack, UpgradePreviewInfo, DownloadResult, ExistingAction, ResolveState, BatchDownloadTrackState, BatchConflict, ConflictCheck } from "./types";
+import type { DownloadTrack, UpgradePreviewInfo, DownloadResult, ExistingAction, ResolveState, BatchDownloadTrackState, BatchConflict, ConflictCheck, DownloadPurpose } from "./types";
+import { downloadWording } from "./types";
 import { PATH_PATTERNS, previewPattern, buildDestPath } from "./pathUtils";
 import { ProviderChip } from "./ProviderChip";
 import { QualitySelect } from "./QualitySelect";
@@ -32,6 +33,7 @@ export function MultiTrackDownload({
   onClose,
   onComplete,
   onPlay,
+  purpose,
 }: {
   tracks: DownloadTrack[];
   providerName: string;
@@ -52,7 +54,10 @@ export function MultiTrackDownload({
   onClose: () => void;
   onComplete: (message: string) => void;
   onPlay?: (path: string) => void;
+  /** See `DownloadPurpose` — only the words change. */
+  purpose?: DownloadPurpose;
 }) {
+  const words = downloadWording(purpose);
   // No provider declared quality options — offer the source as-is rather than a
   // re-encode this (direct) path can't actually perform. The saved extension is
   // the resolver's own `ext`; when it reports none we can't know the container
@@ -568,9 +573,9 @@ export function MultiTrackDownload({
   const headTitle =
     step === "review" ? `Review ${tracks.length} tracks`
     : step === "resolve" ? "Matching tracks"
-    : step === "downloading" ? "Downloading tracks"
-    : step === "done" ? "Download complete"
-    : `Download ${tracks.length} tracks`;
+    : step === "downloading" ? words.workingMany
+    : step === "done" ? words.done
+    : words.multiTitle(tracks.length);
 
   return (
     <>
@@ -633,7 +638,7 @@ export function MultiTrackDownload({
             <button onClick={onClose}>Cancel</button>
             <button className="dl-btn-primary" onClick={handleStart}>
               <IconDownload size={15} />
-              Download {tracks.length} tracks
+              {words.startMany(tracks.length)}
             </button>
           </div>
         </>
@@ -794,7 +799,7 @@ export function MultiTrackDownload({
               <button className="dl-btn-primary" onClick={() => setStep("downloading")}
                 disabled={downloadableCount === 0}>
                 <IconDownload size={15} />
-                Download {downloadableCount} track{downloadableCount !== 1 ? "s" : ""}
+                {words.startMany(downloadableCount)}
               </button>
             </div>
           </>
@@ -831,7 +836,7 @@ export function MultiTrackDownload({
               </div>
               <div className="dl-actions" style={{ marginTop: "12px", justifyContent: "center" }}>
                 <button onClick={() => libraryResolveRef.current?.("skip")}>Skip</button>
-                <button className="dl-btn-primary" onClick={() => libraryResolveRef.current?.("download")}>Download anyway</button>
+                <button className="dl-btn-primary" onClick={() => libraryResolveRef.current?.("download")}>{words.startAnyway}</button>
               </div>
             </div>
           )}
@@ -995,7 +1000,7 @@ export function MultiTrackDownload({
 
             <div className="dl-actions">
               <button className="dl-btn-primary" onClick={() => {
-                onComplete(`Downloaded ${doneCount} of ${downloadStates.length} tracks`);
+                onComplete(words.summary(doneCount, downloadStates.length));
                 onClose();
               }}>
                 Done

@@ -15,6 +15,55 @@ export interface DownloadTrack {
   isVideo?: boolean;
 }
 
+/** What the modal is for. `"import"`: the files are already on this computer
+ *  (a plugin's finished downloads — Soulseek's "Add to library…") and the
+ *  modal only copies them into a collection, so it must not say "Download".
+ *  The flow is the same; only the words change. */
+export type DownloadPurpose = "download" | "import";
+
+export interface DownloadWording {
+  singleTitle: string;
+  multiTitle: (n: number) => string;
+  start: string;
+  startMany: (n: number) => string;
+  startAnyway: string;
+  working: (providerName: string) => string;
+  workingMany: string;
+  done: string;
+  failed: string;
+  summary: (done: number, total: number) => string;
+}
+
+export function downloadWording(purpose: DownloadPurpose | undefined): DownloadWording {
+  const plural = (n: number) => `${n} track${n !== 1 ? "s" : ""}`;
+  if (purpose === "import") {
+    return {
+      singleTitle: "Add to library",
+      multiTitle: (n) => `Add ${plural(n)} to library`,
+      start: "Add to library",
+      startMany: (n) => `Add ${plural(n)}`,
+      startAnyway: "Add anyway",
+      working: () => "Copying into your library…",
+      workingMany: "Adding to library",
+      done: "Added to library",
+      failed: "Couldn't add to library",
+      summary: (done, total) => `Added ${done} of ${total} tracks to the library`,
+    };
+  }
+  return {
+    singleTitle: "Download track",
+    multiTitle: (n) => `Download ${n} tracks`,
+    start: "Download",
+    startMany: (n) => `Download ${plural(n)}`,
+    startAnyway: "Download anyway",
+    working: (providerName) => `Downloading from ${providerName}...`,
+    workingMany: "Downloading tracks",
+    done: "Download complete",
+    failed: "Download failed",
+    summary: (done, total) => `Downloaded ${done} of ${total} tracks`,
+  };
+}
+
 export interface UpgradePreviewInfo {
   old_path: string;
   old_format: string | null;
