@@ -480,6 +480,16 @@ impl ImageTarget {
         }
     }
 
+    /// An album or artist whose name is a stand-in for a missing tag
+    /// (`[Unknown Album]`, `[Unknown Artist]`).
+    fn is_placeholder(&self) -> bool {
+        match self {
+            ImageTarget::Album { title, .. } => image_provider::is_placeholder_album_title(title),
+            ImageTarget::Artist { name } => image_provider::is_placeholder_artist_name(name),
+            ImageTarget::Tag { .. } => false,
+        }
+    }
+
     fn ready_event(&self) -> &'static str {
         match self {
             ImageTarget::Artist { .. } => "artist-image-ready",
@@ -606,6 +616,11 @@ fn resolve_entity_image(
             // downgrade, say. It must fail its turn, not be handed to the
             // plugin bridge, which would go looking for a plugin by that id.
             Err(format!("Unknown built-in image provider: {}", plugin_id))
+        } else if target.is_placeholder() {
+            // Plugin providers search by name, and a placeholder names nothing:
+            // the "match" is whatever the catalog ranks first. The core rows
+            // above still run — they read this entity's own files.
+            Err(format!("placeholder {} name, nothing to search for", entity))
         } else if std::time::Instant::now() >= deadline {
             Err("chain time budget exhausted".to_string())
         } else {
