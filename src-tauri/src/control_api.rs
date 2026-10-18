@@ -55,7 +55,7 @@ use tokio::sync::oneshot;
 use crate::assistant_activity::{self, ActivityEvent, Kind};
 use crate::assistant_describe;
 use crate::db::Database;
-use crate::models::TrackQuery;
+use crate::models::{InfoMatchMode, TrackQuery};
 
 /// Fixed name of the discovery file, written into the profile directory.
 /// The skill (`skills/viboplr-control/SKILL.md`) reads the same name.
@@ -1071,12 +1071,15 @@ struct InfoSearchParams {
     type_id: Option<String>,
     display_kind: Option<String>,
     entity: Option<String>,
+    match_mode: Option<InfoMatchMode>,
+    require_text_match: Option<bool>,
     resolve_tracks: Option<bool>,
     include_value: Option<bool>,
     limit: Option<i64>,
 }
 
-/// Phrase search across the CACHED plugin info values (lyrics, bios,
+/// Phrase search — or, with `matchMode=allTerms`, every-term search that also
+/// matches the entity's name — across the CACHED plugin info values (lyrics, bios,
 /// reviews, similar lists…) — the same store `api.informationTypes.searchValues`
 /// serves. Cached-only: nothing here triggers a live provider fetch.
 ///
@@ -1098,6 +1101,8 @@ async fn handle_info_search(
                 params.display_kind.as_deref(),
                 params.entity.as_deref(),
                 None,
+                params.match_mode.unwrap_or_default(),
+                params.require_text_match.unwrap_or(false),
                 params.resolve_tracks.unwrap_or(false),
                 limit,
             )
@@ -2400,6 +2405,39 @@ mod tests {
         let json = body_json(res).await;
         // Opted in, the value arrives parsed — an object, not a JSON string.
         assert_eq!(json[0]["value"]["kind"], json!("synced"));
+    }
+
+    #[tokio::test]
+    async fn test_info_search_all_terms_mode_matches_the_name_too() {
+        let state = test_state(noop_emit());
+        state
+            .db
+            .info_sync_types(&[(
+                "lyrics".into(), "Lyrics".into(), "track".into(), "lyrics".into(),
+                "lrclib".into(), 7_776_000, 0, 500, String::new(),
+            )])
+            .unwrap();
+        let type_row: i64 = state.db.info_get_types_for_entity("track").unwrap()[0].5[0].1;
+        state
+            .db
+            .info_upsert_value(type_row, "track:Radiohead:Karma Police", r#"{"text":"He talks in maths","kind":"plain"}"#, "ok")
+            .unwrap();
+        let router = build_router(state);
+        let hits = |path: &'static str| {
+            let router = router.clone();
+            async move {
+                let res = router.oneshot(request("GET", path, Some(TEST_TOKEN))).await.unwrap();
+                assert_eq!(res.status(), StatusCode::OK, "{path}");
+                body_json(res).await.as_array().expect("hits array").len()
+            }
+        };
+        // The default stays a phrase search: "radiohead maths" isn't one.
+        assert_eq!(hits("/v1/info/search?q=radiohead%20maths").await, 0);
+        // All terms: "radiohead" is the artist, "maths" the lyrics.
+        assert_eq!(hits("/v1/info/search?q=radiohead%20maths&matchMode=allTerms").await, 1);
+        // requireTextMatch drops a hit made only by the name.
+        assert_eq!(hits("/v1/info/search?q=radiohead&matchMode=allTerms").await, 1);
+        assert_eq!(hits("/v1/info/search?q=radiohead&matchMode=allTerms&requireTextMatch=true").await, 0);
     }
 
     #[tokio::test]

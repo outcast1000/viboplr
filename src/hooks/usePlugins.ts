@@ -1549,6 +1549,8 @@ export function usePlugins(
               displayKind: opts?.displayKind ?? null,
               entity: opts?.entity ?? null,
               jsonPath: opts?.jsonPath ?? null,
+              matchMode: opts?.matchMode ?? null,
+              requireTextMatch: opts?.requireTextMatch ?? false,
               resolveTracks: opts?.resolveTracks ?? false,
               limit: opts?.limit ?? 50,
             });

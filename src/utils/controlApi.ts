@@ -12,7 +12,7 @@ import type { Track } from "../types";
 import type { BitPerfectState, DevicePin, EngineOutput } from "./bitPerfect";
 import type {
   GalleryPluginEntry, HomeShelfDisplayKind, HomeShelfItem, PluginAssistantTool,
-  PluginManifestContributes, PluginState,
+  PluginManifestContributes, PluginSearchTrack, PluginState,
 } from "../types/plugin";
 import type { GallerySkinEntry, SkinInfo } from "../types/skin";
 import { resolveShelfPlayAction } from "./homeShelfPlay";
@@ -539,4 +539,40 @@ export function parsePlaybackSet(payload: Record<string, unknown>): PlaybackSetP
     return "playback.set needs at least one of: play, action, seekSecs, volume, mode";
   }
   return out;
+}
+
+/** One catalog-search track as `POST /v1/search/plugin` returns it. */
+export interface CatalogSearchTrackRow {
+  index: number;
+  title: string;
+  artistName: string | null;
+  albumTitle: string | null;
+  durationSecs: number | null;
+  video: boolean;
+  /** What the track matched when it isn't the title or artist (a lyric line). */
+  snippet?: string;
+}
+
+/**
+ * The rows a catalog search answers with. `tracks` are the converted queue
+ * tracks the searchId caches; `raw` the provider's rows they came from, in the
+ * same order — the snippet lives only there, since a queue track has no field
+ * for it. Omitted when absent, so a provider without one answers as before.
+ */
+export function serializeCatalogTracks(
+  tracks: QueueTrack[],
+  raw: PluginSearchTrack[],
+): CatalogSearchTrackRow[] {
+  return tracks.map((t, i) => {
+    const snippet = raw[i]?.snippet;
+    return {
+      index: i,
+      title: t.title,
+      artistName: t.artist_name ?? null,
+      albumTitle: t.album_title ?? null,
+      durationSecs: t.duration_secs ?? null,
+      video: t.format === "mp4",
+      ...(snippet ? { snippet } : {}),
+    };
+  });
 }

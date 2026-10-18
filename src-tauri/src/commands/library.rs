@@ -150,7 +150,9 @@ pub async fn search_entity(
 /// Substring-search the values cached in `information_values` across any info
 /// type (lyrics, bios, reviews, similar lists, …), optionally filtered by
 /// `typeId` / `displayKind` / `entity` and scoped to a single JSON field via
-/// `jsonPath`. When `resolveTracks` is set, `track`-entity matches carry their
+/// `jsonPath`. `matchMode` is `phrase` (default) or `allTerms` (see
+/// `Database::search_information_values`); `requireTextMatch` drops all-terms
+/// hits that matched only by the entity's name. When `resolveTracks` is set, `track`-entity matches carry their
 /// resolved library `track`. Backs `api.informationTypes.searchValues` — plugins
 /// can't read stored info values directly, so the search runs here in the host.
 #[tauri::command]
@@ -161,6 +163,8 @@ pub async fn search_information_values(
     display_kind: Option<String>,
     entity: Option<String>,
     json_path: Option<String>,
+    match_mode: Option<InfoMatchMode>,
+    require_text_match: Option<bool>,
     resolve_tracks: Option<bool>,
     limit: Option<i64>,
 ) -> Result<Vec<InfoValueMatch>, String> {
@@ -173,6 +177,8 @@ pub async fn search_information_values(
                 display_kind.as_deref(),
                 entity.as_deref(),
                 json_path.as_deref(),
+                match_mode.unwrap_or_default(),
+                require_text_match.unwrap_or(false),
                 resolve_tracks.unwrap_or(false),
                 limit.unwrap_or(50),
             )

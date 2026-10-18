@@ -612,21 +612,26 @@ export const TOOLS = [
     readOnly: true,
     categories: ["info", "library"],
     description:
-      "Phrase search across the CACHED plugin info values — the plugins' database storage of lyrics, bios, reviews, similar lists. This is how to find a track from a lyric phrase: typeId=lyrics + resolveTracks=true returns each hit with a snippet (the matched line) and the resolved library track (`track`). Matches the readable text only (lyric lines, bio prose — not links or provider names); a phrase may run across a lyric's line break. One hit per entity per type, ranked: the phrase as whole words in one line, then across a line break, then inside a word; newest first within each. Hits carry no stored value unless includeValue=true — the snippet is usually enough; fetch a full lyric/bio with get_lyrics / get_entity_info instead. Cached-only and instant — a value is here once any surface has fetched it (local .lrc/embedded file lyrics included, via the built-in local provider); nothing triggers a live provider fetch, so absence means not-yet-fetched, not not-existing.",
+      "Search across the CACHED plugin info values — the plugins' database storage of lyrics, bios, reviews, similar lists. This is how to find a track from a lyric phrase: typeId=lyrics + resolveTracks=true returns each hit with a snippet (the matched line) and the resolved library track (`track`). Default matchMode=phrase matches the query as one phrase. matchMode=allTerms is for half-remembered lyrics or lyrics + who sang it: every word must start a word in the text OR the entity's own name (a track's artist and title), in any order — \"bush heaven\" finds Bush songs that mention heaven — a \"quoted run\" must appear as written, punctuation is ignored and apostrophes optional; add requireTextMatch=true to drop hits where every word matched only the name. Matches the readable text only (lyric lines, bio prose — not links or provider names); a phrase may run across a lyric's line break. One hit per entity per type, ranked: the phrase as whole words in one line, then across a line break, then inside a word; newest first within each. Hits carry no stored value unless includeValue=true — the snippet is usually enough; fetch a full lyric/bio with get_lyrics / get_entity_info instead. Cached-only and instant — a value is here once any surface has fetched it (local .lrc/embedded file lyrics included, via the built-in local provider); nothing triggers a live provider fetch, so absence means not-yet-fetched, not not-existing.",
     inputSchema: obj(
       {
-        query: str("Phrase to find (matched accent/case-insensitively, whitespace-tolerant, inside the values' readable text)"),
+        query: str("Phrase to find (matched accent/case-insensitively, whitespace-tolerant, inside the values' readable text); with matchMode=allTerms, words and \"quoted phrases\""),
         typeId: str('Restrict to one info type, e.g. "lyrics", "artist_bio" (ids from get_entity_info without typeId)'),
         displayKind: str('Restrict to one display kind, e.g. "rich_text" (bios, reviews), "lyrics", "entity_list" (similar lists)'),
         entity: en(["track", "artist", "album", "tag"], "Restrict to values about this entity kind"),
+        matchMode: en(["phrase", "allTerms"], "phrase (default): the query as one phrase. allTerms: every word in the text or the entity's name, \"quotes\" keep a phrase"),
+        requireTextMatch: bool("allTerms only: drop hits where every word matched only the entity's name"),
         resolveTracks: bool("Resolve track-entity hits to playable library track rows"),
         includeValue: bool("Also return each hit's full stored value (parsed JSON) — large; off by default"),
         limit: num("Max matches (default 20, max 100)"),
       },
       ["query"],
     ),
-    run: ({ query, typeId, displayKind, entity, resolveTracks, includeValue, limit }, ctx) =>
-      ctx.request("GET", `/v1/info/search${qs({ q: query, typeId, displayKind, entity, resolveTracks, includeValue, limit })}`),
+    run: ({ query, typeId, displayKind, entity, matchMode, requireTextMatch, resolveTracks, includeValue, limit }, ctx) =>
+      ctx.request(
+        "GET",
+        `/v1/info/search${qs({ q: query, typeId, displayKind, entity, matchMode, requireTextMatch, resolveTracks, includeValue, limit })}`,
+      ),
   },
   {
     name: "launch_app",
@@ -706,7 +711,7 @@ export const TOOLS = [
     readOnly: true,
     categories: ["catalog"],
     description:
-      "Search external catalogs (YouTube, Spotify, TIDAL…) through their plugins. action=providers lists what's installed; action=search runs a query (SLOW — up to a minute) and returns a session-cached searchId + indexed tracks for catalog_play, plus any albums / artists the provider found (names only — open them with navigate). searchId is null when no tracks were found, but albums / artists may still be present — check them before reporting nothing found. External results have no library ids. To find something to play or download, use this rather than a plugin's own search tool (e.g. ytdlp__search): only a searchId from here is accepted by catalog_play, download_plugin_track and replace_track_file.",
+      "Search external catalogs (YouTube, Spotify, TIDAL…) through their plugins. action=providers lists what's installed; action=search runs a query (SLOW — up to a minute) and returns a session-cached searchId + indexed tracks for catalog_play (a track may carry `snippet`, the text it matched when that isn't its title or artist — e.g. a lyric line), plus any albums / artists the provider found (names only — open them with navigate). searchId is null when no tracks were found, but albums / artists may still be present — check them before reporting nothing found. External results have no library ids. To find something to play or download, use this rather than a plugin's own search tool (e.g. ytdlp__search): only a searchId from here is accepted by catalog_play, download_plugin_track and replace_track_file.",
     inputSchema: obj(
       {
         action: en(["providers", "search"], "List providers or run a search"),

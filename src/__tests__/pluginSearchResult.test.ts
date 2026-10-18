@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import type { PluginSearchResult } from "../types/plugin";
-import { normalizeSearchResult } from "../utils/pluginSearchResult";
+import { normalizeSearchResult, SEARCH_SNIPPET_MAX } from "../utils/pluginSearchResult";
 
 // Provider answers are plugin code, so the tests feed shapes the type forbids.
 const raw = (v: unknown) => v as PluginSearchResult;
@@ -57,5 +57,27 @@ describe("normalizeSearchResult", () => {
       status: "error",
       message: "rate limited",
     });
+  });
+
+  it("flattens and caps a track's snippet, and nulls a blank or non-string one", () => {
+    const long = "word ".repeat(60);
+    const result = normalizeSearchResult(raw({
+      status: "ok",
+      tracks: [
+        { title: "A", snippet: "Could have\n  a soul   of heaven" },
+        { title: "B", snippet: long },
+        { title: "C", snippet: "   " },
+        { title: "D", snippet: 42 },
+        { title: "E" },
+      ],
+    }));
+    if (result.status !== "ok") throw new Error("expected ok");
+    const [a, b, c, d, e] = result.tracks;
+    expect(a.snippet).toBe("Could have a soul of heaven");
+    expect(b.snippet!.length).toBe(SEARCH_SNIPPET_MAX);
+    expect(b.snippet!.endsWith("…")).toBe(true);
+    expect(c.snippet).toBeNull();
+    expect(d.snippet).toBeNull();
+    expect(e).toEqual({ title: "E" });
   });
 });

@@ -447,6 +447,18 @@ impl Database {
     /// ("love" in "glove") — and newest first within a tier. The scan stops
     /// early once `limit` top-tier hits are in, since nothing can outrank them.
     ///
+    /// `match_mode` `AllTerms` swaps the phrase for **every term**: the query
+    /// splits on whitespace into words, a `"quoted run"` stays one phrase term,
+    /// and each term must start a word somewhere in the readable text **or the
+    /// entity's own name** (its key minus the kind — a track's artist + title),
+    /// so "bush heaven" finds Bush's songs that mention heaven. Punctuation is
+    /// ignored and apostrophes dropped on both sides ("dont" finds "don't").
+    /// Ranked by `terms_snippet`: the terms as a whole-word phrase in one line,
+    /// across a line break, all in one line, all in the text, then hits that
+    /// needed the name. `require_text` (all-terms only) drops a hit whose
+    /// every term matched only in the name — the caller already lists those
+    /// songs by name (Cmd+K's own track results), so they'd show twice.
+    ///
     /// When `resolve_tracks` is set, `track`-entity matches are resolved back to
     /// the library `Track` (by reconstructing the un-normalized `track:{artist}:
     /// {title}` key the TS `buildEntityKey` writes) so the caller can play them.
@@ -460,10 +472,19 @@ impl Database {
         display_kind: Option<&str>,
         entity: Option<&str>,
         json_path: Option<&str>,
+        match_mode: InfoMatchMode,
+        require_text: bool,
         resolve_tracks: bool,
         limit: i64,
     ) -> SqlResult<Vec<InfoValueMatch>> {
-        let needle = normalize_for_match(query);
+        let terms = match match_mode {
+            InfoMatchMode::Phrase => Vec::new(),
+            InfoMatchMode::AllTerms => parse_search_terms(query),
+        };
+        let needle = match match_mode {
+            InfoMatchMode::Phrase => normalize_for_match(query),
+            InfoMatchMode::AllTerms => terms.join(" "),
+        };
         if needle.is_empty() {
             return Ok(vec![]);
         }
@@ -505,9 +526,21 @@ impl Database {
         if let Some(e) = entity {
             push_filter(&mut sql, "it.entity =", e.to_string());
         }
+        // All-terms mode also matches the entity's name, and drops apostrophes
+        // the way `normalize_words` does, so "dont" pre-filters in "don't".
+        let haystack = match match_mode {
+            InfoMatchMode::Phrase => searched.to_string(),
+            InfoMatchMode::AllTerms => APOSTROPHES.iter().fold(
+                format!("{searched} || ' ' || iv.entity_key"),
+                |hay, a| {
+                    let lit = if *a == '\'' { "''".to_string() } else { a.to_string() };
+                    format!("replace({hay}, '{lit}', '')")
+                },
+            ),
+        };
         // LIKE metacharacters can't occur in an alphanumeric run, so no escaping.
         for token in needle.split(|c: char| !c.is_alphanumeric()).filter(|t| !t.is_empty()) {
-            let clause = format!("strip_diacritics(unicode_lower({searched})) LIKE '%' ||");
+            let clause = format!("strip_diacritics(unicode_lower({haystack})) LIKE '%' ||");
             push_filter(&mut sql, &clause, token.to_string());
             sql.push_str(" || '%'");
         }
@@ -540,7 +573,13 @@ impl Database {
                     json_path.is_some(),
                     &display_kind,
                 );
-                let Some((snippet, tier)) = phrase_snippet(&lines, &needle) else { continue };
+                let hit = match match_mode {
+                    InfoMatchMode::Phrase => phrase_snippet(&lines, &needle),
+                    InfoMatchMode::AllTerms => {
+                        terms_snippet(&lines, entity_name(&entity_key), &terms, require_text)
+                    }
+                };
+                let Some((snippet, tier)) = hit else { continue };
                 seen.insert((type_id.clone(), entity_key.clone()));
                 if tier == MatchTier::WordsInLine {
                     top_tier += 1;
@@ -758,13 +797,141 @@ fn phrase_snippet(lines: &[String], needle: &str) -> Option<(String, MatchTier)>
     single.map(|(i, _)| (snippet_window(&lines[i], needle, MAX), MatchTier::InsideWord))
 }
 
-/// How well an info value matched a phrase search — the rank order.
+/// Lowercase, strip diacritics, drop apostrophes and turn every other
+/// non-alphanumeric char into a word break — the form an all-terms match
+/// compares in, so punctuation never stands between a term and its text.
+fn normalize_words(s: &str) -> String {
+    let lowered = strip_diacritics(&s.to_lowercase());
+    let spaced: String = lowered
+        .chars()
+        .filter(|c| !APOSTROPHES.contains(c))
+        .map(|c| if c.is_alphanumeric() { c } else { ' ' })
+        .collect();
+    spaced.split_whitespace().collect::<Vec<_>>().join(" ")
+}
+
+/// Split an all-terms query into its terms: whitespace-separated words, except
+/// that a run inside double quotes (straight or curly) is one phrase term. An
+/// unclosed quote runs to the end, so a query being typed still searches.
+fn parse_search_terms(query: &str) -> Vec<String> {
+    let mut terms: Vec<String> = Vec::new();
+    for (i, part) in query.split(['"', '\u{201C}', '\u{201D}']).enumerate() {
+        let words = normalize_words(part);
+        if words.is_empty() {
+            continue;
+        }
+        let parsed: Vec<String> = if i % 2 == 1 {
+            vec![words]
+        } else {
+            words.split(' ').map(String::from).collect()
+        };
+        for t in parsed {
+            if !terms.contains(&t) {
+                terms.push(t);
+            }
+        }
+    }
+    terms
+}
+
+/// The entity's own name from its key — `track:{artist}:{title}` →
+/// `{artist}:{title}` (the colon reads as a word break once normalized).
+fn entity_name(entity_key: &str) -> &str {
+    entity_key.split_once(':').map_or(entity_key, |(_, rest)| rest)
+}
+
+/// Whether `term` starts a word in `hay` (both `normalize_words` form):
+/// "lov" finds "love", "ove" doesn't.
+fn has_word_prefix(hay: &str, term: &str) -> bool {
+    hay.match_indices(term)
+        .any(|(at, _)| hay[..at].chars().next_back().map_or(true, |c| !c.is_alphanumeric()))
+}
+
+/// The snippet and rank for an all-terms hit, or None when some term is in
+/// neither the text nor the entity's name — or, with `require_text`, when no
+/// term is in the text at all. The snippet is the line the terms
+/// best match — the phrase's lines, else the line holding the most terms, else
+/// (a hit only by name) the first line.
+fn terms_snippet(
+    lines: &[String],
+    name: &str,
+    terms: &[String],
+    require_text: bool,
+) -> Option<(String, MatchTier)> {
+    const MAX: usize = 140;
+    let norm: Vec<String> = lines.iter().map(|l| normalize_words(l)).collect();
+    let text = norm.join(" ");
+    let name = normalize_words(name);
+    if !terms.iter().all(|t| has_word_prefix(&text, t) || has_word_prefix(&name, t)) {
+        return None;
+    }
+    if require_text && !terms.iter().any(|t| has_word_prefix(&text, t)) {
+        return None;
+    }
+    // `snippet_window` locates by the punctuated line, so aim it at one word
+    // of the term — a phrase term may straddle a comma there.
+    let lead = |t: &String| t.split(' ').next().unwrap_or("").to_string();
+
+    // The terms in order, as whole words: in one line, then across lines.
+    let phrase = terms.join(" ");
+    if let Some(i) = norm.iter().position(|n| matches!(find_phrase(n, &phrase), Some((_, true)))) {
+        return Some((snippet_window(&lines[i], &lead(&terms[0]), MAX), MatchTier::WordsInLine));
+    }
+    if let Some((at, true)) = find_phrase(&text, &phrase) {
+        // Map the byte range in `text` back to its lines (joined by one space).
+        let mut starts = Vec::with_capacity(norm.len());
+        let mut off = 0;
+        for n in &norm {
+            starts.push(off);
+            off += n.len() + 1;
+        }
+        let line_at = |b: usize| starts.iter().rposition(|&s| s <= b).unwrap_or(0);
+        let (i, j) = (line_at(at), line_at(at + phrase.len() - 1));
+        return Some((truncate_chars(&lines[i..=j].join(" / "), MAX), MatchTier::WordsAcrossLines));
+    }
+
+    let counts: Vec<usize> = norm
+        .iter()
+        .map(|n| terms.iter().filter(|t| has_word_prefix(n, t)).count())
+        .collect();
+    let tier = if counts.iter().any(|&c| c == terms.len()) {
+        MatchTier::TermsInLine
+    } else if terms.iter().all(|t| has_word_prefix(&text, t)) {
+        MatchTier::TermsInText
+    } else {
+        MatchTier::TermsWithName
+    };
+    // The first line holding the most terms.
+    let best = counts
+        .iter()
+        .enumerate()
+        .max_by(|a, b| a.1.cmp(b.1).then(b.0.cmp(&a.0)))
+        .map(|(i, &c)| (i, c));
+    let snippet = match best {
+        Some((i, c)) if c > 0 => {
+            let first = terms.iter().find(|t| has_word_prefix(&norm[i], t)).unwrap_or(&terms[0]);
+            snippet_window(&lines[i], &lead(first), MAX)
+        }
+        _ => lines.first().map(|l| truncate_chars(l, MAX)).unwrap_or_default(),
+    };
+    Some((snippet, tier))
+}
+
+/// How well an info value matched a search — the rank order. A phrase search
+/// yields the `Words*` tiers and `InsideWord`; an all-terms search the `Words*`
+/// tiers (its terms read as a phrase) and the `Terms*` ones.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 enum MatchTier {
     /// The phrase as whole words inside one line.
     WordsInLine,
     /// The phrase as whole words, running across a line break.
     WordsAcrossLines,
+    /// Every term inside one line, out of order or not as whole words.
+    TermsInLine,
+    /// Every term somewhere in the text, not all in one line.
+    TermsInText,
+    /// Some term only in the entity's name (a track's artist or title).
+    TermsWithName,
     /// Only inside a longer word ("love" in "glove").
     InsideWord,
 }
@@ -1081,7 +1248,7 @@ mod tests {
         // Filter to the lyrics type, search only the `$.text` field, resolve the
         // playable track. Matching is case/diacritic-insensitive.
         let hits = db
-            .search_information_values("ARREST", Some("lyrics"), None, None, Some("$.text"), true, 50)
+            .search_information_values("ARREST", Some("lyrics"), None, None, Some("$.text"), InfoMatchMode::Phrase, false, true, 50)
             .unwrap();
         assert_eq!(hits.len(), 1);
         assert_eq!(hits[0].type_id, "lyrics");
@@ -1094,17 +1261,17 @@ mod tests {
         // The `$.kind` field is searchable too (whole-value search would also
         // catch it) — but a `$.text`-scoped search for "plain" must NOT match.
         assert!(db
-            .search_information_values("plain", Some("lyrics"), None, None, Some("$.text"), false, 50)
+            .search_information_values("plain", Some("lyrics"), None, None, Some("$.text"), InfoMatchMode::Phrase, false, false, 50)
             .unwrap()
             .is_empty());
 
         // No match / blank query are no-ops.
         assert!(db
-            .search_information_values("zzzznotpresent", None, None, None, None, false, 50)
+            .search_information_values("zzzznotpresent", None, None, None, None, InfoMatchMode::Phrase, false, false, 50)
             .unwrap()
             .is_empty());
         assert!(db
-            .search_information_values("   ", None, None, None, None, false, 50)
+            .search_information_values("   ", None, None, None, None, InfoMatchMode::Phrase, false, false, 50)
             .unwrap()
             .is_empty());
     }
@@ -1123,7 +1290,7 @@ mod tests {
         )
         .unwrap();
         let hits = db
-            .search_information_values("floating", None, None, None, Some("$.text"), true, 50)
+            .search_information_values("floating", None, None, None, Some("$.text"), InfoMatchMode::Phrase, false, true, 50)
             .unwrap();
         assert_eq!(hits.len(), 1);
         assert!(hits[0].track.is_none());
@@ -1166,14 +1333,14 @@ mod tests {
 
         for junk in ["text", "synced", "lrclib", "providerName", "https", "00:04"] {
             assert!(
-                db.search_information_values(junk, None, None, None, None, false, 50).unwrap().is_empty(),
+                db.search_information_values(junk, None, None, None, None, InfoMatchMode::Phrase, false, false, 50).unwrap().is_empty(),
                 "{junk} must not match the stored JSON"
             );
         }
 
         // The snippet is the matched line, timestamp stripped — not raw JSON.
         let hits = db
-            .search_information_values("TALKS  in", None, None, None, None, false, 50)
+            .search_information_values("TALKS  in", None, None, None, None, InfoMatchMode::Phrase, false, false, 50)
             .unwrap();
         assert_eq!(hits.len(), 1);
         assert_eq!(hits[0].snippet, "He talks in maths");
@@ -1188,14 +1355,14 @@ mod tests {
         // Whole-value search and the plugin API's `$.text` scope both see it.
         for path in [None, Some("$.text")] {
             let hits = db
-                .search_information_values("arrest this man he talks", Some("lyrics"), None, None, path, false, 50)
+                .search_information_values("arrest this man he talks", Some("lyrics"), None, None, path, InfoMatchMode::Phrase, false, false, 50)
                 .unwrap();
             assert_eq!(hits.len(), 1, "path {path:?}");
             assert_eq!(hits[0].snippet, "Karma police, arrest this man / He talks in maths");
         }
         // Words that are all present but not in that order are not the phrase.
         assert!(db
-            .search_information_values("talks arrest", None, None, None, None, false, 50)
+            .search_information_values("talks arrest", None, None, None, None, InfoMatchMode::Phrase, false, false, 50)
             .unwrap()
             .is_empty());
     }
@@ -1215,7 +1382,7 @@ mod tests {
         db.info_upsert_value(ids[1], "track:Other:Karma Police (cover)", plain, "ok").unwrap();
 
         let hits = db
-            .search_information_values("karma", Some("lyrics"), None, None, None, false, 50)
+            .search_information_values("karma", Some("lyrics"), None, None, None, InfoMatchMode::Phrase, false, false, 50)
             .unwrap();
         let keys: Vec<&str> = hits.iter().map(|h| h.entity_key.as_str()).collect();
         assert_eq!(keys.len(), 2, "{keys:?}");
@@ -1224,7 +1391,7 @@ mod tests {
 
         // `limit` counts distinct hits, not raw rows.
         assert_eq!(
-            db.search_information_values("karma", None, None, None, None, false, 1).unwrap().len(),
+            db.search_information_values("karma", None, None, None, None, InfoMatchMode::Phrase, false, false, 1).unwrap().len(),
             1
         );
     }
@@ -1244,7 +1411,7 @@ mod tests {
         db.info_upsert_value(bio, "artist:Radiohead", &value, "ok").unwrap();
 
         let hits = db
-            .search_information_values("ok computer", None, None, Some("artist"), None, false, 50)
+            .search_information_values("ok computer", None, None, Some("artist"), None, InfoMatchMode::Phrase, false, false, 50)
             .unwrap();
         assert_eq!(hits.len(), 1);
         let snippet = &hits[0].snippet;
@@ -1253,7 +1420,7 @@ mod tests {
         assert!(snippet.chars().count() <= 142, "{snippet}");
 
         assert!(db
-            .search_information_values("last.fm/music", None, None, None, None, false, 50)
+            .search_information_values("last.fm/music", None, None, None, None, InfoMatchMode::Phrase, false, false, 50)
             .unwrap()
             .is_empty());
     }
@@ -1272,15 +1439,141 @@ mod tests {
         put("track:C:Across", "All my love\nyou know");
 
         let hits = db
-            .search_information_values("love you", None, None, None, None, false, 50)
+            .search_information_values("love you", None, None, None, None, InfoMatchMode::Phrase, false, false, 50)
             .unwrap();
         let keys: Vec<&str> = hits.iter().map(|h| h.entity_key.as_str()).collect();
         assert_eq!(keys, ["track:A:Whole", "track:C:Across", "track:B:Partial"]);
 
         // `limit` takes from the top of the ranking, not from the newest rows.
         let top = db
-            .search_information_values("love you", None, None, None, None, false, 1)
+            .search_information_values("love you", None, None, None, None, InfoMatchMode::Phrase, false, false, 1)
             .unwrap();
         assert_eq!(top[0].entity_key, "track:A:Whole");
+    }
+
+    /// An all-terms lyrics search, the way the Lyrics Search plugin calls it.
+    fn terms_search(db: &Database, query: &str) -> Vec<InfoValueMatch> {
+        db.search_information_values(query, Some("lyrics"), None, None, Some("$.text"), InfoMatchMode::AllTerms, false, false, 50)
+            .unwrap()
+    }
+
+    fn put_lyric(db: &Database, type_id: i64, key: &str, text: &str) {
+        let value = serde_json::json!({ "text": text, "kind": "plain" }).to_string();
+        db.info_upsert_value(type_id, key, &value, "ok").unwrap();
+    }
+
+    #[test]
+    fn test_parse_search_terms_splits_words_and_keeps_quoted_phrases() {
+        assert_eq!(parse_search_terms("Bush  HEAVEN"), ["bush", "heaven"]);
+        assert_eq!(
+            parse_search_terms("\"hello, darkness\" simon"),
+            ["hello darkness", "simon"]
+        );
+        // Curly quotes, an unclosed quote, apostrophes, duplicates, bare punctuation.
+        assert_eq!(parse_search_terms("\u{201C}my old\u{201D} friend"), ["my old", "friend"]);
+        assert_eq!(parse_search_terms("sound \"of sil"), ["sound", "of sil"]);
+        assert_eq!(parse_search_terms("Don’t don't - !"), ["dont"]);
+        assert!(parse_search_terms(" \"\" ").is_empty());
+    }
+
+    #[test]
+    fn test_all_terms_match_across_lyrics_title_and_artist() {
+        let db = Database::new_in_memory().unwrap();
+        let lyrics = lyrics_type_id(&db);
+        put_lyric(&db, lyrics, "track:Bush:Glycerine", "Could have a soul of heaven\nDon't let the days go by");
+        put_lyric(&db, lyrics, "track:Other:Heaven Song", "Stairway up to heaven tonight");
+
+        // "bush" is only the artist, "heaven" only the lyrics.
+        let hits = terms_search(&db, "bush heaven");
+        assert_eq!(hits.len(), 1);
+        assert_eq!(hits[0].entity_key, "track:Bush:Glycerine");
+        assert_eq!(hits[0].snippet, "Could have a soul of heaven");
+
+        // A title word plus a lyric word, in any order.
+        assert_eq!(terms_search(&db, "tonight song").len(), 1);
+        // Apostrophes are dropped both ways; words match by prefix, not mid-word.
+        assert_eq!(terms_search(&db, "dont glycer").len(), 1);
+        assert!(terms_search(&db, "eaven").is_empty());
+        // Every term must match somewhere.
+        assert!(terms_search(&db, "bush stairway").is_empty());
+        // The phrase mode keeps its contract: "bush heaven" is not a phrase.
+        assert!(db
+            .search_information_values("bush heaven", Some("lyrics"), None, None, Some("$.text"), InfoMatchMode::Phrase, false, false, 50)
+            .unwrap()
+            .is_empty());
+    }
+
+    #[test]
+    fn test_all_terms_quoted_phrase_must_appear_as_written() {
+        let db = Database::new_in_memory().unwrap();
+        let lyrics = lyrics_type_id(&db);
+        put_lyric(&db, lyrics, "track:Simon & Garfunkel:The Sound of Silence", "Hello darkness, my old friend\nI've come to talk with you again");
+        put_lyric(&db, lyrics, "track:X:Shuffled", "My friend, the darkness\nsays hello");
+
+        // Unquoted, both songs hold all three words.
+        assert_eq!(terms_search(&db, "hello darkness friend").len(), 2);
+        // Quoted, only the one with the phrase — punctuation inside it doesn't matter.
+        let hits = terms_search(&db, "\"hello darkness\" friend");
+        assert_eq!(hits.len(), 1);
+        assert_eq!(hits[0].snippet, "Hello darkness, my old friend");
+        // A quoted phrase can run across a line break.
+        assert_eq!(terms_search(&db, "\"old friend ive come\"").len(), 1);
+        // A quoted phrase in the name counts too.
+        assert_eq!(terms_search(&db, "\"sound of silence\" talk").len(), 1);
+    }
+
+    #[test]
+    fn test_all_terms_ranks_phrase_then_line_then_text_then_name() {
+        // Inserted oldest → newest, so recency alone would list them in reverse.
+        let db = Database::new_in_memory().unwrap();
+        let lyrics = lyrics_type_id(&db);
+        put_lyric(&db, lyrics, "track:A:Phrase", "I love you so");
+        put_lyric(&db, lyrics, "track:B:Across", "All my love\nyou know");
+        put_lyric(&db, lyrics, "track:C:InLine", "You know I love");
+        put_lyric(&db, lyrics, "track:D:InText", "Love is here\nand so are you");
+        put_lyric(&db, lyrics, "track:E:Love", "you and me");
+
+        let hits = terms_search(&db, "love you");
+        let keys: Vec<&str> = hits.iter().map(|h| h.entity_key.as_str()).collect();
+        assert_eq!(
+            keys,
+            ["track:A:Phrase", "track:B:Across", "track:C:InLine", "track:D:InText", "track:E:Love"]
+        );
+        assert_eq!(hits[1].snippet, "All my love / you know");
+        // The line holding the most terms, then — for a name-only term — the
+        // best line for the rest.
+        assert_eq!(hits[3].snippet, "Love is here");
+        assert_eq!(hits[4].snippet, "you and me");
+    }
+
+    #[test]
+    fn test_all_terms_require_text_drops_name_only_hits() {
+        let db = Database::new_in_memory().unwrap();
+        let lyrics = lyrics_type_id(&db);
+        put_lyric(&db, lyrics, "track:Bush:Glycerine", "Could have a soul of heaven");
+        put_lyric(&db, lyrics, "track:Bush:Machinehead", "Breathe in, breathe out");
+        let search = |q: &str| {
+            db.search_information_values(q, Some("lyrics"), None, None, Some("$.text"), InfoMatchMode::AllTerms, true, false, 50)
+                .unwrap()
+        };
+        // Every term only in the name: what Cmd+K's own track rows already show.
+        assert!(search("bush").is_empty());
+        assert!(search("bush glycerine").is_empty());
+        // One term in the lyrics is enough; the rest may be the name.
+        let hits = search("bush heaven");
+        assert_eq!(hits.len(), 1);
+        assert_eq!(hits[0].entity_key, "track:Bush:Glycerine");
+        // Without the flag the name-only hits come back.
+        assert_eq!(terms_search(&db, "bush").len(), 2);
+    }
+
+    #[test]
+    fn test_all_terms_name_only_hit_shows_the_first_line() {
+        let db = Database::new_in_memory().unwrap();
+        let lyrics = lyrics_type_id(&db);
+        put_lyric(&db, lyrics, "track:Radiohead:Karma Police", "Karma police\narrest this man");
+        let hits = terms_search(&db, "radiohead");
+        assert_eq!(hits.len(), 1);
+        assert_eq!(hits[0].snippet, "Karma police");
     }
 }

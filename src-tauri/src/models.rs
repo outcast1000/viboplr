@@ -198,6 +198,17 @@ pub struct TrackMix {
     pub tracks: Vec<Track>,
 }
 
+/// How `search_information_values` matches its query: the whole query as one
+/// phrase (the default — the control API's contract), or every term on its own,
+/// in the text or the entity's name, with `"quoted runs"` kept as phrases.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum InfoMatchMode {
+    #[default]
+    Phrase,
+    AllTerms,
+}
+
 /// One match from a search across cached `information_values` (any info type —
 /// lyrics, bios, reviews, similar lists, …). Backs the `search_information_values`
 /// command / `api.informationTypes.searchValues`. `value` is the raw JSON string

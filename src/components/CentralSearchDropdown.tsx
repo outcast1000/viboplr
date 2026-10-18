@@ -265,8 +265,19 @@ function PluginSection({
               <div className="result-title">{track.title}</div>
               <div className="result-subtitle">
                 {track.artist_name}
-                {track.artist_name && track.album_title && " · "}
-                {track.album_title}
+                {/* A matched lyric line says why the song is here; it stands in
+                    for the album, which a one-line row has no room for too. */}
+                {track.snippet ? (
+                  <>
+                    {track.artist_name && " · "}
+                    <span className="result-snippet">“{track.snippet}”</span>
+                  </>
+                ) : (
+                  <>
+                    {track.artist_name && track.album_title && " · "}
+                    {track.album_title}
+                  </>
+                )}
               </div>
             </div>
             <span className="result-play">▶</span>

@@ -64,6 +64,7 @@ import {
   annotateGalleryPlugins,
   annotateGallerySkins,
   selectSearchTracks,
+  serializeCatalogTracks,
   resolveHomeShelf,
   serializeShelfItem,
   decidePlayPause,
@@ -977,14 +978,7 @@ export function useControlApi(deps: ControlApiDeps) {
         return {
           searchId,
           provider: `${provider.pluginId}:${provider.providerId}`,
-          tracks: tracks.map((t, i) => ({
-            index: i,
-            title: t.title,
-            artistName: t.artist_name ?? null,
-            albumTitle: t.album_title ?? null,
-            durationSecs: t.duration_secs ?? null,
-            video: t.format === "mp4",
-          })),
+          tracks: serializeCatalogTracks(tracks, result.tracks),
           albums,
           artists,
         };

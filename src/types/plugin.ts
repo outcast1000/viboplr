@@ -1449,12 +1449,20 @@ export interface PluginInformationTypesAPI {
    * - `jsonPath` scopes matching + snippet to one JSON field (e.g. "$.text" for
    *   lyrics, "$.summary" for bios); omit to search the whole stored value.
    * - `resolveTracks` populates `match.track` for track-entity matches.
+   * - `matchMode`: `"phrase"` (default) matches the query as one phrase;
+   *   `"allTerms"` requires every word — and every `"quoted phrase"` — to
+   *   start a word in the text **or the entity's own name** (a track's artist
+   *   and title), ranked best phrase-like match first.
+   * - `requireTextMatch` (with `allTerms`): drop hits whose every term matched
+   *   only in the name — for a caller that already lists those by name.
    */
   searchValues(query: string, opts?: {
     typeId?: string;
     displayKind?: string;
     entity?: import("./informationTypes").InfoEntityKind;
     jsonPath?: string;
+    matchMode?: "phrase" | "allTerms";
+    requireTextMatch?: boolean;
     resolveTracks?: boolean;
     limit?: number;
   }): Promise<InfoValueMatch[]>;
@@ -1603,12 +1611,18 @@ export interface PluginSearchAlbum {
   image_url?: string | null;
 }
 
+/** A track in a catalog answer. `snippet` is the text that matched when it
+ *  isn't the title or artist (a lyric line), shown in place of the album on
+ *  the result row. Plain text, cut to `SEARCH_SNIPPET_MAX` chars; newer than
+ *  the row itself, so an older host ignores it. */
+export type PluginSearchTrack = PluginTrack & { snippet?: string | null };
+
 /** Result of one global-search query against a plugin catalog. `artists` and
  *  `albums` are optional and newer than `tracks`: an older host reads only
  *  `tracks`, so a provider that returns all three still works there, as a
  *  tracks-only search. */
 export type PluginSearchResult =
-  | { status: "ok"; tracks: PluginTrack[]; artists?: PluginSearchArtist[]; albums?: PluginSearchAlbum[] }
+  | { status: "ok"; tracks: PluginSearchTrack[]; artists?: PluginSearchArtist[]; albums?: PluginSearchAlbum[] }
   | { status: "empty" }
   | { status: "error"; message?: string };
 

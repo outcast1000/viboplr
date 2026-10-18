@@ -497,6 +497,16 @@ describe("MCP server over stdio", () => {
     const withValue = api.seen.filter((r) => r.url.startsWith("/v1/info/search")).at(-1);
     expect(withValue?.url).toContain("includeValue=true");
     expect(withValue?.url).toContain("displayKind=rich_text");
+
+    // The all-terms mode and its name filter go through as given; the default sends neither.
+    await rpc.request("tools/call", {
+      name: "search_info",
+      arguments: { query: "bush heaven", typeId: "lyrics", matchMode: "allTerms", requireTextMatch: true },
+    });
+    const allTerms = api.seen.filter((r) => r.url.startsWith("/v1/info/search")).at(-1);
+    expect(allTerms?.url).toContain("matchMode=allTerms");
+    expect(allTerms?.url).toContain("requireTextMatch=true");
+    expect(req?.url).not.toContain("matchMode");
   });
 
   it("lists collections and posts a rescan with the full flag", async () => {

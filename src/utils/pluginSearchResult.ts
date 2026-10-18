@@ -1,8 +1,11 @@
-import type { PluginSearchAlbum, PluginSearchArtist, PluginSearchResult, PluginTrack } from "../types/plugin";
+import type { PluginSearchAlbum, PluginSearchArtist, PluginSearchResult, PluginSearchTrack } from "../types/plugin";
+
+/** Longest `snippet` a result row keeps — one line of a dropdown. */
+export const SEARCH_SNIPPET_MAX = 160;
 
 /** A catalog answer with all three lists present (possibly empty). */
 export type NormalizedSearchResult =
-  | { status: "ok"; tracks: PluginTrack[]; artists: PluginSearchArtist[]; albums: PluginSearchAlbum[] }
+  | { status: "ok"; tracks: PluginSearchTrack[]; artists: PluginSearchArtist[]; albums: PluginSearchAlbum[] }
   | { status: "empty" }
   | { status: "error"; message?: string };
 
@@ -32,9 +35,17 @@ export function normalizeSearchResult(raw: PluginSearchResult | null | undefined
   if (raw.status === "error") return { status: "error", message: optString(raw.message) ?? undefined };
   if (raw.status !== "ok") return { status: "empty" };
 
-  const tracks = list<PluginTrack>(raw.tracks, (t) =>
-    nonEmpty(t.title) ? (t as unknown as PluginTrack) : null,
-  );
+  const tracks = list<PluginSearchTrack>(raw.tracks, (t) => {
+    if (!nonEmpty(t.title)) return null;
+    const track = t as unknown as PluginSearchTrack;
+    const snippet = optString(t.snippet);
+    if (snippet === null) return track.snippet == null ? track : { ...track, snippet: null };
+    const flat = snippet.replace(/\s+/g, " ").trim();
+    return {
+      ...track,
+      snippet: flat.length > SEARCH_SNIPPET_MAX ? flat.slice(0, SEARCH_SNIPPET_MAX - 1) + "…" : flat,
+    };
+  });
   const artists = list<PluginSearchArtist>(raw.artists, (a) =>
     nonEmpty(a.name) ? { name: a.name, image_url: optString(a.image_url), subtitle: optString(a.subtitle) } : null,
   );

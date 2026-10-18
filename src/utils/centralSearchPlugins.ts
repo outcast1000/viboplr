@@ -1,4 +1,4 @@
-import type { PluginSearchAlbum, PluginSearchArtist, PluginSearchProvider, PluginTrack } from "../types/plugin";
+import type { PluginSearchAlbum, PluginSearchArtist, PluginSearchProvider, PluginSearchTrack } from "../types/plugin";
 
 /**
  * What the global search knows about one plugin provider for the *current*
@@ -9,7 +9,7 @@ import type { PluginSearchAlbum, PluginSearchArtist, PluginSearchProvider, Plugi
 export type ProviderRunState =
   | { status: "idle" }
   | { status: "loading" }
-  | { status: "done"; tracks: PluginTrack[]; albums?: PluginSearchAlbum[]; artists?: PluginSearchArtist[] }
+  | { status: "done"; tracks: PluginSearchTrack[]; albums?: PluginSearchAlbum[]; artists?: PluginSearchArtist[] }
   | { status: "empty" }
   | { status: "error"; message?: string };
 
@@ -28,7 +28,7 @@ export interface PluginSearchRow {
   key: string;
   providerKey: string;
   kind: "run" | "loading" | "empty" | "error" | "track" | "album" | "artist";
-  track?: PluginTrack;
+  track?: PluginSearchTrack;
   album?: PluginSearchAlbum;
   artist?: PluginSearchArtist;
   message?: string;
@@ -45,7 +45,7 @@ export interface PluginSearchSection {
 /** The selectable rows, in display order, ready to append to `items`. */
 export type PluginSearchSelectable =
   | { kind: "plugin-run"; providerKey: string; name: string }
-  | { kind: "plugin-track"; providerKey: string; track: PluginTrack }
+  | { kind: "plugin-track"; providerKey: string; track: PluginSearchTrack }
   | { kind: "plugin-album"; providerKey: string; album: PluginSearchAlbum }
   | { kind: "plugin-artist"; providerKey: string; artist: PluginSearchArtist };
 

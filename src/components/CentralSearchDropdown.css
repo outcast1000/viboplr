@@ -142,6 +142,12 @@
   text-overflow: ellipsis;
 }
 
+/* The matched lyric line on a plugin result — italic, the way lyrics read
+   elsewhere (Now Playing info), so it isn't mistaken for an album title. */
+.central-search-result .result-snippet {
+  font-style: italic;
+}
+
 /* Row heart: hidden until the row is hovered/highlighted unless it carries a
    rating, so a liked result reads as liked at a glance and a neutral row stays
    as quiet as before. */

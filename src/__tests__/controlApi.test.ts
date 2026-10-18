@@ -20,6 +20,7 @@ import {
   resolveSkin,
   resolveSearchProvider,
   selectSearchTracks,
+  serializeCatalogTracks,
   resolveHomeShelf,
   serializeShelfItem,
   summarizeCapabilities,
@@ -260,6 +261,25 @@ describe("selectSearchTracks", () => {
     expect(selectSearchTracks(tracks, [2, 0])).toEqual([tracks[2], tracks[0]]);
     expect(typeof selectSearchTracks(tracks, [3])).toBe("string");
     expect(typeof selectSearchTracks(tracks, [])).toBe("string");
+  });
+});
+
+describe("serializeCatalogTracks", () => {
+  it("passes a provider's snippet through and omits it when there is none", () => {
+    const tracks = [
+      qt({ title: "Glycerine", artist_name: "Bush", album_title: "Sixteen Stone", duration_secs: 266 }),
+      qt({ title: "Machinehead", artist_name: "Bush" }),
+    ];
+    const rows = serializeCatalogTracks(tracks, [
+      { title: "Glycerine", snippet: "Could have a soul of heaven" },
+      { title: "Machinehead", snippet: null },
+    ]);
+    expect(rows[0]).toMatchObject({
+      index: 0, title: "Glycerine", artistName: "Bush", albumTitle: "Sixteen Stone",
+      durationSecs: 266, snippet: "Could have a soul of heaven",
+    });
+    expect(rows[1].index).toBe(1);
+    expect("snippet" in rows[1]).toBe(false);
   });
 });
 
