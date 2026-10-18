@@ -4458,6 +4458,42 @@ fn test_bulk_update_album_artist_clear_falls_back_to_track_artist() {
     assert_eq!(tr2.album_artist_name.as_deref(), Some("Beta"));
 }
 
+/// An edit that only changes case or accents ("mogwai" → "Mogwai") matches
+/// the existing row, and must still change what the library shows — it used
+/// to reach the file and leave the row's old spelling in place for good.
+#[test]
+fn test_bulk_update_respells_artist_and_album_differing_only_in_case_or_accents() {
+    let db = test_db();
+    let artist = db.get_or_create_artist("mogwai").unwrap();
+    let album = db.get_or_create_album("rock action", Some(artist), Some(2001)).unwrap();
+    let t1 = insert_track(&db, "a.mp3", "Sine Wave", Some(artist), Some(album));
+    let t2 = insert_track(&db, "b.mp3", "Take Me Somewhere Nice", Some(artist), Some(album));
+
+    db.bulk_update_tracks(&[t1, t2], FieldUpdate::Set("Mogwai"), FieldUpdate::Unchanged, FieldUpdate::Set("Rock Action"), FieldUpdate::Unchanged, None, FieldUpdate::Unchanged, None, TagMode::Replace).unwrap();
+
+    let tr1 = db.get_track_by_id(t1).unwrap();
+    assert_eq!(tr1.artist_id, Some(artist), "the same row, respelled — not a new artist");
+    assert_eq!(tr1.album_id, Some(album), "the same album row, respelled");
+    assert_eq!(tr1.artist_name.as_deref(), Some("Mogwai"));
+    assert_eq!(tr1.album_title.as_deref(), Some("Rock Action"));
+
+    // Accents too, and through the album-artist field.
+    let greek = db.get_or_create_artist("Ηταν είναι και θα είναι").unwrap();
+    let t3 = insert_track(&db, "c.mp3", "Track", Some(greek), None);
+    db.bulk_update_tracks(&[t3], FieldUpdate::Unchanged, FieldUpdate::Set("Ήταν Είναι και Θα Είναι"), FieldUpdate::Unchanged, FieldUpdate::Unchanged, None, FieldUpdate::Unchanged, None, TagMode::Replace).unwrap();
+    assert_eq!(db.get_track_by_id(t3).unwrap().artist_name.as_deref(), Some("Ήταν Είναι και Θα Είναι"));
+}
+
+/// The scanner keeps the stored spelling: files tagged both ways would
+/// otherwise flip the row back and forth on every scan.
+#[test]
+fn test_scan_lookup_keeps_the_stored_spelling() {
+    let db = test_db();
+    let id = db.get_or_create_artist("Mogwai").unwrap();
+    assert_eq!(db.get_or_create_artist("mogwai").unwrap(), id);
+    assert_eq!(db.get_artist_by_id(id).unwrap().unwrap().name, "Mogwai");
+}
+
 /// `TRACK_SELECT` must embed the identical CASE expression as `PATH_EXPR`.
 /// Rust `concat!` only accepts string literals, so the CASE is duplicated there
 /// — this test ensures it's at least structurally the same expression.

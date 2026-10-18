@@ -181,7 +181,9 @@ Schema versioned via `db_version` table. The full PoC migration history was squa
 
 Full schema: `artists`, `albums`, `tags`, `track_tags`, `tracks`, `collections`, `entity_likes`, `history_artists`, `history_tracks`, `history_plays`, `image_fetch_failures`, `playlists`, `playlist_tracks`, `plugin_storage`, `lastfm_cache`, `lyrics`, `tracks_fts` (FTS5). (Plugin-system tables — `information_types`, `information_values`, `image_providers`, `stream_resolvers`, `download_providers`, `plugin_schedules` — are documented in `plugins.md`.)
 
-Key constraints: albums UNIQUE on `(title, artist_id)`, tracks UNIQUE on `(collection_id, path)` with upsert, `track_tags` with CASCADE deletes. The `liked` column on `tracks` is excluded from upsert ON CONFLICT so re-scanning preserves likes.
+Key constraints: albums UNIQUE on `(title, artist_id)`, tracks UNIQUE on `(collection_id, path)` with upsert, `track_tags` with CASCADE deletes.
+
+**Artist/album lookups are accent- and case-insensitive, and only an explicit edit respells.** The scanner and syncs use `get_or_create_artist_conn` / `get_or_create_album_conn`, which reuse a matching row as stored — files tagged both "mogwai" and "Mogwai" must not flip the row on every scan. `bulk_update_tracks` (the Edit Properties modal, `write_file_tags`) uses the `*_respelled_conn` variants for the names the user typed, which rename the matched row to the new spelling. Without them an edit like "mogwai" → "Mogwai" or "Ηταν" → "Ήταν" reached the file and never the library, and no rescan could fix it. The row is shared, so the new spelling shows for every track under it, not only the edited ones. Pinned by `test_bulk_update_respells_artist_and_album_differing_only_in_case_or_accents` / `test_scan_lookup_keeps_the_stored_spelling`. The `liked` column on `tracks` is excluded from upsert ON CONFLICT so re-scanning preserves likes.
 
 ### Album identity (album artist)
 

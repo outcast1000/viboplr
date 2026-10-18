@@ -17,6 +17,36 @@ pub(crate) fn get_or_create_artist_conn(conn: &Connection, name: &str) -> SqlRes
     Ok(conn.last_insert_rowid())
 }
 
+/// `get_or_create_artist_conn` for an explicit user edit: when the name
+/// matches an existing row that is spelled differently (case or accents
+/// only — "mogwai" → "Mogwai", "Ηταν" → "Ήταν"), the row takes the new
+/// spelling. Without it such an edit reached the file but never the library,
+/// and a rescan can't fix it either, since it matches the same row.
+///
+/// Scanning and syncing deliberately keep the plain lookup: files tagged
+/// with both spellings would otherwise flip the row on every scan.
+pub(crate) fn find_or_create_artist_respelled_conn(conn: &Connection, name: &str) -> SqlResult<i64> {
+    // An exact match first, so a pair of rows that differ only in spelling
+    // (left by older builds) resolves to the one already spelled this way
+    // instead of renaming the other into a UNIQUE conflict.
+    let existing: Option<(i64, String)> = conn.prepare_cached(
+        "SELECT id, name FROM artists WHERE strip_diacritics(unicode_lower(name)) = strip_diacritics(unicode_lower(?1)) \
+         ORDER BY name = ?1 DESC LIMIT 1",
+    )?.query_row(params![name], |row| Ok((row.get(0)?, row.get(1)?))).optional()?;
+    match existing {
+        Some((id, stored)) => {
+            if stored != name {
+                conn.prepare_cached("UPDATE artists SET name = ?1 WHERE id = ?2")?.execute(params![name, id])?;
+            }
+            Ok(id)
+        }
+        None => {
+            conn.prepare_cached("INSERT INTO artists (name) VALUES (?1)")?.execute(params![name])?;
+            Ok(conn.last_insert_rowid())
+        }
+    }
+}
+
 impl Database {
 
     // --- Artists ---

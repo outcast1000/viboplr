@@ -578,18 +578,9 @@ impl Database {
                         ArtistOutcome::Assigned(None)
                     }
                     FieldUpdate::Set(name) => {
-                        let existing: Option<i64> = conn.query_row(
-                            "SELECT id FROM artists WHERE strip_diacritics(unicode_lower(name)) = strip_diacritics(unicode_lower(?1))",
-                            params![name],
-                            |row| row.get(0),
-                        ).optional()?;
-                        let aid = match existing {
-                            Some(id) => id,
-                            None => {
-                                conn.execute("INSERT INTO artists (name) VALUES (?1)", params![name])?;
-                                conn.last_insert_rowid()
-                            }
-                        };
+                        // Respelled: the user's spelling wins over a row that
+                        // differs only in case or accents (see the helper).
+                        let aid = super::artists::find_or_create_artist_respelled_conn(&conn, name)?;
                         update_track_column(&conn, track_ids, "artist_id", aid)?;
                         ArtistOutcome::Assigned(Some(aid))
                     }
@@ -606,18 +597,7 @@ impl Database {
                     FieldUpdate::Unchanged => AlbumArtistOutcome::Unchanged,
                     FieldUpdate::Clear => AlbumArtistOutcome::Assigned(None),
                     FieldUpdate::Set(name) => {
-                        let existing: Option<i64> = conn.query_row(
-                            "SELECT id FROM artists WHERE strip_diacritics(unicode_lower(name)) = strip_diacritics(unicode_lower(?1))",
-                            params![name],
-                            |row| row.get(0),
-                        ).optional()?;
-                        let aid = match existing {
-                            Some(id) => id,
-                            None => {
-                                conn.execute("INSERT INTO artists (name) VALUES (?1)", params![name])?;
-                                conn.last_insert_rowid()
-                            }
-                        };
+                        let aid = super::artists::find_or_create_artist_respelled_conn(&conn, name)?;
                         AlbumArtistOutcome::Assigned(Some(aid))
                     }
                 };
@@ -766,22 +746,7 @@ impl Database {
                                 |row| row.get(0),
                             ).optional().ok().flatten(),
                         };
-                        let existing_album: Option<i64> = conn.query_row(
-                            "SELECT id FROM albums WHERE strip_diacritics(unicode_lower(title)) = strip_diacritics(unicode_lower(?1)) \
-                             AND (artist_id = ?2 OR (?2 IS NULL AND artist_id IS NULL))",
-                            params![title, owner],
-                            |row| row.get(0),
-                        ).optional()?;
-                        let album_id = match existing_album {
-                            Some(id) => id,
-                            None => {
-                                conn.execute(
-                                    "INSERT INTO albums (title, artist_id, year) VALUES (?1, ?2, ?3)",
-                                    params![title, owner, album_year],
-                                )?;
-                                conn.last_insert_rowid()
-                            }
-                        };
+                        let album_id = super::albums::find_or_create_album_respelled_conn(&conn, title, owner, album_year)?;
                         update_track_column(&conn, track_ids, "album_id", album_id)?;
                     }
                     FieldUpdate::Set(title) => match artist_outcome {
@@ -796,22 +761,7 @@ impl Database {
                                     |row| row.get(0),
                                 ).optional().ok().flatten(),
                             };
-                            let existing_album: Option<i64> = conn.query_row(
-                                "SELECT id FROM albums WHERE strip_diacritics(unicode_lower(title)) = strip_diacritics(unicode_lower(?1)) \
-                                 AND (artist_id = ?2 OR (?2 IS NULL AND artist_id IS NULL))",
-                                params![title, target_aid],
-                                |row| row.get(0),
-                            ).optional()?;
-                            let album_id = match existing_album {
-                                Some(id) => id,
-                                None => {
-                                    conn.execute(
-                                        "INSERT INTO albums (title, artist_id, year) VALUES (?1, ?2, ?3)",
-                                        params![title, target_aid, album_year],
-                                    )?;
-                                    conn.last_insert_rowid()
-                                }
-                            };
+                            let album_id = super::albums::find_or_create_album_respelled_conn(&conn, title, target_aid, album_year)?;
                             update_track_column(&conn, track_ids, "album_id", album_id)?;
                         }
                         ArtistOutcome::Unchanged => {
@@ -840,22 +790,7 @@ impl Database {
                                         |row| row.get(0),
                                     ).optional().ok().flatten(),
                                 };
-                                let existing_album: Option<i64> = conn.query_row(
-                                    "SELECT id FROM albums WHERE strip_diacritics(unicode_lower(title)) = strip_diacritics(unicode_lower(?1)) \
-                                     AND (artist_id = ?2 OR (?2 IS NULL AND artist_id IS NULL))",
-                                    params![title, *aid],
-                                    |row| row.get(0),
-                                ).optional()?;
-                                let album_id = match existing_album {
-                                    Some(id) => id,
-                                    None => {
-                                        conn.execute(
-                                            "INSERT INTO albums (title, artist_id, year) VALUES (?1, ?2, ?3)",
-                                            params![title, *aid, album_year],
-                                        )?;
-                                        conn.last_insert_rowid()
-                                    }
-                                };
+                                let album_id = super::albums::find_or_create_album_respelled_conn(&conn, title, *aid, album_year)?;
                                 update_track_column(&conn, tids, "album_id", album_id)?;
                             }
                         }
