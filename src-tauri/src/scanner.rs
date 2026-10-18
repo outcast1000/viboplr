@@ -360,34 +360,57 @@ fn extract_video_tags(path: &Path, _collection_root: Option<&str>) -> Vec<String
     tags
 }
 
+/// One progress report from `scan_folder`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ScanStep {
+    /// First pass: walking the tree to count its media files. `folders` is how
+    /// many directories have been walked, so a report moves even through a
+    /// subtree with no media in it (artwork, cue sheets, a slow network share).
+    Counting { found: u64, folders: u64 },
+    /// Second pass: reading tags. `total` is the counting pass's result.
+    Scanning { done: u64, total: u64 },
+}
+
 pub fn scan_folder(
     db: &Arc<Database>,
     folder_path: &str,
     collection_id: Option<i64>,
     force: bool,
-    progress_callback: impl Fn(u64, u64) + Send,
+    progress_callback: impl Fn(ScanStep) + Send,
 ) -> u64 {
     let root = PathBuf::from(folder_path);
     let start = Instant::now();
 
-    // First pass: count files. On a cold HDD this walk alone can take tens of
-    // seconds, so it reports too: `(found_so_far, 0)` — a total of 0 is how the
-    // callback tells the counting pass from the scan (a scan never reports
-    // with total 0, since an empty folder never enters the loop below).
+    // First pass: count files. On a cold HDD or a network share this walk alone
+    // can take tens of seconds, so it reports at once (the indicator appears
+    // before the first directory is read) and then on a timer checked for every
+    // entry walked — unreadable ones included — not only for media hits, or a
+    // subtree of non-media files (or a share dropping folders) would leave the
+    // readout frozen. A last report carries the final count, which the timer
+    // would otherwise skip whenever the walk ends between two ticks.
     const COUNT_REPORT_INTERVAL: Duration = Duration::from_millis(250);
     let mut total: u64 = 0;
+    let mut folders: u64 = 0;
+    progress_callback(ScanStep::Counting { found: 0, folders: 0 });
     let mut last_count_report = Instant::now();
-    for _ in WalkDir::new(&root)
-        .into_iter()
-        .filter_map(|e| e.ok())
-        .filter(|e| e.file_type().is_file() && is_media_file(e.path()) && e.metadata().map(|m| m.len() > 0).unwrap_or(false))
-    {
-        total += 1;
+    for entry in WalkDir::new(&root) {
+        if let Ok(entry) = entry {
+            let file_type = entry.file_type();
+            if file_type.is_dir() {
+                folders += 1;
+            } else if file_type.is_file()
+                && is_media_file(entry.path())
+                && entry.metadata().map(|m| m.len() > 0).unwrap_or(false)
+            {
+                total += 1;
+            }
+        }
         if last_count_report.elapsed() >= COUNT_REPORT_INTERVAL {
             last_count_report = Instant::now();
-            progress_callback(total, 0);
+            progress_callback(ScanStep::Counting { found: total, folders });
         }
     }
+    progress_callback(ScanStep::Counting { found: total, folders });
 
     info!("Scan started: {} ({} media files found)", folder_path, total);
 
@@ -419,7 +442,7 @@ pub fn scan_folder(
         }
         scanned += 1;
         if scanned % 10 == 0 || scanned == total {
-            progress_callback(scanned, total);
+            progress_callback(ScanStep::Scanning { done: scanned, total });
         }
     }
     if !pending.is_empty() {
@@ -703,7 +726,7 @@ mod tests {
             .add_collection("local", "t", Some(root.to_str().unwrap()), None, None, None, None, None)
             .unwrap();
 
-        let removed = scan_folder(&db, root.to_str().unwrap(), Some(collection.id), false, |_, _| {});
+        let removed = scan_folder(&db, root.to_str().unwrap(), Some(collection.id), false, |_| {});
         assert_eq!(removed, 0);
         assert_eq!(db.get_track_count_for_collection(collection.id).unwrap(), 130);
 
@@ -715,13 +738,13 @@ mod tests {
         assert_eq!(track.title, "Song 000");
 
         // Unchanged rescan: mtime fast path, still 130 rows.
-        let removed = scan_folder(&db, root.to_str().unwrap(), Some(collection.id), false, |_, _| {});
+        let removed = scan_folder(&db, root.to_str().unwrap(), Some(collection.id), false, |_| {});
         assert_eq!(removed, 0);
         assert_eq!(db.get_track_count_for_collection(collection.id).unwrap(), 130);
 
         // A file removed from disk is pruned on the next scan.
         std::fs::remove_file(root.join("Artist 000 - Song 000.mp3")).unwrap();
-        let removed = scan_folder(&db, root.to_str().unwrap(), Some(collection.id), false, |_, _| {});
+        let removed = scan_folder(&db, root.to_str().unwrap(), Some(collection.id), false, |_| {});
         assert_eq!(removed, 1);
         assert_eq!(db.get_track_count_for_collection(collection.id).unwrap(), 129);
     }
@@ -756,9 +779,11 @@ mod tests {
             let Some(path) = c.path.clone() else { continue };
             eprintln!("force-rescanning '{}' at {}", c.name, path);
             let start = std::time::Instant::now();
-            let removed = scan_folder(&db, &path, Some(c.id), true, |done, total| {
-                if done % 1000 == 0 {
-                    eprintln!("  {}/{}", done, total);
+            let removed = scan_folder(&db, &path, Some(c.id), true, |step| {
+                if let ScanStep::Scanning { done, total } = step {
+                    if done % 1000 == 0 {
+                        eprintln!("  {}/{}", done, total);
+                    }
                 }
             });
             eprintln!("  done in {:.1}s ({} pruned)", start.elapsed().as_secs_f64(), removed);
@@ -782,7 +807,7 @@ mod tests {
         let collection = db
             .add_collection("local", "t", Some(root.to_str().unwrap()), None, None, None, None, None)
             .unwrap();
-        scan_folder(&db, root.to_str().unwrap(), Some(collection.id), false, |_, _| {});
+        scan_folder(&db, root.to_str().unwrap(), Some(collection.id), false, |_| {});
 
         // Drift the row away from the file: a non-NULL extra_tags the file (a
         // garbage byte blob lofty can't read → filename fallback → extra_tags
@@ -801,11 +826,11 @@ mod tests {
         assert!(has_extra(&db));
 
         // Ordinary rescan: mtime unchanged, row untouched.
-        scan_folder(&db, root.to_str().unwrap(), Some(collection.id), false, |_, _| {});
+        scan_folder(&db, root.to_str().unwrap(), Some(collection.id), false, |_| {});
         assert!(has_extra(&db), "mtime fast path must skip the unchanged file");
 
         // Force rescan: the file is re-read and the row re-asserted from disk.
-        scan_folder(&db, root.to_str().unwrap(), Some(collection.id), true, |_, _| {});
+        scan_folder(&db, root.to_str().unwrap(), Some(collection.id), true, |_| {});
         assert!(!has_extra(&db), "force must re-read and re-assert the file");
     }
 
@@ -832,8 +857,9 @@ mod tests {
         assert!(!is_new, "an existing row is an update, not an addition");
     }
 
-    /// The counting pass reports as `(found, 0)` and the scan never reports a
-    /// total of 0 — `ScanProgress::from_report` tells the phases apart by it.
+    /// The counting pass reports first — at once, before the walk — and last
+    /// with its final count; the scan's reports all carry that total, ending on
+    /// `total / total`.
     #[test]
     fn test_scan_reports_counting_then_scanning() {
         let dir = tempfile::tempdir().unwrap();
@@ -845,14 +871,20 @@ mod tests {
             .add_collection("local", "t", Some(dir.path().to_str().unwrap()), None, None, None, None, None)
             .unwrap();
         let reports = std::sync::Mutex::new(Vec::new());
-        scan_folder(&db, dir.path().to_str().unwrap(), Some(collection.id), false, |scanned, total| {
-            reports.lock().unwrap().push((scanned, total));
+        scan_folder(&db, dir.path().to_str().unwrap(), Some(collection.id), false, |step| {
+            reports.lock().unwrap().push(step);
         });
         let reports = reports.into_inner().unwrap();
-        let first_scan = reports.iter().position(|&(_, total)| total > 0).expect("scan reports");
-        assert!(reports[..first_scan].iter().all(|&(_, total)| total == 0));
-        assert!(reports[first_scan..].iter().all(|&(_, total)| total == 25));
-        assert_eq!(reports.last(), Some(&(25, 25)));
+        assert_eq!(reports.first(), Some(&ScanStep::Counting { found: 0, folders: 0 }));
+        let first_scan = reports
+            .iter()
+            .position(|s| matches!(s, ScanStep::Scanning { .. }))
+            .expect("scan reports");
+        assert!(reports[..first_scan].iter().all(|s| matches!(s, ScanStep::Counting { .. })));
+        // The final count lands before the scan starts, however fast the walk.
+        assert_eq!(reports[first_scan - 1], ScanStep::Counting { found: 25, folders: 1 });
+        assert!(reports[first_scan..].iter().all(|s| matches!(s, ScanStep::Scanning { total: 25, .. })));
+        assert_eq!(reports.last(), Some(&ScanStep::Scanning { done: 25, total: 25 }));
     }
 
     #[test]

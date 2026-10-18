@@ -306,9 +306,14 @@ pub struct CollectionCredentials {
     pub auth_method: String,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize)]
 pub struct ScanProgress {
     pub folder: String,
+    /// The collection's own name, so every surface can say *what* is being
+    /// scanned — an auto-update scan has no UI-side record of it.
+    pub collection_name: String,
+    /// What kind of scan this is: shown next to the name.
+    pub mode: ScanMode,
     /// Files processed — or, while `counting`, media files found so far.
     pub scanned: u64,
     /// 0 while `counting` (not known yet).
@@ -317,13 +322,37 @@ pub struct ScanProgress {
     /// The scan's first pass (walking the folder to count its files) rather
     /// than the scan itself.
     pub counting: bool,
+    /// Folders walked so far by the counting pass (0 afterwards).
+    pub folders: u64,
+}
+
+/// Why a local collection is being scanned. Serialized lowercase — the
+/// frontend's `ScanMode` union (`utils/resyncProgress.ts`) mirrors it.
+#[derive(Debug, Clone, Copy, Serialize)]
+#[serde(rename_all = "lowercase")]
+pub enum ScanMode {
+    /// A just-added collection's first scan.
+    First,
+    /// Re-read only files that changed since the last scan.
+    Quick,
+    /// Re-read every file's tags (`scan_folder`'s `force`).
+    Full,
 }
 
 impl ScanProgress {
-    /// From a `scanner::scan_folder` progress report, which uses a total of 0
-    /// for its counting pass.
-    pub fn from_report(folder: String, scanned: u64, total: u64, collection_id: i64) -> Self {
-        ScanProgress { folder, scanned, total, collection_id, counting: total == 0 }
+    pub fn from_step(
+        folder: String,
+        collection_name: String,
+        mode: ScanMode,
+        step: crate::scanner::ScanStep,
+        collection_id: i64,
+    ) -> Self {
+        use crate::scanner::ScanStep;
+        let (scanned, total, counting, folders) = match step {
+            ScanStep::Counting { found, folders } => (found, 0, true, folders),
+            ScanStep::Scanning { done, total } => (done, total, false, 0),
+        };
+        ScanProgress { folder, collection_name, mode, scanned, total, collection_id, counting, folders }
     }
 }
 
@@ -751,6 +780,24 @@ pub struct ImageSource {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The wire strings the frontend's `ScanMode` union matches on.
+    #[test]
+    fn test_scan_mode_serializes_lowercase() {
+        let p = ScanProgress::from_step(
+            "/m".into(),
+            "Music".into(),
+            ScanMode::Full,
+            crate::scanner::ScanStep::Counting { found: 3, folders: 2 },
+            7,
+        );
+        let v = serde_json::to_value(&p).unwrap();
+        assert_eq!(v["mode"], "full");
+        assert_eq!(v["counting"], true);
+        assert_eq!(v["folders"], 2);
+        assert_eq!(serde_json::to_value(ScanMode::First).unwrap(), "first");
+        assert_eq!(serde_json::to_value(ScanMode::Quick).unwrap(), "quick");
+    }
 
     #[test]
     fn test_replaygain_extra_tags_json_from_numbers() {

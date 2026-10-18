@@ -1,15 +1,11 @@
 import { useEffect } from "react";
 import { subscribe, combineUnlisten } from "../utils/tauriEvents";
 import { track as trackTelemetry, bucketCount } from "../telemetry";
+import type { ResyncProgressInfo, ScanMode } from "../utils/resyncProgress";
 
-interface ResyncProgress {
+interface ResyncProgress extends ResyncProgressInfo {
   collectionId: number;
   collectionName: string;
-  kind: "scan" | "sync";
-  scanned: number;
-  total: number;
-  /** A scan's counting pass (see utils/resyncProgress.ts). */
-  counting?: boolean;
 }
 
 interface ResyncComplete {
@@ -57,7 +53,16 @@ export function useEventListeners(opts: EventListenerOptions) {
     // intermediate events is safe — scan-complete resets the state afterwards.
     let lastProgressRender = 0;
     let lastProgressCounting: boolean | null = null;
-    const stopProgress = subscribe<{ folder: string; scanned: number; total: number; collection_id?: number; counting?: boolean }>(
+    const stopProgress = subscribe<{
+      folder: string;
+      collection_name?: string;
+      mode?: ScanMode;
+      scanned: number;
+      total: number;
+      collection_id?: number;
+      counting?: boolean;
+      folders?: number;
+    }>(
       "scan-progress",
       (event) => {
         if (event.payload.collection_id == null) return;
@@ -71,21 +76,26 @@ export function useEventListeners(opts: EventListenerOptions) {
         setResyncComplete(null);
         setResyncProgress({
           collectionId: event.payload.collection_id,
-          collectionName: resyncingCollectionName ?? event.payload.folder,
+          // The backend names the collection itself, so an auto-update scan
+          // (which the UI didn't start) reads as its name, not its path.
+          collectionName: event.payload.collection_name || resyncingCollectionName || event.payload.folder,
           kind: "scan",
+          mode: event.payload.mode,
           scanned: event.payload.scanned,
           total: event.payload.total,
           counting,
+          folders: event.payload.folders,
         });
       }
     );
-    const stopComplete = subscribe<{ folder?: string; collectionId?: number; newTracks?: number; removedTracks?: number }>("scan-complete", (event) => {
+    const stopComplete = subscribe<{ folder?: string; collectionName?: string; collectionId?: number; newTracks?: number; removedTracks?: number }>("scan-complete", (event) => {
       onResyncDone?.();
       if (event.payload.collectionId != null) {
         setResyncProgress(null);
         setResyncComplete({
           collectionId: event.payload.collectionId,
-          collectionName: resyncingCollectionName ?? event.payload.folder ?? "Collection",
+          // Same precedence as scan-progress, so one run names itself one way.
+          collectionName: event.payload.collectionName || resyncingCollectionName || event.payload.folder || "Collection",
           newTracks: event.payload.newTracks ?? 0,
           removedTracks: event.payload.removedTracks ?? 0,
         });
@@ -122,7 +132,7 @@ export function useEventListeners(opts: EventListenerOptions) {
         setResyncComplete(null);
         setResyncProgress({
           collectionId: event.payload.collection_id,
-          collectionName: resyncingCollectionName ?? event.payload.collection,
+          collectionName: event.payload.collection || resyncingCollectionName || "Collection",
           kind: "sync",
           scanned: event.payload.synced,
           total: event.payload.total,

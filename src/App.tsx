@@ -6144,17 +6144,7 @@ function App() {
             onboardingProfile={onboardingProfile}
             pluginViews={pluginViewList}
             onOpenPluginView={handleOpenPluginView}
-            indexing={
-              resyncProgress
-                ? {
-                    collectionName: resyncProgress.collectionName,
-                    kind: resyncProgress.kind,
-                    scanned: resyncProgress.scanned,
-                    total: resyncProgress.total,
-                    counting: resyncProgress.counting,
-                  }
-                : null
-            }
+            indexing={resyncProgress}
             onAddFolder={handleAddFolder}
             onConnectServer={() => setShowAddServer(true)}
             onBrowseExtensions={() => library.setView("extensions")}

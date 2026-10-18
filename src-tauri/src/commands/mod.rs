@@ -269,14 +269,16 @@ pub fn run_collection_resync(
                 }
             };
             let scan_path = folder_path.clone();
+            let collection_name = collection.name.clone();
+            let mode = if full { ScanMode::Full } else { ScanMode::Quick };
             let track_count_before = db.get_track_count_for_collection(collection_id).unwrap_or(0);
             thread::spawn(move || {
                 let _guard = ResyncGuard { id: collection_id, set: resyncing };
                 let start = std::time::Instant::now();
-                let removed_tracks = scanner::scan_folder(&db, &scan_path, Some(collection_id), full, |scanned, total| {
+                let removed_tracks = scanner::scan_folder(&db, &scan_path, Some(collection_id), full, |step| {
                     let _ = app.emit(
                         "scan-progress",
-                        ScanProgress::from_report(scan_path.clone(), scanned, total, collection_id),
+                        ScanProgress::from_step(scan_path.clone(), collection_name.clone(), mode, step, collection_id),
                     );
                 });
                 let _ = db.rebuild_fts();
@@ -286,6 +288,7 @@ pub fn run_collection_resync(
                 let new_tracks = (track_count_after - track_count_before).max(0);
                 let _ = app.emit("scan-complete", serde_json::json!({
                     "folder": scan_path,
+                    "collectionName": collection_name,
                     "collectionId": collection_id,
                     "newTracks": new_tracks,
                     "removedTracks": removed_tracks,

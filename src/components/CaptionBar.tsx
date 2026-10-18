@@ -5,7 +5,7 @@ import type { ResyncProgress, ResyncComplete } from "../hooks/useEventListeners"
 import type { PluginSearchSection } from "../utils/centralSearchPlugins";
 import type { SearchLikeHandlers } from "../utils/searchLikes";
 import type { SearchAllResults, SearchResultItem } from "../types";
-import { fractionWidth, resyncFraction, resyncStatusText } from "../utils/resyncProgress";
+import { fractionWidth, resyncFraction, resyncModeLabel, resyncShortText, resyncStatusText } from "../utils/resyncProgress";
 
 /**
  * The caption bar's scan/sync progress. It sits inside the window's drag
@@ -101,7 +101,7 @@ export function CaptionBar({
           <button
             className={`caption-sync-indicator${resyncComplete?.error ? " caption-sync-error" : resyncComplete ? " caption-sync-done" : ""}`}
             onClick={(e) => { e.stopPropagation(); onNavigateToCollections(); }}
-            title={resyncComplete?.error ? `Sync failed: ${resyncComplete.error}` : resyncProgress ? `${resyncProgress.collectionName} — ${resyncStatusText(resyncProgress)}` : "Sync complete"}
+            title={resyncComplete?.error ? `Sync failed: ${resyncComplete.error}` : resyncProgress ? `${resyncProgress.collectionName} — ${resyncModeLabel(resyncProgress)}: ${resyncStatusText(resyncProgress)}` : "Sync complete"}
           >
             {resyncComplete?.error ? (
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -120,10 +120,13 @@ export function CaptionBar({
                 ? "Sync failed"
                 : resyncComplete
                 ? "Sync complete"
-                : resyncProgress?.counting
-                ? `Counting files… ${resyncProgress.scanned.toLocaleString()}`
-                : resyncProgress?.collectionName}
+                : resyncProgress
+                ? `${resyncProgress.collectionName} · ${resyncModeLabel(resyncProgress)}`
+                : null}
             </span>
+            {!resyncComplete && resyncProgress && (
+              <span className="caption-sync-step">{resyncShortText(resyncProgress)}</span>
+            )}
           </button>
         )}
         <div className="caption-spacer" />

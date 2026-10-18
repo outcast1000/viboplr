@@ -21,7 +21,7 @@ import { CustomizeHomeModal, type CustomizeShelfRow } from "./CustomizeHomeModal
 import { buildHomeShelfMenuSpecs } from "../contextMenu/buildHomeShelfMenuSpecs";
 import { showNativeMenu } from "../nativeMenu";
 import { store } from "../store";
-import { resyncStatusText } from "../utils/resyncProgress";
+import { resyncModeLabel, resyncStatusText, type ResyncProgressInfo } from "../utils/resyncProgress";
 import { seedProfileShelfVisibility, type OnboardingProfile } from "./onboardingSteps";
 import "./HomeView.css";
 
@@ -57,7 +57,7 @@ export interface HomeViewProps {
   pluginViews: Array<{ pluginId: string; viewId: string; label: string }>;
   onOpenPluginView: (pluginId: string, viewId: string) => void;
   /** Live scan/sync of a collection, so a bare Home reads as "working", not "broken". */
-  indexing: { collectionName: string; kind: "scan" | "sync"; scanned: number; total: number; counting?: boolean } | null;
+  indexing: (ResyncProgressInfo & { collectionName: string }) | null;
   onAddFolder: () => void;
   onConnectServer: () => void;
   onBrowseExtensions: () => void;
@@ -347,7 +347,7 @@ function HomeEmptyState({
   collectionCount: number;
   pluginViews: Array<{ pluginId: string; viewId: string; label: string }>;
   onOpenPluginView: (pluginId: string, viewId: string) => void;
-  indexing: { collectionName: string; kind: "scan" | "sync"; scanned: number; total: number; counting?: boolean } | null;
+  indexing: (ResyncProgressInfo & { collectionName: string }) | null;
   onAddFolder: () => void;
   onConnectServer: () => void;
   onBrowseExtensions: () => void;
@@ -359,7 +359,7 @@ function HomeEmptyState({
       <div className="home-empty">
         <span className="ds-spinner ds-spinner--lg" />
         <h2 className="home-empty-title">
-          {indexing.kind === "sync" ? "Syncing" : "Scanning"} “{indexing.collectionName}”…
+          {indexing.kind === "sync" ? "Syncing" : indexing.mode ? `${resyncModeLabel(indexing)} of` : "Scanning"} “{indexing.collectionName}”…
         </h2>
         <p className="home-empty-desc">
           {indexing.counting

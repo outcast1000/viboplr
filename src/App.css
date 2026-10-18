@@ -120,7 +120,7 @@
   display: flex;
   align-items: center;
   gap: 6px;
-  width: 200px;
+  width: 280px;
   height: 22px;
   padding: 0 8px;
   border: none;
@@ -161,6 +161,20 @@
   text-overflow: ellipsis;
   white-space: nowrap;
   text-align: left;
+  font-variant-numeric: tabular-nums;
+}
+
+/* The moving part ("1,234 found", "42%") after "Name · Full rescan". A fixed
+   width, right-aligned, so a growing count never shifts the name — and the
+   ellipsis eats the mode before it reaches the name. */
+.caption-sync-step {
+  flex: none;
+  width: 96px; /* fits "123,456 found" */
+  overflow: hidden;
+  text-overflow: ellipsis;
+  text-align: right;
+  color: var(--text-tertiary);
+  white-space: nowrap;
   font-variant-numeric: tabular-nums;
 }
 

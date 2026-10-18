@@ -1,7 +1,7 @@
 import type { Collection, CollectionStats } from "../types";
 import type { ResyncProgress, ResyncComplete } from "../hooks/useEventListeners";
 import { collectionKindLabel, formatDurationCoarse, formatFileSize, formatRelativeTime } from "../utils";
-import { fractionWidth, resyncFraction, resyncStatusText } from "../utils/resyncProgress";
+import { fractionWidth, resyncFraction, resyncModeLabel, resyncStatusText } from "../utils/resyncProgress";
 import "./CollectionsView.css";
 
 function formatResyncStats(added: number, removed: number): string {
@@ -157,7 +157,7 @@ export function CollectionsView({
                         : resyncComplete
                         ? `Complete — ${formatResyncStats(resyncComplete.newTracks, resyncComplete.removedTracks)}`
                         : resyncProgress
-                        ? resyncStatusText(resyncProgress)
+                        ? `${resyncModeLabel(resyncProgress)} · ${resyncStatusText(resyncProgress)}`
                         : null}
                     </span>
                   </div>
