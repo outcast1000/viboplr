@@ -882,6 +882,7 @@ pub fn audio_quality(path: &Path, format: &str) -> Value {
     let file_size = std::fs::metadata(path).map(|m| m.len()).ok();
     let props = lofty::probe::Probe::open(path)
         .ok()
+        .map(|p| p.options(crate::tag_writer::relaxed_parse_options()))
         .and_then(|p| p.guess_file_type().ok())
         .and_then(|p| p.read().ok())
         .map(|f| f.properties().clone());
@@ -1054,9 +1055,7 @@ fn write_library_identity(path: &Path, track: &crate::models::Track) -> Result<(
     use lofty::prelude::*;
     use lofty::tag::items::Timestamp;
     use lofty::tag::{ItemKey, Tag};
-    let mut file = lofty::probe::Probe::open(path)
-        .and_then(|p| p.read())
-        .map_err(|e| e.to_string())?;
+    let mut file = crate::tag_writer::read_tagged_file(path).map_err(|e| e.to_string())?;
     let tag_type = file.primary_tag_type();
     if file.tag(tag_type).is_none() {
         file.insert_tag(Tag::new(tag_type));

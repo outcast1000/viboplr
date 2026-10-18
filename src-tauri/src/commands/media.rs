@@ -524,8 +524,7 @@ pub fn get_track_audio_properties(
 
     use lofty::prelude::*;
 
-    let tagged_file = lofty::probe::Probe::open(&bare_path)
-        .and_then(|p| p.read())
+    let tagged_file = crate::tag_writer::read_tagged_file(&bare_path)
         .map_err(|e| format!("Failed to read file: {}", e))?;
 
     let props = tagged_file.properties();
@@ -547,8 +546,7 @@ pub fn get_audio_properties_by_path(
 
     use lofty::prelude::*;
 
-    let tagged_file = lofty::probe::Probe::open(bare_path)
-        .and_then(|p| p.read())
+    let tagged_file = crate::tag_writer::read_tagged_file(bare_path)
         .map_err(|e| format!("Failed to read file: {}", e))?;
 
     let props = tagged_file.properties();
@@ -653,9 +651,7 @@ fn read_one_file_tags(path: &str) -> Option<FileTags> {
     use lofty::prelude::*;
 
     let bare_path = path.strip_prefix("file://").unwrap_or(path);
-    let tagged_file = lofty::probe::Probe::open(bare_path)
-        .and_then(|p| p.read())
-        .ok()?;
+    let tagged_file = crate::tag_writer::read_tagged_file(bare_path).ok()?;
 
     let duration = tagged_file.properties().duration();
     let duration_secs = Some(duration.as_secs_f64()).filter(|&d| d > 0.0);

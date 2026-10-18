@@ -1,7 +1,6 @@
 use encoding_rs::{WINDOWS_1251, WINDOWS_1252, WINDOWS_1253, WINDOWS_1254, WINDOWS_1255, WINDOWS_1256};
 use log::info;
 use lofty::prelude::*;
-use lofty::probe::Probe;
 use regex::Regex;
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
@@ -173,7 +172,7 @@ fn clean_tag(s: &str) -> Option<String> {
 }
 
 fn read_tags(path: &Path) -> ParsedTags {
-    if let Ok(tagged_file) = Probe::open(path).and_then(|p| p.read()) {
+    if let Ok(tagged_file) = crate::tag_writer::read_tagged_file(path) {
         let tag = tagged_file.primary_tag().or_else(|| tagged_file.first_tag());
 
         let duration = tagged_file.properties().duration();
@@ -587,8 +586,7 @@ fn prepare_media_file(db: &Arc<Database>, path: &Path, collection_id: Option<i64
     // For video files, use filename as title but try to read duration from file properties
     if is_video_file(path) {
         let title = path.file_stem().and_then(|s| s.to_str()).unwrap_or("Unknown").trim().to_string();
-        let duration_secs = Probe::open(path)
-            .and_then(|p| p.read())
+        let duration_secs = crate::tag_writer::read_tagged_file(path)
             .ok()
             .map(|f| f.properties().duration().as_secs_f64())
             .filter(|&d| d > 0.0);
@@ -661,8 +659,7 @@ pub fn read_dropped_media(path: &Path) -> DroppedMedia {
             .unwrap_or("Unknown")
             .trim()
             .to_string();
-        let duration_secs = Probe::open(path)
-            .and_then(|p| p.read())
+        let duration_secs = crate::tag_writer::read_tagged_file(path)
             .ok()
             .map(|f| f.properties().duration().as_secs_f64())
             .filter(|&d| d > 0.0);
@@ -708,6 +705,23 @@ pub fn collect_dropped_media(path: &Path) -> Vec<PathBuf> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A malformed date must cost the date, not the tag: lofty's default mode
+    /// failed the whole file, and the path fallback then read a
+    /// `1987 - Album` folder as artist "1987" with the filename as title.
+    #[test]
+    fn test_read_tags_survives_a_malformed_date() {
+        let tmp = tempfile::tempdir().unwrap();
+        let dir = tmp.path().join("1987 - Πάρτυ Στο 13ο Όροφο");
+        std::fs::create_dir(&dir).unwrap();
+        let path = dir.join("02 Tripes - I Proti Fora.mp3");
+        std::fs::write(&path, crate::tag_writer::mp3_with_malformed_date("Η Πρώτη Φορά", "Τρύπες")).unwrap();
+
+        let tags = read_tags(&path);
+        assert_eq!(tags.title, "Η Πρώτη Φορά");
+        assert_eq!(tags.artist.as_deref(), Some("Τρύπες"));
+        assert_eq!(tags.year, None);
+    }
 
     /// End-to-end scan through the chunked ingest path: file count crosses
     /// INGEST_CHUNK (128) so both the full-chunk flush and the final partial

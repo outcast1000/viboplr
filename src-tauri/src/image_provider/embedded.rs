@@ -3,7 +3,6 @@ use std::sync::Arc;
 
 use lofty::picture::PictureType;
 use lofty::prelude::*;
-use lofty::probe::Probe;
 
 use super::{write_image, AlbumImageProvider};
 use crate::db::Database;
@@ -35,8 +34,7 @@ impl AlbumImageProvider for EmbeddedArtworkProvider {
             .map_err(|e| format!("DB lookup failed: {}", e))?
             .ok_or("No local track found for album")?;
 
-        let tagged_file = Probe::open(&track_path)
-            .and_then(|p| p.read())
+        let tagged_file = crate::tag_writer::read_tagged_file(&track_path)
             .map_err(|e| format!("Failed to read tags from {}: {}", track_path, e))?;
 
         let tag = tagged_file

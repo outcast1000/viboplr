@@ -66,7 +66,7 @@ pub fn lyrics_from_tag(tag: &lofty::tag::Tag) -> Option<String> {
 fn embedded_lyrics(path: &Path) -> Option<String> {
     use lofty::prelude::*;
 
-    let tagged_file = lofty::probe::Probe::open(path).and_then(|p| p.read()).ok()?;
+    let tagged_file = crate::tag_writer::read_tagged_file(path).ok()?;
     tagged_file
         .primary_tag()
         .and_then(lyrics_from_tag)

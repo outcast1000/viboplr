@@ -352,12 +352,9 @@ pub fn write_tags(
     use lofty::config::WriteOptions;
     use lofty::picture::{MimeType, Picture, PictureType};
     use lofty::prelude::*;
-    use lofty::probe::Probe;
     use lofty::tag::items::Timestamp;
 
-    let mut tagged_file = Probe::open(path)
-        .map_err(|e| format!("Probe open: {}", e))?
-        .read()
+    let mut tagged_file = crate::tag_writer::read_tagged_file(path)
         .map_err(|e| format!("Probe read: {}", e))?;
 
     let tag_type = tagged_file.primary_tag_type();
