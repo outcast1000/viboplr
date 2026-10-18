@@ -19,7 +19,7 @@ import type {
   ContributionVisibility,
   PluginContribution,
 } from "../utils/pluginContributions";
-import { isExperimental, partitionByStability, EXPERIMENTAL_DISCLAIMER } from "../utils/pluginStability";
+import { isExperimental, partitionGallery, EXPERIMENTAL_DISCLAIMER } from "../utils/pluginStability";
 import { DependenciesPanel, dependencyAttentionCount, type DependenciesApi } from "./DependenciesPanel";
 import type { Notify } from "../hooks/useToasts";
 import "./ExtensionsView.css";
@@ -962,33 +962,35 @@ export default function ExtensionsView(props: ExtensionsViewProps) {
   const updatableItems = installedItems.filter((e) => e.updateAvailable?.status === "available");
   const installedRest = installedItems.filter((e) => e.updateAvailable?.status !== "available");
 
-  // In-app discovery prefers the curated "recommended" subset (the long tail
-  // lives on the site, "Browse all"). When the gallery index flags none as
-  // recommended, fall back to showing everything available so the section is
-  // never empty — the title reflects which set is shown. Experimental entries
-  // are pulled out first so they can't reach either pool — they render only
-  // in the collapsed Experimental section below.
+  // In-app discovery leads with the curated "recommended" subset; everything
+  // else not installed — the other stable entries, then the experimental ones
+  // — follows in one collapsed More section, so no plugin is reachable only by
+  // searching. When the gallery index flags none as recommended, every stable
+  // entry is shown under "Available" and More holds the experimental ones.
+  // See `partitionGallery`.
   const available = filtered.filter((e) => e.status === "not_installed");
-  const { stable: availableStable, experimental: experimentalItems } = partitionByStability(available);
-  const experimentalSorted = experimentalItems.slice().sort(byName);
-  const recommendedOnly = availableStable.filter((e) => e.recommended);
-  const discover = (recommendedOnly.length > 0 ? recommendedOnly : availableStable).slice().sort(byName);
-  const discoverTitle = recommendedOnly.length > 0 ? "Recommended" : "Available";
+  const gallery = partitionGallery(available);
+  const discover = gallery.discover.slice().sort(byName);
+  const moreSorted = [
+    ...gallery.more.stable.slice().sort(byName),
+    ...gallery.more.experimental.slice().sort(byName),
+  ];
+  const discoverTitle = gallery.recommended ? "Recommended" : "Available";
 
   // Collapsed by default on every visit (unpersisted). The view stays mounted
   // across navigation (App.tsx display toggle), so re-collapse when it hides.
   // Auto-expands while a search query has matches inside the section so
   // results are never stranded behind a collapsed header.
-  const [experimentalOpen, setExperimentalOpen] = useState(false);
+  const [moreOpen, setMoreOpen] = useState(false);
   useEffect(() => {
-    if (!isVisible) setExperimentalOpen(false);
+    if (!isVisible) setMoreOpen(false);
   }, [isVisible]);
-  const experimentalExpanded = experimentalOpen || (!!searchQuery && experimentalSorted.length > 0);
+  const moreExpanded = moreOpen || (!!searchQuery && moreSorted.length > 0);
 
-  // When the discover pool is empty but experimental entries exist, the
-  // Available header is dropped and its "Browse all" action moves onto the
-  // Experimental header — one flag keeps the two render sites in sync.
-  const browseAllOnExperimental = discover.length === 0 && experimentalSorted.length > 0;
+  // When the discover pool is empty but More has entries, the discover header
+  // is dropped and its "Browse all" action moves onto the More header — one
+  // flag keeps the two render sites in sync.
+  const browseAllOnMore = discover.length === 0 && moreSorted.length > 0;
 
   const detailExt = detail ? allExtensions.find((e) => e.id === detail.id && e.kind === "plugin") || null : null;
   // If the open plugin disappears (e.g. uninstalled from its detail page), drop
@@ -1004,7 +1006,7 @@ export default function ExtensionsView(props: ExtensionsViewProps) {
   const retryGallery = tab === "skins" ? onFetchSkinGallery : onFetchPluginGallery;
   // Gate on the whole not-installed pool (stable + experimental), not just
   // discover — skeletons and the error banner must never render above a
-  // populated Experimental section.
+  // populated More section.
   const showGallerySkeleton = !!galleryLoading && available.length === 0 && !searchQuery;
   const showGalleryError = !galleryLoading && !!galleryError && available.length === 0;
 
@@ -1275,30 +1277,34 @@ export default function ExtensionsView(props: ExtensionsViewProps) {
             <SectionHeader title="Installed" count={installedRest.length} />
             {renderPluginCollection(installedRest)}
 
-            {!browseAllOnExperimental && (
+            {!browseAllOnMore && (
               <SectionHeader title={discoverTitle} count={discover.length} action={browseAll} />
             )}
             {renderPluginCollection(discover)}
 
-            {experimentalSorted.length > 0 && (
+            {moreSorted.length > 0 && (
               <>
                 <SectionHeader
-                  title="Experimental"
-                  count={experimentalSorted.length}
-                  action={browseAllOnExperimental ? browseAll : undefined}
-                  collapsed={!experimentalExpanded}
+                  title="More"
+                  count={moreSorted.length}
+                  action={browseAllOnMore ? browseAll : undefined}
+                  collapsed={!moreExpanded}
                   // Toggle against what's visible, not the raw flag — while a
                   // search auto-expands the section, a plain flip would flip
                   // the flag invisibly and leave the section stuck open after
                   // the search clears.
-                  onToggle={() => setExperimentalOpen(!experimentalExpanded)}
+                  onToggle={() => setMoreOpen(!moreExpanded)}
                 />
-                {experimentalExpanded && (
+                {moreExpanded && (
                   <>
-                    <div className="ds-banner ds-banner--warning ext-experimental-banner">
-                      {EXPERIMENTAL_DISCLAIMER}
-                    </div>
-                    {renderPluginCollection(experimentalSorted)}
+                    {/* Experimental entries sit at the end of More, each with
+                        its own badge; the disclaimer covers them once. */}
+                    {gallery.hasExperimental && (
+                      <div className="ds-banner ds-banner--warning ext-experimental-banner">
+                        {EXPERIMENTAL_DISCLAIMER}
+                      </div>
+                    )}
+                    {renderPluginCollection(moreSorted)}
                   </>
                 )}
               </>
@@ -1358,6 +1364,34 @@ export default function ExtensionsView(props: ExtensionsViewProps) {
               />
             ))}
           </div>
+
+          {/* Same rule as plugins: what Recommended leaves out is listed here,
+              never only behind a search. */}
+          {moreSorted.length > 0 && (
+            <>
+              <SectionHeader
+                title="More"
+                count={moreSorted.length}
+                collapsed={!moreExpanded}
+                onToggle={() => setMoreOpen(!moreExpanded)}
+              />
+              {moreExpanded && (
+                <div className="ext-skin-grid">
+                  {moreSorted.map((ext) => (
+                    <SkinCard
+                      key={ext.id}
+                      ext={ext}
+                      installing={installing.has(ext.id)}
+                      onApply={() => onToggleEnabled(ext.id, "skin")}
+                      onInstall={() => handleInstall(ext)}
+                      onPreview={() => onPreviewSkin?.(ext.id)}
+                      onClearPreview={() => onPreviewSkin?.(null)}
+                    />
+                  ))}
+                </div>
+              )}
+            </>
+          )}
 
           {showGallerySkeleton && (
             <div className="ext-skin-grid">

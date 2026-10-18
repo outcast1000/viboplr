@@ -55,6 +55,33 @@ export function partitionByStability<T extends { stability?: string }>(
   return { stable, experimental };
 }
 
+/**
+ * Group not-yet-installed gallery entries for the Extensions view.
+ *
+ * `discover` is the curated pool the view leads with: the recommended stable
+ * entries, or every stable one when the gallery flags none (`recommended`
+ * says which). An experimental entry is never in it, recommended or not.
+ * `more` is everything else — the remaining stable entries, then the
+ * experimental ones — so every gallery plugin is listed somewhere. Before it
+ * existed, non-recommended stable entries were reachable only by searching
+ * while every experimental one had its own section. `hasExperimental` says
+ * whether `more` needs the experimental disclaimer. Order within each tier is
+ * preserved; sorting is the caller's.
+ */
+export function partitionGallery<T extends { stability?: string; recommended?: boolean }>(
+  items: T[],
+): { recommended: boolean; discover: T[]; more: { stable: T[]; experimental: T[] }; hasExperimental: boolean } {
+  const { stable, experimental } = partitionByStability(items);
+  const recommendedOnly = stable.filter((e) => e.recommended);
+  const recommended = recommendedOnly.length > 0;
+  return {
+    recommended,
+    discover: recommended ? recommendedOnly : stable,
+    more: { stable: recommended ? stable.filter((e) => !e.recommended) : [], experimental },
+    hasExperimental: experimental.length > 0,
+  };
+}
+
 /** One-line disclaimer shown wherever experimental plugins surface
  *  (gallery section banner, badge tooltips, the site mirrors the wording). */
 export const EXPERIMENTAL_DISCLAIMER =

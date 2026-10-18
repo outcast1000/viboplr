@@ -3,6 +3,7 @@ import {
   stabilityTier,
   isExperimental,
   partitionByStability,
+  partitionGallery,
   resolveInstalledStability,
 } from "../utils/pluginStability";
 
@@ -100,5 +101,46 @@ describe("partitionByStability", () => {
     ]);
     expect(stable).toHaveLength(0);
     expect(experimental).toHaveLength(2);
+  });
+});
+
+describe("partitionGallery", () => {
+  const item = (id: string, opts: { stability?: string; recommended?: boolean } = {}) => ({ id, ...opts });
+  const ids = (xs: Array<{ id: string }>) => xs.map((x) => x.id);
+
+  it("leads with recommended stable entries and lists every other one under More", () => {
+    const g = partitionGallery([
+      item("genius", { recommended: true }),
+      item("auto-tagger"),
+      item("slskd", { stability: "experimental" }),
+      item("duplicate-finder"),
+    ]);
+    expect(g.recommended).toBe(true);
+    expect(ids(g.discover)).toEqual(["genius"]);
+    // The non-recommended stable entry is no longer reachable only by search.
+    expect(ids(g.more.stable)).toEqual(["auto-tagger", "duplicate-finder"]);
+    expect(ids(g.more.experimental)).toEqual(["slskd"]);
+    expect(g.hasExperimental).toBe(true);
+  });
+
+  it("never puts an experimental entry in the curated pool, even when recommended", () => {
+    const g = partitionGallery([item("x", { stability: "experimental", recommended: true }), item("y")]);
+    expect(g.recommended).toBe(false);
+    expect(ids(g.discover)).toEqual(["y"]);
+    expect(ids(g.more.experimental)).toEqual(["x"]);
+  });
+
+  it("shows every stable entry up front when the gallery recommends none", () => {
+    const g = partitionGallery([item("a"), item("b"), item("c", { stability: "experimental" })]);
+    expect(g.recommended).toBe(false);
+    expect(ids(g.discover)).toEqual(["a", "b"]);
+    expect(g.more.stable).toHaveLength(0);
+    expect(ids(g.more.experimental)).toEqual(["c"]);
+  });
+
+  it("reports no experimental entries when there are none", () => {
+    const g = partitionGallery([item("a", { recommended: true }), item("b")]);
+    expect(g.hasExperimental).toBe(false);
+    expect(ids(g.more.stable)).toEqual(["b"]);
   });
 });
