@@ -33,7 +33,7 @@ interface Deps {
   /** Installs and applies (useSkins.installFromGallery). */
   installSkin: (entry: GallerySkinEntry) => Promise<{ ok: boolean; error?: string }>;
   togglePlugin: (id: string, enabled: boolean) => Promise<void> | void;
-  approvePermissions: (id: string) => Promise<void>;
+  approvePermissions: (id: string) => Promise<boolean>;
   permissionsToApprove: (id: string) => string[];
   permissionReasonsFor: (id: string) => Record<string, string>;
 }
@@ -138,7 +138,12 @@ export function useAssistantInstall(deps: Deps) {
     const id = p.target.entry.id;
     try {
       if (depsRef.current.permissionsToApprove(id).length > 0) {
-        await depsRef.current.approvePermissions(id);
+        // False: the user turned down the unsigned-plugin warning, so it stays
+        // installed and off.
+        if (!(await depsRef.current.approvePermissions(id))) {
+          finish({ outcome: "declined" });
+          return;
+        }
       }
       await depsRef.current.togglePlugin(id, true);
       finish({ outcome: "installed", enabled: true });

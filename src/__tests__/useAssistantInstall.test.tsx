@@ -25,7 +25,7 @@ function setup(overrides: Partial<Parameters<typeof useAssistantInstall>[0]> = {
     installPlugin: vi.fn(async () => ({ ok: true })),
     installSkin: vi.fn(async () => ({ ok: true })),
     togglePlugin: vi.fn(async () => undefined),
-    approvePermissions: vi.fn(async () => undefined),
+    approvePermissions: vi.fn(async () => true),
     permissionsToApprove: vi.fn(() => [] as string[]),
     permissionReasonsFor: vi.fn(() => ({}) as Record<string, string>),
     ...overrides,

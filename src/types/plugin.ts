@@ -292,10 +292,17 @@ export interface PluginManifest {
   /** What a worker-runtime plugin may do — see src/pluginWorker/permissions.ts
    *  for the vocabulary. Ignored by the main-realm loader. */
   permissions?: string[];
+  /** Permissions for a feature the user may never use (installing a program
+   *  for them, when they can also run their own). Not needed to start: the
+   *  host asks for the whole set the first time a call needs one of them, and
+   *  the call then proceeds (or is denied). Same vocabulary as `permissions`.
+   *  Older hosts ignore the field, so a call needing one is simply denied there. */
+  optionalPermissions?: string[];
   /** Why the plugin needs each permission (permission string → one sentence),
    *  shown under it wherever the user is asked. Keys must match `permissions`
-   *  exactly; others are dropped (see `permissionReasons()`). Informational —
-   *  it grants nothing. Older hosts ignore it. */
+   *  or `optionalPermissions` exactly; others are dropped (see
+   *  `permissionReasons()`). Informational — it grants nothing. Older hosts
+   *  ignore it. */
   permissionReasons?: Record<string, string>;
 }
 
@@ -345,6 +352,9 @@ export interface PluginState {
   /** Worker plugin signed by the trusted first-party key: permissions are
    *  pre-approved, like a built-in's (utils/pluginTrust.ts → isFirstParty). */
   firstParty?: boolean;
+  /** Which of the manifest's `optionalPermissions` the user has granted (and
+   *  that still count). Updated when one is granted while the plugin runs. */
+  optionalGranted?: string[];
   /** Runs in the main realm (full app access) without a Vibo signature —
    *  see utils/pluginTrust.ts. Shown as "Unverified" in Extensions. */
   unverified?: boolean;
@@ -1323,6 +1333,11 @@ export interface PluginUIAPI {
   getContext?(): Promise<UiContext | null>;
   /** Called when that changes and has settled (~300ms), with the new context. */
   onContextChanged?(handler: (context: UiContext) => void): () => void;
+  /** Ask the user for a folder (they may create one in the dialog). Resolves
+   *  with its absolute path, or null when they cancel. No permission: the
+   *  user's pick is the consent, and the plugin gets a path, not access.
+   *  Feature-detect. */
+  pickFolder?(opts?: { title?: string; defaultPath?: string }): Promise<string | null>;
 }
 
 export interface PluginStorageAPI {
@@ -2256,6 +2271,106 @@ export interface PluginSystemAPI {
    *  shell's select APIs reject UNC paths). Same host command the app's own
    *  "Show in folder" uses. Feature-detect for older hosts. */
   revealPath(path: string): Promise<void>;
+  /** The OS and CPU Vibo runs on — `os` `macos` | `windows` | `linux`, `arch`
+   *  `arm64` | `x64` (other CPUs by Rust's name) — for picking which build of a
+   *  program to download. No permission. Feature-detect. */
+  platform?(): Promise<{ os: string; arch: string }>;
+  /** Programs the plugin downloads into its own file store and runs — see
+   *  `PluginProgramsAPI`. Needs the `programs:run` permission. Absent on older
+   *  hosts: feature-detect with `typeof api.system.programs?.start === "function"`. */
+  programs?: PluginProgramsAPI;
+}
+
+/** A program the plugin started, as the host sees it now. */
+export interface PluginProgramStatus {
+  name: string;
+  /** Started at least once and not removed. */
+  registered: boolean;
+  running: boolean;
+  pid: number | null;
+  /** Unix seconds; null while not running. */
+  startedAt: number | null;
+  outliveApp: boolean;
+  /** Absolute path of its output log, inside the plugin's store
+   *  (`["logs", "<name>.log"]` for `api.storage.files.readText`). */
+  logPath: string;
+}
+
+/** What `start` runs. Paths are segments inside the plugin's file store, the
+ *  same form `api.storage.files` takes. */
+export interface PluginProgramSpec {
+  path: string[];
+  args?: string[];
+  env?: Record<string, string>;
+  /** Working directory; defaults to the binary's folder. */
+  cwd?: string[];
+  /** Keep running after Vibo quits (default `true`). `false` ties the program
+   *  to the app: the host stops it when Vibo exits. */
+  outliveApp?: boolean;
+}
+
+/**
+ * Download, unpack and run programs inside the plugin's own file store
+ * (`api.system.programs`, permission `programs:run`).
+ *
+ * The host knows nothing about the program: the plugin decides what to fetch,
+ * pins its checksum, writes its config and owns its graceful stop. Everything
+ * is confined to the store — a path outside it, or a symlink leading out, is
+ * refused — and the host tracks pids itself, so it only ever stops a process
+ * running a binary from this plugin's store.
+ *
+ * Lifetime: a started program is independent. It survives Vibo quitting unless
+ * started with `outliveApp: false`, disabling the plugin leaves it running, and
+ * uninstalling the plugin stops it. Vibo never starts it on its own — there are
+ * no login items: the plugin starts it when it needs it (e.g. on activation, if
+ * its own settings say so), and a user who wants it running without Vibo
+ * registers it with the OS themselves.
+ */
+export interface PluginProgramsAPI {
+  /** Stream a URL to a file in the store (up to `maxBytes`, default 512 MB,
+   *  max 1 GB), resolving with its sha256. With `sha256` the file is kept only
+   *  when it matches — pin the exact build you ship. Also needs a `network:`
+   *  grant for the URL's host **and every redirect hop** (a GitHub release
+   *  redirects to `release-assets.githubusercontent.com`).
+   *
+   *  **The host asks the user before every download** (each install and each
+   *  update), naming the file, where it comes from and whether its checksum is
+   *  pinned; `label` ("slskd 0.26.1") is shown as the plugin's description of
+   *  it. Turned down, the call rejects with `"Install declined"` — treat that
+   *  as the user's answer, not a failure. */
+  download(
+    path: string[],
+    url: string,
+    opts?: {
+      sha256?: string;
+      headers?: Record<string, string>;
+      maxBytes?: number;
+      label?: string;
+      onProgress?: (received: number, total: number | null) => void;
+    },
+  ): Promise<{ path: string; sha256: string; size: number }>;
+  /** Unpack a `.zip` / `.tar.gz` in the store into `dest` (replaced as a
+   *  whole, never merged). Symlinks are skipped; unix modes are kept. Resolves
+   *  with the number of files written. */
+  extract(archive: string[], dest: string[]): Promise<number>;
+  /** Run a binary from the store to completion (a version probe), killed
+   *  after `timeoutSecs` (default 60, max 600). */
+  run(
+    path: string[],
+    args?: string[],
+    opts?: { env?: Record<string, string>; cwd?: string[]; timeoutSecs?: number },
+  ): Promise<ExecResult>;
+  /** Start `name` detached, or report the copy already running under that
+   *  name — a second one is never started. Rejects with the program's own
+   *  output when it exits straight away. */
+  start(name: string, spec: PluginProgramSpec): Promise<PluginProgramStatus>;
+  status(name: string): Promise<PluginProgramStatus>;
+  list(): Promise<PluginProgramStatus[]>;
+  /** Signal, wait up to `graceSecs` (default 10), then force. Stop it your own
+   *  way first when the program has one (an API shutdown). */
+  stop(name: string, opts?: { graceSecs?: number }): Promise<PluginProgramStatus>;
+  /** Stop it and forget it. Its files stay in the store. */
+  remove(name: string): Promise<void>;
 }
 
 /** Embedded tags for one file. Every field is optional; a missing one means the
@@ -2509,6 +2624,9 @@ export interface ExtensionItem {
   pendingPermissions?: string[];
   /** Signed by the first-party key, so its permissions are allowed automatically. */
   firstParty?: boolean;
+  /** The manifest's `optionalPermissions`, and which of them the user has granted. */
+  optionalPermissions?: string[];
+  optionalGranted?: string[];
   /** Running in the main realm without a Vibo signature — see utils/pluginTrust.ts. */
   unverified?: boolean;
   /** An update installed over a built-in: uninstalling reverts to the built-in. */

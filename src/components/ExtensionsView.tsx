@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { PermissionList } from "./PermissionList";
+import { ALWAYS_ASK_PERMISSIONS, describePermission } from "../pluginWorker/permissions";
 import type {
   ExtensionItem,
   ExtensionUpdate,
@@ -65,7 +66,7 @@ interface ExtensionsViewProps {
   onSetContributionEnabled?: (key: string, enabled: boolean) => void;
   // Worker-runtime plugins: approve what the manifest asks for (the plugin then
   // starts), or withdraw it (the plugin stops and waits again). Owned by usePlugins.
-  onApprovePermissions?: (pluginId: string) => Promise<void>;
+  onApprovePermissions?: (pluginId: string) => Promise<boolean | void>;
   onRevokePermissions?: (pluginId: string) => Promise<void>;
   /** What enabling this plugin would have the user approve — read fresh from
    *  plugin state, since this view's props lag the install by a render. */
@@ -423,7 +424,7 @@ function PluginRowSkeleton() {
 // the consent step: the list the user reads is the list the Allow button grants.
 function PluginPermissions({ ext, onApprove, onRevoke, onNotify }: {
   ext: ExtensionItem;
-  onApprove?: (pluginId: string) => Promise<void>;
+  onApprove?: (pluginId: string) => Promise<boolean | void>;
   onRevoke?: (pluginId: string) => Promise<void>;
   onNotify?: Notify;
 }) {
@@ -437,7 +438,15 @@ function PluginPermissions({ ext, onApprove, onRevoke, onNotify }: {
   // Signed with Vibo's first-party key: same standing as a built-in.
   const firstParty = !builtin && !!ext.firstParty;
 
-  const run = async (fn: ((id: string) => Promise<void>) | undefined, what: string) => {
+  // Running programs is approved by the user even for a plugin signed by Vibo
+  // (ALWAYS_ASK_PERMISSIONS), so such a plugin can have it revoked too.
+  const alwaysAsk = requested.filter((p) => ALWAYS_ASK_PERMISSIONS.includes(p));
+  const optional = ext.optionalPermissions ?? [];
+  const optionalGranted = new Set(ext.optionalGranted ?? []);
+  // Anything the user granted themselves can be taken back, even on a plugin
+  // whose other permissions came with its signature.
+  const userGranted = alwaysAsk.length > 0 || optionalGranted.size > 0;
+  const run = async (fn: ((id: string) => Promise<boolean | void>) | undefined, what: string) => {
     if (!fn) return;
     setWorking(true);
     try {
@@ -453,30 +462,53 @@ function PluginPermissions({ ext, onApprove, onRevoke, onNotify }: {
   return (
     <div className={`ext-detail-section ext-perms${waiting ? " ext-perms--waiting" : ""}`}>
       <div className="ext-detail-section-title">Permissions</div>
-      {requested.length === 0 ? (
+      {requested.length === 0 && optional.length === 0 ? (
         <div className="ext-detail-section-hint">
           This plugin asks for no permissions. It can keep its own data and add views,
           menu items and information to the app, and nothing else.
         </div>
       ) : (
         <>
+          {requested.length > 0 && (<>
           <div className="ext-detail-section-hint">
             {waiting
-              ? pending.size < requested.length
+              ? (builtin || firstParty) && alwaysAsk.length > 0
+                ? `${builtin ? "Included with Vibo" : "Signed by Vibo"}, so most of these are allowed automatically. “${describePermission(alwaysAsk[0]).label}” needs your OK — it won't run until you allow it.`
+                : pending.size < requested.length
                 ? "This version asks for more than you allowed before. It won't run until you allow the new permissions."
                 : "This plugin won't run until you allow what it asks for. It can't do anything outside this list."
               : builtin
                 ? "Included with Vibo, so these are allowed automatically. It can't do anything outside this list."
                 : firstParty
-                ? "Signed by Vibo, so these are allowed automatically. It can't do anything outside this list."
+                ? alwaysAsk.length > 0
+                  ? `Signed by Vibo, so these are allowed automatically — except “${describePermission(alwaysAsk[0]).label}”, which you allowed yourself. It can't do anything outside this list.`
+                  : "Signed by Vibo, so these are allowed automatically. It can't do anything outside this list."
                 : "What you allowed this plugin to do. It can't do anything outside this list."}
           </div>
           <PermissionList
             requested={requested}
             reasons={ext.permissionReasons}
             pending={pending}
-            markNew={waiting && pending.size < requested.length}
+            markNew={waiting && !builtin && !firstParty && pending.size < requested.length}
           />
+          </>)}
+          {optional.length > 0 && (
+            <>
+              <div className="ext-detail-section-hint">
+                Asked only when you use the feature that needs them
+                {optionalGranted.size === optional.length
+                  ? " — you allowed these."
+                  : optionalGranted.size > 0
+                    ? " — highlighted ones haven't been allowed."
+                    : " — not allowed yet."}
+              </div>
+              <PermissionList
+                requested={optional}
+                reasons={ext.permissionReasons}
+                pending={new Set(optional.filter((p) => !optionalGranted.has(p)))}
+              />
+            </>
+          )}
           <div className="ext-perms-actions">
             {waiting ? (
               <button
@@ -487,7 +519,7 @@ function PluginPermissions({ ext, onApprove, onRevoke, onNotify }: {
               >
                 {working ? "Starting…" : "Allow and start"}
               </button>
-            ) : builtin || firstParty ? null : (
+            ) : (builtin || firstParty || requested.length === 0) && !userGranted ? null : (
               <button
                 type="button"
                 className="ds-btn ds-btn--ghost ds-btn--sm"
@@ -519,7 +551,7 @@ function PluginDetail({
   contributions?: PluginContribution[];
   contributionVisibility?: ContributionVisibility;
   onSetContributionEnabled?: (key: string, enabled: boolean) => void;
-  onApprovePermissions?: (pluginId: string) => Promise<void>;
+  onApprovePermissions?: (pluginId: string) => Promise<boolean | void>;
   onRevokePermissions?: (pluginId: string) => Promise<void>;
   onNotify?: Notify;
 }) {
@@ -1088,7 +1120,8 @@ export default function ExtensionsView(props: ExtensionsViewProps) {
     setInstallFlow(null);
     if (flow.permissions?.length && onApprovePermissions) {
       try {
-        await onApprovePermissions(flow.id);
+        // False: the unsigned-plugin warning was turned down; leave it off.
+        if ((await onApprovePermissions(flow.id)) === false) return;
       } catch (e) {
         console.error(`Failed to allow permissions for ${flow.id}:`, e);
         onNotify?.(`Couldn't allow ${flow.name}'s permissions — ${e instanceof Error ? e.message : String(e)}`, { kind: "error" });

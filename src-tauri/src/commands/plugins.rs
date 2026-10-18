@@ -803,6 +803,9 @@ pub fn delete_user_plugin(state: State<'_, AppState>, plugin_id: String) -> Resu
         return Err(format!("Plugin '{}' is not a user plugin or does not exist", plugin_id));
     }
     let _ = state.db.plugin_scheduler_unregister_all(&plugin_id);
+    // Its programs would otherwise keep running with
+    // no UI left to stop them.
+    crate::plugin_programs::remove_all(&state.app_dir, &plugin_id);
     crate::plugins::delete_plugin(&state.app_dir, &plugin_id)
 }
 

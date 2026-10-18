@@ -41,6 +41,8 @@ mod playlists;
 pub use playlists::*;
 mod plugin_files;
 pub use plugin_files::*;
+mod plugin_programs;
+pub use plugin_programs::*;
 mod plugins;
 pub use plugins::*;
 mod publish;
@@ -891,7 +893,7 @@ fn validate_plugin_cache_path(plugin_id: &str, subdir: &str, filename: Option<&s
 
 const PLUGIN_FILE_MAX_BYTES: u64 = 50 * 1024 * 1024;
 
-fn validate_path_segment(segment: &str) -> Result<(), String> {
+pub(crate) fn validate_path_segment(segment: &str) -> Result<(), String> {
     if segment.is_empty() {
         return Err("Empty path segment".to_string());
     }
@@ -918,7 +920,7 @@ fn validate_path_segment(segment: &str) -> Result<(), String> {
     Ok(())
 }
 
-fn resolve_plugin_path(
+pub(crate) fn resolve_plugin_path(
     app_dir: &std::path::Path,
     plugin_id: &str,
     path: &[String],
@@ -940,7 +942,7 @@ fn resolve_plugin_path(
     Ok((root, full))
 }
 
-fn ensure_within_root(root: &std::path::Path, target: &std::path::Path) -> Result<(), String> {
+pub(crate) fn ensure_within_root(root: &std::path::Path, target: &std::path::Path) -> Result<(), String> {
     std::fs::create_dir_all(root).ok();
     let canonical_root = root.canonicalize().map_err(|e| format!("Path error: {}", e))?;
     // Canonicalize the deepest ancestor that exists so we can also validate paths

@@ -14,6 +14,8 @@ import {
 import { getVersion } from "@tauri-apps/api/app";
 import { track as trackTelemetry } from "../telemetry";
 import { openUrl } from "@tauri-apps/plugin-opener";
+import { open as openDialog } from "@tauri-apps/plugin-dialog";
+import { describeProgramDownload } from "../utils/programInstall";
 import { store } from "../store";
 import type { Track, QueueTrack, Collection } from "../types";
 import { coerceToastKind, type NotifyOptions, type ToastAction } from "./useToasts";
@@ -41,6 +43,8 @@ import type {
   DownloadResolveResult,
   DownloadResolveProgress,
   ExecResult,
+  PluginProgramSpec,
+  PluginProgramStatus,
   PluginExecHandle,
   PluginFileTags,
   InteractiveSearchHandler,
@@ -148,7 +152,10 @@ import { normalizeSearchResult, type NormalizedSearchResult } from "../utils/plu
 
 import { useAssignRef } from "./useLatestRef";
 import { dropPrewarmedWorkers, prewarmPluginWorkers, startWorkerPlugin, type WorkerPluginControl } from "../pluginWorker/host";
-import { networkHosts, pendingPermissions, permissionReasons } from "../pluginWorker/permissions";
+import {
+  ALWAYS_ASK_PERMISSIONS, needsUnsignedWarning, networkHosts, permissionReasons, permissionsAwaitingConsent,
+  type ProgramConsent,
+} from "../pluginWorker/permissions";
 import { isFirstParty, mainRealmVerdict } from "../utils/pluginTrust";
 import { deleteIfSame } from "../utils/registryOps";
 import { abortError, armFetchAbort, isFetchAborted } from "../utils/pluginFetchAbort";
@@ -264,6 +271,47 @@ interface ResolveScope {
 
 /** Store key: approved permissions per worker-runtime plugin (id → permission strings). */
 const PERMISSION_GRANTS_KEY = "pluginPermissionGrants";
+/** Store key: under what trust each plugin's always-ask permissions
+ *  (`programs:run`) were approved — id → `ProgramConsent`. See
+ *  `permissionsAwaitingConsent`. */
+const PROGRAM_CONSENT_KEY = "pluginProgramConsent";
+/** What `api.system.programs.download` rejects with when the user turns the
+ *  install down — a plugin can tell it apart from a failed download. */
+export const PROGRAM_INSTALL_DECLINED = "Install declined";
+
+/** The second, warned consent an unsigned plugin needs before it may run
+ *  programs. App renders it; `answer` settles the approval that asked. */
+export interface UnsignedProgramsRequest {
+  pluginId: string;
+  pluginName: string;
+  answer: (allowed: boolean) => void;
+}
+
+/** A plugin used one of its `optionalPermissions` for the first time; App asks
+ *  the user for the whole optional set (what the feature needs). */
+export interface OptionalPermissionsRequest {
+  pluginId: string;
+  pluginName: string;
+  /** The optional permissions not granted yet. */
+  permissions: string[];
+  reasons: Record<string, string>;
+  answer: (allowed: boolean) => void;
+}
+
+/** The host's confirmation before every `api.system.programs.download` — each
+ *  install or update of a program is the user's call, not just the first. */
+export interface ProgramInstallRequest {
+  pluginId: string;
+  pluginName: string;
+  fileName: string;
+  host: string;
+  url: string;
+  /** The plugin pinned a checksum, so only that exact file is kept. */
+  pinned: boolean;
+  /** What the plugin says it is installing ("slskd 0.26.1"), shown as its words. */
+  label: string | null;
+  answer: (allowed: boolean) => void;
+}
 
 /** Max time a single plugin's activate() may block the sequential load before
  *  the host moves on. The plugin keeps initializing in the background; this
@@ -480,6 +528,17 @@ export function usePlugins(
   }, []);
   const enabledPluginsRef = useRef<Set<string>>(new Set());
   const permissionGrantsRef = useRef<Record<string, string[]>>({});
+  const programConsentRef = useRef<Record<string, ProgramConsent>>({});
+  const [unsignedProgramsRequest, setUnsignedProgramsRequest] = useState<UnsignedProgramsRequest | null>(null);
+  const [optionalPermissionsRequest, setOptionalPermissionsRequest] = useState<OptionalPermissionsRequest | null>(null);
+  const [programInstallRequest, setProgramInstallRequest] = useState<ProgramInstallRequest | null>(null);
+  // One host dialog at a time: a plugin firing two installs at once (or an
+  // install while its permission prompt is up) waits its turn.
+  const hostPromptChainRef = useRef<Promise<unknown>>(Promise.resolve());
+  // `api.system.programs.download` progress, keyed by the download id the
+  // bridge minted for a call that passed `onProgress`.
+  const programDownloadHandlersRef = useRef<Map<string, (received: number, total: number | null) => void>>(new Map());
+  const programDownloadSeqRef = useRef(0);
   /** The states the last loadPlugins produced, for callers that act right after
    *  an install/update and can't wait for a re-render (approval prompts). */
   const pluginStatesRef = useRef<PluginState[]>([]);
@@ -680,6 +739,98 @@ export function usePlugins(
   );
 
   // Build the curated API for a specific plugin
+  /** Run `ask` after every host dialog already queued has been answered. */
+  const queueHostPrompt = useCallback(<T,>(ask: () => Promise<T>): Promise<T> => {
+    const run = hostPromptChainRef.current.then(ask, ask);
+    hostPromptChainRef.current = run.catch(() => undefined);
+    return run;
+  }, []);
+
+  /** Open the unsigned-plugin warning; resolves with the user's answer. */
+  const askUnsignedPrograms = useCallback((pluginId: string, pluginName: string) =>
+    new Promise<boolean>((resolve) => {
+      setUnsignedProgramsRequest({
+        pluginId,
+        pluginName,
+        answer: (ok) => {
+          setUnsignedProgramsRequest(null);
+          resolve(ok);
+        },
+      });
+    }), []);
+
+  const isTrustedPlugin = useCallback((pluginId: string) => {
+    const s = pluginStatesRef.current.find((p) => p.id === pluginId);
+    return !!(s?.builtin || s?.firstParty);
+  }, []);
+
+  /** The plugin's optional permissions the user has granted and that still
+   *  count — an always-ask one only under a consent that still holds. */
+  const optionalGranted = useCallback((pluginId: string, declared: readonly string[]): string[] => {
+    const approved = permissionGrantsRef.current[pluginId] ?? [];
+    const waiting = permissionsAwaitingConsent({
+      requested: declared,
+      approved,
+      trusted: isTrustedPlugin(pluginId),
+      consent: programConsentRef.current[pluginId],
+    });
+    return declared.filter((p) => approved.includes(p) && !waiting.includes(p));
+  }, [isTrustedPlugin]);
+
+  /** Ask for the plugin's optional permissions the first time a call needs
+   *  one. Grants the whole optional set at once — the feature that needs one
+   *  (installing slskd: run programs + its download hosts) needs them all —
+   *  and adds the unsigned warning when the set includes running programs. */
+  const requestOptionalPermissions = useCallback((pluginId: string, declared: readonly string[]) =>
+    queueHostPrompt(async () => {
+      const granted = optionalGranted(pluginId, declared);
+      const pending = declared.filter((p) => !granted.includes(p));
+      if (pending.length === 0) return true;
+      const state = pluginStatesRef.current.find((s) => s.id === pluginId);
+      const pluginName = state?.manifest.name ?? pluginId;
+      const allowed = await new Promise<boolean>((resolve) => {
+        setOptionalPermissionsRequest({
+          pluginId,
+          pluginName,
+          permissions: pending,
+          reasons: state ? permissionReasons(state.manifest.optionalPermissions, state.manifest.permissionReasons) : {},
+          answer: (ok) => {
+            setOptionalPermissionsRequest(null);
+            resolve(ok);
+          },
+        });
+      });
+      if (!allowed) return false;
+      const trusted = isTrustedPlugin(pluginId);
+      if (needsUnsignedWarning(pending, trusted) && !(await askUnsignedPrograms(pluginId, pluginName))) return false;
+      const approved = permissionGrantsRef.current[pluginId] ?? [];
+      permissionGrantsRef.current = { ...permissionGrantsRef.current, [pluginId]: Array.from(new Set([...approved, ...pending])) };
+      await store.set(PERMISSION_GRANTS_KEY, permissionGrantsRef.current);
+      if (pending.some((p) => ALWAYS_ASK_PERMISSIONS.includes(p))) {
+        programConsentRef.current = { ...programConsentRef.current, [pluginId]: trusted ? "signed" : "unsigned" };
+        await store.set(PROGRAM_CONSENT_KEY, programConsentRef.current);
+      }
+      // No reload: the gate reads grants per call. Only the Extensions view
+      // needs telling.
+      const nowGranted = optionalGranted(pluginId, declared);
+      pluginStatesRef.current = pluginStatesRef.current.map((s) => (s.id === pluginId ? { ...s, optionalGranted: nowGranted } : s));
+      setPluginStates(pluginStatesRef.current);
+      return true;
+    }), [queueHostPrompt, optionalGranted, isTrustedPlugin, askUnsignedPrograms]);
+
+  /** The host's confirmation before a program download (every install and
+   *  every update). */
+  const confirmProgramInstall = useCallback((req: Omit<ProgramInstallRequest, "answer">) =>
+    queueHostPrompt(() => new Promise<boolean>((resolve) => {
+      setProgramInstallRequest({
+        ...req,
+        answer: (ok) => {
+          setProgramInstallRequest(null);
+          resolve(ok);
+        },
+      });
+    })), [queueHostPrompt]);
+
   const buildAPI = useCallback(
     (pluginId: string, loaded: LoadedPlugin): ViboplrPluginAPI => {
       // Shadow the module `invoke` so all of this plugin's API IPC is routed
@@ -688,8 +839,15 @@ export function usePlugins(
       // A worker-runtime plugin's network grant, sent with every command that
       // fetches a plugin-supplied URL so Rust holds redirects to it too
       // (plugin_worker.rs → NetworkScope). null = main-realm plugin, unscoped.
-      const allowedHosts =
-        loaded.manifest.runtime === "worker" ? networkHosts(loaded.manifest.permissions ?? []) : null;
+      // Read per call: an optional network grant (a download host) can be
+      // given while the plugin runs.
+      const allowedHosts = (): string[] | null =>
+        loaded.manifest.runtime === "worker"
+          ? networkHosts([
+              ...(loaded.manifest.permissions ?? []),
+              ...optionalGranted(pluginId, loaded.manifest.optionalPermissions ?? []),
+            ])
+          : null;
       const trackUnsubscribe = (fn: () => void) => {
         loaded.unsubscribers.push(fn);
       };
@@ -1183,6 +1341,16 @@ export function usePlugins(
             }
             hostCallbacksRef?.current?.navigateToEntity?.(kind, { name, artistName, albumTitle });
           },
+          async pickFolder(opts?: { title?: string; defaultPath?: string }) {
+            const picked = await openDialog({
+              directory: true,
+              multiple: false,
+              canCreateDirectories: true,
+              title: typeof opts?.title === "string" ? opts.title : undefined,
+              defaultPath: typeof opts?.defaultPath === "string" ? opts.defaultPath : undefined,
+            });
+            return typeof picked === "string" ? picked : null;
+          },
           getContext: async () => hostCallbacksRef?.current?.getUiContext?.() ?? null,
           onContextChanged: (handler) =>
             subscribeEvent("ui:context-changed", handler as (...args: unknown[]) => void),
@@ -1224,7 +1392,7 @@ export function usePlugins(
             await invoke("plugin_storage_delete", { pluginId, key });
           },
           async cacheFile(subdir: string, filename: string, url: string, init?: PluginDownloadInit): Promise<string> {
-            return invoke<string>("plugin_cache_image", { pluginId, subdir, filename, url, headers: init?.headers ?? null, allowedHosts });
+            return invoke<string>("plugin_cache_image", { pluginId, subdir, filename, url, headers: init?.headers ?? null, allowedHosts: allowedHosts() });
           },
           async getCachePath(subdir: string, filename: string): Promise<string | null> {
             return invoke<string | null>("plugin_cache_get_path", { pluginId, subdir, filename });
@@ -1256,7 +1424,7 @@ export function usePlugins(
               return raw ?? null;
             },
             async download(path: string[], url: string, init?: PluginDownloadInit): Promise<string> {
-              return invoke<string>("plugin_files_download", { pluginId, path, url, headers: init?.headers ?? null, allowedHosts });
+              return invoke<string>("plugin_files_download", { pluginId, path, url, headers: init?.headers ?? null, allowedHosts: allowedHosts() });
             },
             async getPath(path: string[]): Promise<string | null> {
               return invoke<string | null>("plugin_files_get_path", { pluginId, path });
@@ -1297,7 +1465,7 @@ export function usePlugins(
                   body: init?.body ?? null,
                   insecure: init?.insecure ?? null,
                   timeoutMs: init?.timeoutMs ?? null,
-                  allowedHosts,
+                  allowedHosts: allowedHosts(),
                   requestId: abort?.requestId ?? null,
                 },
               );
@@ -2216,6 +2384,90 @@ export function usePlugins(
           async revealPath(path: string) {
             await invoke("show_in_folder_path", { filePath: path });
           },
+          async platform() {
+            return invoke<{ os: string; arch: string }>("plugin_platform");
+          },
+          // Programs run outside the worker sandbox, so they are a worker-only
+          // surface: the permission gate (programs:run, network for downloads)
+          // and the activation-time consent — including the unsigned-plugin
+          // warning — are what make them safe to offer. A main-realm plugin has
+          // neither, so it is refused here rather than let in silently.
+          programs: (() => {
+            const workerOnly = () => {
+              if (loaded.manifest.runtime !== "worker") {
+                throw new Error("api.system.programs is available to worker-runtime plugins only");
+              }
+            };
+            return {
+              async download(
+                path: string[],
+                url: string,
+                opts?: { sha256?: string; headers?: Record<string, string>; maxBytes?: number; label?: string; onProgress?: (received: number, total: number | null) => void },
+              ) {
+                workerOnly();
+                const allowed = await confirmProgramInstall({
+                  pluginId,
+                  pluginName: loaded.manifest.name,
+                  url,
+                  ...describeProgramDownload(url, opts),
+                });
+                if (!allowed) throw new Error(PROGRAM_INSTALL_DECLINED);
+                const onProgress = opts?.onProgress;
+                const downloadId = onProgress ? `${pluginId}:${++programDownloadSeqRef.current}` : null;
+                if (downloadId && onProgress) programDownloadHandlersRef.current.set(downloadId, onProgress);
+                try {
+                  return await invoke<{ path: string; sha256: string; size: number }>("plugin_program_download", {
+                    pluginId, path, url,
+                    sha256: opts?.sha256 ?? null,
+                    headers: opts?.headers ?? null,
+                    allowedHosts: allowedHosts(),
+                    maxBytes: opts?.maxBytes ?? null,
+                    downloadId,
+                  });
+                } finally {
+                  if (downloadId) programDownloadHandlersRef.current.delete(downloadId);
+                }
+              },
+              async extract(archive: string[], dest: string[]) {
+                workerOnly();
+                return invoke<number>("plugin_program_extract", { pluginId, archive, dest });
+              },
+              async run(path: string[], args?: string[], opts?: { env?: Record<string, string>; cwd?: string[]; timeoutSecs?: number }) {
+                workerOnly();
+                const result = await invoke<ExecResult>("plugin_program_run", {
+                  pluginId, path, args: args ?? [],
+                  env: opts?.env ?? null, cwd: opts?.cwd ?? null, timeoutSecs: opts?.timeoutSecs ?? null,
+                });
+                if (result.exitCode !== 0) {
+                  console.error(`[plugin:${pluginId}] ${path.join("/")} exited with code ${result.exitCode}:`, result.stderr.trim() || result.stdout.trim() || "no output");
+                }
+                return result;
+              },
+              async start(name: string, spec: PluginProgramSpec) {
+                workerOnly();
+                return invoke<PluginProgramStatus>("plugin_program_start", {
+                  pluginId, name,
+                  spec: { path: spec.path, args: spec.args ?? [], env: spec.env ?? {}, cwd: spec.cwd ?? null, outliveApp: spec.outliveApp ?? true },
+                });
+              },
+              async status(name: string) {
+                workerOnly();
+                return invoke<PluginProgramStatus>("plugin_program_status", { pluginId, name });
+              },
+              async list() {
+                workerOnly();
+                return invoke<PluginProgramStatus[]>("plugin_program_list", { pluginId });
+              },
+              async stop(name: string, opts?: { graceSecs?: number }) {
+                workerOnly();
+                return invoke<PluginProgramStatus>("plugin_program_stop", { pluginId, name, graceSecs: opts?.graceSecs ?? null });
+              },
+              async remove(name: string) {
+                workerOnly();
+                await invoke("plugin_program_remove", { pluginId, name });
+              },
+            };
+          })(),
         },
 
         env: {
@@ -2225,7 +2477,7 @@ export function usePlugins(
         },
       };
     },
-    [currentTrackRef, playingRef, positionRef, queueRef, tapInvoke, syncScrobblerPluginIds],
+    [currentTrackRef, playingRef, positionRef, queueRef, tapInvoke, syncScrobblerPluginIds, confirmProgramInstall, optionalGranted],
   );
 
   // Line-by-line output from a streaming `plugin_exec`, routed to the plugin
@@ -2239,6 +2491,20 @@ export function usePlugins(
         if (!handler) return;
         try { handler(event.payload.line, event.payload.stream); }
         catch (e) { console.error("Plugin exec output handler error:", e); }
+      },
+    );
+  }, []);
+
+  // `api.system.programs.download` progress, routed to the call that passed
+  // `onProgress`. An unmatched id is a download whose caller already returned.
+  useEffect(() => {
+    return subscribe<{ downloadId: string; received: number; total: number | null }>(
+      "plugin-program-download-progress",
+      (event) => {
+        const handler = programDownloadHandlersRef.current.get(event.payload.downloadId);
+        if (!handler) return;
+        try { handler(event.payload.received, event.payload.total ?? null); }
+        catch (e) { console.error("Plugin program download progress handler error:", e); }
       },
     );
   }, []);
@@ -2496,6 +2762,11 @@ export function usePlugins(
             pluginId: id,
             code,
             permissions: manifest.permissions ?? [],
+            optional: {
+              declared: manifest.optionalPermissions ?? [],
+              granted: () => optionalGranted(id, manifest.optionalPermissions ?? []),
+              request: () => requestOptionalPermissions(id, manifest.optionalPermissions ?? []),
+            },
             api: api as unknown as Record<string, unknown>,
             onDenied: (e) => recordPluginLog("error", e.message, id),
             onWorkerLog: (level, message) => {
@@ -2613,7 +2884,7 @@ export function usePlugins(
         };
       }
     },
-    [buildAPI, debugMode],
+    [buildAPI, debugMode, optionalGranted, requestOptionalPermissions],
   );
 
   // Load all plugins
@@ -2636,6 +2907,8 @@ export function usePlugins(
       // activate — see the approval gate below.
       permissionGrantsRef.current =
         (await store.get<Record<string, string[]>>(PERMISSION_GRANTS_KEY)) ?? {};
+      programConsentRef.current =
+        (await store.get<Record<string, ProgramConsent>>(PROGRAM_CONSENT_KEY)) ?? {};
       // The bundled image and lyrics plugins were merged into Artwork and
       // Lyrics (utils/mergedPlugins.ts). Applied in memory here — the list
       // decides which plugins' code gets read — and persisted only after the
@@ -2791,8 +3064,8 @@ export function usePlugins(
         }
 
         // Main-realm plugins get full app access, so they must be signed by
-        // Vibo (utils/pluginTrust.ts). During the migration an unsigned one
-        // still runs, labelled "Unverified"; a broken signature never does.
+        // Vibo (utils/pluginTrust.ts): an unsigned or broken one is refused
+        // (an unsigned dev folder still runs in debug mode, labelled).
         const trust = mainRealmVerdict(
           { runtime: m.runtime, builtin: plugin.builtin, dev: plugin.dev, signature: plugin.signature, signatureError: plugin.signatureError },
           { debugMode: debugMode === true },
@@ -2812,8 +3085,15 @@ export function usePlugins(
         }
         if (trust.unverified) unverifiedIds.add(plugin.id);
 
-        if (m.runtime === "worker" && !firstPartyIds.has(plugin.id)) {
-          const pending = pendingPermissions(m.permissions ?? [], permissionGrantsRef.current[plugin.id] ?? []);
+        if (m.runtime === "worker") {
+          // A first-party plugin's ordinary permissions are pre-approved; the
+          // always-ask ones (programs:run) still wait for the user.
+          const pending = permissionsAwaitingConsent({
+            requested: m.permissions ?? [],
+            approved: permissionGrantsRef.current[plugin.id] ?? [],
+            trusted: firstPartyIds.has(plugin.id),
+            consent: programConsentRef.current[plugin.id],
+          });
           if (pending.length > 0) {
             states.push({
               id: plugin.id,
@@ -3034,6 +3314,17 @@ export function usePlugins(
       const shadowingIds = new Set(installed.filter((p) => p.shadowsBuiltin).map((p) => p.id));
       for (let i = 0; i < states.length; i++) {
         if (firstPartyIds.has(states[i].id)) states[i] = { ...states[i], firstParty: true };
+        const optional = states[i].manifest.optionalPermissions ?? [];
+        if (optional.length > 0) {
+          const approved = permissionGrantsRef.current[states[i].id] ?? [];
+          const waiting = permissionsAwaitingConsent({
+            requested: optional,
+            approved,
+            trusted: firstPartyIds.has(states[i].id) || !!states[i].builtin,
+            consent: programConsentRef.current[states[i].id],
+          });
+          states[i] = { ...states[i], optionalGranted: optional.filter((p) => approved.includes(p) && !waiting.includes(p)) };
+        }
         if (shadowingIds.has(states[i].id)) states[i] = { ...states[i], shadowsBuiltin: true };
       }
       pluginStatesRef.current = states;
@@ -3226,14 +3517,32 @@ export function usePlugins(
   // Reads the latest loaded states, not this render's: the install dialog and
   // the after-update prompt call it straight after a reload, before React has
   // re-rendered, and a stale manifest would grant the previous version's list.
+  //
+  // Resolves false, granting nothing, when an unsigned plugin asks to run
+  // programs and the user turns down the warning that follows (the second
+  // consent — every approval surface goes through here, so none can skip it).
   const approvePermissions = useCallback(
-    async (pluginId: string) => {
-      const requested = pluginStatesRef.current.find((s) => s.id === pluginId)?.manifest.permissions ?? [];
-      permissionGrantsRef.current = { ...permissionGrantsRef.current, [pluginId]: Array.from(new Set(requested)) };
+    async (pluginId: string): Promise<boolean> => {
+      const state = pluginStatesRef.current.find((s) => s.id === pluginId);
+      const requested = state?.manifest.permissions ?? [];
+      const trusted = !!(state?.builtin || state?.firstParty);
+      if (needsUnsignedWarning(requested, trusted) && !(await askUnsignedPrograms(pluginId, state?.manifest.name ?? pluginId))) {
+        return false;
+      }
+      // Exactly the manifest's list — plus optional permissions granted
+      // earlier, which belong to a feature the user already said yes to.
+      const optional = state?.manifest.optionalPermissions ?? [];
+      const keptOptional = (permissionGrantsRef.current[pluginId] ?? []).filter((p) => optional.includes(p));
+      permissionGrantsRef.current = { ...permissionGrantsRef.current, [pluginId]: Array.from(new Set([...requested, ...keptOptional])) };
       await store.set(PERMISSION_GRANTS_KEY, permissionGrantsRef.current);
+      if (requested.some((p) => ALWAYS_ASK_PERMISSIONS.includes(p))) {
+        programConsentRef.current = { ...programConsentRef.current, [pluginId]: trusted ? "signed" : "unsigned" };
+        await store.set(PROGRAM_CONSENT_KEY, programConsentRef.current);
+      }
       await loadPlugins();
+      return true;
     },
-    [loadPlugins],
+    [askUnsignedPrograms, loadPlugins],
   );
 
   // What the user would be asked to approve for this plugin right now: the
@@ -3243,10 +3552,17 @@ export function usePlugins(
   // an update asks only when it brings a NEW permission (owner decision,
   // 2026-10-03). Works for a disabled plugin too, which is what a fresh install
   // is until its install dialog enables it.
+  // The always-ask permissions (programs:run) are the exception to the
+  // pre-approval: they show up here for signed plugins too.
   const permissionsToApprove = useCallback((pluginId: string): string[] => {
     const s = pluginStatesRef.current.find((p) => p.id === pluginId);
-    if (!s || s.builtin || s.firstParty || s.manifest.runtime !== "worker") return [];
-    return pendingPermissions(s.manifest.permissions ?? [], permissionGrantsRef.current[pluginId] ?? []);
+    if (!s || s.manifest.runtime !== "worker") return [];
+    return permissionsAwaitingConsent({
+      requested: s.manifest.permissions ?? [],
+      approved: permissionGrantsRef.current[pluginId] ?? [],
+      trusted: !!(s.builtin || s.firstParty),
+      consent: programConsentRef.current[pluginId],
+    });
   }, []);
 
   // Why the plugin says it needs each permission (manifest `permissionReasons`,
@@ -3256,16 +3572,24 @@ export function usePlugins(
     return m ? permissionReasons(m.permissions, m.permissionReasons) : {};
   }, []);
 
+  const dropProgramConsent = useCallback(async (pluginId: string) => {
+    if (!(pluginId in programConsentRef.current)) return;
+    const { [pluginId]: _dropped, ...rest } = programConsentRef.current;
+    programConsentRef.current = rest;
+    await store.set(PROGRAM_CONSENT_KEY, rest);
+  }, []);
+
   // Withdraw every approval: the plugin stops now and waits for approval again.
   const revokePermissions = useCallback(
     async (pluginId: string) => {
       const { [pluginId]: _revoked, ...rest } = permissionGrantsRef.current;
       permissionGrantsRef.current = rest;
       await store.set(PERMISSION_GRANTS_KEY, rest);
+      await dropProgramConsent(pluginId);
       deactivatePlugin(pluginId);
       await loadPlugins();
     },
-    [deactivatePlugin, loadPlugins],
+    [deactivatePlugin, dropProgramConsent, loadPlugins],
   );
 
   const reloadAllPlugins = useCallback(async () => {
@@ -3382,6 +3706,7 @@ export function usePlugins(
           permissionGrantsRef.current = rest;
           await store.set(PERMISSION_GRANTS_KEY, rest);
         }
+        await dropProgramConsent(pluginId);
         if (revertsToBuiltin) {
           deactivatePlugin(pluginId);
         } else if (enabledPluginsRef.current.has(pluginId)) {
@@ -3399,7 +3724,7 @@ export function usePlugins(
         return { ok: false, error: String(e) };
       }
     },
-    [deactivatePlugin, loadPlugins],
+    [deactivatePlugin, dropProgramConsent, loadPlugins],
   );
 
   const forwardDeepLink = useCallback((url: string) => {
@@ -4249,6 +4574,9 @@ export function usePlugins(
     togglePlugin,
     reloadPlugin,
     approvePermissions,
+    unsignedProgramsRequest,
+    optionalPermissionsRequest,
+    programInstallRequest,
     permissionsToApprove,
     permissionReasonsFor,
     revokePermissions,

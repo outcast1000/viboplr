@@ -208,7 +208,7 @@ describe("autoInstallableDeps", () => {
       dep({ name: "yt-dlp", pluginConsumers: [consumer] }),
       dep({ name: "ffmpeg", pluginConsumers: [optional] }),
       dep({ name: "rqbit", managedAvailable: false, pluginConsumers: [consumer] }),
-      dep({ name: "roadie", status: "installed", pluginConsumers: [consumer] }),
+      dep({ name: "helper", status: "installed", pluginConsumers: [consumer] }),
       dep({ name: "other", pluginConsumers: [] }),
     ];
     // Optional tools stay a click away; a tool with no managed build can't be

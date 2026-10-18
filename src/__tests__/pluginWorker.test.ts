@@ -5,7 +5,7 @@ import { readFileSync } from "node:fs";
 import { RpcEndpoint, SYNC, callablePromise, type RpcPort } from "../pluginWorker/rpc";
 import {
   PERMISSION_TABLE, PermissionError, checkPermission, describePermission, isGranted, networkHosts, pendingPermissions,
-  PERMISSION_REASON_MAX, permissionReasons,
+  PERMISSION_REASON_MAX, permissionReasons, permissionsAwaitingConsent, needsUnsignedWarning, unmetPermissions,
 } from "../pluginWorker/permissions";
 import { SYNC_PATHS, createSyncReader, gateApi } from "../pluginWorker/host";
 
@@ -242,7 +242,7 @@ describe("consent", () => {
     const vocab = [
       "network:lrclib.net", "browse:accounts.spotify.com", "exec:yt-dlp", "library:read", "library:write",
       "files:read", "files:trash", "playback:read", "playback:control", "system:open", "env:LASTFM_API_KEY", "plugins:call",
-      "ui:read",
+      "ui:read", "programs:run",
     ];
     for (const perm of vocab) {
       const d = describePermission(perm);
@@ -252,7 +252,7 @@ describe("consent", () => {
   });
 
   it("marks the permissions that reach outside the app or change data as sensitive", () => {
-    for (const perm of ["exec:yt-dlp", "library:write", "files:trash", "env:API_KEY", "browse:x.com", "network:*"]) {
+    for (const perm of ["exec:yt-dlp", "library:write", "files:trash", "env:API_KEY", "browse:x.com", "network:*", "programs:run"]) {
       expect(describePermission(perm).sensitive, perm).toBe(true);
     }
     for (const perm of ["network:lrclib.net", "library:read", "playback:read", "plugins:call"]) {
@@ -268,6 +268,104 @@ describe("consent", () => {
 
   it("says plainly when it doesn't recognise a permission", () => {
     expect(describePermission("teleport:mars").detail).toMatch(/not recognised/i);
+  });
+});
+
+describe("programs:run", () => {
+  it("guards every programs method, and a download needs the host's network grant too", () => {
+    for (const m of ["extract", "run", "start", "stop", "remove"]) {
+      expect(() => checkPermission("p", [], `system.programs.${m}`, []), m).toThrow(/programs:run/);
+      expect(() => checkPermission("p", ["programs:run"], `system.programs.${m}`, []), m).not.toThrow();
+    }
+    const url = "https://github.com/slskd/slskd/releases/download/0.26.1/slskd.zip";
+    expect(() => checkPermission("p", ["network:github.com"], "system.programs.download", [["a.zip"], url])).toThrow(/programs:run/);
+    expect(() => checkPermission("p", ["programs:run"], "system.programs.download", [["a.zip"], url])).toThrow(/network:github.com/);
+    expect(() => checkPermission("p", ["programs:run", "network:github.com"], "system.programs.download", [["a.zip"], url])).not.toThrow();
+    expect(() => checkPermission("p", ["programs:run", "network:*"], "system.programs.download", [["a.zip"], "file:///etc/passwd"])).toThrow(PermissionError);
+  });
+
+  it("picking a folder needs nothing: the user's pick is the consent", () => {
+    expect(() => checkPermission("p", [], "ui.pickFolder", [])).not.toThrow();
+  });
+
+  it("reading its own programs' status needs nothing, so a background poll can never prompt", () => {
+    expect(() => checkPermission("p", [], "system.programs.status", ["slskd"])).not.toThrow();
+    expect(() => checkPermission("p", [], "system.programs.list", [])).not.toThrow();
+    expect(() => checkPermission("p", [], "system.platform", [])).not.toThrow();
+    expect(unmetPermissions("system.programs.status", ["slskd"], [], ["programs:run"])).toEqual({ missing: [], askable: [] });
+  });
+
+  const requested = ["network:github.com", "programs:run"];
+
+  it("is asked even for a plugin signed by Vibo, whose other permissions are pre-approved", () => {
+    expect(permissionsAwaitingConsent({ requested, approved: [], trusted: true })).toEqual(["programs:run"]);
+    expect(permissionsAwaitingConsent({ requested: ["network:github.com"], approved: [], trusted: true })).toEqual([]);
+    expect(permissionsAwaitingConsent({ requested, approved: requested, trusted: true, consent: "signed" })).toEqual([]);
+  });
+
+  it("an approval without its recorded consent doesn't count", () => {
+    expect(permissionsAwaitingConsent({ requested, approved: requested, trusted: false })).toEqual(["programs:run"]);
+    expect(permissionsAwaitingConsent({ requested, approved: requested, trusted: false, consent: "unsigned" })).toEqual([]);
+  });
+
+  it("a consent given while signed lapses once the plugin is no longer signed", () => {
+    expect(permissionsAwaitingConsent({ requested, approved: requested, trusted: false, consent: "signed" })).toEqual(["programs:run"]);
+    // The other way round is fine: the user already accepted the warning.
+    expect(permissionsAwaitingConsent({ requested, approved: requested, trusted: true, consent: "unsigned" })).toEqual([]);
+  });
+
+  it("lists each pending permission once", () => {
+    expect(permissionsAwaitingConsent({ requested: [...requested, "programs:run"], approved: [], trusted: false }))
+      .toEqual(["network:github.com", "programs:run"]);
+  });
+
+  it("only an unsigned plugin that asks to run programs gets the second, warned consent", () => {
+    expect(needsUnsignedWarning(requested, false)).toBe(true);
+    expect(needsUnsignedWarning(requested, true)).toBe(false);
+    expect(needsUnsignedWarning(["network:github.com"], false)).toBe(false);
+  });
+});
+
+describe("optional permissions", () => {
+  const programs = { start: vi.fn(async () => ({ running: true })) };
+  const api = { system: { programs } };
+
+  it("splits what a call lacks into denied and askable", () => {
+    expect(unmetPermissions("system.programs.start", [], [], ["programs:run"])).toEqual({ missing: [], askable: ["programs:run"] });
+    expect(unmetPermissions("system.programs.start", [], [], [])).toEqual({ missing: ["programs:run"], askable: [] });
+    expect(unmetPermissions("system.programs.start", [], ["programs:run"], ["programs:run"])).toEqual({ missing: [], askable: [] });
+    const url = "https://github.com/x/y.zip";
+    expect(unmetPermissions("system.programs.download", [["y.zip"], url], [], ["programs:run", "network:github.com"]))
+      .toEqual({ missing: [], askable: ["programs:run", "network:github.com"] });
+    expect(unmetPermissions("no.such.method", [], [], [])).toBeNull();
+  });
+
+  it("asks the first time a call needs one, then makes the call", async () => {
+    const grants: string[] = [];
+    const request = vi.fn(async () => { grants.push("programs:run"); return true; });
+    const g = gateApi("p", [], api, () => {}, { declared: ["programs:run"], granted: () => grants, request }) as any;
+    await expect(g.system.programs.start("slskd", { path: ["bin", "slskd"] })).resolves.toEqual({ running: true });
+    expect(request).toHaveBeenCalledTimes(1);
+    // Granted now: the next call doesn't ask again.
+    await g.system.programs.start("slskd", { path: ["bin", "slskd"] });
+    expect(request).toHaveBeenCalledTimes(1);
+    expect(programs.start).toHaveBeenCalledTimes(2);
+  });
+
+  it("a declined ask denies the call and reports it", async () => {
+    programs.start.mockClear();
+    const denied: PermissionError[] = [];
+    const g = gateApi("p", [], api, (e) => denied.push(e), { declared: ["programs:run"], granted: () => [], request: async () => false }) as any;
+    await expect(g.system.programs.start("slskd", { path: ["bin"] })).rejects.toThrow(/programs:run/);
+    expect(denied).toHaveLength(1);
+    expect(programs.start).not.toHaveBeenCalled();
+  });
+
+  it("never asks for a permission the manifest didn't declare", () => {
+    const request = vi.fn(async () => true);
+    const g = gateApi("p", [], api, () => {}, { declared: ["network:github.com"], granted: () => [], request }) as any;
+    expect(() => g.system.programs.start("slskd", { path: ["bin"] })).toThrow(/programs:run/);
+    expect(request).not.toHaveBeenCalled();
   });
 });
 

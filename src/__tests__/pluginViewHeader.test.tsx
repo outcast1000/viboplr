@@ -102,12 +102,12 @@ describe("sanitizeViewHeader", () => {
       { label: "Refresh", action: "refresh" },
       { label: "", action: "nolabel" },
       { label: "No action" },
-      { label: "Start slskd", action: "roadie-start", variant: "accent", disabled: true },
+      { label: "Start slskd", action: "slskd-start", variant: "accent", disabled: true },
       { label: "Third", action: "third" },
     ] });
     expect(h?.actions).toEqual([
       { label: "Refresh", action: "refresh", variant: "secondary", disabled: false },
-      { label: "Start slskd", action: "roadie-start", variant: "accent", disabled: true },
+      { label: "Start slskd", action: "slskd-start", variant: "accent", disabled: true },
     ]);
   });
 

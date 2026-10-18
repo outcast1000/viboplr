@@ -1107,6 +1107,22 @@
   overflow-y: auto;
   margin: 0 0 16px;
 }
+/* What a plugin's program install will fetch (ProgramPrompts.tsx). */
+.program-install-facts {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: 6px 14px;
+  margin: 0 0 16px;
+  font-size: var(--fs-sm);
+}
+.program-install-facts dt {
+  color: var(--text-secondary);
+}
+.program-install-facts dd {
+  margin: 0;
+  color: var(--text-primary);
+  overflow-wrap: anywhere;
+}
 /* The confirm step of an assistant-requested install: what is being installed. */
 .plugin-install-desc {
   margin: 0 0 6px;

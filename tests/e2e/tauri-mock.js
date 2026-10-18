@@ -614,6 +614,17 @@ window.__TAURI_INTERNALS__.invoke = async function (cmd, args) {
     // nothing else could draw one for).
     case 'engine_wave_capture':
       return null;
+    // api.system.programs: recorded so a spec can tell whether the host let a
+    // call through, answered with plausible shapes.
+    case 'plugin_program_download':
+    case 'plugin_program_extract':
+    case 'plugin_program_start':
+    case 'plugin_program_status': {
+      (window.__TEST_PROGRAM_CALLS__ = window.__TEST_PROGRAM_CALLS__ || []).push({ cmd, args });
+      if (cmd === 'plugin_program_download') return { path: '/mock/' + (args.path || []).join('/'), sha256: '0'.repeat(64), size: 1 };
+      if (cmd === 'plugin_program_extract') return 1;
+      return { name: args.name, registered: true, running: cmd === 'plugin_program_start', pid: 1, startedAt: 1, outliveApp: true, logPath: '/mock/log' };
+    }
     case 'assistant_pause_get':
       return false;
     case 'assistant_pause_set':

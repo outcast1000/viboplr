@@ -54,10 +54,11 @@ describe("mainRealmVerdict", () => {
     expect(mainRealmVerdict({ dev: true, signature: "unsigned" }, { debugMode: false, enforce: true }).allow).toBe(false);
   });
 
-  it("ships with enforcement off for the migration window", () => {
-    // Flip deliberately, once the gallery's non-visualizer plugins ship on the
-    // worker runtime — doing it earlier stops them working for users.
-    expect(ENFORCE_SIGNED_MAIN_REALM).toBe(false);
+  it("ships with enforcement on", () => {
+    // Main-realm code can invoke any command as any plugin, so an unsigned one
+    // must not load at all — the programs install confirmation depends on it.
+    expect(ENFORCE_SIGNED_MAIN_REALM).toBe(true);
+    expect(mainRealmVerdict({ signature: "unsigned" }, { debugMode: false }).allow).toBe(false);
   });
 });
 

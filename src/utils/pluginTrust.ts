@@ -7,20 +7,21 @@
 // releases are signed. `plugin_signing.rs` checks the signature and reports
 // `signature` on each listed plugin; this decides what that means.
 //
-// The rollout is phased (owner decision, 2026-10-03): while the gallery's other
-// plugins are moving to the worker runtime, an unsigned main-realm plugin still
-// runs but is labelled "Unverified". Flipping ENFORCE_SIGNED_MAIN_REALM refuses
-// it instead. A signature that is present but doesn't verify is refused even
-// now — that is a plugin whose files changed after Vibo signed them.
+// The rollout was phased (owner decision, 2026-10-03): while the gallery's
+// other plugins moved to the worker runtime, an unsigned main-realm plugin ran
+// labelled "Unverified". Enforcement is now on (owner decision, 2026-10-19):
+// an unsigned main-realm plugin is refused, because main-realm code can invoke
+// any command under any plugin id — including api.system.programs' download,
+// whose install confirmation lives in the webview — and only refusing to load
+// it closes that. A signature that is present but doesn't verify is refused
+// too — a plugin whose files changed after Vibo signed them. An unsigned dev
+// folder still runs in debug mode, labelled.
 
 /** What `plugin_list_installed` says about a plugin's signature. */
 export type PluginSignature = "verified" | "unsigned" | "invalid" | "builtin";
 
-/**
- * Refuse unsigned main-realm plugins. Off for the migration window: flipping it
- * while gallery plugins still ship main-realm builds would stop them working.
- */
-export const ENFORCE_SIGNED_MAIN_REALM = false;
+/** Refuse unsigned main-realm plugins. */
+export const ENFORCE_SIGNED_MAIN_REALM = true;
 
 export interface TrustInput {
   runtime?: string;

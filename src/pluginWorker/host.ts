@@ -16,7 +16,7 @@
 // host code behind the gate.
 
 import { RpcEndpoint, SYNC } from "./rpc";
-import { checkPermission, PermissionError } from "./permissions";
+import { checkPermission, PermissionError, unmetPermissions } from "./permissions";
 
 /**
  * API methods that are synchronous in the contract and so cannot be a round
@@ -62,11 +62,25 @@ function lookup(api: ApiTree, path: string): unknown {
  * sync getters become snapshot markers, and namespaces the worker runtime can't
  * support yet become methods that reject with a clear reason.
  */
+/**
+ * Permissions a plugin lists in `optionalPermissions`: not needed to start, and
+ * asked for the first time a call needs one (e.g. "Install slskd for me"). The
+ * host owns both answers — what is granted right now, and the consent dialog.
+ */
+export interface OptionalPermissionGate {
+  declared: readonly string[];
+  /** Granted (and, for always-ask ones, consented) right now. */
+  granted: () => readonly string[];
+  /** Ask the user for the plugin's optional permissions; true = granted. */
+  request: () => Promise<boolean>;
+}
+
 export function gateApi(
   pluginId: string,
   granted: readonly string[],
   api: ApiTree,
   onDenied: (e: PermissionError) => void,
+  optional?: OptionalPermissionGate,
 ): ApiTree {
   const walk = (obj: ApiTree, prefix: string): ApiTree => {
     const out: ApiTree = {};
@@ -87,14 +101,33 @@ export function gateApi(
           continue;
         }
         const fn = value as AnyFn;
+        const deny = (perm: string): never => {
+          const e = new PermissionError(pluginId, path, perm);
+          onDenied(e);
+          throw e;
+        };
         const gated = (...args: unknown[]) => {
-          try {
-            checkPermission(pluginId, granted, path, args);
-          } catch (e) {
-            if (e instanceof PermissionError) onDenied(e);
-            throw e;
+          if (!optional || optional.declared.length === 0) {
+            try {
+              checkPermission(pluginId, granted, path, args);
+            } catch (e) {
+              if (e instanceof PermissionError) onDenied(e);
+              throw e;
+            }
+            return fn.apply(obj, args);
           }
-          return fn.apply(obj, args);
+          const unmet = unmetPermissions(path, args, [...granted, ...optional.granted()], optional.declared);
+          if (unmet === null) return deny(`<no permission defined for api.${path}>`);
+          if (unmet.missing.length > 0) return deny(unmet.missing[0]);
+          if (unmet.askable.length === 0) return fn.apply(obj, args);
+          // Declared optional, not granted yet: ask now, then make the call.
+          return optional.request().then((ok) => {
+            const still = unmetPermissions(path, args, [...granted, ...optional.granted()], optional.declared);
+            if (!ok || !still || still.missing.length > 0 || still.askable.length > 0) {
+              return deny(still?.askable[0] ?? still?.missing[0] ?? unmet.askable[0]);
+            }
+            return fn.apply(obj, args);
+          });
         };
         out[key] = path === "network.fetch" ? materializeFetch(gated) : gated;
       } else if (isPlainObject(value)) {
@@ -191,6 +224,8 @@ export interface StartWorkerPluginOptions {
   permissions: readonly string[];
   api: ApiTree;
   onDenied: (e: PermissionError) => void;
+  /** The manifest's `optionalPermissions`, asked for when first needed. */
+  optional?: OptionalPermissionGate;
   /** Debug-only probes for measuring the bridge itself (see bench plugins). */
   bench?: boolean;
   /** Failures the plugin didn't handle inside its worker (see runtime.ts). */
@@ -275,7 +310,7 @@ export async function startWorkerPlugin(opts: StartWorkerPluginOptions): Promise
     failReady?.(new Error(ev.message || "plugin worker crashed"));
   };
 
-  const gated = gateApi(opts.pluginId, opts.permissions, opts.api, opts.onDenied);
+  const gated = gateApi(opts.pluginId, opts.permissions, opts.api, opts.onDenied, opts.optional);
   if (opts.bench) {
     // Outside the permission table on purpose: these measure the bridge, not
     // the API. `echo` is one worker→host round trip; `bounce` adds a

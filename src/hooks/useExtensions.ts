@@ -487,7 +487,12 @@ export function useExtensions(props: UseExtensionsProps) {
         contributes: ps.manifest.contributes,
         runtime: ps.manifest.runtime,
         permissions: ps.manifest.permissions,
-        permissionReasons: permissionReasons(ps.manifest.permissions, ps.manifest.permissionReasons),
+        optionalPermissions: ps.manifest.optionalPermissions,
+        optionalGranted: ps.optionalGranted,
+        permissionReasons: permissionReasons(
+          [...(ps.manifest.permissions ?? []), ...(ps.manifest.optionalPermissions ?? [])],
+          ps.manifest.permissionReasons,
+        ),
         pendingPermissions: ps.pendingPermissions,
         firstParty: ps.firstParty,
         unverified: ps.unverified,

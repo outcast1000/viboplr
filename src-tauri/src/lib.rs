@@ -43,6 +43,8 @@ mod waveform;
 mod window_arrangement;
 mod plugin_worker;
 mod plugin_signing;
+mod roadie_cleanup;
+mod plugin_programs;
 mod trust_store;
 #[cfg(target_os = "macos")]
 mod cursor_tracker;
@@ -289,6 +291,15 @@ macro_rules! invoke_handler {
             commands::plugin_files_remove,
             commands::plugin_files_copy,
             commands::plugin_files_move,
+            commands::plugin_program_download,
+            commands::plugin_program_extract,
+            commands::plugin_program_run,
+            commands::plugin_program_start,
+            commands::plugin_program_status,
+            commands::plugin_program_list,
+            commands::plugin_program_stop,
+            commands::plugin_program_remove,
+            commands::plugin_platform,
             commands::fetch_plugin_gallery,
             commands::install_gallery_plugin_by_update_url,
             commands::cancel_plugin_install,
@@ -1037,6 +1048,13 @@ pub fn run() {
             dependencies::set_managed_bin_dir(app_data_dir.join("bin"));
             // The downloadable libmpv engine component lives beside them.
             mpv_engine::set_component_dir(app_data_dir.join("engine"));
+            // Once: remove what the Roadie CLI Vibo used to manage left behind
+            // (its data dir, a slskd it started, its login items). Off the
+            // startup path; see roadie_cleanup.rs.
+            {
+                let dir = app_data_dir.clone();
+                std::thread::spawn(move || roadie_cleanup::run_once(&dir));
+            }
 
             // Export the OS trust store (yt-dlp + mpv, see trust_store.rs) in
             // the background shortly after launch, so its ~0.2s never lands on
@@ -1644,9 +1662,6 @@ pub fn run() {
                                 let _ = updater_app_handle.emit(event, payload);
                             },
                         );
-                        // Tool upkeep an embedding app is expected to run on
-                        // launch (Roadie's `maintain`), after any update above.
-                        dependencies::run_maintenance(&dep_updater_cache);
                         // Re-run daily; the latest-version TTL cache makes
                         // earlier wakeups free anyway.
                         std::thread::sleep(std::time::Duration::from_secs(24 * 60 * 60 - 30));
@@ -1691,6 +1706,9 @@ pub fn run() {
                     // stale, which consumers must handle anyway (health probe).
                     if let Some(state) = app.try_state::<AppState>() {
                         control_api::remove_discovery_file(&state.app_dir);
+                        // Programs a plugin asked not to outlive Vibo
+                        // (`outliveApp: false`); the rest keep running.
+                        plugin_programs::stop_tied_to_app(&state.app_dir);
                     }
                     std::process::exit(0);
                 }

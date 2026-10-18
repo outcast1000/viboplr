@@ -36,81 +36,10 @@ pub struct ManagedSource {
     /// itself would arrive over, so what is lost is corruption detection, not
     /// a signature. Prefer `Some` whenever upstream offers a file.
     pub checksums_asset: Option<&'static str>,
-    /// Follow a release manifest instead of `releases/latest`: a JSON file at
-    /// `github.com/{repo}/releases/download/{manifest}` naming the newest
-    /// version and, per platform, the asset's URL and sha256 (see
-    /// `ReleaseManifest`). For upstreams whose `releases/latest` is a different
-    /// product line — Roadie marks only its desktop app latest (its updater
-    /// reads `latest.json` there) and publishes the CLI's newest manifest at
-    /// the fixed `cli-latest` release. With a manifest, the `asset_*` fields
-    /// hold the manifest's **platform key** (`darwin-arm64`, `windows-x64`, …)
-    /// rather than a file name, so "is there a managed binary here?" still
-    /// reads `platform_asset().is_some()`; the file name, URL and checksum all
-    /// come from the manifest, and `checksums_asset` is not used.
-    pub manifest: Option<&'static str>,
-}
-
-/// A release manifest, as Roadie's release workflow writes it:
-/// `{ "version": "0.2.0", "assets": { "darwin-arm64": { "file", "url",
-/// "sha256", … }, … } }`. Unknown fields are ignored.
-#[derive(Debug, Clone, Deserialize)]
-struct ReleaseManifest {
-    version: String,
-    assets: HashMap<String, ManifestAsset>,
-}
-
-#[derive(Debug, Clone, Deserialize)]
-struct ManifestAsset {
-    file: String,
-    url: String,
-    sha256: String,
-}
-
-/// Parse a manifest and take the entry for `platform_key`. Its URL must point
-/// into this repo's own releases: the manifest is fetched from github.com over
-/// TLS like the assets are, and this keeps it from sending an install anywhere
-/// else. Pure, so the rules are asserted without a network.
-fn manifest_entry(body: &str, repo: &str, platform_key: &str) -> Result<(String, ManifestAsset), String> {
-    let m: ReleaseManifest = serde_json::from_str(body).map_err(|e| format!("Release manifest is malformed: {}", e))?;
-    let asset = m
-        .assets
-        .get(platform_key)
-        .cloned()
-        .ok_or_else(|| format!("The release manifest has no {} build", platform_key))?;
-    let prefix = format!("https://github.com/{}/releases/download/", repo);
-    if !asset.url.starts_with(&prefix) {
-        return Err(format!("The release manifest points outside {}'s releases: {}", repo, asset.url));
-    }
-    if asset.sha256.len() != 64 || !asset.sha256.chars().all(|c| c.is_ascii_hexdigit()) {
-        return Err(format!("The release manifest's checksum for {} is not a sha256", asset.file));
-    }
-    Ok((m.version, asset))
-}
-
-fn manifest_version(body: &str) -> Result<String, String> {
-    let m: ReleaseManifest = serde_json::from_str(body).map_err(|e| format!("Release manifest is malformed: {}", e))?;
-    let v = m.version.trim().trim_start_matches('v').to_string();
-    if v.is_empty() {
-        return Err("The release manifest names no version".into());
-    }
-    Ok(v)
-}
-
-fn fetch_manifest(repo: &str, path: &str) -> Result<String, String> {
-    let url = format!("https://github.com/{}/releases/download/{}", repo, path);
-    let resp = http_client()?
-        .get(&url)
-        .send()
-        .map_err(|e| format!("Release manifest download error: {}", crate::error_chain::err_chain(&e)))?;
-    if !resp.status().is_success() {
-        return Err(format!("Release manifest download failed: HTTP {}", resp.status()));
-    }
-    resp.text().map_err(|e| format!("Release manifest read error: {}", e))
 }
 
 impl ManagedSource {
-    /// Base URL the platform assets and checksums file download from, for a
-    /// dependency that follows `releases/latest` (a manifest names its own).
+    /// Base URL the platform assets and checksums file download from.
     fn download_base(&self) -> String {
         format!("https://github.com/{}/releases/latest/download", self.repo)
     }
@@ -144,14 +73,6 @@ pub struct DependencyDef {
     pub install: InstallInstructions,
     pub internal_consumers: &'static [(&'static str, &'static str)],
     pub managed: Option<ManagedSource>,
-    /// The flag through which the binary takes a data directory. When set,
-    /// every spawn (probe, plugin exec, maintenance) passes
-    /// `{flag} {app_data_dir}/{name}`, so the tool's state is Vibo's own
-    /// and never mixed with a standalone copy the user runs themselves.
-    pub data_dir_flag: Option<&'static str>,
-    /// Arguments the daily dependency pass runs once the tool has state (its
-    /// data dir exists): upkeep the tool expects its embedding app to trigger.
-    pub maintenance_args: Option<&'static [&'static str]>,
     /// How to make the tool verify TLS against the operating system's trust
     /// store instead of a certificate list it bundles. `None` = it already
     /// does, or makes no TLS connections of its own. See `OsTrust`.
@@ -252,12 +173,6 @@ fn parse_rqbit_version(output: &str) -> Option<String> {
     })
 }
 
-/// `roadie version` prints `{"version": "0.1.0", "release": "cli"}`.
-fn parse_roadie_version(output: &str) -> Option<String> {
-    let v: serde_json::Value = serde_json::from_str(output.trim()).ok()?;
-    v.get("version")?.as_str().map(str::to_string)
-}
-
 pub static REGISTRY: &[DependencyDef] = &[
     DependencyDef {
         name: "ffmpeg",
@@ -275,8 +190,6 @@ pub static REGISTRY: &[DependencyDef] = &[
             ("Audio format conversion", "Convert WebM downloads to M4A"),
         ],
         managed: None,
-        data_dir_flag: None,
-        maintenance_args: None,
         os_trust: None,
     },
     DependencyDef {
@@ -306,10 +219,7 @@ pub static REGISTRY: &[DependencyDef] = &[
             asset_linux_arm64: Some("yt-dlp_linux_aarch64"),
             asset_zipapp: Some("yt-dlp"),
             checksums_asset: Some("SHA2-256SUMS"),
-            manifest: None,
         }),
-        data_dir_flag: None,
-        maintenance_args: None,
         os_trust: Some(OsTrust {
             args: &["--compat-options", "no-certifi"],
             ca_file_env: Some("SSL_CERT_FILE"),
@@ -338,47 +248,7 @@ pub static REGISTRY: &[DependencyDef] = &[
             asset_linux_arm64: Some("rqbit-linux-arm64"),
             asset_zipapp: None,
             checksums_asset: None,
-            manifest: None,
         }),
-        data_dir_flag: None,
-        maintenance_args: None,
-        os_trust: None,
-    },
-    DependencyDef {
-        name: "roadie",
-        description: "Installs, runs and updates helper services such as slskd, each only after you approve it",
-        version_args: &["version"],
-        parse_version: parse_roadie_version,
-        install: InstallInstructions {
-            macos: "Vibo can install Roadie for you",
-            windows: "Vibo can install Roadie for you",
-            linux: "Roadie has no Linux build yet",
-            url: "https://github.com/outcast1000/roadie",
-        },
-        internal_consumers: &[],
-        managed: Some(ManagedSource {
-            // The standalone CLI release (no service, no window): every command
-            // runs in its own process and asks the user in a native dialog
-            // before it installs anything. One archive per platform.
-            repo: "outcast1000/roadie",
-            // Manifest platform keys, not file names (see `ManagedSource::manifest`).
-            asset_macos: Some(if cfg!(target_arch = "aarch64") { "darwin-arm64" } else { "darwin-x64" }),
-            asset_windows: Some("windows-x64"),
-            asset_linux_x64: None,
-            asset_linux_arm64: None,
-            asset_zipapp: None,
-            checksums_asset: None,
-            // The newest CLI, like every other managed dependency follows its
-            // upstream's newest release. Roadie keeps the CLI's output additive
-            // for exactly this (RELEASING.md), and the slskd plugin
-            // feature-detects anything newer than what it knows.
-            manifest: Some("cli-latest/manifest.json"),
-        }),
-        // Roadie's contract for an app that bundles its CLI: pass our own data
-        // dir, and run `maintain` on launch (it starts the tools the user set to
-        // start at login and runs their daily update pass).
-        data_dir_flag: Some("--data-dir"),
-        maintenance_args: Some(&["maintain"]),
         os_trust: None,
     },
     #[cfg(debug_assertions)]
@@ -395,8 +265,6 @@ pub static REGISTRY: &[DependencyDef] = &[
         },
         internal_consumers: &[("Test feature", "Verifies the dependency modal works in dev mode")],
         managed: None,
-        data_dir_flag: None,
-        maintenance_args: None,
         os_trust: None,
     },
 ];
@@ -551,22 +419,6 @@ pub fn augmented_path() -> std::ffi::OsString {
     new_path
 }
 
-/// Vibo's own data dir for a tool that takes one (`data_dir_flag`):
-/// `{app_data_dir}/{name}`, beside the shared bin dir, so it is shared across
-/// profiles like the binary itself.
-pub fn tool_data_dir(name: &str) -> Option<PathBuf> {
-    get_def(name)?.data_dir_flag?;
-    Some(managed_bin_dir()?.parent()?.join(name))
-}
-
-/// The leading `{flag} {dir}` pair for a tool that takes a data dir.
-fn data_dir_args(program: &str) -> Vec<std::ffi::OsString> {
-    match (get_def(program).and_then(|d| d.data_dir_flag), tool_data_dir(program)) {
-        (Some(flag), Some(dir)) => vec![flag.into(), dir.into_os_string()],
-        _ => Vec::new(),
-    }
-}
-
 /// The leading arguments and CA-file variable that make `program` verify TLS
 /// against the OS trust store — see `OsTrust` for the per-platform rule.
 fn os_trust_setup(program: &str) -> (Vec<&'static str>, Option<(&'static str, PathBuf)>) {
@@ -626,7 +478,6 @@ pub fn command_with_path(program: &str) -> std::process::Command {
         .map(|p| p.into_os_string())
         .unwrap_or_else(|| program.into());
     let mut cmd = std::process::Command::new(resolved);
-    cmd.args(data_dir_args(program));
     let (trust_args, ca_file) = os_trust_setup(program);
     cmd.args(trust_args);
     if let Some((var, pem)) = ca_file {
@@ -967,13 +818,6 @@ pub fn latest_version(name: &str, cache: &DepCache) -> Result<String, String> {
         .managed
         .as_ref()
         .ok_or_else(|| format!("{} is not a managed dependency", name))?;
-    // A manifest names its own newest version; cached like the redirect answer.
-    if let Some(path) = managed.manifest {
-        let result = fetch_manifest(managed.repo, path).and_then(|body| manifest_version(&body));
-        cache.set_latest(name, result.as_ref().ok().cloned());
-        return result;
-    }
-
     let url = format!("https://github.com/{}/releases/latest", managed.repo);
     let result: Result<String, String> = (|| {
         let resp = redirect_probe_client()?
@@ -1194,17 +1038,7 @@ pub fn install_managed(
 
     let client = http_client()?;
     let base = managed.download_base();
-    // Where the bytes come from, the file name they carry (which says whether
-    // it is an archive) and, from a manifest, the checksum to hold them to.
-    let (download_url, asset_file, manifest_sha256) = match managed.manifest {
-        Some(path) => {
-            let body = fetch_manifest(managed.repo, path)?;
-            let (_, entry) = manifest_entry(&body, managed.repo, asset)?;
-            (entry.url, entry.file, Some(entry.sha256.to_ascii_lowercase()))
-        }
-        None => (format!("{}/{}", base, asset), asset.to_string(), None),
-    };
-    let asset = asset_file.as_str();
+    let download_url = format!("{}/{}", base, asset);
 
     // Stream the binary to a temp file next to the final location.
     let mut resp = client
@@ -1232,18 +1066,9 @@ pub fn install_managed(
             progress(downloaded, total);
         }
 
-        // Verify against the manifest's checksum, else the published checksums
-        // from the same release when the project publishes any (see
-        // `ManagedSource::checksums_asset`).
-        if let Some(expected) = &manifest_sha256 {
-            let actual = sha256_hex(&data);
-            if &actual != expected {
-                return Err(format!(
-                    "Checksum mismatch for {} (expected {}, got {})",
-                    asset, expected, actual
-                ));
-            }
-        } else if let Some(checksums_asset) = managed.checksums_asset {
+        // Verify against the published checksums from the same release when
+        // the project publishes any (see `ManagedSource::checksums_asset`).
+        if let Some(checksums_asset) = managed.checksums_asset {
             let checksums = client
                 .get(format!("{}/{}", base, checksums_asset))
                 .send()
@@ -1344,41 +1169,6 @@ fn auto_update_enabled(store_path: &Path) -> bool {
         }
     }
     true
-}
-
-/// Upper bound for one maintenance run. It may update a tool (Roadie's daily
-/// pass downloads a new slskd), so it is generous; it only bounds a wedge.
-const MAINTENANCE_TIMEOUT: Duration = Duration::from_secs(15 * 60);
-
-/// Run each dependency's `maintenance_args` once, for the tools Vibo has
-/// actually used (their data dir exists) and that are installed. Called from
-/// the same background thread as `auto_update_managed`, ~30s after launch and
-/// then daily. Not gated on `autoUpdateManagedDeps`: that setting is about
-/// replacing our copy of the binary, while this is the tool's own upkeep
-/// (Roadie has its own update toggle).
-pub fn run_maintenance(cache: &DepCache) {
-    for def in REGISTRY.iter() {
-        let Some(args) = def.maintenance_args else { continue };
-        if !tool_data_dir(def.name).is_some_and(|d| d.is_dir()) || !is_available(def.name, cache) {
-            continue;
-        }
-        let mut cmd = command_with_path(def.name);
-        cmd.args(args);
-        match output_with_timeout(&mut cmd, MAINTENANCE_TIMEOUT) {
-            Ok(Some(out)) if out.status.success() => {
-                log::info!("{} {}: {}", def.name, args.join(" "), String::from_utf8_lossy(&out.stdout).trim());
-            }
-            Ok(Some(out)) => log::warn!(
-                "{} {} exited {:?}: {}",
-                def.name,
-                args.join(" "),
-                out.status.code(),
-                String::from_utf8_lossy(&out.stderr).trim()
-            ),
-            Ok(None) => log::warn!("{} {} timed out", def.name, args.join(" ")),
-            Err(e) => log::warn!("{} {} failed to start: {}", def.name, args.join(" "), e),
-        }
-    }
 }
 
 /// One pass of the background auto-updater: for every managed dependency whose
@@ -1613,7 +1403,6 @@ mod tests {
             asset_linux_arm64: Some("tool_linux_aarch64"),
             asset_zipapp: None,
             checksums_asset: Some("SHA2-256SUMS"),
-            manifest: None,
         };
         let shape = choose_install_shape("tool", &managed).unwrap();
         assert!(matches!(shape, InstallShape::Binary(_)));
@@ -1832,38 +1621,13 @@ mod tests {
     }
 
     #[test]
-    fn test_parse_roadie_version() {
-        assert_eq!(
-            parse_roadie_version("{\n  \"version\": \"0.1.0\",\n  \"release\": \"cli\"\n}\n"),
-            Some("0.1.0".to_string())
-        );
-        assert_eq!(parse_roadie_version("roadie 0.1.0"), None);
-        assert_eq!(parse_roadie_version("{}"), None);
-    }
-
-    #[test]
-    fn test_managed_source_roadie_follows_the_cli_latest_manifest() {
-        let def = get_def("roadie").unwrap();
-        let managed = def.managed.as_ref().unwrap();
-        assert_eq!(managed.manifest, Some("cli-latest/manifest.json"), "the newest CLI, never a pin");
-        // With a manifest the asset fields are its platform keys.
-        let mac = managed.asset_macos.unwrap();
-        assert!(mac == "darwin-arm64" || mac == "darwin-x64", "{mac}");
-        assert_eq!(managed.asset_windows, Some("windows-x64"));
-        assert!(managed.asset_linux_x64.is_none(), "Roadie ships no Linux CLI");
-        assert_eq!(def.data_dir_flag, Some("--data-dir"));
-        assert_eq!(def.maintenance_args, Some(&["maintain"][..]));
-        assert!(allowed_names().contains(&"roadie"));
-    }
-
-    #[test]
     fn test_only_yt_dlp_is_switched_to_the_os_trust_store() {
         let yt = get_def("yt-dlp").unwrap().os_trust.expect("yt-dlp bundles certifi, so it needs os_trust");
         // Repeated --compat-options accumulate in yt-dlp, so a plugin's own
         // `--compat-options …` can't undo this one.
         assert_eq!(yt.args, &["--compat-options", "no-certifi"]);
         assert_eq!(yt.ca_file_env, Some("SSL_CERT_FILE"));
-        for name in ["ffmpeg", "rqbit", "roadie"] {
+        for name in ["ffmpeg", "rqbit"] {
             assert!(get_def(name).unwrap().os_trust.is_none(), "{name} has no bundled CA list to override");
         }
         assert_eq!(os_trust_setup_in("ffmpeg", None), (Vec::new(), None));
@@ -1885,41 +1649,10 @@ mod tests {
         assert!(text.matches("BEGIN CERTIFICATE").count() > 50);
     }
 
-    const MANIFEST: &str = r#"{
-      "name": "roadie-cli", "version": "0.2.0", "tag": "cli-v0.2.0",
-      "assets": {
-        "darwin-arm64": { "file": "roadie-cli-0.2.0-darwin-arm64.tar.gz",
-          "url": "https://github.com/outcast1000/roadie/releases/download/cli-v0.2.0/roadie-cli-0.2.0-darwin-arm64.tar.gz",
-          "sha256": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef", "binary": "roadie" }
-      }
-    }"#;
-
-    #[test]
-    fn test_manifest_names_the_version_and_the_platform_build() {
-        assert_eq!(manifest_version(MANIFEST), Ok("0.2.0".to_string()));
-        let (version, entry) = manifest_entry(MANIFEST, "outcast1000/roadie", "darwin-arm64").unwrap();
-        assert_eq!(version, "0.2.0");
-        assert_eq!(entry.file, "roadie-cli-0.2.0-darwin-arm64.tar.gz");
-        assert!(entry.url.ends_with("/cli-v0.2.0/roadie-cli-0.2.0-darwin-arm64.tar.gz"));
-        assert!(manifest_entry(MANIFEST, "outcast1000/roadie", "windows-x64").unwrap_err().contains("no windows-x64 build"));
-    }
-
-    #[test]
-    fn test_manifest_may_not_send_an_install_elsewhere() {
-        let elsewhere = MANIFEST.replace("https://github.com/outcast1000/roadie/", "https://example.com/outcast1000/roadie/");
-        assert!(manifest_entry(&elsewhere, "outcast1000/roadie", "darwin-arm64").unwrap_err().contains("points outside"));
-        // Another repo's releases are "elsewhere" too.
-        assert!(manifest_entry(MANIFEST, "someone/else", "darwin-arm64").is_err());
-        let bad_sum = MANIFEST.replace("0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef", "nope");
-        assert!(manifest_entry(&bad_sum, "outcast1000/roadie", "darwin-arm64").unwrap_err().contains("not a sha256"));
-        assert!(manifest_version("{}").is_err());
-        assert!(manifest_version(r#"{"version": "", "assets": {}}"#).is_err());
-    }
-
     #[test]
     fn test_archive_kind_from_asset_name() {
-        assert_eq!(ArchiveKind::of("roadie-cli-0.1.0-darwin-arm64.tar.gz"), Some(ArchiveKind::TarGz));
-        assert_eq!(ArchiveKind::of("roadie-cli-0.1.0-windows-x64.zip"), Some(ArchiveKind::Zip));
+        assert_eq!(ArchiveKind::of("tool-1.0.0-darwin-arm64.tar.gz"), Some(ArchiveKind::TarGz));
+        assert_eq!(ArchiveKind::of("tool-1.0.0-windows-x64.zip"), Some(ArchiveKind::Zip));
         assert_eq!(ArchiveKind::of("yt-dlp_macos"), None);
         assert_eq!(ArchiveKind::of("rqbit.exe"), None);
     }
@@ -1930,7 +1663,7 @@ mod tests {
         {
             let gz = flate2::write::GzEncoder::new(&mut tar_bytes, flate2::Compression::fast());
             let mut builder = tar::Builder::new(gz);
-            for (path, body) in [("README.txt", &b"read me"[..]), ("bin/roadie", &b"\x7fELF roadie"[..])] {
+            for (path, body) in [("README.txt", &b"read me"[..]), ("bin/tool", &b"\x7fELF tool"[..])] {
                 let mut header = tar::Header::new_gnu();
                 header.set_size(body.len() as u64);
                 header.set_mode(0o755);
@@ -1939,8 +1672,8 @@ mod tests {
             }
             builder.into_inner().unwrap().finish().unwrap();
         }
-        assert_eq!(extract_member(&tar_bytes, ArchiveKind::TarGz, "roadie").unwrap(), b"\x7fELF roadie");
-        assert!(extract_member(&tar_bytes, ArchiveKind::TarGz, "roadie.exe").is_err());
+        assert_eq!(extract_member(&tar_bytes, ArchiveKind::TarGz, "tool").unwrap(), b"\x7fELF tool");
+        assert!(extract_member(&tar_bytes, ArchiveKind::TarGz, "tool.exe").is_err());
     }
 
     #[test]
@@ -1950,48 +1683,13 @@ mod tests {
         {
             let mut zip = zip::ZipWriter::new(&mut buf);
             let opts = zip::write::SimpleFileOptions::default();
-            zip.start_file("roadie.exe", opts).unwrap();
-            zip.write_all(b"MZ roadie").unwrap();
+            zip.start_file("tool.exe", opts).unwrap();
+            zip.write_all(b"MZ tool").unwrap();
             zip.finish().unwrap();
         }
         let bytes = buf.into_inner();
-        assert_eq!(extract_member(&bytes, ArchiveKind::Zip, "roadie.exe").unwrap(), b"MZ roadie");
-        assert!(extract_member(&bytes, ArchiveKind::Zip, "roadie").is_err());
-    }
-
-    /// REAL install of the newest Roadie CLI from GitHub: read the cli-latest
-    /// manifest, download, check its sha256, unpack, run a command. Needs
-    /// network and a published cli-latest manifest. Sets the process-wide bin
-    /// dir, so run it alone:
-    /// `cargo test --lib dependencies::tests::probe_install_roadie_cli -- --ignored --nocapture`
-    #[test]
-    #[ignore]
-    fn probe_install_roadie_cli() {
-        let root = std::env::temp_dir().join(format!("viboplr-roadie-probe-{}", std::process::id()));
-        set_managed_bin_dir(root.join("bin"));
-        let cache = DepCache::new();
-        let version = install_managed("roadie", &cache, |_, _| {}).expect("install");
-        assert_eq!(Ok(version), latest_version("roadie", &cache), "installed what the manifest names");
-        // Every spawn carries our data dir, and the CLI answers with it.
-        let out = command_with_path("roadie").args(["tool", "status", "slskd"]).output().unwrap();
-        assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
-        assert!(root.join("roadie").is_dir(), "the CLI wrote its state under {{app_data_dir}}/roadie");
-        let _ = std::fs::remove_dir_all(&root);
-    }
-
-    #[test]
-    fn test_data_dir_args_only_for_tools_that_take_one() {
-        // Without the managed bin dir initialised there is no dir to pass,
-        // and deps without a flag never get one either way.
-        assert!(data_dir_args("ffmpeg").is_empty());
-        assert!(data_dir_args("yt-dlp").is_empty());
-        if let Some(dir) = managed_bin_dir() {
-            let args = data_dir_args("roadie");
-            assert_eq!(args[0], "--data-dir");
-            assert_eq!(PathBuf::from(&args[1]), dir.parent().unwrap().join("roadie"));
-        } else {
-            assert!(data_dir_args("roadie").is_empty());
-        }
+        assert_eq!(extract_member(&bytes, ArchiveKind::Zip, "tool.exe").unwrap(), b"MZ tool");
+        assert!(extract_member(&bytes, ArchiveKind::Zip, "tool").is_err());
     }
 
     #[test]
@@ -2007,10 +1705,10 @@ mod tests {
         assert_eq!(cache.get_latest("yt-dlp"), Some(None));
 
         // A user refresh forgets answers and failures alike.
-        cache.set_latest("roadie", Some("0.3.0".to_string()));
+        cache.set_latest("rqbit", Some("9.0.1".to_string()));
         cache.clear_latest();
         assert!(cache.get_latest("yt-dlp").is_none());
-        assert!(cache.get_latest("roadie").is_none());
+        assert!(cache.get_latest("rqbit").is_none());
     }
 
     #[test]

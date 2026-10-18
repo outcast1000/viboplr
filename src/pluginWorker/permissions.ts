@@ -22,6 +22,10 @@
 //   plugins:call       reaching other plugins (search, assistant tools, info chain)
 //   assistant:host     the app's own assistant tools (api.assistant.host): the
 //                      MCP catalog, gated again by the AI-control switches
+//   programs:run       download, unpack and run programs from the plugin's own
+//                      store (api.system.programs). Always asked, even for a
+//                      plugin signed by Vibo; an unsigned one gets a warned
+//                      second consent — see ALWAYS_ASK_PERMISSIONS
 //
 // <host> is an exact hostname, "*.example.com" (subdomains only — list the apex
 // separately), or "*" for any host.
@@ -31,12 +35,12 @@
 // unprivileged plugin can do. Methods scoped to the plugin itself (its own
 // storage, its own registrations, its own UI) need no permission.
 
-export type PermissionCheck = (args: unknown[]) => string | null;
+/** What a call needs: one permission, several (all required), or nothing. */
+export type PermissionCheck = (args: unknown[]) => string | string[] | null;
 
 const OWN = null;
 const need = (perm: string): PermissionCheck => () => perm;
-const byUrl = (prefix: string, argIndex: number): PermissionCheck => (args) => {
-  const raw = args[argIndex];
+const urlPermission = (prefix: string, raw: unknown): string => {
   let host: string;
   try {
     const u = new URL(String(raw));
@@ -47,6 +51,7 @@ const byUrl = (prefix: string, argIndex: number): PermissionCheck => (args) => {
   }
   return `${prefix}:${host}`;
 };
+const byUrl = (prefix: string, argIndex: number): PermissionCheck => (args) => urlPermission(prefix, args[argIndex]);
 
 /** api path → what it needs. `null` = scoped to the plugin itself, always allowed. */
 export const PERMISSION_TABLE: Record<string, PermissionCheck | null> = {
@@ -138,6 +143,8 @@ export const PERMISSION_TABLE: Record<string, PermissionCheck | null> = {
   // Which page the user is on (and its subject) — a separate ask from what plays.
   "ui.getContext": need("ui:read"),
   "ui.onContextChanged": need("ui:read"),
+  // The user's pick is the consent; the plugin gets a path, not access to it.
+  "ui.pickFolder": OWN,
 
   "storage.get": OWN,
   "storage.set": OWN,
@@ -236,9 +243,23 @@ export const PERMISSION_TABLE: Record<string, PermissionCheck | null> = {
 
   "system.exec": (args) => `exec:${String(args[0])}`,
   "system.getDependency": OWN,
+  // Which build of a program to fetch; says nothing about the user.
+  "system.platform": OWN,
   "system.readAudioTags": need("files:read"),
   "system.openPath": need("system:open"),
   "system.revealPath": need("system:open"),
+  // A download fetches a URL too, so it needs that host's network grant as well.
+  "system.programs.download": (args) => ["programs:run", urlPermission("network", args[1])],
+  "system.programs.extract": need("programs:run"),
+  "system.programs.run": need("programs:run"),
+  "system.programs.start": need("programs:run"),
+  // Reading the state of its own programs reveals nothing and must never
+  // prompt: the plugin polls it, and an optional grant would otherwise ask
+  // from a background poll.
+  "system.programs.status": OWN,
+  "system.programs.list": OWN,
+  "system.programs.stop": need("programs:run"),
+  "system.programs.remove": need("programs:run"),
 
   "env.get": (args) => `env:${String(args[0])}`,
 };
@@ -332,6 +353,12 @@ export function describePermission(perm: string): PermissionDescription {
       return { label: "Open links and files", detail: "Hand them to your browser or other apps.", sensitive: false };
     case "plugins:call":
       return { label: "Use your other plugins", detail: "Their searches, tools and information.", sensitive: false };
+    case "programs:run":
+      return {
+        label: "Download and run programs on this computer",
+        detail: "They can keep running after Vibo quits and start when you log in. A program run this way can do anything you can.",
+        sensitive: true,
+      };
     case "assistant:host":
       return {
         label: "Control Vibo like an AI assistant",
@@ -397,15 +424,93 @@ export class PermissionError extends Error {
   }
 }
 
+/** What calling `path` with `args` needs, or `null` when the table has no row
+ *  for it (which `checkPermission` denies). `[]` = scoped to the plugin itself. */
+export function requiredPermissions(path: string, args: unknown[]): string[] | null {
+  if (!(path in PERMISSION_TABLE)) return null;
+  const check = PERMISSION_TABLE[path];
+  if (check === null) return [];
+  const required = check(args);
+  if (required === null) return [];
+  return Array.isArray(required) ? required : [required];
+}
+
 /** Throws `PermissionError` unless `granted` allows calling `path` with `args`. */
 export function checkPermission(pluginId: string, granted: readonly string[], path: string, args: unknown[]): void {
-  if (!(path in PERMISSION_TABLE)) {
+  const required = requiredPermissions(path, args);
+  if (required === null) {
     throw new PermissionError(pluginId, path, `<no permission defined for api.${path}>`);
   }
-  const check = PERMISSION_TABLE[path];
-  if (check === null) return;
-  const required = check(args);
-  if (required !== null && !isGranted(granted, required)) {
-    throw new PermissionError(pluginId, path, required);
+  for (const perm of required) {
+    if (!isGranted(granted, perm)) throw new PermissionError(pluginId, path, perm);
   }
+}
+
+/**
+ * Split what a call still lacks: `missing` = needed but neither granted nor
+ * declared optional (the call is denied), `askable` = declared in the
+ * manifest's `optionalPermissions` but not granted yet (the host asks the
+ * user, then the call proceeds). `null` when the table has no row.
+ */
+export function unmetPermissions(
+  path: string,
+  args: unknown[],
+  granted: readonly string[],
+  optionalDeclared: readonly string[],
+): { missing: string[]; askable: string[] } | null {
+  const required = requiredPermissions(path, args);
+  if (required === null) return null;
+  const missing: string[] = [];
+  const askable: string[] = [];
+  for (const perm of required) {
+    if (isGranted(granted, perm)) continue;
+    if (isGranted(optionalDeclared, perm)) askable.push(perm);
+    else missing.push(perm);
+  }
+  return { missing, askable };
+}
+
+/**
+ * Permissions approved per plugin even when it is signed by Vibo — the
+ * first-party pre-approval does not cover them — and asked again, with a
+ * warning, while the plugin is not signed. `programs:run` runs native code
+ * outside the worker sandbox, so it is the one grant whose cost a signature
+ * can't vouch for on the user's behalf (owner decision, 2026-10-18).
+ */
+export const ALWAYS_ASK_PERMISSIONS: readonly string[] = ["programs:run"];
+
+/**
+ * Under what trust an always-ask permission was approved: `signed` when the
+ * plugin was signed by Vibo at the time (one consent), `unsigned` when the user
+ * also accepted the unsigned-plugin warning. An approval given as `signed`
+ * stops counting once the plugin no longer is.
+ */
+export type ProgramConsent = "signed" | "unsigned";
+
+/**
+ * What still needs the user's approval before a worker plugin may run.
+ * `trusted` = built in or signed by Vibo, whose ordinary permissions are
+ * pre-approved; the always-ask ones are pending unless approved under a trust
+ * that still holds.
+ */
+export function permissionsAwaitingConsent(opts: {
+  requested: readonly string[];
+  approved: readonly string[];
+  trusted: boolean;
+  consent?: ProgramConsent | null;
+}): string[] {
+  const { requested, approved, trusted, consent } = opts;
+  const out = trusted ? [] : pendingPermissions(requested, approved);
+  for (const perm of new Set(requested)) {
+    if (!ALWAYS_ASK_PERMISSIONS.includes(perm)) continue;
+    const covered = approved.includes(perm) && (consent === "unsigned" || (consent === "signed" && trusted));
+    if (!covered && !out.includes(perm)) out.push(perm);
+  }
+  return out;
+}
+
+/** An approval that includes an always-ask permission for a plugin not signed
+ *  by Vibo needs the second, warned consent. */
+export function needsUnsignedWarning(requested: readonly string[], trusted: boolean): boolean {
+  return !trusted && requested.some((p) => ALWAYS_ASK_PERMISSIONS.includes(p));
 }

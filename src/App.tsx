@@ -112,6 +112,8 @@ import { useRetrieveModal, retrieveWantsSuggestions, type OpenInfoArgs, type Ret
 import { RetrieveModal } from "./components/RetrieveModal";
 import { useExtensions, type PermissionRequest } from "./hooks/useExtensions";
 import { PluginPermissionPrompt } from "./components/PluginPermissionPrompt";
+import { UnsignedProgramsWarning } from "./components/UnsignedProgramsWarning";
+import { OptionalPermissionsPrompt, ProgramInstallConfirm } from "./components/ProgramPrompts";
 import { PluginInstallModal } from "./components/PluginInstallModal";
 import { useAssistantInstall } from "./hooks/useAssistantInstall";
 
@@ -6949,6 +6951,37 @@ function App() {
       )}
       {/* After the wizard in the tree so it stacks above it: the wizard's
           plugin step can enable a plugin that asks for permissions. */}
+      {plugins.optionalPermissionsRequest && (
+        <OptionalPermissionsPrompt
+          key={`optional:${plugins.optionalPermissionsRequest.pluginId}`}
+          pluginName={plugins.optionalPermissionsRequest.pluginName}
+          permissions={plugins.optionalPermissionsRequest.permissions}
+          reasons={plugins.optionalPermissionsRequest.reasons}
+          onAllow={() => plugins.optionalPermissionsRequest?.answer(true)}
+          onCancel={() => plugins.optionalPermissionsRequest?.answer(false)}
+        />
+      )}
+      {plugins.programInstallRequest && (
+        <ProgramInstallConfirm
+          key={`install:${plugins.programInstallRequest.pluginId}:${plugins.programInstallRequest.url}`}
+          pluginName={plugins.programInstallRequest.pluginName}
+          fileName={plugins.programInstallRequest.fileName}
+          host={plugins.programInstallRequest.host}
+          url={plugins.programInstallRequest.url}
+          pinned={plugins.programInstallRequest.pinned}
+          label={plugins.programInstallRequest.label}
+          onInstall={() => plugins.programInstallRequest?.answer(true)}
+          onCancel={() => plugins.programInstallRequest?.answer(false)}
+        />
+      )}
+      {plugins.unsignedProgramsRequest && (
+        <UnsignedProgramsWarning
+          key={plugins.unsignedProgramsRequest.pluginId}
+          pluginName={plugins.unsignedProgramsRequest.pluginName}
+          onAllow={() => plugins.unsignedProgramsRequest?.answer(true)}
+          onCancel={() => plugins.unsignedProgramsRequest?.answer(false)}
+        />
+      )}
       {permissionQueue.length > 0 && (() => {
         const req = permissionQueue[0];
         const state = plugins.pluginStates.find((p) => p.id === req.pluginId);
@@ -6971,9 +7004,11 @@ function App() {
             onNotNow={next}
             onAllow={async () => {
               try {
-                await plugins.approvePermissions(req.pluginId);
+                const allowed = await plugins.approvePermissions(req.pluginId);
                 // A fresh install lands disabled; allowing it is the enable.
-                if (req.mode === "install" && state.status === "disabled") {
+                // Not allowed (the unsigned-plugin warning was turned down):
+                // it stays off and waiting.
+                if (allowed && req.mode === "install" && state.status === "disabled") {
                   await plugins.togglePlugin(req.pluginId, true);
                 }
               } catch (e) {

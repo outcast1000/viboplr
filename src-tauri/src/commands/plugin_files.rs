@@ -4,7 +4,7 @@ use super::*;
 /// Client for downloading a plugin-supplied URL. With a scope (worker-runtime
 /// plugins) redirects are held to the plugin's network grant — see
 /// `plugin_worker::NetworkScope`; without one this is the old client exactly.
-fn plugin_download_client(scope: Option<crate::plugin_worker::NetworkScope>) -> Result<reqwest::Client, String> {
+pub(super) fn plugin_download_client(scope: Option<crate::plugin_worker::NetworkScope>) -> Result<reqwest::Client, String> {
     let mut builder = reqwest::Client::builder()
         .user_agent("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Safari/605.1.15");
     if let Some(scope) = scope {
@@ -15,7 +15,7 @@ fn plugin_download_client(scope: Option<crate::plugin_worker::NetworkScope>) -> 
 
 /// GET with the plugin's own headers on top. The client's browser-style
 /// `User-Agent` is only a default — a plugin's header replaces it.
-fn plugin_download_request(
+pub(super) fn plugin_download_request(
     client: &reqwest::Client,
     url: &str,
     headers: Option<std::collections::HashMap<String, String>>,
@@ -33,7 +33,7 @@ fn plugin_download_request(
 /// main-realm plugin — a 3xx is just the server's answer (304, a 300, a 302
 /// with no Location), and blaming a permission that doesn't exist would send
 /// the plugin's author looking in the wrong place.
-fn download_status_error(resp: &reqwest::Response, scoped: bool) -> String {
+pub(super) fn download_status_error(resp: &reqwest::Response, scoped: bool) -> String {
     if scoped && resp.status().is_redirection() {
         let to = resp.headers().get("location").and_then(|v| v.to_str().ok()).unwrap_or("?");
         return format!("Redirected to {} — outside this plugin's network permission", to);
@@ -94,6 +94,8 @@ pub async fn plugin_cache_image(
         return Err("Image too large (>10MB)".to_string());
     }
 
+    // Never while a program start is between its approval check and its exec.
+    let _store = crate::plugin_programs::approved::store_lock();
     std::fs::write(&file_path, &bytes).map_err(|e| format!("Failed to write file: {}", e))?;
 
     Ok(file_path.to_string_lossy().to_string())
@@ -140,6 +142,8 @@ pub fn plugin_cache_delete_dir(
         return Err("Invalid path".to_string());
     }
 
+    // Never while a program start is between its approval check and its exec.
+    let _store = crate::plugin_programs::approved::store_lock();
     std::fs::remove_dir_all(&dir_path).map_err(|e| format!("Failed to delete: {}", e))?;
     Ok(())
 }
@@ -195,6 +199,8 @@ pub fn plugin_files_write_text(
         std::process::id()
     );
     tmp.set_file_name(tmp_name);
+    // Never while a program start is between its approval check and its exec.
+    let _store = crate::plugin_programs::approved::store_lock();
     std::fs::write(&tmp, content.as_bytes()).map_err(|e| format!("Failed to write: {}", e))?;
     std::fs::rename(&tmp, &target).map_err(|e| {
         let _ = std::fs::remove_file(&tmp);
@@ -266,6 +272,8 @@ pub async fn plugin_files_download(
         std::process::id()
     );
     tmp.set_file_name(tmp_name);
+    // Never while a program start is between its approval check and its exec.
+    let _store = crate::plugin_programs::approved::store_lock();
     std::fs::write(&tmp, &bytes).map_err(|e| format!("Failed to write: {}", e))?;
     std::fs::rename(&tmp, &target).map_err(|e| {
         let _ = std::fs::remove_file(&tmp);
@@ -357,6 +365,8 @@ pub fn plugin_files_remove(
         return Ok(());
     }
     ensure_within_root(&root, &target)?;
+    // Never while a program start is between its approval check and its exec.
+    let _store = crate::plugin_programs::approved::store_lock();
     let meta = std::fs::metadata(&target).map_err(|e| format!("Stat error: {}", e))?;
     if meta.is_dir() {
         std::fs::remove_dir_all(&target).map_err(|e| format!("Failed to delete: {}", e))?;
@@ -383,6 +393,8 @@ pub fn plugin_files_copy(
     }
     ensure_within_root(&root, &src_path)?;
     ensure_within_root(&root, &dst_path)?;
+    // Never while a program start is between its approval check and its exec.
+    let _store = crate::plugin_programs::approved::store_lock();
     let meta = std::fs::metadata(&src_path).map_err(|e| format!("Stat error: {}", e))?;
     if meta.is_dir() {
         copy_dir_recursive(&src_path, &dst_path).map_err(|e| format!("Copy failed: {}", e))?;
@@ -409,6 +421,8 @@ pub fn plugin_files_move(
     }
     ensure_within_root(&root, &src_path)?;
     ensure_within_root(&root, &dst_path)?;
+    // Never while a program start is between its approval check and its exec.
+    let _store = crate::plugin_programs::approved::store_lock();
     std::fs::rename(&src_path, &dst_path).map_err(|e| format!("Move failed: {}", e))?;
     Ok(())
 }
