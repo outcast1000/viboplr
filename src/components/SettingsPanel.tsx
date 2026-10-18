@@ -6,6 +6,7 @@ import type { TimingEntry } from "../startupTiming";
 import type { UpdateState } from "../hooks/useAppUpdater";
 import type { DiagnosticContext } from "../utils/diagnosticReport";
 import type { PluginState } from "../types/plugin";
+import type { OrderedWebSearchProvider } from "../utils/webSearch";
 import type { ScrobbleDefaults, ScrobblerEntry, ScrobblerStatuses, ScrobbleSettings } from "../utils/scrobblers";
 import { ScrobblingSettings } from "./ScrobblingSettings";
 import { AssistantActivityLog } from "./AssistantActivityLog";
@@ -278,12 +279,97 @@ function FolderPatternEditor({ entity }: { entity: string }) {
   );
 }
 
+/** The web-search providers (Settings → Providers → Web search), owned by
+ *  usePlugins: the list in the user's order, and the writer for it. */
+export interface WebSearchSettings {
+  providers: OrderedWebSearchProvider[];
+  onChange: (shown: Array<{ key: string; enabled: boolean }>) => void;
+  /** Back to every provider on, in registration order. */
+  onReset: () => void | Promise<void>;
+}
+
+/** Same list markup as "Playback fallback". The order and switches are what
+ *  every web search — a plugin's, the assistant's — walks; a switched-off
+ *  engine is never sent a query, even when a caller names it. */
+function WebSearchProviderGroup({
+  webSearch,
+  pluginStates,
+}: {
+  webSearch: WebSearchSettings;
+  pluginStates?: PluginState[];
+}) {
+  const { providers, onChange } = webSearch;
+  const isMulti = providers.length > 1;
+  const sourceName = (pluginId: string) =>
+    pluginStates?.find((p) => p.id === pluginId)?.manifest.name ?? pluginId;
+
+  const handleToggle = (key: string) =>
+    onChange(providers.map((p) => ({ key: p.key, enabled: p.key === key ? !p.enabled : p.enabled })));
+
+  const handleReorder = (from: number, to: number) => {
+    if (from === to) return;
+    const next = providers.map((p) => ({ key: p.key, enabled: p.enabled }));
+    const [moved] = next.splice(from, 1);
+    next.splice(to, 0, moved);
+    onChange(next);
+  };
+
+  return (
+    <div className="settings-group">
+      <div className="settings-group-title">Web search</div>
+      <p className="settings-description provider-group-description">
+        Used when a plugin or an AI assistant searches the web. Vibo asks these in order and uses the first that answers; a switched-off one is never sent a search.
+      </p>
+      <div className="provider-priority-container">
+        <div className="provider-entity-group">
+          <div className="provider-entity-rows">
+            <div className="provider-priority-row">
+              <span className="provider-priority-label">Search the web with</span>
+              <div className="provider-vlist" data-vlist>
+                {providers.map((p, idx) => (
+                  <div
+                    key={p.key}
+                    className={`provider-vrow${p.enabled ? "" : " provider-vrow-off"}`}
+                    data-row-index={idx}
+                  >
+                    {isMulti && (
+                      <span
+                        className="provider-vrow-handle"
+                        onMouseDown={(e) => startRowDrag(e, idx, p.name, handleReorder)}
+                        title="Drag to reorder"
+                      >{"⠿"}</span>
+                    )}
+                    {isMulti && <span className="provider-vrow-rank">{idx + 1}</span>}
+                    <span className="provider-vrow-name">{p.name}</span>
+                    <span className="provider-vrow-source">{sourceName(p.pluginId)}</span>
+                    <button
+                      type="button"
+                      className={`provider-switch${p.enabled ? " on" : ""}`}
+                      role="switch"
+                      aria-checked={p.enabled}
+                      aria-label={`${p.name} web search`}
+                      onClick={() => handleToggle(p.key)}
+                      title={p.enabled ? "Enabled — click to disable" : "Disabled — click to enable"}
+                    />
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function ProviderPrioritySection({
   pluginStates,
   onStreamResolverOrderChanged,
+  webSearch,
 }: {
   pluginStates?: PluginState[];
   onStreamResolverOrderChanged?: () => void;
+  webSearch?: WebSearchSettings;
 }) {
   const [entityData, setEntityData] = useState<Map<string, ProviderRow[]>>(new Map());
   const [collapsedEntities, setCollapsedEntities] = useState<Set<string>>(new Set());
@@ -480,6 +566,8 @@ function ProviderPrioritySection({
     } catch (e) {
       console.error("Failed to reset priorities:", e);
     }
+    // The Web search list sits right above the button, so it resets too.
+    await webSearch?.onReset();
   };
 
   const entityLabels: Record<string, string> = {
@@ -622,6 +710,10 @@ function ProviderPrioritySection({
             </div>
           </div>
         </div>
+      )}
+
+      {webSearch && webSearch.providers.length > 0 && (
+        <WebSearchProviderGroup webSearch={webSearch} pluginStates={pluginStates} />
       )}
 
       <div className="settings-actions-row provider-priority-actions">
@@ -1361,6 +1453,8 @@ interface SettingsPanelProps {
   onNotify: Notify;
   // Stream resolver ordering
   onStreamResolverOrderChanged?: () => void;
+  /** Web-search provider order + switches (Providers tab). */
+  webSearch?: WebSearchSettings;
   /** Dependencies live in Extensions → Tools; this opens that tab. */
   onOpenDependencies: () => void;
   /** Config for the cycling Now Playing info line (Playback group). */
@@ -1475,6 +1569,7 @@ export function SettingsPanel({
   onSwitchProfile,
   onNotify,
   onStreamResolverOrderChanged,
+  webSearch,
   onOpenDependencies,
   nowPlayingInfo,
   scrollToId,
@@ -2165,7 +2260,11 @@ export function SettingsPanel({
             )}
 
             {settingsTab === "providers" && (
-              <ProviderPrioritySection pluginStates={pluginStates} onStreamResolverOrderChanged={onStreamResolverOrderChanged} />
+              <ProviderPrioritySection
+                pluginStates={pluginStates}
+                onStreamResolverOrderChanged={onStreamResolverOrderChanged}
+                webSearch={webSearch}
+              />
             )}
 
             {settingsTab === "ai" && (

@@ -30,6 +30,7 @@ export const SYNC_PATHS = [
   "playback.getPosition",
   "playback.getQueue",
   "search.listProviders",
+  "webSearch.listProviders",
   "plugins.list",
 ] as const;
 const SYNC_INTERVAL_MS = 250;
@@ -163,7 +164,8 @@ export function createSyncReader(
       const same =
         prev === value ||
         // Freshly built each call; compare by content so they don't resend.
-        ((path === "search.listProviders" || path === "plugins.list") && JSON.stringify(prev) === JSON.stringify(value));
+        ((path === "search.listProviders" || path === "webSearch.listProviders" || path === "plugins.list") &&
+          JSON.stringify(prev) === JSON.stringify(value));
       if (all || !same) {
         changed[path] = value;
         last.set(path, value);

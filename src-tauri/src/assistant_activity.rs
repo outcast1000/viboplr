@@ -73,6 +73,8 @@ pub fn classify(method: &str, route: &str) -> Classified {
         // chain, a plugin's shelf handler): outward, like a read-only plugin
         // tool — the host can't tell whether the plugin leaves the machine.
         ("POST", "/v1/search/plugin") => c("Search a plugin catalog", Outward),
+        // The query leaves the machine by definition — that's the point of it.
+        ("POST", "/v1/web/search") => c("Search the web", Outward),
         ("POST", "/v1/info/fetch") => c("Fetch information", Outward),
         ("GET", "/v1/lyrics") => c("Fetch lyrics", Outward),
         ("GET", "/v1/cues/context") => c("Gather cue context", Outward),
@@ -242,6 +244,7 @@ mod tests {
     fn test_reads_that_run_plugin_code_wait_while_paused() {
         for (method, route) in [
             ("POST", "/v1/search/plugin"),
+            ("POST", "/v1/web/search"),
             ("POST", "/v1/info/fetch"),
             ("GET", "/v1/lyrics"),
             ("GET", "/v1/cues/context"),

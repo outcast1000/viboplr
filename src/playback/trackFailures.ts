@@ -20,6 +20,9 @@ export interface ResolverAttempt {
   outcome: ResolverOutcome;
   /** The thrown error's text, for `error` (and `timeout`). Never shown on the row. */
   detail?: string | null;
+  /** A plugin playback fallback that was asked and came back without it — not
+   *  the track's own source, not the Library lookup. */
+  fallback?: boolean;
 }
 
 /** How far the play got before it failed:

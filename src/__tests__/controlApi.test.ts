@@ -391,7 +391,7 @@ describe("summarizeCapabilities", () => {
     // yt-dlp declares no searchProviders in its manifest (its provider is
     // runtime-registered, gated on the binary) — the live count must win.
     const out = summarizeCapabilities(YTDLP_CONTRIBUTES, {
-      searchProviders: 1, homeShelves: 0, contextMenuItems: 1, assistantTools: 2,
+      searchProviders: 1, webSearchProviders: 0, homeShelves: 0, contextMenuItems: 1, assistantTools: 2,
     });
     expect(out).toEqual({
       searchProviders: 1,
@@ -405,10 +405,10 @@ describe("summarizeCapabilities", () => {
   });
 
   it("omits zero-valued keys entirely and tolerates a missing contributes block", () => {
-    expect(summarizeCapabilities(undefined, { searchProviders: 0, homeShelves: 0, contextMenuItems: 0, assistantTools: 0 }))
+    expect(summarizeCapabilities(undefined, { searchProviders: 0, webSearchProviders: 0, homeShelves: 0, contextMenuItems: 0, assistantTools: 0 }))
       .toEqual({});
-    expect(summarizeCapabilities({}, { searchProviders: 0, homeShelves: 2, contextMenuItems: 0, assistantTools: 0 }))
-      .toEqual({ homeShelves: 2 });
+    expect(summarizeCapabilities({}, { searchProviders: 0, webSearchProviders: 1, homeShelves: 2, contextMenuItems: 0, assistantTools: 0 }))
+      .toEqual({ webSearchProviders: 1, homeShelves: 2 });
   });
 });
 

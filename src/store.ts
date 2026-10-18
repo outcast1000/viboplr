@@ -53,6 +53,7 @@ const STORE_DEFAULTS = {
   devPluginPath: null,
   trackDetailTabOrder: null,
   streamResolverOrder: null,
+  webSearchOrder: null,
   minimizeToMiniPlayer: false,
   heroEffectMode: "by-artist",
   pluginRecommendationsShown: false,

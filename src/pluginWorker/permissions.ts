@@ -183,6 +183,14 @@ export const PERMISSION_TABLE: Record<string, PermissionCheck | null> = {
   "search.listProviders": need("plugins:call"),
   "search.query": need("plugins:call"),
 
+  // Providing a web search is the plugin's own business (its network grant
+  // covers the engine); running one goes through other plugins.
+  "webSearch.onQuery": OWN,
+  "webSearch.registerProvider": OWN,
+  "webSearch.unregisterProvider": OWN,
+  "webSearch.listProviders": need("plugins:call"),
+  "webSearch.query": need("plugins:call"),
+
   "plugins.list": need("plugins:call"),
 
   "assistant.registerTool": OWN,

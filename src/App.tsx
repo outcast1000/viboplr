@@ -108,7 +108,7 @@ import { useSkins } from "./hooks/useSkins";
 import { usePlugins, type PluginEventResult, type PluginHostCallbacks } from "./hooks/usePlugins";
 import { useNowPlayingInfo } from "./hooks/useNowPlayingInfo";
 import { useImageResolver } from "./hooks/useImageResolver";
-import { useRetrieveModal } from "./hooks/useRetrieveModal";
+import { useRetrieveModal, retrieveWantsSuggestions, type OpenInfoArgs, type RetrieveModalData } from "./hooks/useRetrieveModal";
 import { RetrieveModal } from "./components/RetrieveModal";
 import { useExtensions, type PermissionRequest } from "./hooks/useExtensions";
 import { PluginPermissionPrompt } from "./components/PluginPermissionPrompt";
@@ -194,6 +194,8 @@ import { onboardingDecision, normalizeProfile, SPOTIFY_PLUGIN_ID, type Onboardin
 import BulkEditModal, { type BulkEditResult } from "./components/BulkEditModal";
 import PlaybackErrorModal from "./components/PlaybackErrorModal";
 import PlaybackFailureModal from "./components/PlaybackFailureModal";
+import { suggestPlaybackFallbacks } from "./utils/fallbackSuggestions";
+import { suggestImageProviders, suggestInfoProviders, type ProviderSuggestion } from "./utils/providerSuggestions";
 import { trackFailureReportLines } from "./playback/trackFailures";
 import { PromptModal } from "./components/PromptModal";
 import { PublishSourceModal } from "./components/PublishSourceModal";
@@ -1403,7 +1405,26 @@ function App() {
 
   // Centered, cancelable "Retrieve" modal for user-triggered image/info fetches
   // (preview → Apply). Automatic background image fetching is unaffected.
-  const retrieve = useRetrieveModal(plugins.invokeImageFetch, plugins.invokeInfoFetch);
+  // Plugins that could find what the Retrieve modal didn't (images / info).
+  // Filled further down (needs the app version); read only once a chain is
+  // exhausted, and to keep the modal open while there are some to read.
+  const retrieveSuggestionsRef = useRef<((m: RetrieveModalData) => ProviderSuggestion[]) | null>(null);
+  const retrieve = useRetrieveModal(plugins.invokeImageFetch, plugins.invokeInfoFetch, {
+    // Re-asked every countdown tick, so suggestions that land late still hold it.
+    holdOpenWhenExhausted: (m) => (retrieveSuggestionsRef.current?.(m).length ?? 0) > 0,
+  });
+  // The two openers, not `retrieve`: the hook returns a fresh object every
+  // render, and these callbacks feed the DetailViewActions memo.
+  const { openInfo: retrieveOpenInfo, openImage: retrieveOpenImage } = retrieve;
+  const fetchPluginGallery = plugins.fetchPluginGallery;
+  const refreshGalleryForSuggestions = useCallback(() => {
+    // TTL-cached: usually no network. A stale cached index would just suggest less.
+    fetchPluginGallery().catch((e) => console.error("Failed to load the plugin gallery for provider suggestions:", e));
+  }, [fetchPluginGallery]);
+  const openRetrieveInfo = useCallback((args: OpenInfoArgs) => {
+    refreshGalleryForSuggestions();
+    retrieveOpenInfo(args);
+  }, [retrieveOpenInfo, refreshGalleryForSuggestions]);
 
   // Wire up image resolver to handle image-resolve-request events (automatic
   // background fetching). User-triggered retrieval goes through `retrieve`.
@@ -1412,16 +1433,23 @@ function App() {
   // Open the Retrieve modal for an entity image: gather the active providers
   // (priority order) and hand them to the modal for preview-then-apply.
   const beginRetrieveImage = useCallback(async (kind: "artist" | "album" | "tag", name: string, artistName?: string | null) => {
+    refreshGalleryForSuggestions();
     try {
       const providers = await invoke<Array<[string, number, number]>>("get_image_providers", { entity: kind });
-      retrieve.openImage({ kind, name, artistName: artistName ?? null, providers, pluginNames: plugins.pluginNames });
+      retrieveOpenImage({ kind, name, artistName: artistName ?? null, providers, pluginNames: plugins.pluginNames });
     } catch (e) {
       console.error("Failed to load image providers:", e);
-      retrieve.openImage({ kind, name, artistName: artistName ?? null, providers: [], pluginNames: plugins.pluginNames });
+      retrieveOpenImage({ kind, name, artistName: artistName ?? null, providers: [], pluginNames: plugins.pluginNames });
     }
-  }, [retrieve, plugins.pluginNames]);
+  }, [retrieveOpenImage, plugins.pluginNames, refreshGalleryForSuggestions]);
 
   // Build ordered stream resolver list from built-in + plugins + user ordering
+  // Settings → Providers → Web search: usePlugins owns the order, Settings edits it.
+  const webSearchSettings = useMemo(
+    () => ({ providers: plugins.webSearchProviders, onChange: plugins.setWebSearchOrder, onReset: plugins.resetWebSearchOrder }),
+    [plugins.webSearchProviders, plugins.setWebSearchOrder, plugins.resetWebSearchOrder],
+  );
+
   useEffect(() => {
     const buildResolvers = async () => {
       const builtinLibrary = createLibraryStreamResolver();
@@ -1767,6 +1795,29 @@ function App() {
 
   // Updater
   const updater = useAppUpdater(betaUpdates ? "beta" : "stable", playback.handleStop, notify);
+
+  // What the Retrieve modal offers once its chain came back empty: plugins that
+  // supply this kind of image / this information type (utils/providerSuggestions).
+  const retrieveSuggestions = useCallback((m: RetrieveModalData): ProviderSuggestion[] => {
+    const base = { pluginStates: plugins.pluginStates, gallery: plugins.galleryPlugins ?? [], appVersion: updater.appVersion };
+    if (m.kind === "image") {
+      if (m.entityKind === "track") return [];
+      return suggestImageProviders({ ...base, entity: m.entityKind });
+    }
+    return m.infoTypeId ? suggestInfoProviders({ ...base, typeId: m.infoTypeId }) : [];
+  }, [plugins.pluginStates, plugins.galleryPlugins, updater.appVersion]);
+  useAssignRef(retrieveSuggestionsRef, retrieveSuggestions);
+
+  // Extensions → one plugin's page (installed or gallery-only), for the
+  // "these plugins could find it" suggestions. Installing / switching it on
+  // stays the user's step there.
+  const showPluginInExtensions = useCallback((pluginId: string) => {
+    setExtTabRequest((prev) => ({ tab: "plugins", seq: (prev?.seq ?? 0) + 1, detailId: pluginId }));
+    library.setView("extensions");
+    library.setSelectedArtist(null);
+    library.setSelectedAlbum(null);
+    library.setSelectedTag(null);
+  }, [library]);
 
   // Skins
   const skins = useSkins();
@@ -2574,11 +2625,7 @@ function App() {
         // A plugin's own "Extension settings" link: Extensions → its detail pane
         // (permissions, contributions). Always the calling plugin — never an id
         // from the payload, so a plugin can't open another's page.
-        setExtTabRequest((prev) => ({ tab: "plugins", seq: (prev?.seq ?? 0) + 1, detailId: _pluginId }));
-        library.setView("extensions");
-        library.setSelectedArtist(null);
-        library.setSelectedAlbum(null);
-        library.setSelectedTag(null);
+        showPluginInExtensions(_pluginId);
       } else if (action === "require-dependency") {
         // A plugin asks the host to surface its platform-aware install modal for a
         // binary dependency (e.g. YouTube → yt-dlp). The modal pulls the correct
@@ -4623,6 +4670,8 @@ function App() {
       togglePlugin: plugins.togglePlugin,
       searchProviders: plugins.searchProviders,
       invokePluginSearch: plugins.invokePluginSearch,
+      webSearchProviders: plugins.webSearchProviders,
+      invokeWebSearch: plugins.invokeWebSearch,
       invokeInfoFetch: plugins.invokeInfoFetch,
       pluginNames: plugins.pluginNames,
       homeShelves: plugins.homeShelves,
@@ -5013,7 +5062,7 @@ function App() {
     tagSuggestionPool,
     refreshLibraryTags: library.loadLibrary,
     retrieve: {
-      openInfo: retrieve.openInfo,
+      openInfo: openRetrieveInfo,
     },
   }), [
     library.handleArtistClick, library.handleAlbumClick, library.handleTagClick, library.navigateToTagByName,
@@ -5035,7 +5084,7 @@ function App() {
     plugins.invokeInfoFetch, plugins.pluginsLoaded, plugins.pluginNames,
     plugins.menuItems, plugins.dispatchContextMenuAction,
     tagSuggestionPool, library.loadLibrary,
-    beginRetrieveImage, retrieve.openInfo,
+    beginRetrieveImage, openRetrieveInfo,
   ]);
 
   // Now Playing view: lyrics via the shared info-type chain, and resolved art.
@@ -6537,6 +6586,7 @@ function App() {
               onSwitchProfile={(name) => profileSwitch.switchToProfile(name)}
               onNotify={notify}
               onStreamResolverOrderChanged={() => setStreamResolverOrderVersion(v => v + 1)}
+              webSearch={webSearchSettings}
               onOpenDependencies={() => {
                 setExtTabRequest((prev) => ({ tab: "tools", seq: (prev?.seq ?? 0) + 1 }));
                 library.setView("extensions");
@@ -6816,7 +6866,11 @@ function App() {
           resolvingStatus={resolvingStatus}
           backfillPending={queueHook.backfillPending}
           trackFailures={trackFailures}
-          onShowFailure={(track) => setFailureDetailsKey(track.key)}
+          onShowFailure={(track) => {
+            setFailureDetailsKey(track.key);
+            // The dialog suggests gallery plugins that can play it.
+            refreshGalleryForSuggestions();
+          }}
         />
       {!queueCollapsed && (
         <button
@@ -7147,6 +7201,16 @@ function App() {
             track={track}
             failure={failure}
             onClose={() => setFailureDetailsKey(null)}
+            suggestions={suggestPlaybackFallbacks({
+              failure,
+              pluginStates: plugins.pluginStates,
+              gallery: plugins.galleryPlugins ?? [],
+              appVersion: updater.appVersion,
+            })}
+            onShowPlugin={(pluginId) => {
+              setFailureDetailsKey(null);
+              showPluginInExtensions(pluginId);
+            }}
             onRetry={() => {
               setFailureDetailsKey(null);
               queueHook.setQueueIndex(index);
@@ -7407,6 +7471,11 @@ function App() {
           onApplyNow={retrieve.applyNow}
           onCancel={retrieve.cancel}
           onSetKeepOpen={retrieve.setKeepOpen}
+          suggestions={retrieveWantsSuggestions(retrieve.modal) ? retrieveSuggestions(retrieve.modal) : null}
+          onShowPlugin={(pluginId) => {
+            retrieve.cancel();
+            showPluginInExtensions(pluginId);
+          }}
         />
       )}
 

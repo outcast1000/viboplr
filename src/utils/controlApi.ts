@@ -241,6 +241,8 @@ export function parsePlayWait(value: unknown): number | string {
 export function resolveSearchProvider<T extends { pluginId: string; providerId: string; name: string }>(
   providers: T[],
   key: string,
+  /** What the error text calls one ("search provider", "web search provider"). */
+  noun = "search provider",
 ): T | string {
   const exact = providers.find((p) => `${p.pluginId}:${p.providerId}` === key);
   if (exact) return exact;
@@ -251,7 +253,7 @@ export function resolveSearchProvider<T extends { pluginId: string; providerId: 
   if (loose.length === 1) return loose[0];
   const roster = providers.map((p) => `${p.pluginId}:${p.providerId}`).join(", ");
   return loose.length === 0
-    ? `no search provider matches "${key}" (available: ${roster || "none"})`
+    ? `no ${noun} matches "${key}" (available: ${roster || "none"})`
     : `"${key}" is ambiguous — use the full key (matches: ${loose.map((p) => `${p.pluginId}:${p.providerId}`).join(", ")})`;
 }
 
@@ -340,6 +342,8 @@ export function resolveSkin<T extends { id: string; name: string }>(
  *  present; a user can hide an item in Extensions → Contributions). */
 export interface LiveCapabilityCounts {
   searchProviders: number;
+  /** Switched on in Settings → Providers → Web search. */
+  webSearchProviders: number;
   homeShelves: number;
   contextMenuItems: number;
   assistantTools: number;
@@ -357,6 +361,7 @@ export function summarizeCapabilities(
     if (count && count > 0) out[key] = count;
   };
   set("searchProviders", live.searchProviders);
+  set("webSearchProviders", live.webSearchProviders);
   set("homeShelves", live.homeShelves);
   set("contextMenuItems", live.contextMenuItems);
   set("assistantTools", live.assistantTools);
@@ -379,6 +384,7 @@ export function describeContributes(contributes: PluginManifestContributes | und
   const c = contributes;
   return {
     searchProviders: (c?.searchProviders ?? []).map((p) => ({ id: p.id, name: p.name })),
+    webSearchProviders: (c?.webSearchProviders ?? []).map((p) => ({ id: p.id, name: p.name })),
     downloadProviders: (c?.downloadProviders ?? []).map((p) => ({ id: p.id, name: p.name })),
     streamResolvers: (c?.streamResolvers ?? []).map((r) => ({ id: r.id, name: r.name })),
     informationTypes: (c?.informationTypes ?? []).map((t) => ({
@@ -455,6 +461,9 @@ export function annotateGalleryPlugins(
       minAppVersion: e.minAppVersion ?? null,
       recommended: e.recommended === true,
       stability: stabilityTier(e.stability),
+      // Service ids ("web-search", "playback-fallback", …) — how an assistant
+      // finds "a plugin that provides web search" without reading prose.
+      provides: Array.isArray(e.provides) ? e.provides.filter((p) => typeof p === "string") : [],
       installed: inst !== undefined,
       installedVersion: inst?.manifest?.version ?? null,
       enabled: inst?.enabled ?? null,

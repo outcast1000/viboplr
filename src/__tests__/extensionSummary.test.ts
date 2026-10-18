@@ -1,6 +1,9 @@
 import { describe, it, expect } from "vitest";
 import {
   describeContributes,
+  describeProvides,
+  pluginServicesOf,
+  PLUGIN_SERVICES,
   skinMockColors,
   mixHex,
 } from "../utils/extensionSummary";
@@ -43,7 +46,7 @@ describe("describeContributes", () => {
       downloadProviders: [{ id: "yt-dl", name: "YouTube" }],
       imageProviders: [{ entity: "artist" }, { entity: "album" }],
     };
-    expect(describeContributes(c).map((x) => x.label)).toEqual(["Streaming", "Download", "Images"]);
+    expect(describeContributes(c).map((x) => x.label)).toEqual(["Playback fallback", "Download", "Images"]);
   });
 
   it("includes Sidebar view, Menu actions and Settings", () => {
@@ -118,5 +121,59 @@ describe("skinMockColors", () => {
     const m = skinMockColors(undefined);
     expect(m.bg).toMatch(/^#[0-9a-f]{6}$/);
     expect(m.accent).toMatch(/^#[0-9a-f]{6}$/);
+  });
+});
+
+// The service ids are a wire format shared with the gallery bot
+// (viboplr-plugins/scripts/lib.mjs → servicesOf): pinned here so a rename
+// shows up as a test failure, not as a capability silently vanishing from
+// gallery entries.
+describe("plugin services", () => {
+  it("keeps the service ids stable", () => {
+    expect(Object.keys(PLUGIN_SERVICES)).toEqual([
+      "playback-fallback", "downloads", "web-search", "catalog-search", "images",
+      "scrobbling", "home-shelves", "assistant-tools", "visualizers", "waveforms",
+    ]);
+  });
+
+  it("derives the declared services from a manifest, in vocabulary order", () => {
+    const c: PluginManifestContributes = {
+      webSearchProviders: [{ id: "web", name: "DuckDuckGo" }],
+      imageProviders: [{ entity: "artist" }],
+      streamResolvers: [{ id: "yt", name: "YouTube" }],
+      eventHooks: ["track:scrobbled"],
+      assistant: { tools: [{ name: "search_images", description: "d" }] },
+    };
+    expect(pluginServicesOf(c)).toEqual([
+      "playback-fallback", "web-search", "images", "scrobbling", "assistant-tools",
+      "images:artist",
+    ]);
+    expect(pluginServicesOf(undefined)).toEqual([]);
+    expect(pluginServicesOf({ assistant: { instructions: "only prose" } })).toEqual([]);
+  });
+
+  // Same fixture and answer as viboplr-plugins/scripts/lib.test.mjs.
+  it("adds images:<entity> and info:<typeId>, deduped, in manifest order", () => {
+    const c = {
+      imageProviders: [{ entity: "album" }, { entity: "artist", provider: "x" }, { entity: "album", provider: "y" }, { entity: "planet" }],
+      informationTypes: [{ id: "lyrics" }, { id: "artist_bio" }, { id: "lyrics" }, { id: "bad id!" }],
+    } as unknown as PluginManifestContributes;
+    expect(pluginServicesOf(c)).toEqual(["images", "images:album", "images:artist", "info:lyrics", "info:artist_bio"]);
+  });
+
+  it("the fine ids carry no label — capabilities stay the same", () => {
+    const c: PluginManifestContributes = { imageProviders: [{ entity: "artist" }] };
+    expect(describeProvides(pluginServicesOf(c)).map((x) => x.label)).toEqual(["Images"]);
+  });
+
+  it("a gallery entry's provides reads like the installed plugin's capabilities", () => {
+    const c: PluginManifestContributes = { webSearchProviders: [{ id: "web", name: "DuckDuckGo" }] };
+    expect(describeProvides(pluginServicesOf(c))).toEqual(describeContributes(c));
+  });
+
+  it("describeProvides skips unknown ids and garbage", () => {
+    expect(describeProvides(["web-search", "teleport", 3]).map((x) => x.label)).toEqual(["Web search"]);
+    expect(describeProvides(undefined)).toEqual([]);
+    expect(describeProvides("web-search")).toEqual([]);
   });
 });

@@ -671,6 +671,12 @@ export function useStreamResolution({
               ? (entry.videoFirst && e.reason === "miss" ? "no-video" : e.reason)
               : "error",
             detail: e instanceof ResolverMiss && e.reason === "miss" ? null : e instanceof Error ? e.message : String(e),
+            // A plugin's playback fallback, as opposed to the track's own source
+            // or the built-in Library lookup — the failure dialog's plugin
+            // suggestions read it to tell "none installed" from "none had it".
+            // Not on a "Prefer video" pass: that asked only for a video, so a
+            // miss there doesn't mean the plugin couldn't find the song.
+            ...(!entry.native && !entry.videoFirst && entry.effectiveSource?.kind === "plugin" ? { fallback: true } : {}),
           });
           failures.push({
             name: entry.name,

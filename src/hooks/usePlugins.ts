@@ -3,6 +3,7 @@ import { invoke, type InvokeArgs, type InvokeOptions } from "@tauri-apps/api/cor
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { subscribe, safeUnlisten } from "../utils/tauriEvents";
 import { isExperimental } from "../utils/pluginStability";
+import { semverSatisfies } from "../utils/semver";
 import { recordPluginLog } from "../utils/pluginLog";
 import { foldHeaderPairs, setCookieValues, type PluginHeaderPairs } from "../utils/pluginFetchHeaders";
 import {
@@ -61,6 +62,8 @@ import type {
   PluginVisualizerDescriptor,
   PluginVisualizerRegistration,
   PluginSearchResult,
+  PluginWebSearchProvider,
+  PluginWebSearchResult,
   InfoValueMatch,
   StreamCandidate,
   StreamResolveResult,
@@ -90,7 +93,14 @@ import {
   addTags, editTrackTags, NO_TAG_REFRESH, removeTags, writeFileMetadata,
   type FileMetadataEdit, type TagOpsDeps,
 } from "../utils/tagOps";
-import { invokeAssistantTool as invokeAssistantToolOp, listAssistantTools, listSearchProviders, searchCatalog } from "../utils/hostOps";
+import {
+  invokeAssistantTool as invokeAssistantToolOp, listAssistantTools, listSearchProviders, listWebSearchProviders,
+  searchCatalog, webSearch,
+} from "../utils/hostOps";
+import {
+  mergeWebSearchOrder, normalizeWebSearchResult, orderWebSearchProviders, WEB_SEARCH_ORDER_KEY,
+  type OrderedWebSearchProvider, type WebSearchOrderEntry,
+} from "../utils/webSearch";
 import { hostInstructions, inProcessContext, invokeHostTool, listHostTools } from "../utils/hostAssistantTools";
 import { fetchLocalLyrics } from "../utils/localLyrics";
 import { sanitizeViewHeader } from "../utils/pluginViewHeader";
@@ -101,6 +111,11 @@ import { sanitizeViewHeader } from "../utils/pluginViewHeader";
  *  a scrape window, which legitimately takes tens of seconds. */
 const PLUGIN_SEARCH_TIMEOUT_MS = 60000;
 
+/** Backstop for one web-search provider. Shorter than catalog search: a web
+ *  engine answers in a second or two, and the walk falls through to the next
+ *  provider on a timeout, so a hung one shouldn't hold the caller for a minute. */
+const WEB_SEARCH_TIMEOUT_MS = 20000;
+
 type PluginAutoContinueHandler = (request: PluginAutoContinueRequest) => PluginTrack[] | null | Promise<PluginTrack[] | null>;
 
 /** The host registries a plugin may call into — see `hostRegistryRef`. */
@@ -108,6 +123,8 @@ interface HostRegistry {
   pluginStates: PluginState[];
   searchProviders: PluginSearchProvider[];
   invokePluginSearch: (pluginId: string, providerId: string, query: string, limit: number) => Promise<PluginSearchResult>;
+  webSearchProviders: OrderedWebSearchProvider[];
+  invokeWebSearch: (pluginId: string, providerId: string, query: string, limit: number) => Promise<PluginWebSearchResult>;
   assistantTools: PluginAssistantTool[];
   assistantInstructions: Map<string, string>;
   invokeAssistantTool: (pluginId: string, name: string, args: Record<string, unknown>) => Promise<unknown>;
@@ -202,23 +219,6 @@ async function runImageHandler(
     console.error(`[plugin:${key}] image fetch error for ${entity}:`, e);
     return { status: "error", message: e instanceof Error ? e.message : String(e) };
   }
-}
-
-// Simple semver comparison: returns true if current >= required. Compares the
-// numeric major.minor.patch only — a pre-release/build suffix is dropped first,
-// or "1.0.111-beta.1" splits into a NaN segment (same rule as the Rust checker).
-function semverSatisfies(current: string, required: string): boolean {
-  const parse = (v: string) =>
-    v.trim().replace(/^v/, "").split(/[-+]/)[0].split(".").map((s) => Number(s) || 0);
-  const c = parse(current);
-  const r = parse(required);
-  for (let i = 0; i < 3; i++) {
-    const cv = c[i] ?? 0;
-    const rv = r[i] ?? 0;
-    if (cv > rv) return true;
-    if (cv < rv) return false;
-  }
-  return true; // equal
 }
 
 // -- Internal types --
@@ -409,6 +409,7 @@ export function usePlugins(
     icon?: string;
   }>>([]);
   const [searchProviders, setSearchProviders] = useState<PluginSearchProvider[]>([]);
+  const [manifestWebSearchProviders, setManifestWebSearchProviders] = useState<PluginWebSearchProvider[]>([]);
   const [visualizers, setVisualizers] = useState<PluginVisualizerRegistration[]>([]);
   const dynamicVisualizersRef = useRef<Map<string, PluginVisualizerRegistration>>(new Map());
   const [dynamicVisualizersVersion, setDynamicVisualizersVersion] = useState(0);
@@ -514,6 +515,27 @@ export function usePlugins(
   );
   const dynamicSearchProvidersRef = useRef(new Map<string, PluginSearchProvider>());
   const [dynamicSearchProvidersVersion, setDynamicSearchProvidersVersion] = useState(0);
+  // Web-search providers (api.webSearch): same shape as the catalog search
+  // above, plus the user's order + on/off from Settings → Providers.
+  const webSearchHandlersRef = useRef(
+    new Map<string, (query: string, limit: number) => Promise<PluginWebSearchResult>>(),
+  );
+  // Runtime registrations: the ref is mutated synchronously by the API, and
+  // each change is published as a state snapshot, so the merge below reads
+  // state rather than a ref during render.
+  const dynamicWebSearchProvidersRef = useRef(new Map<string, PluginWebSearchProvider>());
+  const [dynamicWebSearchProviders, setDynamicWebSearchProviders] = useState<PluginWebSearchProvider[]>([]);
+  const publishDynamicWebSearchProviders = useCallback(
+    () => setDynamicWebSearchProviders(Array.from(dynamicWebSearchProvidersRef.current.values())),
+    [],
+  );
+  const [webSearchOrder, setWebSearchOrderState] = useState<WebSearchOrderEntry[] | null>(null);
+  const webSearchOrderRef = useRef<WebSearchOrderEntry[] | null>(null);
+  // Until the stored order is read, nobody knows which engines the user
+  // switched off, so every provider counts as off (see webSearchProviders) —
+  // a search that early must not reach an engine the user turned off.
+  const [webSearchOrderLoaded, setWebSearchOrderLoaded] = useState(false);
+  const webSearchOrderLoadedRef = useRef(false);
   // Assistant tools (api.assistant): manifest declarations in state, runtime
   // registrations/handlers/instructions in refs — merged like search providers.
   // Handlers keyed `${pluginId}:${toolName}`.
@@ -563,6 +585,64 @@ export function usePlugins(
         console.error("Failed to read plugin contribution visibility:", e);
       }
     })();
+  }, []);
+
+  // The user's web-search provider order (Settings → Providers). Read on
+  // mount; written only by setWebSearchOrder, for the same no-restore-guard
+  // reason as the contribution map below.
+  useEffect(() => {
+    (async () => {
+      try {
+        const saved = await store.get<WebSearchOrderEntry[]>(WEB_SEARCH_ORDER_KEY);
+        if (Array.isArray(saved)) {
+          webSearchOrderRef.current = saved;
+          setWebSearchOrderState(saved);
+        }
+      } catch (e) {
+        // A store that can't be read leaves the defaults (every provider on):
+        // the alternative is web search off for the whole session, with no
+        // setting that could turn it back on.
+        console.error("Failed to read web search provider order:", e);
+      } finally {
+        webSearchOrderLoadedRef.current = true;
+        setWebSearchOrderLoaded(true);
+      }
+    })();
+  }, []);
+
+  /** Save the rows the user sees, in their new order / switches. Providers
+   *  not on screen keep their stored place (see mergeWebSearchOrder). */
+  const setWebSearchOrder = useCallback(
+    async (shown: Array<{ key: string; enabled: boolean }>) => {
+      // Before the stored order is read, merging against nothing would drop
+      // the entries for providers that aren't on screen. Settings shows every
+      // row off until then, so there is nothing real to save yet.
+      if (!webSearchOrderLoadedRef.current) {
+        console.error("Ignored a web search provider order change made before the saved order was read");
+        return;
+      }
+      const next = mergeWebSearchOrder(shown, webSearchOrderRef.current);
+      webSearchOrderRef.current = next;
+      setWebSearchOrderState(next);
+      try {
+        await store.set(WEB_SEARCH_ORDER_KEY, next);
+      } catch (e) {
+        console.error("Failed to persist web search provider order:", e);
+      }
+    },
+    [],
+  );
+
+  /** Settings' "Reset to Defaults": forget the stored order, so every
+   *  provider is on, in registration order (`orderWebSearchProviders`). */
+  const resetWebSearchOrder = useCallback(async () => {
+    webSearchOrderRef.current = [];
+    setWebSearchOrderState([]);
+    try {
+      await store.set(WEB_SEARCH_ORDER_KEY, []);
+    } catch (e) {
+      console.error("Failed to reset web search provider order:", e);
+    }
   }, []);
 
   // Persist on the toggle itself rather than from an effect: an effect would
@@ -1763,11 +1843,55 @@ export function usePlugins(
           },
         },
 
+        webSearch: {
+          onQuery(
+            providerId: string,
+            handler: (query: string, limit: number) => Promise<PluginWebSearchResult>,
+          ): () => void {
+            const key = `${pluginId}:${providerId}`;
+            webSearchHandlersRef.current.set(key, handler);
+            const unsub = () => {
+              if (webSearchHandlersRef.current.get(key) === handler) {
+                webSearchHandlersRef.current.delete(key);
+              }
+            };
+            trackUnsubscribe(unsub);
+            return unsub;
+          },
+          registerProvider(descriptor: { id: string; name: string; icon?: string }): () => void {
+            const key = `${pluginId}:${descriptor.id}`;
+            const entry = { pluginId, providerId: descriptor.id, name: descriptor.name, icon: descriptor.icon };
+            dynamicWebSearchProvidersRef.current.set(key, entry);
+            publishDynamicWebSearchProviders();
+            const unsub = () => {
+              if (deleteIfSame(dynamicWebSearchProvidersRef.current, key, entry)) {
+                publishDynamicWebSearchProviders();
+              }
+            };
+            trackUnsubscribe(unsub);
+            return unsub;
+          },
+          unregisterProvider(providerId: string): void {
+            if (dynamicWebSearchProvidersRef.current.delete(`${pluginId}:${providerId}`)) {
+              publishDynamicWebSearchProviders();
+            }
+          },
+          listProviders() {
+            return listWebSearchProviders(registry());
+          },
+          async query(query, opts) {
+            if (typeof query !== "string" || !query.trim()) throw new Error("query is required");
+            const provider = typeof opts?.provider === "string" && opts.provider ? opts.provider : undefined;
+            return webSearch(registry(), { query, limit: opts?.limit, provider }, crossCall);
+          },
+        },
+
         plugins: {
           list() {
             const r = registry();
             return describePlugins(r.pluginStates, {
               searchProviders: r.searchProviders,
+              webSearchProviders: r.webSearchProviders,
               homeShelves: r.homeShelves,
               menuItems: r.menuItems,
               assistantTools: r.assistantTools,
@@ -2274,6 +2398,18 @@ export function usePlugins(
     if (searchProvidersChanged) {
       setDynamicSearchProvidersVersion((v) => v + 1);
     }
+    // ...and its web-search handlers + runtime providers
+    for (const key of Array.from(webSearchHandlersRef.current.keys())) {
+      if (key.startsWith(`${pluginId}:`)) webSearchHandlersRef.current.delete(key);
+    }
+    let webSearchProvidersChanged = false;
+    for (const key of Array.from(dynamicWebSearchProvidersRef.current.keys())) {
+      if (key.startsWith(`${pluginId}:`)) {
+        dynamicWebSearchProvidersRef.current.delete(key);
+        webSearchProvidersChanged = true;
+      }
+    }
+    if (webSearchProvidersChanged) publishDynamicWebSearchProviders();
     // Clear assistant tool handlers + runtime registrations + instructions
     let assistantChanged = false;
     for (const key of Array.from(assistantToolHandlersRef.current.keys())) {
@@ -2559,6 +2695,7 @@ export function usePlugins(
         icon?: string;
       }> = [];
       const searchers: PluginSearchProvider[] = [];
+      const webSearchers: PluginWebSearchProvider[] = [];
       const vizzes: PluginVisualizerRegistration[] = [];
       const assistTools: PluginAssistantTool[] = [];
       const assistInstructions: Array<[string, string]> = [];
@@ -2782,6 +2919,10 @@ export function usePlugins(
               });
             }
           }
+          for (const wp of contrib.webSearchProviders ?? []) {
+            if (typeof wp?.id !== "string" || typeof wp.name !== "string") continue;
+            webSearchers.push({ pluginId: plugin.id, providerId: wp.id, name: wp.name, icon: wp.icon });
+          }
           if (contrib.visualizers) {
             for (const vz of contrib.visualizers) {
               vizzes.push({ pluginId: plugin.id, ...vz });
@@ -2902,6 +3043,7 @@ export function usePlugins(
       setSettingsPanels(settings);
       setHomeShelves(shelves);
       setSearchProviders(searchers);
+      setManifestWebSearchProviders(webSearchers);
       setVisualizers(vizzes);
       setManifestAssistantTools(assistTools);
       setManifestAssistantInstructions(new Map(assistInstructions));
@@ -3725,6 +3867,32 @@ export function usePlugins(
     [],
   );
 
+  // Run one web-search provider. Like invokePluginSearch, never rejects: a
+  // missing handler, a throw or the timeout come back as `error`, which is
+  // what lets hostOps.webSearch fall through to the user's next provider.
+  const invokeWebSearch = useCallback(
+    async (pluginId: string, providerId: string, query: string, limit: number): Promise<PluginWebSearchResult> => {
+      const handler = webSearchHandlersRef.current.get(`${pluginId}:${providerId}`);
+      if (!handler) return { status: "error", message: "handler not registered" };
+      let timer: ReturnType<typeof setTimeout> | undefined;
+      try {
+        const raw = await Promise.race([
+          Promise.resolve().then(() => handler(query, limit)),
+          new Promise<PluginWebSearchResult>((resolve) => {
+            timer = setTimeout(() => resolve({ status: "error", message: "timed out" }), WEB_SEARCH_TIMEOUT_MS);
+          }),
+        ]);
+        return normalizeWebSearchResult(raw, limit);
+      } catch (e) {
+        console.error(`Web search "${pluginId}:${providerId}" failed:`, e);
+        return { status: "error", message: e instanceof Error ? e.message : String(e) };
+      } finally {
+        clearTimeout(timer);
+      }
+    },
+    [],
+  );
+
   const pluginNames = useMemo(
     () =>
       new Map([
@@ -3751,6 +3919,19 @@ export function usePlugins(
     return merged;
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [searchProviders, dynamicSearchProvidersVersion]);
+
+  // Web-search providers in the user's order (Settings → Providers), each with
+  // its switch. Manifest + runtime merged like allSearchProviders.
+  const webSearchProviders = useMemo(() => {
+    const byKey = new Map(manifestWebSearchProviders.map((p) => [`${p.pluginId}:${p.providerId}`, p]));
+    for (const entry of dynamicWebSearchProviders) {
+      const key = `${entry.pluginId}:${entry.providerId}`;
+      if (!byKey.has(key)) byKey.set(key, entry);
+    }
+    const ordered = orderWebSearchProviders([...byKey.values()], webSearchOrder);
+    // Fail closed until the user's switches are known (see webSearchOrderLoaded).
+    return webSearchOrderLoaded ? ordered : ordered.map((p) => ({ ...p, enabled: false }));
+  }, [manifestWebSearchProviders, dynamicWebSearchProviders, webSearchOrder, webSearchOrderLoaded]);
 
   // Assistant tools: manifest declarations + runtime registrations, runtime
   // winning a name collision (a conditional re-registration refines the
@@ -3907,6 +4088,8 @@ export function usePlugins(
       pluginStates,
       searchProviders: visibleSearchProviders,
       invokePluginSearch,
+      webSearchProviders,
+      invokeWebSearch,
       assistantTools: allAssistantTools,
       assistantInstructions,
       invokeAssistantTool,
@@ -3915,7 +4098,7 @@ export function usePlugins(
       pluginNames,
     }),
     [
-      pluginStates, visibleSearchProviders, invokePluginSearch, allAssistantTools,
+      pluginStates, visibleSearchProviders, invokePluginSearch, webSearchProviders, invokeWebSearch, allAssistantTools,
       assistantInstructions, invokeAssistantTool, allHomeShelves, allMenuItems, pluginNames,
     ],
   );
@@ -4054,6 +4237,10 @@ export function usePlugins(
     invokeHomeShelfResolvePlay,
     searchProviders: visibleSearchProviders,
     invokePluginSearch,
+    webSearchProviders,
+    invokeWebSearch,
+    setWebSearchOrder,
+    resetWebSearchOrder,
     assistantTools: allAssistantTools,
     assistantInstructions,
     invokeAssistantTool,

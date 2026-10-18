@@ -542,6 +542,7 @@ export function useExtensions(props: UseExtensionsProps) {
         updateUrl: entry.updateUrl,
         recommended: entry.recommended === true,
         stability: entry.stability,
+        provides: entry.provides,
       });
     }
 

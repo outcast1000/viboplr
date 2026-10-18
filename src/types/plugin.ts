@@ -175,6 +175,18 @@ export interface PluginManifestSearchProvider {
   icon?: string;
 }
 
+/**
+ * A web search the plugin answers through `api.webSearch.onQuery` — see
+ * `PluginWebSearchAPI`. Declared so the gallery and Settings → Providers know
+ * about it before the plugin activates.
+ */
+export interface PluginManifestWebSearchProvider {
+  id: string;
+  /** Shown in Settings → Providers and named as the source of results. */
+  name: string;
+  icon?: string;
+}
+
 /** Static declaration of the plugin's AI-assistant surface — see
  *  `PluginAssistantAPI`. `instructions` is prose for the model (what the
  *  plugin is for, how the tools compose); each tool still needs an
@@ -202,6 +214,8 @@ export interface PluginManifestContributes {
   settingsPanel?: PluginManifestSettingsPanel;
   homeShelves?: PluginManifestHomeShelf[];
   searchProviders?: PluginManifestSearchProvider[];
+  /** Web searches other plugins and assistants can run — see PluginWebSearchAPI. */
+  webSearchProviders?: PluginManifestWebSearchProvider[];
   /** Rich visuals that fill host-owned slots. See types/pluginVisualizer.ts. */
   visualizers?: PluginVisualizerDescriptor[];
   /** Tools + instructions for AI assistants driving the control API. */
@@ -1673,6 +1687,70 @@ export interface PluginSearchAPI {
   query(providerKey: string, query: string, limit?: number): Promise<PluginSearchResult>;
 }
 
+/** One page a web search found. `url` is always http(s). */
+export interface PluginWebSearchHit {
+  title: string;
+  url: string;
+  /** The engine's excerpt of the page — its own words near the query. */
+  snippet?: string;
+  /** Display host, e.g. "en.wikipedia.org". Filled from `url` when omitted. */
+  site?: string;
+}
+
+export type PluginWebSearchResult =
+  | { status: "ok"; results: PluginWebSearchHit[] }
+  | { status: "empty" }
+  | { status: "error"; message?: string };
+
+/** What `api.webSearch.query` resolves with: the result plus who answered. */
+export type PluginWebSearchAnswer = PluginWebSearchResult & {
+  /** `pluginId:providerId` of the provider whose result this is; absent when
+   *  none could answer. */
+  provider?: string;
+  /** Its display name. */
+  providerName?: string;
+};
+
+/**
+ * Web search as a shared service: any plugin can provide one, any plugin can
+ * run one. A typed registry like `PluginSearchAPI` rather than an assistant
+ * tool because the result has a fixed shape (pages, not tracks) and the user
+ * picks which engines may answer and in what order (Settings → Providers →
+ * Web search) — a consumer asks for "a web search", not for DuckDuckGo.
+ *
+ * Providers declare `contributes.webSearchProviders` and answer with
+ * `onQuery`; `registerProvider` is for a provider that can only sometimes
+ * search. Consumers need the `plugins:call` permission. The same service
+ * backs the control API's `POST /v1/web/search` (MCP `web_search`), so AI
+ * assistants reach it too.
+ */
+export interface PluginWebSearchAPI {
+  /** Answer queries for one of this plugin's providers. Return `empty` for a
+   *  miss and `error` (with a message the user can act on) when the engine
+   *  refused or changed — never an empty list for a failure, or the caller
+   *  can't tell "nothing out there" from "couldn't look". */
+  onQuery(
+    providerId: string,
+    handler: (query: string, limit: number) => Promise<PluginWebSearchResult>,
+  ): () => void;
+  registerProvider(descriptor: { id: string; name: string; icon?: string }): () => void;
+  unregisterProvider(providerId: string): void;
+  /** The providers the user has switched on, in their order. `key` is
+   *  `pluginId:providerId`. */
+  listProviders(): Array<{ key: string; pluginId: string; providerId: string; name: string }>;
+  /**
+   * Run a web search. With no `provider` the user's providers are tried in
+   * their order and the first that answers (`ok` or `empty`) wins — one that
+   * errors hands over to the next. With `provider` (a key from
+   * `listProviders()`, or an unambiguous provider id / plugin id / name) only
+   * that one runs. A failing provider is `{ status: "error" }`, never a
+   * rejection; this rejects only for a bad request (no query, no providers,
+   * unknown provider, call cycle). `limit` defaults to 10, max 25. Guard for
+   * older hosts: `typeof api.webSearch?.query === "function"`.
+   */
+  query(query: string, opts?: { limit?: number; provider?: string }): Promise<PluginWebSearchAnswer>;
+}
+
 /** What `api.plugins.list()` says about one installed plugin. */
 export interface PluginDescriptor {
   id: string;
@@ -2292,6 +2370,8 @@ export interface ViboplrPluginAPI {
   home: PluginHomeAPI;
   nowPlayingInfo: PluginNowPlayingInfoAPI;
   search: PluginSearchAPI;
+  /** Web search as a shared service — provide one, or run the user's. */
+  webSearch: PluginWebSearchAPI;
   /** Rich visuals in host-owned slots. Plugins render host state; they do not
    *  own it. See types/pluginVisualizer.ts for the contract. */
   visualizers: PluginVisualizerAPI;
@@ -2329,6 +2409,10 @@ export interface GalleryPluginEntry {
    *  values are treated as experimental-tier (fail-safe). Mirrors the manifest
    *  field for pre-install presentation. Source of truth is the gallery index. */
   stability?: string;
+  /** Services the plugin's manifest declares, as `PLUGIN_SERVICES` ids
+   *  ("playback-fallback", "web-search", …) — derived by the gallery bot so
+   *  the gallery can say what a plugin provides before it is installed. */
+  provides?: string[];
 }
 
 export interface PluginGalleryIndex {
@@ -2364,6 +2448,14 @@ export interface PluginSettingsPanel {
   label: string;
   icon?: string;
   order: number;
+}
+
+/** A registered web-search provider (manifest or runtime), host-side view. */
+export interface PluginWebSearchProvider {
+  pluginId: string;
+  providerId: string;
+  name: string;
+  icon?: string;
 }
 
 /** A registered global-search provider (manifest or runtime), host-side view. */
@@ -2406,6 +2498,9 @@ export interface ExtensionItem {
   devPath?: string;
   icon?: string;
   contributes?: PluginManifestContributes;
+  /** Not-installed gallery entries: the services the gallery says it provides
+   *  (there is no manifest to read `contributes` from yet). */
+  provides?: string[];
   /** Worker-runtime plugins only: what the manifest asks for, why (cleaned
    *  `permissionReasons`), and what of it still awaits the user's approval. */
   runtime?: "worker";

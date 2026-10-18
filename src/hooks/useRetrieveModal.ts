@@ -10,7 +10,7 @@ import {
   isCoreImageProvider,
 } from "../utils/coreImageProviders";
 
-import { useAssignRef } from "./useLatestRef";
+import { useAssignRef, useLatestRef } from "./useLatestRef";
 // Centered, cancelable "Retrieve" modal for user-triggered image & info fetches.
 //
 // Model (matches how the background chain already works, but visible + pausable):
@@ -78,6 +78,16 @@ export interface RetrieveModalData {
   countdown: number | null;
   keepOpen: boolean;
   message?: string;
+  /** "exhausted" because saving the chosen result failed, not because no
+   *  provider found one — there is nothing to suggest then. */
+  applyFailed?: boolean;
+}
+
+/** Whether plugin suggestions belong on this modal: the chain came back
+ *  without anything to apply. The modal (what it shows) and the hold-open
+ *  check (whether it waits) both ask this, so they can't disagree. */
+export function retrieveWantsSuggestions(m: RetrieveModalData): boolean {
+  return m.phase === "exhausted" && !m.applyFailed;
 }
 
 type InvokeInfoFetch = (
@@ -132,7 +142,13 @@ interface FetchOutcome {
 export function useRetrieveModal(
   invokeImageFetch: InvokeImageFetch,
   invokeInfoFetch: InvokeInfoFetch,
+  opts?: {
+    /** True when the exhausted modal has something left to read (plugin
+     *  suggestions): it then waits for the user instead of auto-closing. */
+    holdOpenWhenExhausted?: (m: RetrieveModalData) => boolean;
+  },
 ): UseRetrieveModalReturn {
+  const holdOpenRef = useLatestRef(opts?.holdOpenWhenExhausted);
   const [modal, setModal] = useState<RetrieveModalData | null>(null);
   const modalRef = useRef<RetrieveModalData | null>(null);
   useAssignRef(modalRef, modal);
@@ -163,13 +179,21 @@ export function useRetrieveModal(
   }, [clearTick, clearAppliedTimer]);
   useAssignRef(closeRef, close);
 
-  const startCountdown = useCallback((seconds: number, mode: "apply" | "close") => {
+  // `userArmed`: the user switched Keep open back off, asking for the close —
+  // the suggestions hold below must not take that back on the next tick.
+  const startCountdown = useCallback((seconds: number, mode: "apply" | "close", userArmed = false) => {
     clearTick();
     countdownModeRef.current = mode;
     setModal((m) => m && { ...m, countdown: seconds });
     tickRef.current = setInterval(() => {
       setModal((m) => {
         if (!m) return m;
+        // Suggestions can land after the chain ran out (the gallery index is
+        // fetched alongside it): stop closing once there is something to read.
+        if (mode === "close" && !userArmed && retrieveWantsSuggestions(m) && holdOpenRef.current?.(m)) {
+          clearTick();
+          return { ...m, countdown: null };
+        }
         const next = (m.countdown ?? 0) - 1;
         if (next <= 0) {
           clearTick();
@@ -180,7 +204,7 @@ export function useRetrieveModal(
         return { ...m, countdown: next };
       });
     }, 1000);
-  }, [clearTick]);
+  }, [clearTick, holdOpenRef]);
 
   // ── Single-provider fetch ─────────────────────────────────
   const fetchProvider = useCallback(async (data: RetrieveModalData, provider: ProviderRow, gen: number): Promise<FetchOutcome> => {
@@ -253,9 +277,13 @@ export function useRetrieveModal(
     if (gen !== genRef.current) return;
     setModal((m) => m && { ...m, phase: "exhausted", imagePreview: undefined, infoPreview: undefined, message: "No result found from any provider" });
     const keepOpen = modalRef.current?.keepOpen ?? false;
-    if (keepOpen) setModal((m) => m && { ...m, countdown: null });
+    // From `data`, not modalRef: a provider that answers before the first
+    // commit leaves the ref unset, and the predicate only needs what is being
+    // retrieved (kind / entity / info type), which `data` carries.
+    const hold = !!holdOpenRef.current?.({ ...data, phase: "exhausted" });
+    if (keepOpen || hold) setModal((m) => m && { ...m, countdown: null });
     else startCountdown(EXHAUSTED_SECS, "close");
-  }, [fetchProvider, setProviderStatus, startCountdown]);
+  }, [fetchProvider, setProviderStatus, startCountdown, holdOpenRef]);
 
   // ── Public openers ────────────────────────────────────────
   const openImage = useCallback((args: OpenImageArgs) => {
@@ -366,7 +394,7 @@ export function useRetrieveModal(
       } catch (e) {
         if (gen !== genRef.current) return;
         console.error("Retrieve apply failed:", e);
-        setModal((cur) => cur && { ...cur, phase: "exhausted", message: e instanceof Error ? e.message : String(e), countdown: null });
+        setModal((cur) => cur && { ...cur, phase: "exhausted", applyFailed: true, message: e instanceof Error ? e.message : String(e), countdown: null });
       }
     })();
   }, [clearTick]);
@@ -381,7 +409,7 @@ export function useRetrieveModal(
       }
       // Re-arm the appropriate countdown for the current phase.
       if (m.phase === "paused") startCountdown(GRACE_SECS, "apply");
-      else if (m.phase === "exhausted") startCountdown(EXHAUSTED_SECS, "close");
+      else if (m.phase === "exhausted") startCountdown(EXHAUSTED_SECS, "close", true);
       return { ...m, keepOpen: false };
     });
   }, [clearTick, startCountdown]);

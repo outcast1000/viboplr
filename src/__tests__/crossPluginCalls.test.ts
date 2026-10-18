@@ -83,6 +83,8 @@ describe("describePlugins", () => {
   it("merges live counts with declared capabilities and drops zeros", () => {
     const out = describePlugins(states, {
       searchProviders: [{ pluginId: "ytdlp" }],
+      // Only switched-on web-search providers count: what a caller can reach.
+      webSearchProviders: [{ pluginId: "ytdlp", enabled: true }, { pluginId: "lastfm", enabled: false }],
       homeShelves: [],
       menuItems: [{ pluginId: "ytdlp" }, { pluginId: "ytdlp" }],
       assistantTools: [{ pluginId: "ytdlp" }, { pluginId: "lastfm" }],
@@ -90,7 +92,7 @@ describe("describePlugins", () => {
     const ytdlp = out.find((p) => p.id === "ytdlp")!;
     expect(ytdlp).toMatchObject({ name: "yt-dlp", version: "1.0.0", enabled: true, status: "active" });
     expect(ytdlp.capabilities).toEqual({
-      searchProviders: 1, contextMenuItems: 2, assistantTools: 1, downloadProviders: 1, streamResolvers: 1,
+      searchProviders: 1, webSearchProviders: 1, contextMenuItems: 2, assistantTools: 1, downloadProviders: 1, streamResolvers: 1,
     });
     const lastfm = out.find((p) => p.id === "lastfm")!;
     expect(lastfm.enabled).toBe(false);

@@ -96,6 +96,8 @@ export class CallGraph {
 
 export interface LiveCapabilitySources {
   searchProviders: Array<{ pluginId: string }>;
+  /** Only the switched-on ones count — that is what a caller can reach. */
+  webSearchProviders: Array<{ pluginId: string; enabled: boolean }>;
   homeShelves: Array<{ pluginId: string }>;
   menuItems: Array<{ pluginId: string }>;
   assistantTools: Array<{ pluginId: string }>;
@@ -110,6 +112,7 @@ export function describePlugins(
   return states.map((p) => {
     const counts: LiveCapabilityCounts = {
       searchProviders: count(live.searchProviders, p.id),
+      webSearchProviders: count(live.webSearchProviders.filter((w) => w.enabled), p.id),
       homeShelves: count(live.homeShelves, p.id),
       contextMenuItems: count(live.menuItems, p.id),
       assistantTools: count(live.assistantTools, p.id),

@@ -498,6 +498,11 @@ pub(crate) fn build_router(state: ServerState) -> Router {
         .route("/v1/status", get(|s| handle_bridge_get(s, "status")))
         .route("/v1/search/providers", get(|s| handle_bridge_get(s, "search.providers")))
         .route("/v1/search/plugin", post(|s, b| handle_bridge_body_slow(s, "search.plugin", b)))
+        // Web search through the plugins that provide one, in the user's
+        // order (Settings → Providers → Web search). Slow: the frontend walks
+        // providers, each with its own 20s budget.
+        .route("/v1/web/providers", get(|s| handle_bridge_get(s, "web.providers")))
+        .route("/v1/web/search", post(|s, b| handle_bridge_body_slow(s, "web.search", b)))
         .route("/v1/home/shelves", get(|s| handle_bridge_get(s, "home.shelves")))
         .route("/v1/home/shelf", post(|s, b| handle_bridge_body_slow(s, "home.shelf", b)))
         .route("/v1/home/play", post(|s, b| handle_bridge_body_slow(s, "home.play", b)))

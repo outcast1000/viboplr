@@ -1,6 +1,8 @@
 import { renderers } from "./renderers";
 import { PluginViewSection } from "./renderers/PluginViewSection";
-import type { RetrieveModalData, ProviderRow, ProviderStatus } from "../hooks/useRetrieveModal";
+import { retrieveWantsSuggestions, type RetrieveModalData, type ProviderRow, type ProviderStatus } from "../hooks/useRetrieveModal";
+import type { ProviderSuggestion } from "../utils/providerSuggestions";
+import { ProviderSuggestionList } from "./ProviderSuggestionList";
 import "./RetrieveModal.css";
 
 interface RetrieveModalProps {
@@ -9,6 +11,28 @@ interface RetrieveModalProps {
   onApplyNow: () => void;
   onCancel: () => void;
   onSetKeepOpen: (keep: boolean) => void;
+  /** Plugins that supply this image / information type and aren't helping
+   *  now (`utils/providerSuggestions.ts`). Shown only once nothing was found. */
+  suggestions?: ProviderSuggestion[] | null;
+  /** Opens that plugin's page in Extensions. */
+  onShowPlugin?: (pluginId: string) => void;
+}
+
+/** What the suggestion block says, by what the chain did. */
+function suggestionHeading(modal: RetrieveModalData): string {
+  const what = modal.kind === "image"
+    ? (modal.entityKind === "album" ? "album art" : `${modal.entityKind} images`)
+    : "this information";
+  // No rows can also mean an installed plugin's rows are all switched off in
+  // Settings → Providers, so don't claim nothing installed provides it.
+  if (modal.providers.length === 0) return `No provider for ${what} is switched on. These plugins can supply it:`;
+  // Something was found and passed over with Try next, so "had nothing" would be untrue.
+  if (modal.providers.some((p) => p.status === "found")) return `These plugins can also look for ${what}:`;
+  // A provider that errored couldn't look, which is not the same as not having it.
+  if (modal.providers.some((p) => p.status === "error")) {
+    return `Some of your providers couldn't be reached and none had it. These plugins can look for ${what} too:`;
+  }
+  return `None of your providers had it. These plugins can look for ${what} too:`;
 }
 
 function StatusIcon({ status }: { status: ProviderStatus }) {
@@ -82,8 +106,14 @@ function Preview({ modal }: { modal: RetrieveModalData }) {
  * countdown auto-applies unless the user picks "Try next" or toggles Keep open.
  * No overlay-click dismiss (per app modal rules).
  */
-export function RetrieveModal({ modal, onTryNext, onApplyNow, onCancel, onSetKeepOpen }: RetrieveModalProps) {
+export function RetrieveModal({
+  modal, onTryNext, onApplyNow, onCancel, onSetKeepOpen, suggestions, onShowPlugin,
+}: RetrieveModalProps) {
   const { phase } = modal;
+  // Same test the hook's hold-open check uses, so a held-open modal always has
+  // suggestions on it. A result the user passed over with Try next doesn't
+  // count against them: the chain still came back with nothing applied.
+  const showSuggestions = retrieveWantsSuggestions(modal) && !!suggestions?.length && !!onShowPlugin;
   const paused = phase === "paused";
   const busy = phase === "running" || phase === "applying";
   const applied = phase === "applied";
@@ -113,6 +143,15 @@ export function RetrieveModal({ modal, onTryNext, onApplyNow, onCancel, onSetKee
         {(paused || applied) && <Preview modal={modal} />}
 
         <div className={`rm-statusline rm-statusline--${phase}`}>{statusLine}</div>
+
+        {showSuggestions && suggestions && onShowPlugin && (
+          <ProviderSuggestionList
+            heading={suggestionHeading(modal)}
+            plugins={suggestions}
+            onShowPlugin={onShowPlugin}
+            note="Once one is on, it joins Settings → Providers; then retrieve again."
+          />
+        )}
 
         {!applied && (
           <label className="rm-keepopen">

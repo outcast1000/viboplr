@@ -31,7 +31,9 @@ import type {
   PluginMenuItem, PluginContextMenuTarget, PluginTargetKind, PluginTrack,
   HomeShelfDisplayKind, HomeShelfItem, HomeShelfResult, GalleryPluginEntry,
   PluginAssistantTool, ImageFetchResult, DownloadProvider, DownloadQualityOption,
+  PluginWebSearchResult,
 } from "../types/plugin";
+import type { OrderedWebSearchProvider } from "../utils/webSearch";
 import { classifyEffectiveSource } from "../queueEntry";
 import { decideDownload } from "../utils/downloadPlan";
 import type { GallerySkinEntry, SkinInfo } from "../types/skin";
@@ -79,7 +81,10 @@ import {
   type BitPerfectStatusInput,
   type ControlApiRequest,
 } from "../utils/controlApi";
-import { clampSearchLimit, invokeAssistantTool, listAssistantTools, listSearchProviders, searchCatalog } from "../utils/hostOps";
+import {
+  clampSearchLimit, invokeAssistantTool, listAssistantTools, listSearchProviders, listWebSearchProviders,
+  searchCatalog, webSearch,
+} from "../utils/hostOps";
 import { addToQueue, playNow, playWithBackfill, type DuplicatePolicy, type QueueOpsDeps } from "../utils/queueOps";
 import { permissionReasons } from "../pluginWorker/permissions";
 import type { DeleteTracksResult } from "./useContextMenuActions";
@@ -146,6 +151,9 @@ export interface ControlApiDeps {
       query: string,
       limit: number,
     ) => Promise<PluginSearchResult>;
+    /** Web-search providers in the user's order, with their switches. */
+    webSearchProviders: OrderedWebSearchProvider[];
+    invokeWebSearch: (pluginId: string, providerId: string, query: string, limit: number) => Promise<PluginWebSearchResult>;
     invokeInfoFetch: InvokeInfoFetch;
     pluginNames?: Map<string, string>;
     /** Plugin home shelves (merged manifest + runtime, e.g. Spotify sections). */
@@ -945,6 +953,20 @@ export function useControlApi(deps: ControlApiDeps) {
       case "search.providers":
         return { providers: listSearchProviders(d.plugins) };
 
+      // --- Web search (any plugin's engine, in the user's provider order) ---
+
+      case "web.providers":
+        return { providers: listWebSearchProviders(d.plugins) };
+
+      case "web.search": {
+        const query = optionalString(payload.query) ?? bad("query is required");
+        // A provider failure is an answer here, not a 400: the model should
+        // see "DuckDuckGo blocked the search" and say so, not retry blind.
+        return webSearch(d.plugins, {
+          query, limit: payload.limit, provider: optionalString(payload.provider) ?? undefined,
+        });
+      }
+
       case "search.plugin": {
         const query = optionalString(payload.query) ?? bad("query is required");
         const providerKey = optionalString(payload.provider)
@@ -1335,6 +1357,7 @@ export function useControlApi(deps: ControlApiDeps) {
             // omitted. Full detail (and declared-vs-live): extensions.get.
             capabilities: summarizeCapabilities(p.manifest?.contributes, {
               searchProviders: d.plugins.searchProviders.filter((sp) => sp.pluginId === p.id).length,
+              webSearchProviders: d.plugins.webSearchProviders.filter((w) => w.pluginId === p.id && w.enabled).length,
               homeShelves: d.plugins.homeShelves.filter((s) => s.pluginId === p.id).length,
               contextMenuItems: d.plugins.menuItems.filter((m) => m.pluginId === p.id).length,
               assistantTools: d.plugins.assistantTools.filter((t) => t.pluginId === p.id).length,
@@ -1448,6 +1471,9 @@ export function useControlApi(deps: ControlApiDeps) {
             searchProviders: d.plugins.searchProviders
               .filter((sp) => sp.pluginId === pluginId)
               .map((sp) => ({ key: `${sp.pluginId}:${sp.providerId}`, name: sp.name })),
+            webSearchProviders: d.plugins.webSearchProviders
+              .filter((w) => w.pluginId === pluginId)
+              .map((w) => ({ key: w.key, name: w.name, enabled: w.enabled })),
             homeShelves: d.plugins.homeShelves
               .filter((s) => s.pluginId === pluginId)
               .map((s) => ({ key: `${s.pluginId}:${s.shelfId}`, title: s.title, displayKind: s.displayKind })),

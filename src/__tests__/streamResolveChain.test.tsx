@@ -288,3 +288,46 @@ describe("attributing a metadata resolver's file:// answer", () => {
     expect(result.current.resolvedSource?.sourceUrl).toBe("file://D:/slskd/viboplr/fallback/1-x/All Wrong.mp3");
   });
 });
+
+describe("the failure record says which attempts were plugin fallbacks", () => {
+  it("marks the plugin fallback, not the track's own source or the Library lookup", async () => {
+    // The failure dialog's plugin suggestions read `fallback` to tell "no
+    // playback fallback is on" from "the ones you have didn't find it".
+    const soulseek: StreamResolver = {
+      id: "slskd-fallback",
+      name: "Soulseek",
+      source: "slskd",
+      resolve: vi.fn().mockResolvedValue(null),
+    };
+    const { resolve, result } = mountChain({ uriFails: true, extraResolvers: [soulseek] });
+
+    await expect(resolve()).rejects.toThrow(/Couldn't find a playable source/);
+    await vi.waitFor(() => expect(result.current.trackFailures[QBT_TRACK.key]).toBeTruthy());
+    const attempts = result.current.trackFailures[QBT_TRACK.key].attempts;
+    expect(attempts.map((a) => [a.name, a.fallback === true])).toEqual([
+      ["qBittorrent", false],
+      ["Library", false],
+      ["Soulseek", true],
+    ]);
+  });
+
+  it("a miss on the Prefer video pass isn't a fallback miss", async () => {
+    // That pass asked only for a video; only the audio pass's attempt says
+    // whether the plugin could find the song at all.
+    const soulseek: StreamResolver = {
+      id: "slskd-fallback",
+      name: "Soulseek",
+      source: "slskd",
+      resolve: vi.fn().mockResolvedValue(null),
+    };
+    const { resolve, result } = mountChain({ uriFails: true, preferVideo: true, extraResolvers: [soulseek] });
+
+    await expect(resolve()).rejects.toThrow(/Couldn't find a playable source/);
+    await vi.waitFor(() => expect(result.current.trackFailures[QBT_TRACK.key]).toBeTruthy());
+    const soulseekAttempts = result.current.trackFailures[QBT_TRACK.key].attempts.filter((a) => a.name === "Soulseek");
+    expect(soulseekAttempts.map((a) => [a.outcome, a.fallback === true])).toEqual([
+      ["no-video", false],
+      ["miss", true],
+    ]);
+  });
+});

@@ -58,6 +58,30 @@
     return v !== '' && v !== 'stable';
   }
 
+  // The services a plugin provides (`provides` in the gallery index, derived
+  // by the gallery bot from the manifest). Labels mirror the app's
+  // PLUGIN_SERVICES (src/utils/extensionSummary.ts) — the site has no build
+  // step, so keep the two in sync. An id the site doesn't know is skipped.
+  var SERVICE_LABELS = {
+    'playback-fallback': 'Playback fallback',
+    'downloads': 'Download',
+    'web-search': 'Web search',
+    'catalog-search': 'Catalog search',
+    'images': 'Images',
+    'scrobbling': 'Scrobbling',
+    'home-shelves': 'Home shelves',
+    'assistant-tools': 'AI tools',
+    'visualizers': 'Visualizer',
+    'waveforms': 'Waveforms'
+  };
+
+  function serviceLabels(p) {
+    if (!Array.isArray(p.provides)) return [];
+    return p.provides
+      .filter(function (id) { return Object.prototype.hasOwnProperty.call(SERVICE_LABELS, id); })
+      .map(function (id) { return SERVICE_LABELS[id]; });
+  }
+
   function setStatus(msg, isError) {
     if (!statusEl) return;
     statusEl.textContent = msg || '';
@@ -114,6 +138,12 @@
         textLink(repo + '/issues', 'Issues');
     }
     var id = p.id ? '<span class="gallery-card-id">' + esc(p.id) + '</span>' : '';
+    var services = serviceLabels(p);
+    var provides = services.length
+      ? '<div class="gallery-card-provides" aria-label="Provides">' +
+          services.map(function (s) { return '<span class="gallery-service">' + esc(s) + '</span>'; }).join('') +
+        '</div>'
+      : '';
     return (
       '<div class="gallery-card' + (p.recommended && !exp ? ' gallery-card--rec' : '') + '">' +
         '<div class="gallery-card-icon">' + pluginIcon(p) + '</div>' +
@@ -121,6 +151,7 @@
           '<div class="gallery-card-head"><h3>' + esc(p.name) + '</h3>' + rec + '</div>' +
           id +
           '<p class="gallery-card-desc">' + esc(p.description) + '</p>' +
+          provides +
           '<div class="gallery-card-meta"><span>by ' + esc(p.author) + '</span></div>' +
           '<div class="gallery-card-actions">' + install + '</div>' +
           '<div class="gallery-card-links">' + links + '</div>' +
@@ -253,7 +284,9 @@
       return (
         String(it.name).toLowerCase().indexOf(q) !== -1 ||
         String(it.author).toLowerCase().indexOf(q) !== -1 ||
-        String(it.description || '').toLowerCase().indexOf(q) !== -1
+        String(it.description || '').toLowerCase().indexOf(q) !== -1 ||
+        // "web search", "playback fallback" find the plugins that provide it.
+        serviceLabels(it).join(' ').toLowerCase().indexOf(q) !== -1
       );
     });
     render(filtered, true);

@@ -23,9 +23,11 @@
 
 import type {
   PluginAssistantTool, PluginSearchProvider, PluginSearchResult, PluginState,
+  PluginWebSearchAnswer, PluginWebSearchResult,
 } from "../types/plugin";
 import { buildAssistantRoster, resolveSearchProvider } from "./controlApi";
 import { callableProblem } from "./crossPluginCalls";
+import { clampWebSearchLimit, walkWebSearchProviders, type OrderedWebSearchProvider } from "./webSearch";
 
 /** Wraps the actual handler invocation. The control API calls straight
  *  through; a plugin caller passes crossCall(target, what, run). */
@@ -89,6 +91,84 @@ export async function searchCatalog(
     reg.invokePluginSearch(provider.pluginId, provider.providerId, args.query, limit),
   );
   return { provider, result };
+}
+
+// --- Web search ---
+
+export interface WebSearchOpsRegistry {
+  pluginStates: PluginStates;
+  /** Every registered provider in the user's order, each with its switch. */
+  webSearchProviders: OrderedWebSearchProvider[];
+  /** Runs one provider's handler; never rejects (timeouts and throws come
+   *  back as `{ status: "error" }`), and the result is already normalized. */
+  invokeWebSearch: (pluginId: string, providerId: string, query: string, limit: number) => Promise<PluginWebSearchResult>;
+}
+
+/** The providers a caller may use: switched on, in the user's order. */
+export function listWebSearchProviders(reg: Pick<WebSearchOpsRegistry, "webSearchProviders">): SearchProviderListing[] {
+  return reg.webSearchProviders.filter((p) => p.enabled).map((p) => ({
+    key: p.key,
+    pluginId: p.pluginId,
+    providerId: p.providerId,
+    name: p.name,
+  }));
+}
+
+/**
+ * Run a web search. No `provider`: walk the user's switched-on providers in
+ * order, skipping any whose plugin isn't callable right now, first answer
+ * wins (see walkWebSearchProviders). With `provider`: that one only — and a
+ * provider the user switched off is refused, not quietly run, because the
+ * switch is the user saying "don't send my searches there".
+ */
+export async function webSearch(
+  reg: WebSearchOpsRegistry,
+  args: { query: string; limit?: unknown; provider?: string },
+  via: OpVia = direct,
+): Promise<PluginWebSearchAnswer> {
+  const query = args.query.trim();
+  if (!query) throw new Error("query is required");
+  const limit = clampWebSearchLimit(args.limit);
+  const run = (p: OrderedWebSearchProvider) =>
+    via(p.pluginId, `websearch:${p.providerId}`, () => reg.invokeWebSearch(p.pluginId, p.providerId, query, limit));
+
+  if (args.provider) {
+    // Resolved among the switched-on providers only, so neither the
+    // ambiguity check nor the roster in an error names an engine the user
+    // turned off. Only a name that points at one of those gets told so.
+    const enabled = reg.webSearchProviders.filter((p) => p.enabled);
+    const provider = resolveSearchProvider(enabled, args.provider, "web search provider");
+    if (typeof provider === "string") {
+      const off = resolveSearchProvider(reg.webSearchProviders, args.provider);
+      if (typeof off !== "string" && !off.enabled) {
+        throw new Error(`web search provider "${off.name}" is switched off in Settings → Providers → Web search`);
+      }
+      throw new Error(provider);
+    }
+    const problem = callableProblem(reg.pluginStates, provider.pluginId);
+    if (problem) throw new Error(problem);
+    const result = await run(provider);
+    return { ...result, provider: provider.key, providerName: provider.name };
+  }
+
+  const usable = reg.webSearchProviders.filter(
+    (p) => p.enabled && !callableProblem(reg.pluginStates, p.pluginId),
+  );
+  if (!usable.length) {
+    throw new Error(
+      reg.webSearchProviders.length
+        ? "every web search provider is switched off or not running (Settings → Providers → Web search)"
+        : "no web search provider is installed — plugins in the extension gallery that provide one list \"web-search\" in `provides`",
+    );
+  }
+  // A refusal from `via` (a call cycle — the caller is itself a provider
+  // somewhere upstream) only rules out that provider; the walk moves on.
+  return walkWebSearchProviders(usable, (p) =>
+    run(p).catch((e: unknown) => ({
+      status: "error" as const,
+      message: e instanceof Error ? e.message : String(e),
+    })),
+  );
 }
 
 // --- Assistant tools (plugin-to-plugin RPC / the control API's plugin_tools) ---

@@ -361,6 +361,7 @@ pub fn describe(route: &str, path: &str, req: &Value, names: &Names) -> Option<S
             }
         }
         "/v1/assistant/invoke" => summarize_args(&req["args"])?,
+        "/v1/web/search" => quote(&trunc(str_of(req, "query")?, 80)),
         "/v1/plugins/{id}/deep-link" => format!(
             "{} {}",
             path_name(path, "plugins").unwrap_or("?"),
@@ -387,6 +388,15 @@ pub fn describe_result(route: &str, res: &Value) -> Option<String> {
         "/v1/queue/play" | "/v1/radio" => format!("queued {}", res["queued"].as_i64()?),
         "/v1/queue/randomize" => format!("{} in the queue", res["queueLength"].as_i64()?),
         "/v1/queue/jump" => format!("playing {}", quote(res["title"].as_str()?)),
+        // Which engine answered, and with what — a refusal reads as one.
+        "/v1/web/search" => {
+            let by = res["providerName"].as_str().unwrap_or("web search");
+            match res["status"].as_str()? {
+                "ok" => format!("{} pages from {}", res["results"].as_array()?.len(), by),
+                "empty" => format!("nothing found by {}", by),
+                _ => format!("{} failed: {}", by, trunc(res["message"].as_str().unwrap_or("no reason given"), 120)),
+            }
+        }
         "/v1/playlists" => format!("playlist #{}, {} added", res["playlistId"].as_i64()?, res["added"].as_i64().unwrap_or(0)),
         "/v1/tracks/{id}/tags" => {
             let tags: Vec<&str> = res["tags"].as_array()?.iter().filter_map(Value::as_str).take(8).collect();
@@ -464,6 +474,19 @@ mod tests {
         assert_eq!(d.as_deref(), Some("playlist “Late night”: remove 2 rows"));
         let d = describe("/v1/playlists/{id}", "/v1/playlists/3", &json!({"name":"Winter"}), &n);
         assert_eq!(d.as_deref(), Some("playlist “Late night” → “Winter”"));
+    }
+
+    #[test]
+    fn test_a_web_search_names_the_query_and_who_answered() {
+        let n = Names::default();
+        let d = describe("/v1/web/search", "/v1/web/search", &json!({"query":"who produced Dummy","limit":5}), &n);
+        assert_eq!(d.as_deref(), Some("“who produced Dummy”"));
+        let ok = json!({"status":"ok","results":[{"title":"a","url":"https://a"},{"title":"b","url":"https://b"}],"providerName":"DuckDuckGo"});
+        assert_eq!(describe_result("/v1/web/search", &ok).as_deref(), Some("2 pages from DuckDuckGo"));
+        let empty = json!({"status":"empty","providerName":"DuckDuckGo"});
+        assert_eq!(describe_result("/v1/web/search", &empty).as_deref(), Some("nothing found by DuckDuckGo"));
+        let err = json!({"status":"error","message":"DuckDuckGo: blocked"});
+        assert_eq!(describe_result("/v1/web/search", &err).as_deref(), Some("web search failed: DuckDuckGo: blocked"));
     }
 
     #[test]

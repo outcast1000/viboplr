@@ -1505,6 +1505,25 @@ p {
   line-height: 1.5;
 }
 
+/* What the plugin provides (web search, playback fallback, …) — from the
+   gallery index's bot-derived `provides`. Same pill as .feature-tag, mixed case. */
+.gallery-card-provides {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin: 0 0 0.6rem;
+}
+
+.gallery-service {
+  padding: 1px 8px;
+  font-size: 0.7rem;
+  font-weight: 600;
+  color: var(--color-text-muted);
+  background: var(--color-bg-alt);
+  border: 1px solid var(--color-border);
+  border-radius: 999px;
+}
+
 .gallery-card-meta {
   display: flex;
   align-items: center;

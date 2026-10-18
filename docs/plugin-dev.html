@@ -156,6 +156,7 @@ return { activate: activate, deactivate: deactivate };</pre>
               <tr><td>imageProviders</td><td>Artist and album artwork sources, tried in user-configurable priority order.</td></tr>
               <tr><td>streamResolvers</td><td>Playback fallbacks — given a track's metadata, return a playable URL when no local source exists.</td></tr>
               <tr><td>downloadProviders</td><td>Download sources for the unified download modal: by URI scheme, by metadata, or interactive search.</td></tr>
+              <tr><td>webSearchProviders</td><td>A web search other plugins and AI assistants can run, in the order the user picks in Settings → Providers → Web search. See <a href="#api-websearch"><code>api.webSearch</code></a>.</td></tr>
               <tr><td>contextMenuItems</td><td>Right-click actions on tracks, albums, artists, playlists, and multi-track selections — on every surface.</td></tr>
               <tr><td>sidebarItems</td><td>Full custom views in the sidebar, rendered from declarative view data (lists, cards, charts, settings rows…).</td></tr>
               <tr><td>viewHeader <em>(top level)</em></td><td>The header strip the app draws on your views: a subtitle, your own logo, or a banner image. See <a href="#design">Designing your view</a>.</td></tr>
@@ -249,6 +250,7 @@ return { activate: activate, deactivate: deactivate };</pre>
           <a href="#api-informationtypes">informationTypes</a>
           <a href="#api-imageproviders">imageProviders</a>
           <a href="#api-downloads">downloads</a>
+          <a href="#api-websearch">webSearch</a>
           <a href="#api-scheduler">scheduler</a>
           <a href="#api-system">system</a>
           <a href="#api-env">env</a>
@@ -491,6 +493,21 @@ return { activate: activate, deactivate: deactivate };</pre>
             </table>
           </div>
           <p class="api-group-desc">Your resolve handlers return <code>{ url, headers?, metadata?, ext? }</code>. <strong>Always return a concrete <code>ext</code> when you know the container</strong> (<code>"mp3"</code>, <code>"flac"</code>, <code>"m4a"</code>, …) — naming the file is the provider's job. <code>ext: "auto"</code> asks the host to detect the format from the downloaded bytes, but that only happens on the background queue (batch) path; the single-track download window resolves the extension before the bytes arrive and never sniffs, so there <code>"auto"</code> falls back to a default (and to a neutral <code>.bin</code> if you also declared no <code>onGetQualities</code>). Don't rely on <code>"auto"</code> for single-track downloads.</p>
+        </div>
+
+        <div class="api-group reveal" id="api-websearch">
+          <h3><span class="api-ns">api.webSearch</span></h3>
+          <p class="api-group-desc">Web search as a shared service: provide one, or run the user's. Results are <code>{ status: "ok", results: [{ title, url, snippet?, site? }] }</code>, <code>{ status: "empty" }</code> or <code>{ status: "error", message? }</code>. The user orders and switches providers in Settings → Providers → Web search; a switched-off one is never asked. Running a search needs the <code>plugins:call</code> permission. Guard for older apps: <code>typeof api.webSearch?.query === "function"</code>.</p>
+          <div class="api-table-wrap">
+            <table class="api-table">
+              <tbody>
+                <tr><td>onQuery(providerId, handler)</td><td>Answer searches for a provider you declared in <code>contributes.webSearchProviders</code>. <code>handler(query, limit)</code> returns a result; a refusal from the engine (a captcha, a rate limit) is <code>error</code> with a message, never <code>empty</code>.</td></tr>
+                <tr><td>registerProvider({ id, name }) / unregisterProvider(id)</td><td>Offer a provider at runtime, for one that can only sometimes search.</td></tr>
+                <tr><td>listProviders()</td><td>The switched-on providers, in the user's order: <code>{ key, pluginId, providerId, name }[]</code>.</td></tr>
+                <tr><td>query(query, { limit?, provider? })</td><td>Run a search. Without <code>provider</code> the user's providers are tried in order and the first that answers wins; one that errors hands over to the next. Resolves with the result plus <code>provider</code> / <code>providerName</code>. A provider's failure is a result, not a rejection.</td></tr>
+              </tbody>
+            </table>
+          </div>
         </div>
 
         <div class="api-group reveal" id="api-scheduler">

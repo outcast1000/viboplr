@@ -1,0 +1,73 @@
+
+/* "These plugins could find it" — after a provider chain came back empty
+   (playback failure dialog, Retrieve modal). Each row opens the plugin in
+   Extensions; nothing installs or switches on from here. */
+.provider-suggest {
+  margin: 12px 0 4px;
+  padding-top: 12px;
+  border-top: 1px solid var(--border);
+}
+
+.provider-suggest-title {
+  margin: 0 0 8px;
+  font-size: var(--fs-sm);
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.provider-suggest-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-height: 220px;
+  overflow-y: auto;
+}
+
+.provider-suggest-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.provider-suggest-text {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.provider-suggest-name {
+  font-size: var(--fs-sm);
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.provider-suggest-tag {
+  margin-left: 6px;
+  padding: 0 6px;
+  font-size: var(--fs-2xs);
+  font-weight: 500;
+  color: var(--text-secondary);
+  border: 1px solid var(--border);
+  border-radius: var(--ds-radius-pill);
+}
+
+.provider-suggest-desc {
+  font-size: var(--fs-xs);
+  color: var(--text-secondary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+}
+
+.provider-suggest-note {
+  margin: 8px 0 0;
+  font-size: var(--fs-xs);
+  color: var(--text-tertiary);
+}

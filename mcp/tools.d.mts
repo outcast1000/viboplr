@@ -9,6 +9,7 @@ export type ToolCategory =
   | "tags"
   | "info"
   | "catalog"
+  | "web"
   | "download"
   | "files"
   | "plugins"

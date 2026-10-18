@@ -13,11 +13,88 @@ export interface CapabilityInfo {
 }
 
 /**
+ * The services a plugin can provide to the rest of the app, as stable ids.
+ * This list is a **wire format**: the plugin gallery's bot derives an entry's
+ * `provides` from the plugin's manifest with the same rules
+ * (`viboplr-plugins/scripts/lib.mjs` → `servicesOf`), so a gallery entry can
+ * say "web search" before the plugin is installed. Add ids, never rename one —
+ * an older app ignores an id it doesn't know, a renamed one just vanishes.
+ */
+export const PLUGIN_SERVICES: Record<string, CapabilityInfo> = {
+  "playback-fallback": {
+    label: "Playback fallback",
+    description: "Finds a playable copy when a track can't play from its own source (Settings → Providers).",
+  },
+  "downloads": { label: "Download", description: "Resolves and downloads tracks through the unified downloader." },
+  "web-search": {
+    label: "Web search",
+    description: "Searches the web for other plugins and AI assistants (Settings → Providers → Web search).",
+  },
+  "catalog-search": { label: "Catalog search", description: "Searchable from global search (Cmd+K)." },
+  "images": { label: "Images", description: "Supplies artwork for artists and albums." },
+  "scrobbling": { label: "Scrobbling", description: "Receives your plays (Settings → Playback → Scrobbling)." },
+  "home-shelves": { label: "Home shelves", description: "Adds horizontal shelves of tracks or albums to the Home page." },
+  "assistant-tools": { label: "AI tools", description: "Gives AI assistants tools of its own to call." },
+  "visualizers": { label: "Visualizer", description: "Draws a visualizer on Now Playing or in fullscreen." },
+  "waveforms": { label: "Waveforms", description: "Looks up or shares seek-bar waveforms." },
+};
+
+/** The finer ids after the `PLUGIN_SERVICES` ones — same pattern as the
+ *  gallery bot's `FINE_SERVICE_ID`. */
+export const FINE_SERVICE_ID = /^(images:(artist|album|tag)|info:[A-Za-z0-9_.-]+)$/;
+
+/**
+ * The service ids a manifest declares: the `PLUGIN_SERVICES` ids in that
+ * order, then one `images:<entity>` per entity it supplies images for
+ * (`images:artist`, `images:album`, …), then one `info:<typeId>` per
+ * information type (`info:lyrics`, `info:artist_bio`, …), each in manifest
+ * order. The finer ids are what lets a surface ask "who can find an *artist*
+ * image" or "who has *lyrics*"; they carry no label of their own. Declared, not
+ * live: a provider registered only at runtime (yt-dlp's Cmd+K search, which
+ * needs its binary) isn't here — the gallery can't know about it either.
+ */
+export function pluginServicesOf(contributes: PluginManifestContributes | undefined): string[] {
+  const c = contributes;
+  if (!c) return [];
+  const fine: string[] = [];
+  const addFine = (id: string) => { if (FINE_SERVICE_ID.test(id) && !fine.includes(id)) fine.push(id); };
+  for (const p of c.imageProviders ?? []) if (typeof p?.entity === "string") addFine(`images:${p.entity}`);
+  for (const t of c.informationTypes ?? []) if (typeof t?.id === "string") addFine(`info:${t.id}`);
+  return [...pluginBaseServicesOf(c), ...fine];
+}
+
+function pluginBaseServicesOf(c: PluginManifestContributes): string[] {
+  const has: Record<string, boolean> = {
+    "playback-fallback": !!c.streamResolvers?.length,
+    "downloads": !!c.downloadProviders?.length,
+    "web-search": !!c.webSearchProviders?.length,
+    "catalog-search": !!c.searchProviders?.length,
+    "images": !!c.imageProviders?.length,
+    "scrobbling": !!c.scrobbler || !!c.eventHooks?.includes("track:scrobbled"),
+    "home-shelves": !!c.homeShelves?.length,
+    "assistant-tools": !!c.assistant?.tools?.length,
+    "visualizers": !!c.visualizers?.length,
+    "waveforms": !!c.waveformProvider,
+  };
+  return Object.keys(PLUGIN_SERVICES).filter((id) => has[id]);
+}
+
+/** A gallery entry's `provides` as capabilities. Unknown ids are skipped (a
+ *  newer gallery than this app); order follows `PLUGIN_SERVICES`. */
+export function describeProvides(provides: unknown): CapabilityInfo[] {
+  if (!Array.isArray(provides)) return [];
+  const wanted = new Set(provides.filter((p): p is string => typeof p === "string"));
+  return Object.keys(PLUGIN_SERVICES).filter((id) => wanted.has(id)).map((id) => PLUGIN_SERVICES[id]);
+}
+
+/**
  * Condense a plugin's `contributes` into short, human-readable capabilities
- * (e.g. "Lyrics", "Streaming", "Images"), each paired with a description of
- * what it does — used by the detail "Capabilities" section so users can
- * understand a plugin's contributions before installing/enabling it.
- * Order is stable and de-duplicated by label.
+ * (e.g. "Lyrics", "Playback fallback", "Images"), each paired with a
+ * description of what it does — used by the detail "Capabilities" section so
+ * users can understand a plugin's contributions before installing/enabling it.
+ * Services come first, with the same labels a gallery entry's `provides`
+ * gets, so a plugin reads the same before and after install. Order is stable
+ * and de-duplicated by label.
  */
 export function describeContributes(
   contributes: PluginManifestContributes | undefined,
@@ -31,14 +108,7 @@ export function describeContributes(
     caps.push({ label, description });
   };
 
-  if (contributes.streamResolvers?.length)
-    push("Streaming", "Provides playback URLs so tracks can stream from this source.");
-  if (contributes.downloadProviders?.length)
-    push("Download", "Resolves and downloads tracks through the unified downloader.");
-  if (contributes.imageProviders?.length)
-    push("Images", "Supplies artwork for artists and albums.");
-  if (contributes.homeShelves?.length)
-    push("Home shelves", "Adds horizontal shelves of tracks or albums to the Home page.");
+  for (const id of pluginBaseServicesOf(contributes)) push(PLUGIN_SERVICES[id].label, PLUGIN_SERVICES[id].description);
   if (contributes.sidebarItems?.length)
     push("Sidebar view", "Adds its own view to the navigation sidebar.");
 

@@ -14,7 +14,7 @@ import { openUrl } from "@tauri-apps/plugin-opener";
 import { invoke } from "@tauri-apps/api/core";
 import { subscribe } from "../utils/tauriEvents";
 import { LINKS } from "../constants/links";
-import { describeContributes, skinMockColors } from "../utils/extensionSummary";
+import { describeContributes, describeProvides, skinMockColors } from "../utils/extensionSummary";
 import type {
   ContributionVisibility,
   PluginContribution,
@@ -525,7 +525,11 @@ function PluginDetail({
 }) {
   const isInstalled = ext.status !== "not_installed";
   const settingsPanelId = ext.status === "active" && ext.contributes?.settingsPanel?.id;
-  const caps = useMemo(() => describeContributes(ext.contributes), [ext.contributes]);
+  // A gallery entry has no manifest yet; its `provides` uses the same labels.
+  const caps = useMemo(
+    () => (ext.contributes ? describeContributes(ext.contributes) : describeProvides(ext.provides)),
+    [ext.contributes, ext.provides],
+  );
   // Only this plugin's rows. The list is built from live registrations (static
   // manifest contributions plus runtime ones), so it is empty until the plugin
   // is active — a disabled plugin has nothing to trim yet.
