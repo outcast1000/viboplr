@@ -4484,6 +4484,88 @@ fn test_bulk_update_respells_artist_and_album_differing_only_in_case_or_accents(
     assert_eq!(db.get_track_by_id(t3).unwrap().artist_name.as_deref(), Some("Ήταν Είναι και Θα Είναι"));
 }
 
+/// A title-only edit on a compilation keeps it one album under its album
+/// artist. It used to group by each track's performer and split a "Various
+/// Artists" album into one album per performer.
+#[test]
+fn test_bulk_update_album_title_keeps_a_compilation_together() {
+    let db = test_db();
+    let va = db.get_or_create_artist("Various Artists").unwrap();
+    let a1 = db.get_or_create_artist("Alpha").unwrap();
+    let a2 = db.get_or_create_artist("Beta").unwrap();
+    let comp = db.get_or_create_album("now 80s", Some(va), None).unwrap();
+    let t1 = insert_track(&db, "n1.mp3", "One", Some(a1), Some(comp));
+    let t2 = insert_track(&db, "n2.mp3", "Two", Some(a2), Some(comp));
+
+    // Title only — the artist-unchanged path.
+    db.bulk_update_tracks(&[t1, t2], FieldUpdate::Unchanged, FieldUpdate::Unchanged, FieldUpdate::Set("Now 80s"), FieldUpdate::Unchanged, None, FieldUpdate::Unchanged, None, TagMode::Replace).unwrap();
+    let tr1 = db.get_track_by_id(t1).unwrap();
+    let tr2 = db.get_track_by_id(t2).unwrap();
+    assert_eq!(tr1.album_id, Some(comp), "the same album row, respelled — not split");
+    assert_eq!(tr2.album_id, Some(comp));
+    assert_eq!(tr1.album_title.as_deref(), Some("Now 80s"));
+    assert_eq!(tr1.album_artist_name.as_deref(), Some("Various Artists"));
+
+    // Title with an explicit album artist — the album-artist-keyed path.
+    db.bulk_update_tracks(&[t1, t2], FieldUpdate::Unchanged, FieldUpdate::Set("Various Artists"), FieldUpdate::Set("NOW 80s"), FieldUpdate::Unchanged, None, FieldUpdate::Unchanged, None, TagMode::Replace).unwrap();
+    let tr1 = db.get_track_by_id(t1).unwrap();
+    assert_eq!(tr1.album_id, Some(comp));
+    assert_eq!(tr1.album_title.as_deref(), Some("NOW 80s"));
+}
+
+/// Both fields name the same row with different spellings: the artist
+/// field's spelling stands, rather than the album artist silently undoing it.
+#[test]
+fn test_bulk_update_artist_spelling_wins_over_album_artist_spelling() {
+    let db = test_db();
+    let artist = db.get_or_create_artist("mogwai").unwrap();
+    let t1 = insert_track(&db, "m.mp3", "Auto Rock", Some(artist), None);
+    db.bulk_update_tracks(&[t1], FieldUpdate::Set("Mogwai"), FieldUpdate::Set("MOGWAI"), FieldUpdate::Unchanged, FieldUpdate::Unchanged, None, FieldUpdate::Unchanged, None, TagMode::Replace).unwrap();
+    assert_eq!(db.get_track_by_id(t1).unwrap().artist_name.as_deref(), Some("Mogwai"));
+}
+
+/// Cached info keys on the exact name, so a respell moves the artist's
+/// entries and its albums' and tracks' with it. One already cached under the
+/// new spelling is kept.
+#[test]
+fn test_respell_moves_cached_information_values() {
+    let db = test_db();
+    db.info_sync_types(&[
+        ("artist_bio".into(), "About".into(), "artist".into(), "rich_text".into(),
+         "lastfm".into(), 7776000, 200, 100, String::new()),
+    ]).unwrap();
+    let type_id = db.info_get_types_for_entity("artist").unwrap()[0].5[0].1;
+    db.info_upsert_value(type_id, "artist:mogwai", "bio", "ok").unwrap();
+    db.info_upsert_value(type_id, "album:mogwai:rock action", "review", "ok").unwrap();
+    db.info_upsert_value(type_id, "track:mogwai:Sine Wave", "old", "ok").unwrap();
+    db.info_upsert_value(type_id, "track:Mogwai:Sine Wave", "newer", "ok").unwrap();
+    // Another artist whose name starts with this one's is left alone.
+    db.info_upsert_value(type_id, "artist:mogwaiX", "other", "ok").unwrap();
+
+    let artist = db.get_or_create_artist("mogwai").unwrap();
+    let album = db.get_or_create_album("rock action", Some(artist), None).unwrap();
+    let t1 = insert_track(&db, "s.mp3", "Sine Wave", Some(artist), Some(album));
+    db.bulk_update_tracks(&[t1], FieldUpdate::Set("Mogwai"), FieldUpdate::Unchanged, FieldUpdate::Set("Rock Action"), FieldUpdate::Unchanged, None, FieldUpdate::Unchanged, None, TagMode::Replace).unwrap();
+
+    let get = |key: &str| db.info_get_value(type_id, key).unwrap().map(|r| r.0);
+    assert_eq!(get("artist:Mogwai").as_deref(), Some("bio"));
+    assert_eq!(get("artist:mogwai"), None);
+    assert_eq!(get("album:Mogwai:Rock Action").as_deref(), Some("review"));
+    assert_eq!(get("album:mogwai:rock action"), None);
+    assert_eq!(get("track:Mogwai:Sine Wave").as_deref(), Some("newer"), "an entry under the new spelling wins");
+    assert_eq!(get("track:mogwai:Sine Wave"), None);
+    assert_eq!(get("artist:mogwaiX").as_deref(), Some("other"));
+}
+
+#[test]
+fn test_typed_names_are_trimmed_and_blank_clears() {
+    let t = |s: &str| FieldUpdate::Set(s.to_string()).trimmed_name();
+    assert_eq!(t("  Mogwai "), FieldUpdate::Set("Mogwai".to_string()));
+    assert_eq!(t("Mogwai"), FieldUpdate::Set("Mogwai".to_string()));
+    assert_eq!(t("   "), FieldUpdate::Clear);
+    assert_eq!(FieldUpdate::<String>::Unchanged.trimmed_name(), FieldUpdate::Unchanged);
+}
+
 /// The scanner keeps the stored spelling: files tagged both ways would
 /// otherwise flip the row back and forth on every scan.
 #[test]

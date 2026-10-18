@@ -35,6 +35,26 @@ impl<T> FieldUpdate<T> {
 }
 
 impl FieldUpdate<String> {
+    /// A typed name with its surrounding whitespace trimmed; blank becomes
+    /// `Clear`. The library matches names after folding case and accents but
+    /// not whitespace, so "Mogwai " would otherwise be a second artist beside
+    /// "Mogwai" — the scanner trims every tag for the same reason (`clean_tag`).
+    pub fn trimmed_name(self) -> Self {
+        match self {
+            FieldUpdate::Set(s) => {
+                let t = s.trim();
+                if t.is_empty() {
+                    FieldUpdate::Clear
+                } else if t.len() == s.len() {
+                    FieldUpdate::Set(s)
+                } else {
+                    FieldUpdate::Set(t.to_string())
+                }
+            }
+            other => other,
+        }
+    }
+
     /// Borrow the inner value as `&str` without consuming the update.
     pub fn as_str_update(&self) -> FieldUpdate<&str> {
         match self {

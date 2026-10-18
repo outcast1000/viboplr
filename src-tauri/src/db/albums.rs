@@ -25,33 +25,41 @@ pub(crate) fn get_or_create_album_conn(
     Ok(conn.last_insert_rowid())
 }
 
-/// `get_or_create_album_conn` for an explicit user edit: a matching album
-/// spelled differently takes the new title. Same reasoning, and the same
-/// scan exemption, as `artists::find_or_create_artist_respelled_conn`.
+/// `get_or_create_album_conn`, then give the album the title the user typed
+/// when it differs only in case or accents. Same reasoning, and the same
+/// scan exemption, as `artists::respell_artist_conn`.
 pub(crate) fn find_or_create_album_respelled_conn(
     conn: &Connection,
     title: &str,
     artist_id: Option<i64>,
     year: Option<i32>,
 ) -> SqlResult<i64> {
-    let existing: Option<(i64, String)> = conn.prepare_cached(
-        "SELECT id, title FROM albums WHERE strip_diacritics(unicode_lower(title)) = strip_diacritics(unicode_lower(?1)) \
-         AND (artist_id = ?2 OR (?2 IS NULL AND artist_id IS NULL)) \
-         ORDER BY title = ?1 DESC LIMIT 1",
-    )?.query_row(params![title, artist_id], |row| Ok((row.get(0)?, row.get(1)?))).optional()?;
-    match existing {
-        Some((id, stored)) => {
-            if stored != title {
-                conn.prepare_cached("UPDATE albums SET title = ?1 WHERE id = ?2")?.execute(params![title, id])?;
-            }
-            Ok(id)
-        }
-        None => {
-            conn.prepare_cached("INSERT INTO albums (title, artist_id, year) VALUES (?1, ?2, ?3)")?
-                .execute(params![title, artist_id, year])?;
-            Ok(conn.last_insert_rowid())
-        }
+    let id = get_or_create_album_conn(conn, title, artist_id, year)?;
+    let stored: String = conn.prepare_cached("SELECT title FROM albums WHERE id = ?1")?
+        .query_row(params![id], |row| row.get(0))?;
+    if stored == title {
+        return Ok(id);
     }
+    // A row already titled exactly this way under the same artist wins over
+    // renaming this one into the UNIQUE(title, artist_id) conflict.
+    if let Some(exact) = conn.prepare_cached("SELECT id FROM albums WHERE title = ?1 AND artist_id IS ?2")?
+        .query_row(params![title, artist_id], |row| row.get::<_, i64>(0)).optional()?
+    {
+        return Ok(exact);
+    }
+    conn.prepare_cached("UPDATE albums SET title = ?1 WHERE id = ?2")?.execute(params![title, id])?;
+    let artist_name: String = match artist_id {
+        Some(aid) => conn.prepare_cached("SELECT name FROM artists WHERE id = ?1")?
+            .query_row(params![aid], |row| row.get(0)).optional()?.unwrap_or_default(),
+        None => String::new(),
+    };
+    super::artists::rekey_information_values(
+        conn,
+        &format!("album:{artist_name}:{stored}"),
+        &format!("album:{artist_name}:{title}"),
+        false,
+    )?;
+    Ok(id)
 }
 
 impl Database {

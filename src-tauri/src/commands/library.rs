@@ -1050,9 +1050,10 @@ pub async fn bulk_update_tracks(
     let db = state.db.clone();
     tauri::async_runtime::spawn_blocking(move || {
     // Resolve each nullable field to its tri-state: Unchanged / Clear / Set.
-    let artist_u = crate::models::FieldUpdate::from_double_opt(fields.artist_name);
-    let album_artist_u = crate::models::FieldUpdate::from_double_opt(fields.album_artist_name);
-    let album_u = crate::models::FieldUpdate::from_double_opt(fields.album_title);
+    // Names are trimmed here, once, so the file and the library get the same value.
+    let artist_u = crate::models::FieldUpdate::from_double_opt(fields.artist_name).trimmed_name();
+    let album_artist_u = crate::models::FieldUpdate::from_double_opt(fields.album_artist_name).trimmed_name();
+    let album_u = crate::models::FieldUpdate::from_double_opt(fields.album_title).trimmed_name();
     let year_u = crate::models::FieldUpdate::from_double_opt(fields.year);
     let track_number_u = crate::models::FieldUpdate::from_double_opt(fields.track_number);
 

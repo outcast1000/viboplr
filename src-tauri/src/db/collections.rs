@@ -597,7 +597,15 @@ impl Database {
                     FieldUpdate::Unchanged => AlbumArtistOutcome::Unchanged,
                     FieldUpdate::Clear => AlbumArtistOutcome::Assigned(None),
                     FieldUpdate::Set(name) => {
-                        let aid = super::artists::find_or_create_artist_respelled_conn(&conn, name)?;
+                        let aid = super::artists::get_or_create_artist_conn(&conn, name)?;
+                        // The artist field already spelled this row: when both
+                        // fields name it, the artist's spelling stands instead
+                        // of the second write silently undoing the first.
+                        let aid = if matches!(artist_outcome, ArtistOutcome::Assigned(Some(a)) if a == aid) {
+                            aid
+                        } else {
+                            super::artists::respell_artist_conn(&conn, aid, name)?
+                        };
                         AlbumArtistOutcome::Assigned(Some(aid))
                     }
                 };
@@ -636,22 +644,8 @@ impl Database {
                             let album_id = if let Some(&cached_id) = album_cache.get(title) {
                                 cached_id
                             } else {
-                                let existing: Option<i64> = conn.query_row(
-                                    "SELECT id FROM albums WHERE strip_diacritics(unicode_lower(title)) = strip_diacritics(unicode_lower(?1)) \
-                                     AND (artist_id = ?2 OR (?2 IS NULL AND artist_id IS NULL))",
-                                    params![title, target_aid],
-                                    |row| row.get(0),
-                                ).optional()?;
-                                let id = match existing {
-                                    Some(id) => id,
-                                    None => {
-                                        conn.execute(
-                                            "INSERT INTO albums (title, artist_id, year) VALUES (?1, ?2, ?3)",
-                                            params![title, target_aid, album_year],
-                                        )?;
-                                        conn.last_insert_rowid()
-                                    }
-                                };
+                                // The stored title, not one the user typed: no respell.
+                                let id = super::albums::get_or_create_album_conn(&conn, title, target_aid, *album_year)?;
                                 album_cache.insert(title.clone(), id);
                                 id
                             };
@@ -695,22 +689,7 @@ impl Database {
                             let album_id = if let Some(&cached_id) = album_cache.get(&key) {
                                 cached_id
                             } else {
-                                let existing: Option<i64> = conn.query_row(
-                                    "SELECT id FROM albums WHERE strip_diacritics(unicode_lower(title)) = strip_diacritics(unicode_lower(?1)) \
-                                     AND (artist_id = ?2 OR (?2 IS NULL AND artist_id IS NULL))",
-                                    params![title, owner],
-                                    |row| row.get(0),
-                                ).optional()?;
-                                let id = match existing {
-                                    Some(id) => id,
-                                    None => {
-                                        conn.execute(
-                                            "INSERT INTO albums (title, artist_id, year) VALUES (?1, ?2, ?3)",
-                                            params![title, owner, album_year],
-                                        )?;
-                                        conn.last_insert_rowid()
-                                    }
-                                };
+                                let id = super::albums::get_or_create_album_conn(&conn, title, owner, *album_year)?;
                                 album_cache.insert(key, id);
                                 id
                             };
@@ -765,11 +744,24 @@ impl Database {
                             update_track_column(&conn, track_ids, "album_id", album_id)?;
                         }
                         ArtistOutcome::Unchanged => {
-                            // Artist was NOT changed — group tracks by their current artist_id
+                            // Artist was NOT changed — group tracks by the album
+                            // artist their album is filed under now, falling back
+                            // to the track artist (no album, or the album artist
+                            // was just cleared). Grouping by the track artist
+                            // alone split a "Various Artists" compilation into
+                            // one album per performer on a mere title edit.
+                            let owner_expr = if matches!(album_artist_outcome, AlbumArtistOutcome::Unchanged) {
+                                "COALESCE(al.artist_id, t.artist_id)"
+                            } else {
+                                "t.artist_id"
+                            };
                             let mut artist_groups: std::collections::HashMap<Option<i64>, Vec<i64>> = std::collections::HashMap::new();
                             for chunk in track_ids.chunks(500) {
                                 let placeholders = chunk.iter().map(|_| "?").collect::<Vec<_>>().join(",");
-                                let sql = format!("SELECT id, artist_id FROM tracks WHERE id IN ({})", placeholders);
+                                let sql = format!(
+                                    "SELECT t.id, {} FROM tracks t LEFT JOIN albums al ON al.id = t.album_id WHERE t.id IN ({})",
+                                    owner_expr, placeholders
+                                );
                                 let mut stmt = conn.prepare(&sql)?;
                                 let params: Vec<&dyn rusqlite::types::ToSql> = chunk.iter().map(|id| id as &dyn rusqlite::types::ToSql).collect();
                                 let rows = stmt.query_map(params.as_slice(), |row| {

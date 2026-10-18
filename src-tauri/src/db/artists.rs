@@ -17,34 +17,61 @@ pub(crate) fn get_or_create_artist_conn(conn: &Connection, name: &str) -> SqlRes
     Ok(conn.last_insert_rowid())
 }
 
-/// `get_or_create_artist_conn` for an explicit user edit: when the name
-/// matches an existing row that is spelled differently (case or accents
-/// only — "mogwai" → "Mogwai", "Ηταν" → "Ήταν"), the row takes the new
-/// spelling. Without it such an edit reached the file but never the library,
-/// and a rescan can't fix it either, since it matches the same row.
+/// Give artist `id` — found by its folded name, so it differs from `name`
+/// in case or accents at most ("mogwai" → "Mogwai", "Ηταν" → "Ήταν") — the
+/// spelling `name`, for an explicit user edit. Without it such an edit
+/// reached the file but never the library, and no rescan could fix it, since
+/// a rescan matches the same row. Returns the id the caller should use: a
+/// row already spelled exactly `name` (two rows that fold alike, left by
+/// older builds) wins over renaming this one into a UNIQUE conflict.
 ///
-/// Scanning and syncing deliberately keep the plain lookup: files tagged
-/// with both spellings would otherwise flip the row on every scan.
-pub(crate) fn find_or_create_artist_respelled_conn(conn: &Connection, name: &str) -> SqlResult<i64> {
-    // An exact match first, so a pair of rows that differ only in spelling
-    // (left by older builds) resolves to the one already spelled this way
-    // instead of renaming the other into a UNIQUE conflict.
-    let existing: Option<(i64, String)> = conn.prepare_cached(
-        "SELECT id, name FROM artists WHERE strip_diacritics(unicode_lower(name)) = strip_diacritics(unicode_lower(?1)) \
-         ORDER BY name = ?1 DESC LIMIT 1",
-    )?.query_row(params![name], |row| Ok((row.get(0)?, row.get(1)?))).optional()?;
-    match existing {
-        Some((id, stored)) => {
-            if stored != name {
-                conn.prepare_cached("UPDATE artists SET name = ?1 WHERE id = ?2")?.execute(params![name, id])?;
-            }
-            Ok(id)
-        }
-        None => {
-            conn.prepare_cached("INSERT INTO artists (name) VALUES (?1)")?.execute(params![name])?;
-            Ok(conn.last_insert_rowid())
-        }
+/// Scanning and syncing never call this: files tagged with both spellings
+/// would flip the row on every scan.
+pub(crate) fn respell_artist_conn(conn: &Connection, id: i64, name: &str) -> SqlResult<i64> {
+    let stored: String = conn.prepare_cached("SELECT name FROM artists WHERE id = ?1")?
+        .query_row(params![id], |row| row.get(0))?;
+    if stored == name {
+        return Ok(id);
     }
+    if let Some(exact) = conn.prepare_cached("SELECT id FROM artists WHERE name = ?1")?
+        .query_row(params![name], |row| row.get::<_, i64>(0)).optional()?
+    {
+        return Ok(exact);
+    }
+    conn.prepare_cached("UPDATE artists SET name = ?1 WHERE id = ?2")?.execute(params![name, id])?;
+    // The info cache keys on the exact name (`buildEntityKey`), so the
+    // artist's cached bio etc. and its albums' and tracks' entries move too.
+    rekey_information_values(conn, &format!("artist:{stored}"), &format!("artist:{name}"), false)?;
+    rekey_information_values(conn, &format!("album:{stored}:"), &format!("album:{name}:"), true)?;
+    rekey_information_values(conn, &format!("track:{stored}:"), &format!("track:{name}:"), true)?;
+    Ok(id)
+}
+
+/// `get_or_create_artist_conn`, then `respell_artist_conn`: the lookup for a
+/// name the user typed.
+pub(crate) fn find_or_create_artist_respelled_conn(conn: &Connection, name: &str) -> SqlResult<i64> {
+    let id = get_or_create_artist_conn(conn, name)?;
+    respell_artist_conn(conn, id, name)
+}
+
+/// Move cached information values from `old` to `new`: the exact key, or
+/// every key starting with it when `prefix`. A value already cached under
+/// the new key wins, and the old copy is dropped. Compared with `substr`
+/// rather than LIKE so a name holding `%` or `_` matches only itself.
+pub(crate) fn rekey_information_values(conn: &Connection, old: &str, new: &str, prefix: bool) -> SqlResult<()> {
+    if prefix {
+        conn.prepare_cached(
+            "UPDATE OR IGNORE information_values SET entity_key = ?2 || substr(entity_key, length(?1) + 1) \
+             WHERE substr(entity_key, 1, length(?1)) = ?1",
+        )?.execute(params![old, new])?;
+        conn.prepare_cached("DELETE FROM information_values WHERE substr(entity_key, 1, length(?1)) = ?1")?
+            .execute(params![old])?;
+    } else {
+        conn.prepare_cached("UPDATE OR IGNORE information_values SET entity_key = ?2 WHERE entity_key = ?1")?
+            .execute(params![old, new])?;
+        conn.prepare_cached("DELETE FROM information_values WHERE entity_key = ?1")?.execute(params![old])?;
+    }
+    Ok(())
 }
 
 impl Database {
