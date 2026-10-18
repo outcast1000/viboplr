@@ -147,6 +147,11 @@ const numArr = (description) => ({ type: "array", items: { type: "number" }, des
 const strArr = (description) => ({ type: "array", items: { type: "string" }, description });
 const en = (values, description) => ({ type: "string", enum: values, description });
 const obj = (properties, required = []) => ({ type: "object", properties, required, additionalProperties: false });
+// A field where null means something ("null clears"). It must say so in the
+// schema: a client that validates against `type: "string"` can't send null,
+// and the caller ends up sending the text "null" instead — which wrote an
+// album literally named "null" into nine files.
+const nullable = (prop) => ({ ...prop, type: [prop.type, "null"] });
 
 export const TOOLS = [
   {
@@ -814,11 +819,11 @@ export const TOOLS = [
         trackIds: numArr("Library track ids (max 100)"),
         tagNames: strArr("Tags to add/remove/replace (with tagMode)"),
         tagMode: en(["add", "remove", "replace"], "How tagNames applies (default add)"),
-        artistName: str("Set the artist (null clears)"),
-        albumArtistName: str("Set ALBUMARTIST — e.g. \"Various Artists\" to merge a compilation (null clears)"),
-        albumTitle: str("Set the album (null clears)"),
-        year: num("Set the year (null clears)"),
-        trackNumber: num("Set the track number (null clears)"),
+        artistName: nullable(str("Set the artist (JSON null clears)")),
+        albumArtistName: nullable(str("Set ALBUMARTIST — e.g. \"Various Artists\" to merge a compilation (JSON null clears)")),
+        albumTitle: nullable(str("Set the album (JSON null clears)")),
+        year: nullable(num("Set the year (JSON null clears)")),
+        trackNumber: nullable(num("Set the track number (JSON null clears)")),
         title: str("Set the title (single track only)"),
       },
       ["trackIds"],
@@ -1239,7 +1244,7 @@ function typeOfArg(v) {
 function describeParam(key, prop, required) {
   const bits = [];
   if (required) bits.push("required");
-  if (prop?.type) bits.push(prop.type);
+  if (prop?.type) bits.push([].concat(prop.type).join("|"));
   if (Array.isArray(prop?.enum)) bits.push(prop.enum.map((v) => JSON.stringify(v)).join("|"));
   return bits.length ? `${key} (${bits.join(", ")})` : key;
 }
@@ -1270,8 +1275,10 @@ export function argProblems(schema, args) {
     const prop = props[key];
     if (!prop || value === undefined || value === null) continue;
     const got = typeOfArg(value);
-    if (prop.type && prop.type !== got) {
-      problems.push(`"${key}" must be ${prop.type === "array" || prop.type === "object" ? "an" : "a"} ${prop.type}, got ${got}`);
+    // A nullable field's type is a list; null itself never reaches here.
+    const want = [].concat(prop.type ?? []).find((t) => t !== "null");
+    if (want && want !== got) {
+      problems.push(`"${key}" must be ${want === "array" || want === "object" ? "an" : "a"} ${want}, got ${got}`);
     } else if (Array.isArray(prop.enum) && !prop.enum.includes(value)) {
       problems.push(`"${key}" must be one of ${prop.enum.map((v) => JSON.stringify(v)).join(", ")}, got ${JSON.stringify(value)}`);
     }

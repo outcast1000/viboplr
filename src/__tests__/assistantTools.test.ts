@@ -176,6 +176,21 @@ describe("argument checking", () => {
     expect(argProblems(s, { action: "jump", index: 2, trackIds: null })).toEqual([]);
   });
 
+  it("declares the fields where null clears as nullable, and sends null through", async () => {
+    const s = tool("write_file_tags").inputSchema as { properties: Record<string, { type: unknown }> };
+    for (const key of ["artistName", "albumArtistName", "albumTitle", "year", "trackNumber"]) {
+      expect(s.properties[key].type, key).toContain("null");
+    }
+    // The text "null" is still a string, not a clear — it's what got sent
+    // when the schema left no other way.
+    expect(argProblems(s, { trackIds: [1], albumTitle: null })).toEqual([]);
+    expect(argProblems(s, { trackIds: [1], year: "1999" })).toEqual(['"year" must be a number, got string']);
+
+    const { call, calls } = fakeInvoke(() => ({ status: 200, body: { failed: 0 } }));
+    await invokeHostTool(inProcessContext("plugin:llm", call), "write_file_tags", { trackIds: [1], albumTitle: null });
+    expect(calls.at(-1)?.body).toEqual({ trackIds: [1], albumTitle: null });
+  });
+
   it("refuses before any request, listing what the tool accepts", async () => {
     const { call, calls } = fakeInvoke(() => ({ status: 200, body: {} }));
     const ctx = inProcessContext("plugin:llm", call);
