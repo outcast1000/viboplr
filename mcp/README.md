@@ -203,6 +203,12 @@ renames land in the same change log as the file writes.
 The server picks the `default` profile (or the only running one). Running a
 non-default profile? Pass `--profile=<name>` (or `VIBOPLR_MCP_PROFILE`).
 
+`launch_app` starts the app in that same profile (`--profile <name>`; with
+none, the app's own `default`). It refuses when Vibo is already running in a
+*different* profile: the installed app is single-instance, so a second launch
+naming another profile would switch the running app over mid-playback — that
+switch is left to the user.
+
 ## What it can never do
 
 Same as the API: no file deletion, no playlist deletion, no extension

@@ -220,7 +220,9 @@ function writeDiscovery(port: number, profile = "default"): string {
   mkdirSync(join(dir, profile));
   writeFileSync(
     join(dir, profile, "control-api.json"),
-    JSON.stringify({ port, token: TEST_TOKEN, profile, pid: 1, startedAt: "now" }),
+    // This process's own pid: always alive. pid 1 is launchd/init on unix but
+    // doesn't exist on Windows, where every file read as a crashed app.
+    JSON.stringify({ port, token: TEST_TOKEN, profile, pid: process.pid, startedAt: "now" }),
   );
   return dir;
 }
@@ -342,6 +344,19 @@ describe("tool table (static)", () => {
     ]);
 
     expect(launchCommands("linux", {})).toEqual([{ cmd: "viboplr", args: [] }]);
+  });
+
+  it("passes a named profile to the launched app, and nothing without one", () => {
+    const mac = launchCommands("darwin", {}, "work");
+    expect(mac[0].args).toEqual(["-b", "com.alex.viboplr", "--args", "--profile", "work"]);
+    expect(mac[1].args).toEqual(["-a", "Viboplr", "--args", "--profile", "work"]);
+
+    const win = launchCommands("win32", { LOCALAPPDATA: "C:\\L", ProgramFiles: "C:\\P" }, "work");
+    for (const c of win) expect(c.args).toEqual(["--profile", "work"]);
+    // No profile → the app's own default, with no flag at all.
+    for (const c of launchCommands("win32", { LOCALAPPDATA: "C:\\L", ProgramFiles: "C:\\P" })) expect(c.args).toEqual([]);
+
+    expect(launchCommands("linux", {}, "work")).toEqual([{ cmd: "viboplr", args: ["--profile", "work"] }]);
   });
 
   it("tells a live discovery pid from a dead one", () => {
@@ -952,7 +967,7 @@ describe("plugin tools when the app starts after tools/list", () => {
       // The app comes up (same discovery file the server re-reads per request).
       writeFileSync(
         join(dir, "default", "control-api.json"),
-        JSON.stringify({ port: api.port, token: TEST_TOKEN, profile: "default", pid: 1, startedAt: "now" }),
+        JSON.stringify({ port: api.port, token: TEST_TOKEN, profile: "default", pid: process.pid, startedAt: "now" }),
       );
       await rpc.request("tools/call", { name: "get_status", arguments: {} });
       for (let i = 0; i < 50 && !rpc.rawStdout().includes("list_changed"); i++) await new Promise((r) => setTimeout(r, 20));
@@ -977,6 +992,25 @@ describe("MCP server without a reachable app", () => {
       const r = res.result as { isError?: boolean };
       expect(r.isError).toBe(true);
       expect(toolText(res.result)).toContain("AI control");
+    } finally {
+      rpc.kill();
+    }
+  });
+
+  it("won't launch into a named profile while another profile is running", async () => {
+    // The release build is single-instance: launching `work` now would switch
+    // the running `default` app over. launch_app must refuse, not spawn.
+    const dir = mkdtempSync(join(tmpdir(), "viboplr-mcp-test-"));
+    mkdirSync(join(dir, "default"));
+    writeFileSync(
+      join(dir, "default", "control-api.json"),
+      JSON.stringify({ port: 1, token: TEST_TOKEN, profile: "default", pid: process.pid, startedAt: "now" }),
+    );
+    const rpc = startServer(dir, ["--profile=work"]);
+    try {
+      const res = await rpc.request("tools/call", { name: "launch_app", arguments: {} });
+      expect((res.result as { isError?: boolean }).isError).toBe(true);
+      expect(toolText(res.result)).toContain('running in profile "default", not "work"');
     } finally {
       rpc.kill();
     }

@@ -94,14 +94,13 @@ export function discoveryPidAlive(pid) {
   }
 }
 
-// Re-read per request: an app restart rotates port + token, and the file is
-// tiny. The token never leaves this function's caller (apiRequest).
-function readDiscovery() {
+// Every profile whose control API is up right now, by its discovery file.
+function liveDiscoveries() {
   let dirs = [];
   try {
     dirs = readdirSync(profilesDir());
   } catch {
-    throw new Error(NOT_RUNNING);
+    return [];
   }
   const found = [];
   for (const d of dirs) {
@@ -114,6 +113,13 @@ function readDiscovery() {
       // Fire-and-forget: a profile dir without a (valid) control-api.json just isn't running the API.
     }
   }
+  return found;
+}
+
+// Re-read per request: an app restart rotates port + token, and the file is
+// tiny. The token never leaves this function's caller (apiRequest).
+function readDiscovery() {
+  const found = liveDiscoveries();
   if (found.length === 0) throw new Error(NOT_RUNNING);
   let hit = found.find((f) => f.profile === (cfg.profile ?? "default"));
   if (!hit && !cfg.profile && found.length === 1) hit = found[0];
@@ -213,12 +219,18 @@ async function fetchLatestRelease() {
  * spawns. macOS resolves through LaunchServices (bundle id first — the process
  * name can't tell builds apart, but the id can); Windows tries the Tauri NSIS
  * install locations; Linux relies on the binary being on PATH.
+ *
+ * A named `profile` is passed on as the app's own `--profile <name>`; with
+ * none the app starts in `default`, exactly as before.
  */
-export function launchCommands(platform = process.platform, env = process.env) {
+export function launchCommands(platform = process.platform, env = process.env, profile = undefined) {
+  const appArgs = profile ? ["--profile", profile] : [];
   if (platform === "darwin") {
+    // `open` hands everything after --args to the launched app.
+    const tail = appArgs.length ? ["--args", ...appArgs] : [];
     return [
-      { cmd: "open", args: ["-b", BUNDLE_ID] },
-      { cmd: "open", args: ["-a", "Viboplr"] },
+      { cmd: "open", args: ["-b", BUNDLE_ID, ...tail] },
+      { cmd: "open", args: ["-a", "Viboplr", ...tail] },
     ];
   }
   if (platform === "win32") {
@@ -227,23 +239,23 @@ export function launchCommands(platform = process.platform, env = process.env) {
     const local = env.LOCALAPPDATA ?? win32.join(env.USERPROFILE ?? homedir(), "AppData", "Local");
     const programFiles = env.ProgramFiles ?? "C:\\Program Files";
     return [
-      { exe: win32.join(local, "Viboplr", "viboplr.exe") },
-      { exe: win32.join(local, "Programs", "Viboplr", "viboplr.exe") },
-      { exe: win32.join(programFiles, "Viboplr", "viboplr.exe") },
+      { exe: win32.join(local, "Viboplr", "viboplr.exe"), args: appArgs },
+      { exe: win32.join(local, "Programs", "Viboplr", "viboplr.exe"), args: appArgs },
+      { exe: win32.join(programFiles, "Viboplr", "viboplr.exe"), args: appArgs },
     ];
   }
-  return [{ cmd: "viboplr", args: [] }];
+  return [{ cmd: "viboplr", args: appArgs }];
 }
 
 function trySpawnApp() {
   const attempted = [];
-  for (const candidate of launchCommands()) {
+  for (const candidate of launchCommands(process.platform, process.env, cfg.profile)) {
     const cmd = candidate.exe ?? candidate.cmd;
     if (candidate.exe && !existsSync(candidate.exe)) {
       attempted.push(candidate.exe);
       continue;
     }
-    attempted.push(candidate.exe ?? `${candidate.cmd} ${candidate.args.join(" ")}`);
+    attempted.push([cmd, ...(candidate.args ?? [])].join(" "));
     try {
       const child = spawn(cmd, candidate.args ?? [], { detached: true, stdio: "ignore" });
       child.unref();
@@ -270,6 +282,17 @@ async function healthOrNull(timeoutMs = 3000) {
 async function launchApp() {
   const before = await healthOrNull();
   if (before) return { alreadyRunning: true, version: before.version, profile: before.profile };
+  // The release build is single-instance: a second launch naming another
+  // profile is taken by the running app as a profile *switch*, i.e. it
+  // relaunches itself mid-playback. That is the user's call, not ours.
+  const others = cfg.profile ? liveDiscoveries().map((f) => f.profile) : [];
+  if (others.length > 0) {
+    throw new Error(
+      `Vibo is running in profile "${others.join(", ")}", not "${cfg.profile}". ` +
+        "Starting it in this profile would switch the running app over, so ask the user to " +
+        "switch profiles themselves (Settings → General → Profiles) or quit Vibo first.",
+    );
+  }
   const launched = trySpawnApp();
   if (!launched.ok) {
     throw new Error(
