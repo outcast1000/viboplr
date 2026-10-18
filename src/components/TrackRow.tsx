@@ -13,6 +13,7 @@ import type { ReactNode } from "react";
 import { useEffect, useState } from "react";
 import { VideoRowThumb } from "./VideoRowThumb";
 import { RowHoverActions, type RowHoverActionsProps } from "./RowHoverActions";
+import { EntityArtFallback } from "./EntityArtFallback";
 
 // The thumbnail is resolved by the CALLER into one of three shapes; TrackRow
 // owns only the markup branch, never the image-cache lookups.
@@ -20,7 +21,7 @@ export type TrackRowThumb =
   | { kind: "video"; trackId: number; trackPath?: string | null; alt: string }   // local video → VideoRowThumb
   | { kind: "image"; url: string; alt?: string; fallback?: TrackRowThumb }  // pre-resolved album/artist/image_url; swaps to `fallback` (default: disc) if the src fails to load
   | { kind: "initials"; text: string }                  // first-letter placeholder (plugin rows)
-  | { kind: "blank" }                                    // empty themed box (e.g. history artist with no image)
+  | { kind: "artist" }                                   // person placeholder (e.g. history artist with no image)
   | { kind: "disc" };                                    // default disc SVG fallback
 
 export interface TrackRowProps {
@@ -64,8 +65,8 @@ function Thumb({ thumb, className }: { thumb: TrackRowThumb; className: string }
   if (thumb.kind === "initials") {
     return <div className={className}>{thumb.text}</div>;
   }
-  if (thumb.kind === "blank") {
-    return <div className={className} />;
+  if (thumb.kind === "artist") {
+    return <div className={`${className} entity-list-img--disc`}><EntityArtFallback kind="artist" /></div>;
   }
   return (
     <div className={`${className} entity-list-img--disc`}>

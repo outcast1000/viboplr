@@ -3,7 +3,6 @@ import { invoke } from "@tauri-apps/api/core";
 import { open as openFileDialog } from "@tauri-apps/plugin-dialog";
 import { IMAGE_PICKER_FILTERS } from "../utils/imageFileFilters";
 import { openUrl } from "@tauri-apps/plugin-opener";
-import { getInitials } from "../utils";
 import type { Artist, ColumnConfig, QueueTrack, Track } from "../types";
 
 import { ARTIST_DETAIL_COLUMNS } from "../hooks/useLibrary";
@@ -12,6 +11,7 @@ import { useEntityRadio } from "../hooks/useEntityRadio";
 import { seedCandidates } from "../utils/radioSeed";
 import { useDetailActions, useDetailState, useInfoSectionActions } from "../contexts/DetailViewContext";
 import { AlbumCardArt } from "./AlbumCardArt";
+import { EntityArtFallback } from "./EntityArtFallback";
 import { LikeDislikeButtons } from "./LikeDislikeButtons";
 import { TrackList, type MissingTrackRow } from "./TrackList";
 import { DetailTrackFilter } from "./DetailTrackFilter";
@@ -420,7 +420,7 @@ export function ArtistDetail({ name }: ArtistDetailProps) {
         art={
           artistImagePath
             ? <img src={artistImageUrl} alt={name} />
-            : <span style={{ fontSize: "var(--fs-xl)", fontWeight: 700, color: "var(--accent)" }}>{getInitials(name)}</span>
+            : <EntityArtFallback kind="artist" />
         }
         artShape="circle"
         eyebrow="Artist"

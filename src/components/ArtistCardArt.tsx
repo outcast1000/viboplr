@@ -1,10 +1,7 @@
 import type { Artist } from "../types";
 import { resolveImageUrl } from "../utils/resolveImageUrl";
+import { EntityArtFallback } from "./EntityArtFallback";
 import "./ArtistCardArt.css";
-
-function getInitials(name: string): string {
-  return name.split(/\s+/).map(w => w[0]).filter(Boolean).slice(0, 2).join("").toUpperCase() || "?";
-}
 
 interface ArtistCardArtProps {
   artist: Artist;
@@ -18,7 +15,7 @@ export function ArtistCardArt({ artist, imagePath, className }: ArtistCardArtPro
       {imagePath ? (
         <img className="artist-card-art-img" src={resolveImageUrl(imagePath)} alt={artist.name} />
       ) : (
-        getInitials(artist.name)
+        <EntityArtFallback kind="artist" />
       )}
     </div>
   );

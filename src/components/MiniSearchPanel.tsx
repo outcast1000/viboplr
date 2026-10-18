@@ -2,6 +2,7 @@ import { useRef, useEffect } from "react";
 import type { Track, Album, Artist, SearchAllResults, SearchResultItem } from "../types";
 import { resolveImageUrl } from "../utils/resolveImageUrl";
 import { artistCountLabel } from "../utils/artistCount";
+import { EntityArtFallback } from "./EntityArtFallback";
 import { LikeDislikeButtons } from "./LikeDislikeButtons";
 import type { SearchLikeHandlers } from "../utils/searchLikes";
 import "./MiniSearchPanel.css";
@@ -33,7 +34,7 @@ function RowLike(props: React.ComponentProps<typeof LikeDislikeButtons>) {
 function ArtistImg({ artist, getArtistImage }: { artist: Artist; getArtistImage: (n: string) => string | null }) {
   const p = getArtistImage(artist.name);
   if (p) return <img className="mini-result-img mini-result-img-round" src={resolveImageUrl(p)} alt="" />;
-  return <span className="mini-result-img-fallback mini-result-img-round">{(artist.name[0] ?? "?").toUpperCase()}</span>;
+  return <span className="mini-result-img-fallback mini-result-img-round"><EntityArtFallback kind="artist" /></span>;
 }
 
 function AlbumImg({ album, getAlbumImage, getArtistImage }: {
@@ -41,7 +42,7 @@ function AlbumImg({ album, getAlbumImage, getArtistImage }: {
 }) {
   const p = getAlbumImage(album.title, album.artist_name) || (album.artist_name ? getArtistImage(album.artist_name) : null);
   if (p) return <img className="mini-result-img" src={resolveImageUrl(p)} alt="" />;
-  return <span className="mini-result-img-fallback">{(album.title[0] ?? "?").toUpperCase()}</span>;
+  return <span className="mini-result-img-fallback"><EntityArtFallback kind="album" /></span>;
 }
 
 function TrackImg({ track, getAlbumImage, getArtistImage }: {

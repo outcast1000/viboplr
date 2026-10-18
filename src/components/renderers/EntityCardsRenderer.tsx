@@ -1,5 +1,6 @@
 import type { RendererProps } from "./index";
 import type { EntityListData } from "../../types/informationTypes";
+import { EntityArtFallback } from "../EntityArtFallback";
 
 export function EntityCardsRenderer({ data, onEntityClick, onEntityContextMenu, resolveEntity }: RendererProps) {
   const d = data as EntityListData;
@@ -31,7 +32,7 @@ export function EntityCardsRenderer({ data, onEntityClick, onEntityContextMenu, 
               {resolved?.imageSrc ? (
                 <img src={resolved.imageSrc} alt={item.name} />
               ) : (
-                item.name[0]?.toUpperCase() ?? "?"
+                <EntityArtFallback kind={kind === "artist" ? "artist" : "album"} />
               )}
             </div>
             <span className="similar-artist-name" title={item.name}>{item.name}</span>

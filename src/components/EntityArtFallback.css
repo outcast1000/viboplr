@@ -1,0 +1,11 @@
+/* A share of the placeholder box, with a floor so the disc's centre ring
+   survives in a 24px thumb and a ceiling so a 240px hero doesn't get a
+   poster-sized glyph. The box is a centred flex container everywhere this is
+   used. */
+.entity-art-fallback {
+  width: clamp(14px, 42%, 72px);
+  height: auto;
+  aspect-ratio: 1;
+  flex: none;
+  opacity: 0.85;
+}

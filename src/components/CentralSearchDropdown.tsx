@@ -7,6 +7,7 @@ import { artistCountLabel } from "../utils/artistCount";
 import { AlbumCardArt } from "./AlbumCardArt";
 import { ArtistCardArt } from "./ArtistCardArt";
 import { TrackArtFallback } from "./TrackArtFallback";
+import { EntityArtFallback } from "./EntityArtFallback";
 import { LikeDislikeButtons } from "./LikeDislikeButtons";
 import type { SearchLikeHandlers } from "../utils/searchLikes";
 import "./CentralSearchDropdown.css";
@@ -74,7 +75,7 @@ function RowLike(props: React.ComponentProps<typeof LikeDislikeButtons>) {
 // Track art mirrors the queue's chain (queue.md "Image Resolution"): album image
 // → artist image → the shared audio/video placeholder (SpinningDisc / FilmReel).
 // Album and artist rows reuse the library's AlbumCardArt / ArtistCardArt so their
-// miss-state placeholders (title letter / artist initials) match everywhere.
+// miss-state placeholders (disc / person, `EntityArtFallback`) match everywhere.
 function TrackImage({ track, getAlbumImage, getArtistImage }: {
   track: Track;
   getAlbumImage: (title: string, artistName?: string | null) => string | null;
@@ -94,13 +95,13 @@ function TrackImage({ track, getAlbumImage, getArtistImage }: {
 }
 
 /** Art for a catalog album/artist row: the provider's own image, else a
- *  name-keyed image already on disk (never fetched), else the first letter.
- *  An image that fails to load steps down to the next one, as elsewhere
- *  (`utils/imageCandidates.ts`) — provider URLs go stale. */
-function CatalogArt({ imageUrl, libraryPath, label }: {
+ *  name-keyed image already on disk (never fetched), else the disc / person
+ *  placeholder. An image that fails to load steps down to the next one, as
+ *  elsewhere (`utils/imageCandidates.ts`) — provider URLs go stale. */
+function CatalogArt({ imageUrl, libraryPath, kind }: {
   imageUrl?: string | null;
   libraryPath: string | null;
-  label: string;
+  kind: "album" | "artist";
 }) {
   const [failed, setFailed] = useState<ReadonlySet<string>>(() => new Set());
   const candidates = [imageUrl, libraryPath ? resolveImageUrl(libraryPath) : null];
@@ -115,7 +116,7 @@ function CatalogArt({ imageUrl, libraryPath, label }: {
       />
     );
   }
-  return <span className="result-img-fallback">{label.charAt(0).toUpperCase()}</span>;
+  return <span className="result-img-fallback"><EntityArtFallback kind={kind} /></span>;
 }
 
 /**
@@ -206,7 +207,7 @@ function PluginSection({
                 <CatalogArt
                   imageUrl={album.image_url}
                   libraryPath={peekAlbumImage(album.title, album.artist_name)}
-                  label={album.title}
+                  kind="album"
                 />
               </div>
               <div className="result-info">
@@ -231,7 +232,7 @@ function PluginSection({
               }}
             >
               <div className="result-art result-art-round">
-                <CatalogArt imageUrl={artist.image_url} libraryPath={peekArtistImage(artist.name)} label={artist.name} />
+                <CatalogArt imageUrl={artist.image_url} libraryPath={peekArtistImage(artist.name)} kind="artist" />
               </div>
               <div className="result-info">
                 <div className="result-title">{artist.name}</div>

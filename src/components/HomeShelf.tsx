@@ -7,6 +7,7 @@ import { resolveShelfPlayAction } from "../utils/homeShelfPlay";
 import { resolveImageSrc, resolveImageUrl } from "../utils/resolveImageUrl";
 import { resolveTrackImage } from "../utils/trackImage";
 import { TrackArtFallback } from "./TrackArtFallback";
+import { EntityArtFallback } from "./EntityArtFallback";
 import { firstUsableImage, type ImageCandidate } from "../utils/imageCandidates";
 import "./HomeView.css";
 
@@ -54,7 +55,8 @@ function ShelfCardArt({ candidates, name, fallback }: { candidates: ImageCandida
   const [failedSrcs, setFailedSrcs] = useState<Set<string>>(new Set());
   const src = firstUsableImage(candidates, failedSrcs);
   if (!src) {
-    // Track-rows pass a type-aware icon; entity cards fall back to the letter.
+    // Track-rows pass a type-aware icon, album/artist cards the disc / person;
+    // playlist cards fall back to the letter.
     return <div className="home-shelf-card-fallback">{fallback ?? (name[0]?.toUpperCase() ?? "?")}</div>;
   }
   return (
@@ -154,7 +156,7 @@ function renderCard(shelf: ResolvedShelf, item: HomeShelfItem, idx: number, ctx:
     // circular with an artist-image lookup, matching the artist-cards look.
     const isArtist = it.entityKind === "artist";
     // Album cards: explicit cover → album image → the album's artist image →
-    // (in ShelfCardArt) first-letter placeholder. The artist fallback is only
+    // the disc / person placeholder. The artist fallback is only
     // evaluated when there's no album art, so it adds no fetch when art exists
     // and never runs for mixed-shelf artist items.
     const src = resolveImageUrl(
@@ -165,7 +167,7 @@ function renderCard(shelf: ResolvedShelf, item: HomeShelfItem, idx: number, ctx:
     return (
       <div key={`${idx}-${it.name}`} className={`ds-card home-shelf-card${isArtist ? " ds-card--circular" : ""}`} onClick={onClick} onContextMenu={onCtx}>
         <div className="ds-card-art">
-          <ShelfCardArt candidates={[src]} name={it.name} />
+          <ShelfCardArt candidates={[src]} name={it.name} fallback={<EntityArtFallback kind={isArtist ? "artist" : "album"} />} />
           {playButton(shelf, item, ctx)}
         </div>
         <div className="ds-card-body">
@@ -181,7 +183,7 @@ function renderCard(shelf: ResolvedShelf, item: HomeShelfItem, idx: number, ctx:
     return (
       <div key={`${idx}-${it.name}`} className="ds-card ds-card--circular home-shelf-card" onClick={onClick} onContextMenu={onCtx}>
         <div className="ds-card-art">
-          <ShelfCardArt candidates={[src]} name={it.name} />
+          <ShelfCardArt candidates={[src]} name={it.name} fallback={<EntityArtFallback kind="artist" />} />
           {playButton(shelf, item, ctx)}
         </div>
         <div className="ds-card-body">

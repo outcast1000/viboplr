@@ -1,5 +1,6 @@
 import type { Album } from "../types";
 import { resolveImageUrl } from "../utils/resolveImageUrl";
+import { EntityArtFallback } from "./EntityArtFallback";
 import "./AlbumCardArt.css";
 
 interface AlbumCardArtProps {
@@ -13,7 +14,7 @@ export function AlbumCardArt({ album, imagePath }: AlbumCardArtProps) {
       {imagePath ? (
         <img className="album-card-art-img" src={resolveImageUrl(imagePath)} alt={album.title} />
       ) : (
-        album.title[0]?.toUpperCase() ?? "?"
+        <EntityArtFallback kind="album" />
       )}
     </div>
   );

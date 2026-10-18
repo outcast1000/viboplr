@@ -17,6 +17,7 @@ import { PromptModal } from "./PromptModal";
 import { InformationSections } from "./InformationSections";
 import { TitleLineInfo } from "./TitleLineInfo";
 import { DetailHero } from "./DetailHero";
+import { EntityArtFallback } from "./EntityArtFallback";
 import { EntityTagPanel } from "./EntityTagPanel";
 import { buildHeroOverflowItems, type HeroOverflowItem } from "../utils/heroOverflow";
 import type { InfoEntity } from "../types/informationTypes";
@@ -434,10 +435,7 @@ export function AlbumDetail({ name, artistName }: AlbumDetailProps) {
           albumImagePath ? (
             <img src={resolveImageUrl(albumImagePath)} alt={name} />
           ) : (
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" style={{ width: 48, height: 48, opacity: 0.5 }}>
-              <circle cx="12" cy="12" r="10" />
-              <circle cx="12" cy="12" r="3" />
-            </svg>
+            <EntityArtFallback kind="album" />
           )
         }
         artShape="square"

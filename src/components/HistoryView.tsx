@@ -40,16 +40,17 @@ interface HistoryViewProps {
 
 
 // A history entry — track OR artist — rendered via the shared TrackRow. The row
-// is entity-agnostic (rank in the leading slot, art with a blank placeholder,
-// plays/relative-time in the subtitle); selection/keyboard/ghost logic stays in
+// is entity-agnostic (rank in the leading slot, art with a disc or person
+// placeholder, plays/relative-time in the subtitle); selection/keyboard/ghost logic stays in
 // the parent, which passes `selected`/`active` + bound actions. `imageUrl` is
 // already resolved by the caller — track rows run the shared album→artist chain,
 // artist rows a plain artist lookup.
 function HistoryRow({
-  selected, active, dataIndex, rank, imageUrl, title, subtitle,
+  selected, active, dataIndex, rank, kind = "track", imageUrl, title, subtitle,
   onClick, onContextMenu, onDoubleClick, onPlay, onEnqueue, onStartRadio, onDetails,
 }: {
   selected: boolean;
+  kind?: "track" | "artist";
   active?: boolean;
   dataIndex?: number;
   rank?: number;
@@ -70,7 +71,7 @@ function HistoryRow({
       active={active}
       dataAttrs={dataIndex != null ? { "data-history-index": dataIndex } : undefined}
       leading={rank != null ? <span className="history-rank">{rank}</span> : undefined}
-      thumb={imageUrl ? { kind: "image", url: imageUrl } : { kind: "blank" }}
+      thumb={imageUrl ? { kind: "image", url: imageUrl } : { kind: kind === "artist" ? "artist" : "disc" }}
       title={title}
       subtitle={subtitle}
       onClick={onClick}
@@ -516,6 +517,7 @@ export const HistoryView = forwardRef<HistoryViewHandle, HistoryViewProps>(
                   key={`artist-${a.history_artist_id}`}
                   selected={selectedKeys.has(selKey)}
                   rank={a.rank}
+                  kind="artist"
                   imageUrl={artistImageUrl(a.display_name)}
                   title={a.display_name}
                   subtitle={<>{a.play_count} play{a.play_count !== 1 ? "s" : ""} &middot; {a.track_count} track{a.track_count !== 1 ? "s" : ""}</>}
@@ -642,6 +644,7 @@ export const HistoryView = forwardRef<HistoryViewHandle, HistoryViewProps>(
                   key={`artists-${artistsTimespan}-${a.history_artist_id}`}
                   selected={selectedKeys.has(selKey)}
                   rank={a.rank}
+                  kind="artist"
                   imageUrl={artistImageUrl(a.display_name)}
                   title={a.display_name}
                   subtitle={<>{a.play_count} play{a.play_count !== 1 ? "s" : ""} &middot; {a.track_count} track{a.track_count !== 1 ? "s" : ""}</>}
