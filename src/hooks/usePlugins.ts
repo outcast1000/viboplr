@@ -158,7 +158,7 @@ import {
   type ProgramConsent,
 } from "../pluginWorker/permissions";
 import { isFirstParty, mainRealmVerdict } from "../utils/pluginTrust";
-import { deleteIfSame } from "../utils/registryOps";
+import { deletePluginKeys, registerKeyed } from "../utils/registryOps";
 import { abortError, armFetchAbort, isFetchAborted } from "../utils/pluginFetchAbort";
 import { handlerKey, matchesProviderRef, parseProviderKey, providerKey, providerNames } from "../utils/providerKey";
 import { MERGED_PLUGINS_DONE_KEY, migrateMergedPlugins, providerRowsFor } from "../utils/mergedPlugins";
@@ -850,8 +850,9 @@ export function usePlugins(
               ...optionalGranted(pluginId, loaded.manifest.optionalPermissions ?? []),
             ])
           : null;
-      const trackUnsubscribe = (fn: () => void) => {
+      const trackUnsubscribe = (fn: () => void): (() => void) => {
         loaded.unsubscribers.push(fn);
+        return fn;
       };
 
       // One gate for every plugin→plugin call (search.query, assistant.invoke):
@@ -1201,12 +1202,7 @@ export function usePlugins(
             providerId: string,
             handler: (title: string, artistName: string | null, albumName: string | null, durationSecs: number | null) => Promise<{ url: string; label: string } | null>,
           ): () => void {
-            loaded.streamResolveHandlers.set(providerId, handler);
-            const unsub = () => {
-              loaded.streamResolveHandlers.delete(providerId);
-            };
-            trackUnsubscribe(unsub);
-            return unsub;
+            return trackUnsubscribe(registerKeyed(loaded.streamResolveHandlers, providerId, handler));
           },
           onResolveStreamByUri(
             scheme: string,
@@ -1220,12 +1216,7 @@ export function usePlugins(
                 console.warn(`[plugin:${pluginId}] stream scheme "${scheme}://" is already registered by plugin "${lp.id}" — the first-loaded plugin wins at resolve time`);
               }
             }
-            loaded.streamUriResolvers.set(scheme, handler);
-            const unsub = () => {
-              loaded.streamUriResolvers.delete(scheme);
-            };
-            trackUnsubscribe(unsub);
-            return unsub;
+            return trackUnsubscribe(registerKeyed(loaded.streamUriResolvers, scheme, handler));
           },
           onResolveStoryboard(
             scheme: string,
@@ -1237,12 +1228,7 @@ export function usePlugins(
                 console.warn(`[plugin:${pluginId}] storyboard scheme "${scheme}://" is already registered by plugin "${lp.id}" — the first-loaded plugin wins at resolve time`);
               }
             }
-            loaded.storyboardResolvers.set(scheme, handler);
-            const unsub = () => {
-              loaded.storyboardResolvers.delete(scheme);
-            };
-            trackUnsubscribe(unsub);
-            return unsub;
+            return trackUnsubscribe(registerKeyed(loaded.storyboardResolvers, scheme, handler));
           },
         },
 
@@ -1260,15 +1246,7 @@ export function usePlugins(
               submenuLabel: item.submenuLabel,
               order: item.order,
             };
-            dynamicMenuItemsRef.current.set(key, entry);
-            setDynamicMenuItemsVersion((v) => v + 1);
-            const unsub = () => {
-              if (deleteIfSame(dynamicMenuItemsRef.current, key, entry)) {
-                setDynamicMenuItemsVersion((v) => v + 1);
-              }
-            };
-            trackUnsubscribe(unsub);
-            return unsub;
+            return trackUnsubscribe(registerKeyed(dynamicMenuItemsRef.current, key, entry, () => setDynamicMenuItemsVersion((v) => v + 1)));
           },
           unregisterItem: (itemId: string): void => {
             const key = `${pluginId}:${itemId}`;
@@ -1791,12 +1769,7 @@ export function usePlugins(
             opts?: { provider?: string },
           ): () => void {
             const key = handlerKey(infoTypeId, opts?.provider);
-            loaded.infoFetchHandlers.set(key, handler);
-            const unsub = () => {
-              loaded.infoFetchHandlers.delete(key);
-            };
-            trackUnsubscribe(unsub);
-            return unsub;
+            return trackUnsubscribe(registerKeyed(loaded.infoFetchHandlers, key, handler));
           },
           async searchValues(query, opts) {
             const matches = await invoke<InfoValueMatch[]>("search_information_values", {
@@ -1871,14 +1844,7 @@ export function usePlugins(
         home: {
           onFetchShelf(shelfId: string, handler: (limit: number) => Promise<HomeShelfResult>): () => void {
             const key = `${pluginId}:${shelfId}`;
-            homeShelfHandlersRef.current.set(key, handler);
-            const unsub = () => {
-              if (homeShelfHandlersRef.current.get(key) === handler) {
-                homeShelfHandlersRef.current.delete(key);
-              }
-            };
-            trackUnsubscribe(unsub);
-            return unsub;
+            return trackUnsubscribe(registerKeyed(homeShelfHandlersRef.current, key, handler));
           },
           registerShelf(descriptor: {
             id: string;
@@ -1896,15 +1862,7 @@ export function usePlugins(
               limit: descriptor.limit ?? 20,
               icon: descriptor.icon,
             };
-            dynamicHomeShelvesRef.current.set(key, entry);
-            setDynamicShelvesVersion((v) => v + 1);
-            const unsub = () => {
-              if (deleteIfSame(dynamicHomeShelvesRef.current, key, entry)) {
-                setDynamicShelvesVersion((v) => v + 1);
-              }
-            };
-            trackUnsubscribe(unsub);
-            return unsub;
+            return trackUnsubscribe(registerKeyed(dynamicHomeShelvesRef.current, key, entry, () => setDynamicShelvesVersion((v) => v + 1)));
           },
           unregisterShelf(shelfId: string): void {
             const key = `${pluginId}:${shelfId}`;
@@ -1914,51 +1872,22 @@ export function usePlugins(
           },
           onItemClick(shelfId: string, handler: (item: HomeShelfItem) => void | Promise<void>): () => void {
             const key = `${pluginId}:${shelfId}`;
-            homeShelfClickHandlersRef.current.set(key, handler);
-            const unsub = () => {
-              if (homeShelfClickHandlersRef.current.get(key) === handler) {
-                homeShelfClickHandlersRef.current.delete(key);
-              }
-            };
-            trackUnsubscribe(unsub);
-            return unsub;
+            return trackUnsubscribe(registerKeyed(homeShelfClickHandlersRef.current, key, handler));
           },
           onResolvePlay(shelfId: string, handler: (item: HomeShelfItem) => Promise<PluginTrack[]>): () => void {
             const key = `${pluginId}:${shelfId}`;
-            homeShelfResolvePlayHandlersRef.current.set(key, handler);
-            const unsub = () => {
-              if (homeShelfResolvePlayHandlersRef.current.get(key) === handler) {
-                homeShelfResolvePlayHandlersRef.current.delete(key);
-              }
-            };
-            trackUnsubscribe(unsub);
-            return unsub;
+            return trackUnsubscribe(registerKeyed(homeShelfResolvePlayHandlersRef.current, key, handler));
           },
         },
 
         visualizers: {
           onMount(id: string, factory: () => PluginVisualizer): () => void {
-            loaded.visualizerFactories.set(id, factory);
-            const unsub = () => {
-              if (loaded.visualizerFactories.get(id) === factory) {
-                loaded.visualizerFactories.delete(id);
-              }
-            };
-            trackUnsubscribe(unsub);
-            return unsub;
+            return trackUnsubscribe(registerKeyed(loaded.visualizerFactories, id, factory));
           },
           register(descriptor: PluginVisualizerDescriptor): () => void {
             const key = `${pluginId}:${descriptor.id}`;
             const entry = { pluginId, ...descriptor };
-            dynamicVisualizersRef.current.set(key, entry);
-            setDynamicVisualizersVersion((v) => v + 1);
-            const unsub = () => {
-              if (deleteIfSame(dynamicVisualizersRef.current, key, entry)) {
-                setDynamicVisualizersVersion((v) => v + 1);
-              }
-            };
-            trackUnsubscribe(unsub);
-            return unsub;
+            return trackUnsubscribe(registerKeyed(dynamicVisualizersRef.current, key, entry, () => setDynamicVisualizersVersion((v) => v + 1)));
           },
           unregister(id: string): void {
             if (dynamicVisualizersRef.current.delete(`${pluginId}:${id}`)) {
@@ -1973,14 +1902,7 @@ export function usePlugins(
             handler: (query: string, limit: number) => Promise<PluginSearchResult>,
           ): () => void {
             const key = `${pluginId}:${providerId}`;
-            searchHandlersRef.current.set(key, handler);
-            const unsub = () => {
-              if (searchHandlersRef.current.get(key) === handler) {
-                searchHandlersRef.current.delete(key);
-              }
-            };
-            trackUnsubscribe(unsub);
-            return unsub;
+            return trackUnsubscribe(registerKeyed(searchHandlersRef.current, key, handler));
           },
           registerProvider(descriptor: { id: string; name: string; icon?: string }): () => void {
             const key = `${pluginId}:${descriptor.id}`;
@@ -1990,15 +1912,7 @@ export function usePlugins(
               name: descriptor.name,
               icon: descriptor.icon,
             };
-            dynamicSearchProvidersRef.current.set(key, entry);
-            setDynamicSearchProvidersVersion((v) => v + 1);
-            const unsub = () => {
-              if (deleteIfSame(dynamicSearchProvidersRef.current, key, entry)) {
-                setDynamicSearchProvidersVersion((v) => v + 1);
-              }
-            };
-            trackUnsubscribe(unsub);
-            return unsub;
+            return trackUnsubscribe(registerKeyed(dynamicSearchProvidersRef.current, key, entry, () => setDynamicSearchProvidersVersion((v) => v + 1)));
           },
           unregisterProvider(providerId: string): void {
             const key = `${pluginId}:${providerId}`;
@@ -2025,27 +1939,12 @@ export function usePlugins(
             handler: (query: string, limit: number) => Promise<PluginWebSearchResult>,
           ): () => void {
             const key = `${pluginId}:${providerId}`;
-            webSearchHandlersRef.current.set(key, handler);
-            const unsub = () => {
-              if (webSearchHandlersRef.current.get(key) === handler) {
-                webSearchHandlersRef.current.delete(key);
-              }
-            };
-            trackUnsubscribe(unsub);
-            return unsub;
+            return trackUnsubscribe(registerKeyed(webSearchHandlersRef.current, key, handler));
           },
           registerProvider(descriptor: { id: string; name: string; icon?: string }): () => void {
             const key = `${pluginId}:${descriptor.id}`;
             const entry = { pluginId, providerId: descriptor.id, name: descriptor.name, icon: descriptor.icon };
-            dynamicWebSearchProvidersRef.current.set(key, entry);
-            publishDynamicWebSearchProviders();
-            const unsub = () => {
-              if (deleteIfSame(dynamicWebSearchProvidersRef.current, key, entry)) {
-                publishDynamicWebSearchProviders();
-              }
-            };
-            trackUnsubscribe(unsub);
-            return unsub;
+            return trackUnsubscribe(registerKeyed(dynamicWebSearchProvidersRef.current, key, entry, () => publishDynamicWebSearchProviders()));
           },
           unregisterProvider(providerId: string): void {
             if (dynamicWebSearchProvidersRef.current.delete(`${pluginId}:${providerId}`)) {
@@ -2085,15 +1984,7 @@ export function usePlugins(
               inputSchema: descriptor.inputSchema,
               readOnly: descriptor.readOnly === true,
             };
-            dynamicAssistantToolsRef.current.set(key, entry);
-            setAssistantVersion((v) => v + 1);
-            const unsub = () => {
-              if (deleteIfSame(dynamicAssistantToolsRef.current, key, entry)) {
-                setAssistantVersion((v) => v + 1);
-              }
-            };
-            trackUnsubscribe(unsub);
-            return unsub;
+            return trackUnsubscribe(registerKeyed(dynamicAssistantToolsRef.current, key, entry, () => setAssistantVersion((v) => v + 1)));
           },
           unregisterTool(name: string): void {
             const key = `${pluginId}:${name}`;
@@ -2106,14 +1997,7 @@ export function usePlugins(
             handler: (args: Record<string, unknown>) => Promise<unknown>,
           ): () => void {
             const key = `${pluginId}:${name}`;
-            assistantToolHandlersRef.current.set(key, handler);
-            const unsub = () => {
-              if (assistantToolHandlersRef.current.get(key) === handler) {
-                assistantToolHandlersRef.current.delete(key);
-              }
-            };
-            trackUnsubscribe(unsub);
-            return unsub;
+            return trackUnsubscribe(registerKeyed(assistantToolHandlersRef.current, key, handler));
           },
           setInstructions(text: string): void {
             runtimeAssistantInstructionsRef.current.set(pluginId, text);
@@ -2152,15 +2036,7 @@ export function usePlugins(
               priority: descriptor.priority ?? 100,
               defaultEnabled: descriptor.defaultEnabled ?? false,
             };
-            nowPlayingInfoItemsRef.current.set(key, entry);
-            setNowPlayingInfoVersion((v) => v + 1);
-            const unsub = () => {
-              if (deleteIfSame(nowPlayingInfoItemsRef.current, key, entry)) {
-                setNowPlayingInfoVersion((v) => v + 1);
-              }
-            };
-            trackUnsubscribe(unsub);
-            return unsub;
+            return trackUnsubscribe(registerKeyed(nowPlayingInfoItemsRef.current, key, entry, () => setNowPlayingInfoVersion((v) => v + 1)));
           },
           unregisterItem(id: string): void {
             const key = `${pluginId}:${id}`;
@@ -2170,14 +2046,7 @@ export function usePlugins(
           },
           onFetch(id: string, handler: (track: PluginTrack) => Promise<NowPlayingInfoResult>): () => void {
             const key = `${pluginId}:${id}`;
-            nowPlayingInfoHandlersRef.current.set(key, handler);
-            const unsub = () => {
-              if (nowPlayingInfoHandlersRef.current.get(key) === handler) {
-                nowPlayingInfoHandlersRef.current.delete(key);
-              }
-            };
-            trackUnsubscribe(unsub);
-            return unsub;
+            return trackUnsubscribe(registerKeyed(nowPlayingInfoHandlersRef.current, key, handler));
           },
         },
 
@@ -2188,12 +2057,7 @@ export function usePlugins(
             opts?: { provider?: string },
           ): () => void {
             const key = handlerKey(entity, opts?.provider);
-            loaded.imageFetchHandlers.set(key, handler);
-            const unsub = () => {
-              loaded.imageFetchHandlers.delete(key);
-            };
-            trackUnsubscribe(unsub);
-            return unsub;
+            return trackUnsubscribe(registerKeyed(loaded.imageFetchHandlers, key, handler));
           },
         },
 
@@ -2212,28 +2076,16 @@ export function usePlugins(
             catch (e) { console.error(`Download progress handler error [${pluginId}]:`, e); }
           },
           onResolveByUri(providerId: string, handler: DownloadResolveByUriHandler): () => void {
-            loaded.downloadResolveByUriHandlers.set(providerId, handler);
-            const unsub = () => { loaded.downloadResolveByUriHandlers.delete(providerId); };
-            trackUnsubscribe(unsub);
-            return unsub;
+            return trackUnsubscribe(registerKeyed(loaded.downloadResolveByUriHandlers, providerId, handler));
           },
           onResolveByMetadata(providerId: string, handler: DownloadResolveByMetadataHandler): () => void {
-            loaded.downloadResolveByMetadataHandlers.set(providerId, handler);
-            const unsub = () => { loaded.downloadResolveByMetadataHandlers.delete(providerId); };
-            trackUnsubscribe(unsub);
-            return unsub;
+            return trackUnsubscribe(registerKeyed(loaded.downloadResolveByMetadataHandlers, providerId, handler));
           },
           onInteractiveSearch(providerId: string, handler: InteractiveSearchHandler): () => void {
-            loaded.interactiveSearchHandlers.set(providerId, handler);
-            const unsub = () => { loaded.interactiveSearchHandlers.delete(providerId); };
-            trackUnsubscribe(unsub);
-            return unsub;
+            return trackUnsubscribe(registerKeyed(loaded.interactiveSearchHandlers, providerId, handler));
           },
           onInteractiveResolve(providerId: string, handler: InteractiveResolveHandler): () => void {
-            loaded.interactiveResolveHandlers.set(providerId, handler);
-            const unsub = () => { loaded.interactiveResolveHandlers.delete(providerId); };
-            trackUnsubscribe(unsub);
-            return unsub;
+            return trackUnsubscribe(registerKeyed(loaded.interactiveResolveHandlers, providerId, handler));
           },
           onGetQualities(providerId: string, handler: GetQualitiesHandler): () => void {
             // The contract is synchronous (the download modal reads it during
@@ -2262,16 +2114,10 @@ export function usePlugins(
             } catch (e) {
               console.error(`[plugin:${pluginId}] getQualities(${providerId}) failed at registration:`, e);
             }
-            loaded.getQualitiesHandlers.set(providerId, read);
-            const unsub = () => { loaded.getQualitiesHandlers.delete(providerId); };
-            trackUnsubscribe(unsub);
-            return unsub;
+            return trackUnsubscribe(registerKeyed(loaded.getQualitiesHandlers, providerId, read));
           },
           onPreview(providerId: string, handler: DownloadPreviewHandler): () => void {
-            loaded.downloadPreviewHandlers.set(providerId, handler);
-            const unsub = () => { loaded.downloadPreviewHandlers.delete(providerId); };
-            trackUnsubscribe(unsub);
-            return unsub;
+            return trackUnsubscribe(registerKeyed(loaded.downloadPreviewHandlers, providerId, handler));
           },
         },
 
@@ -2576,131 +2422,36 @@ export function usePlugins(
     // track changes.
     hostCallbacksRef?.current?.clearSeekMarkers?.(pluginId);
 
-    // Clear view data for this plugin
-    for (const key of viewDataRef.current.keys()) {
-      if (key.startsWith(`${pluginId}:`)) {
-        viewDataRef.current.delete(key);
-      }
-    }
+    // Everything this plugin registered under `${pluginId}:…` keys. Most of
+    // it already went with the unsubscribers above; this sweep catches what was
+    // set without one (view data, headers, badges) or whose unsubscriber threw.
+    deletePluginKeys(viewDataRef.current, pluginId);
     setViewData(new Map(viewDataRef.current));
-
-    // Clear runtime view headers for this plugin (a reload re-sets them)
-    for (const key of Array.from(viewHeadersRef.current.keys())) {
-      if (key.startsWith(`${pluginId}:`)) {
-        viewHeadersRef.current.delete(key);
-      }
-    }
+    deletePluginKeys(viewHeadersRef.current, pluginId);
     setViewHeaders(new Map(viewHeadersRef.current));
-
-    // Clear badges for this plugin
-    for (const key of badgeMapRef.current.keys()) {
-      if (key.startsWith(`${pluginId}:`)) {
-        badgeMapRef.current.delete(key);
-      }
-    }
+    deletePluginKeys(badgeMapRef.current, pluginId);
     setBadgeMap(new Map(badgeMapRef.current));
 
-    // Clear home shelf handlers for this plugin
-    for (const key of Array.from(homeShelfHandlersRef.current.keys())) {
-      if (key.startsWith(`${pluginId}:`)) {
-        homeShelfHandlersRef.current.delete(key);
-      }
+    for (const handlers of [
+      homeShelfHandlersRef.current,
+      homeShelfClickHandlersRef.current,
+      homeShelfResolvePlayHandlersRef.current,
+      nowPlayingInfoHandlersRef.current,
+      searchHandlersRef.current,
+      webSearchHandlersRef.current,
+      assistantToolHandlersRef.current,
+    ] as Map<string, unknown>[]) {
+      deletePluginKeys(handlers, pluginId);
     }
-    // Clear home shelf item-click handlers for this plugin
-    for (const key of Array.from(homeShelfClickHandlersRef.current.keys())) {
-      if (key.startsWith(`${pluginId}:`)) {
-        homeShelfClickHandlersRef.current.delete(key);
-      }
-    }
-    // Clear home shelf resolve-play handlers for this plugin
-    for (const key of Array.from(homeShelfResolvePlayHandlersRef.current.keys())) {
-      if (key.startsWith(`${pluginId}:`)) {
-        homeShelfResolvePlayHandlersRef.current.delete(key);
-      }
-    }
-    // Clear dynamically registered home shelves for this plugin
-    let dynamicShelvesChanged = false;
-    for (const key of Array.from(dynamicHomeShelvesRef.current.keys())) {
-      if (key.startsWith(`${pluginId}:`)) {
-        dynamicHomeShelvesRef.current.delete(key);
-        dynamicShelvesChanged = true;
-      }
-    }
-    if (dynamicShelvesChanged) {
-      setDynamicShelvesVersion((v) => v + 1);
-    }
-    // Clear dynamically registered context-menu items for this plugin
-    let dynamicMenuItemsChanged = false;
-    for (const key of Array.from(dynamicMenuItemsRef.current.keys())) {
-      if (key.startsWith(`${pluginId}:`)) {
-        dynamicMenuItemsRef.current.delete(key);
-        dynamicMenuItemsChanged = true;
-      }
-    }
-    if (dynamicMenuItemsChanged) {
-      setDynamicMenuItemsVersion((v) => v + 1);
-    }
-    // Clear Now Playing info items + handlers for this plugin
-    for (const key of Array.from(nowPlayingInfoHandlersRef.current.keys())) {
-      if (key.startsWith(`${pluginId}:`)) {
-        nowPlayingInfoHandlersRef.current.delete(key);
-      }
-    }
-    let nowPlayingInfoChanged = false;
-    for (const key of Array.from(nowPlayingInfoItemsRef.current.keys())) {
-      if (key.startsWith(`${pluginId}:`)) {
-        nowPlayingInfoItemsRef.current.delete(key);
-        nowPlayingInfoChanged = true;
-      }
-    }
-    if (nowPlayingInfoChanged) {
-      setNowPlayingInfoVersion((v) => v + 1);
-    }
-    // Clear global-search handlers + runtime providers for this plugin
-    for (const key of Array.from(searchHandlersRef.current.keys())) {
-      if (key.startsWith(`${pluginId}:`)) {
-        searchHandlersRef.current.delete(key);
-      }
-    }
-    let searchProvidersChanged = false;
-    for (const key of Array.from(dynamicSearchProvidersRef.current.keys())) {
-      if (key.startsWith(`${pluginId}:`)) {
-        dynamicSearchProvidersRef.current.delete(key);
-        searchProvidersChanged = true;
-      }
-    }
-    if (searchProvidersChanged) {
-      setDynamicSearchProvidersVersion((v) => v + 1);
-    }
-    // ...and its web-search handlers + runtime providers
-    for (const key of Array.from(webSearchHandlersRef.current.keys())) {
-      if (key.startsWith(`${pluginId}:`)) webSearchHandlersRef.current.delete(key);
-    }
-    let webSearchProvidersChanged = false;
-    for (const key of Array.from(dynamicWebSearchProvidersRef.current.keys())) {
-      if (key.startsWith(`${pluginId}:`)) {
-        dynamicWebSearchProvidersRef.current.delete(key);
-        webSearchProvidersChanged = true;
-      }
-    }
-    if (webSearchProvidersChanged) publishDynamicWebSearchProviders();
-    // Clear assistant tool handlers + runtime registrations + instructions
-    let assistantChanged = false;
-    for (const key of Array.from(assistantToolHandlersRef.current.keys())) {
-      if (key.startsWith(`${pluginId}:`)) {
-        assistantToolHandlersRef.current.delete(key);
-      }
-    }
-    for (const key of Array.from(dynamicAssistantToolsRef.current.keys())) {
-      if (key.startsWith(`${pluginId}:`)) {
-        dynamicAssistantToolsRef.current.delete(key);
-        assistantChanged = true;
-      }
-    }
-    if (runtimeAssistantInstructionsRef.current.delete(pluginId)) {
-      assistantChanged = true;
-    }
-    if (assistantChanged) {
+
+    if (deletePluginKeys(dynamicHomeShelvesRef.current, pluginId)) setDynamicShelvesVersion((v) => v + 1);
+    if (deletePluginKeys(dynamicMenuItemsRef.current, pluginId)) setDynamicMenuItemsVersion((v) => v + 1);
+    if (deletePluginKeys(nowPlayingInfoItemsRef.current, pluginId)) setNowPlayingInfoVersion((v) => v + 1);
+    if (deletePluginKeys(dynamicSearchProvidersRef.current, pluginId)) setDynamicSearchProvidersVersion((v) => v + 1);
+    if (deletePluginKeys(dynamicVisualizersRef.current, pluginId)) setDynamicVisualizersVersion((v) => v + 1);
+    if (deletePluginKeys(dynamicWebSearchProvidersRef.current, pluginId)) publishDynamicWebSearchProviders();
+    const toolsRemoved = deletePluginKeys(dynamicAssistantToolsRef.current, pluginId);
+    if (runtimeAssistantInstructionsRef.current.delete(pluginId) || toolsRemoved) {
       setAssistantVersion((v) => v + 1);
     }
 
