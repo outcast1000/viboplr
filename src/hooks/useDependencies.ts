@@ -65,6 +65,38 @@ export interface DependencyRegistry {
 
 const EMPTY_REGISTRY: DependencyRegistry = { pendingConsent: [], conflicts: [], refused: [], unused: [] };
 
+/** A tool enabled plugins use that nothing installed defines. */
+export interface UndefinedTool {
+  name: string;
+  /** Plugin names that use it. */
+  plugins: string[];
+  required: boolean;
+}
+
+/**
+ * Tools the enabled plugins reference that no definition in force covers and no
+ * unsigned definition is waiting to cover — e.g. a plugin that uses yt-dlp after
+ * the plugin defining it was removed. Empty until a first check has run (an
+ * empty `deps` means "not checked", not "nothing defined").
+ */
+export function undefinedTools(
+  decls: PluginDepDeclaration[],
+  deps: DependencyInfo[],
+  pending: PendingDefinition[],
+): UndefinedTool[] {
+  if (deps.length === 0) return [];
+  const known = new Set([...deps.map((d) => d.name), ...pending.map((p) => p.name)]);
+  const out = new Map<string, UndefinedTool>();
+  for (const d of decls) {
+    if (known.has(d.name)) continue;
+    const entry = out.get(d.name) ?? { name: d.name, plugins: [], required: false };
+    if (!entry.plugins.includes(d.pluginName)) entry.plugins.push(d.pluginName);
+    entry.required = entry.required || d.required;
+    out.set(d.name, entry);
+  }
+  return [...out.values()];
+}
+
 /** What a consent dialog shows: one unsigned plugin's waiting definitions. */
 export interface DefinitionConsentRequest {
   pluginId: string;
@@ -539,6 +571,11 @@ export function useDependencies(pluginStates: PluginState[]) {
     }
   }, [modalState, checkDep]);
 
+  const missingDefinitions = useMemo(
+    () => undefinedTools(getPluginDeps(), deps, registry.pendingConsent),
+    [getPluginDeps, deps, registry],
+  );
+
   const pluginNames = useMemo(
     () => Object.fromEntries(pluginStates.map((p) => [p.id, p.manifest.name])) as Record<string, string>,
     [pluginStates],
@@ -550,6 +587,7 @@ export function useDependencies(pluginStates: PluginState[]) {
     installing,
     registry,
     pluginNames,
+    missingDefinitions,
     consentRequest,
     answerConsent,
     reviewDefinitions,

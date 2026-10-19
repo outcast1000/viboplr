@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import type { DependencyInfo, DependencyRegistry, DepUpdateInfo, InstallProgress } from "../hooks/useDependencies";
+import type { DependencyInfo, DependencyRegistry, DepUpdateInfo, InstallProgress, UndefinedTool } from "../hooks/useDependencies";
 import { HelpLink } from "./HelpLink";
 import { getPlatform } from "./DependencyModal";
 import { ToggleSwitch } from "./ToggleSwitch";
@@ -21,18 +21,28 @@ export interface DependenciesApi {
   reviewDefinitions: (pluginId: string) => Promise<boolean>;
   revokeDefinitions: (pluginId: string) => Promise<void>;
   removeUnused: (name: string) => Promise<void>;
+  /** Tools enabled plugins use that nothing installed defines. */
+  missingDefinitions: UndefinedTool[];
 }
 
 /**
- * Tab-badge count for Extensions → Tools: installable updates plus tools a
- * consumer marks required that aren't installed.
+ * Tab-badge count for Extensions → Tools: installable updates, tools a consumer
+ * marks required that aren't installed, plugins whose required tools wait for
+ * the user's OK, and required tools nothing installed defines.
  */
-export function dependencyAttentionCount(deps: DependencyInfo[], updates: DepUpdateInfo[]): number {
+export function dependencyAttentionCount(
+  deps: DependencyInfo[],
+  updates: DepUpdateInfo[],
+  registry?: Pick<DependencyRegistry, "pendingConsent">,
+  missingDefinitions: UndefinedTool[] = [],
+): number {
   const outdated = updates.filter((u) => u.outdated).length;
   const missingRequired = deps.filter(
     (d) => d.status !== "installed" && [...d.internalConsumers, ...d.pluginConsumers].some((c) => c.required),
   ).length;
-  return outdated + missingRequired;
+  const waiting = new Set((registry?.pendingConsent ?? []).filter((p) => p.required).map((p) => p.pluginId)).size;
+  const undefinedRequired = missingDefinitions.filter((m) => m.required).length;
+  return outdated + missingRequired + waiting + undefinedRequired;
 }
 
 /**
@@ -344,6 +354,23 @@ export function DependenciesPanel({
               </div>
             );
           })}
+          {dependencies.missingDefinitions.map((m) => (
+            <div className="settings-row" key={`undefined:${m.name}`}>
+              <div className="settings-row-info">
+                <span className="settings-label">
+                  {m.name}
+                  <span style={{ fontSize: "var(--fs-xs)", color: m.required ? "var(--warning)" : "var(--text-tertiary)", fontWeight: 500, marginLeft: 8 }}>
+                    Not available
+                  </span>
+                </span>
+                <span className="settings-description">
+                  {m.plugins.join(", ")} {m.plugins.length > 1 ? "use" : "uses"} {m.name}
+                  {m.required ? "" : " (optional)"}, but no installed plugin tells Vibo how to get it. Installing
+                  the plugin that provides it, or updating {m.plugins.length > 1 ? "these" : "this one"}, adds it here.
+                </span>
+              </div>
+            </div>
+          ))}
           {conflicts.map((c) => (
             <div className="settings-row" key={`conflict:${c.name}:${c.dropped}`}>
               <span className="settings-description" style={{ color: "var(--warning)" }}>

@@ -536,11 +536,86 @@ function PluginPermissions({ ext, onApprove, onRevoke, onNotify }: {
   );
 }
 
+/**
+ * The command-line tools a plugin defines (`binaryDependencies[].definition`):
+ * whether each is in use, waiting for the user's OK, or refused, with the one
+ * action that applies. The Tools tab shows the same facts per tool; this is
+ * the same facts per plugin.
+ */
+function PluginTools({ pluginId, dependencies }: { pluginId: string; dependencies: DependenciesApi }) {
+  const used = dependencies.deps.filter((d) => d.declaredBy.includes(pluginId));
+  const waiting = dependencies.registry.pendingConsent.filter((p) => p.pluginId === pluginId);
+  const refused = dependencies.registry.refused.filter((r) => r.pluginId === pluginId);
+  const dropped = dependencies.registry.conflicts.filter((c) => c.dropped === pluginId);
+  if (used.length + waiting.length + refused.length + dropped.length === 0) return null;
+  const unsigned = used.some((d) => !d.signedDefinition);
+  const run = (p: Promise<unknown>, what: string) => p.catch((e) => console.error(`Failed to ${what}:`, e));
+  return (
+    <div className="ext-detail-section">
+      <div className="ext-detail-section-title">Tools</div>
+      <div className="ext-detail-section-hint">Command-line programs this plugin has Vibo install and run for it.</div>
+      <div className="ext-contrib-list">
+        {used.map((d) => (
+          <div key={`used:${d.name}`} className="ext-contrib-row">
+            <div className="ext-contrib-text">
+              <div className="ext-contrib-label">{d.name}</div>
+              <div className="ext-contrib-detail">
+                {d.status === "installed" ? `Installed${d.version ? ` (${d.version})` : ""}` : "Not installed"}
+                {!d.verified && " · not verified"}
+              </div>
+            </div>
+          </div>
+        ))}
+        {waiting.map((w) => (
+          <div key={`waiting:${w.name}`} className="ext-contrib-row">
+            <div className="ext-contrib-text">
+              <div className="ext-contrib-label">{w.name}</div>
+              <div className="ext-contrib-detail">Waiting for your OK — this plugin isn't signed by Vibo</div>
+            </div>
+          </div>
+        ))}
+        {refused.map((r) => (
+          <div key={`refused:${r.name}`} className="ext-contrib-row">
+            <div className="ext-contrib-text">
+              <div className="ext-contrib-label">{r.name}</div>
+              <div className="ext-contrib-detail">Can't be used: {r.reason}</div>
+            </div>
+          </div>
+        ))}
+        {dropped.map((c) => (
+          <div key={`dropped:${c.name}`} className="ext-contrib-row">
+            <div className="ext-contrib-text">
+              <div className="ext-contrib-label">{c.name}</div>
+              <div className="ext-contrib-detail">
+                Another plugin's definition is used instead ({dependencies.pluginNames[c.kept] ?? c.kept}): {c.reason}
+              </div>
+            </div>
+          </div>
+        ))}
+      </div>
+      {(waiting.length > 0 || unsigned) && (
+        <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
+          {waiting.length > 0 && (
+            <button className="ds-btn ds-btn--secondary ds-btn--sm" onClick={() => run(dependencies.reviewDefinitions(pluginId), "review a plugin's tools")}>
+              Review
+            </button>
+          )}
+          {unsigned && (
+            <button className="ds-btn ds-btn--ghost ds-btn--sm" onClick={() => run(dependencies.revokeDefinitions(pluginId), "take back consent for a plugin's tools")}>
+              Revoke
+            </button>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function PluginDetail({
   ext, installing, busy, onUpdate, onUninstall, onToggleEnabled, onInstall,
   getPluginViewData, onPluginAction, autoScrollToConfig,
   contributions, contributionVisibility, onSetContributionEnabled,
-  onApprovePermissions, onRevokePermissions, onNotify,
+  onApprovePermissions, onRevokePermissions, onNotify, dependencies,
 }: {
   ext: ExtensionItem; installing: boolean; onUpdate: () => void; onUninstall: () => void;
   busy?: boolean;
@@ -554,6 +629,7 @@ function PluginDetail({
   onApprovePermissions?: (pluginId: string) => Promise<boolean | void>;
   onRevokePermissions?: (pluginId: string) => Promise<void>;
   onNotify?: Notify;
+  dependencies?: DependenciesApi;
 }) {
   const isInstalled = ext.status !== "not_installed";
   const settingsPanelId = ext.status === "active" && ext.contributes?.settingsPanel?.id;
@@ -670,6 +746,8 @@ function PluginDetail({
           onNotify={onNotify}
         />
       )}
+
+      {isInstalled && dependencies && <PluginTools pluginId={ext.id} dependencies={dependencies} />}
 
       {settingsPanelId && (
         <div className="ext-detail-section" ref={configRef}>
@@ -1031,7 +1109,9 @@ export default function ExtensionsView(props: ExtensionsViewProps) {
 
   const skinUpdateCount = allExtensions.filter((e) => e.kind === "skin" && e.updateAvailable?.status === "available").length;
   const pluginUpdateCount = allExtensions.filter((e) => e.kind === "plugin" && e.updateAvailable?.status === "available").length;
-  const toolsAttentionCount = dependencies ? dependencyAttentionCount(dependencies.deps, dependencies.updates) : 0;
+  const toolsAttentionCount = dependencies
+    ? dependencyAttentionCount(dependencies.deps, dependencies.updates, dependencies.registry, dependencies.missingDefinitions)
+    : 0;
 
   const galleryLoading = tab === "skins" ? skinGalleryLoading : pluginGalleryLoading;
   const galleryError = tab === "skins" ? skinGalleryError : pluginGalleryError;
@@ -1288,6 +1368,7 @@ export default function ExtensionsView(props: ExtensionsViewProps) {
               onNotify={onNotify}
               getPluginViewData={getPluginViewData}
               onPluginAction={onPluginAction}
+              dependencies={dependencies}
             />
           </div>
         ) : (
