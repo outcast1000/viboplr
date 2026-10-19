@@ -413,8 +413,8 @@ export type EffectiveSource =
  * directly as `{ kind: "plugin", pluginId }` by the caller (no URI scheme to parse).
  *
  * `getSchemeOwner(scheme)` maps a custom URL scheme to the plugin id that
- * registered `onResolveStreamByUri` for it (so a native `tidal://` maps to the
- * TIDAL plugin's downloader). Returns null when unknown; the scheme string is then
+ * registered `onResolveStreamByUri` for it (so a native plugin scheme maps to
+ * that plugin's downloader). Returns null when unknown; the scheme string is then
  * used as the plugin id, which simply finds no provider and hides the button.
  */
 export function classifyEffectiveSource(

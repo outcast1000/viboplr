@@ -116,7 +116,7 @@ export function decideDownload(
   if (!p) return null;
 
   if (source.uri) {
-    // Native scheme (e.g. tidal://) — resolve directly by URI.
+    // Native plugin scheme (e.g. qbt://) — resolve directly by URI.
     return uriPlan(p, source.uri, track);
   }
   // Stream-resolver win (e.g. YouTube fallback) — no native URI; resolve by

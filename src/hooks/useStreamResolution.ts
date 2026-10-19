@@ -149,7 +149,7 @@ interface UseStreamResolutionDeps {
   /** Latest plugin stream-URI resolver (`plugins.resolveStreamByUri`). */
   resolveStreamByUri: (scheme: string, id: string, quality?: string | null, opts?: { externalAudio?: boolean; fresh?: boolean; video?: boolean }) => Promise<{ url: string; candidates?: StreamCandidate[]; sourceUrl?: string }>;
   /** Maps a custom URL scheme to its owning plugin id (`plugins.streamUriResolverOwner`).
-   *  Lets a native plugin scheme (e.g. `tidal://`) classify to `{ kind: "plugin", pluginId }`. */
+   *  Lets a native plugin scheme (e.g. `qbt://`) classify to `{ kind: "plugin", pluginId }`. */
   streamUriResolverOwner: (scheme: string) => string | null;
   /** Plugin id → manifest name (`plugins.pluginNames`). Used only to name the
    *  native entry for a plugin scheme, so the source panel says "yt-dlp" rather
@@ -488,7 +488,7 @@ export function useStreamResolution({
       // title+artist match, because the native entry above stays first.
 
       // `nativeSchemeOwner` (computed above) is also why a track that already
-      // carries a plugin's native scheme (e.g. youtube://{id}) does NOT get that
+      // carries a plugin's native scheme (e.g. ytdlp://{ref}) does NOT get that
       // same plugin's metadata stream resolver appended below: it already has the
       // plugin's by-id entry, and if the exact id fails to resolve, re-searching
       // by title/artist just re-picks the same item (often the same unavailable

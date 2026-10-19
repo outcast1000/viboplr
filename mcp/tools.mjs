@@ -930,7 +930,7 @@ export const TOOLS = [
         searchId: str("From catalog_search (with index)"),
         index: num("Result index (with searchId)"),
         trackId: num("Plugin-scheme library track id"),
-        uri: str("Plugin-scheme URI, e.g. tidal://…"),
+        uri: str("Plugin-scheme URI, e.g. ytdlp://…"),
         title: str("Track/video title (metadata resolve, with pluginId)"),
         artistName: str("Artist (metadata resolve, optional — improves matching)"),
         albumTitle: str("Album (metadata resolve, optional)"),

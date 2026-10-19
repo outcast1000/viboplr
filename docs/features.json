@@ -99,7 +99,6 @@
     "items": [
       "Subsonic &amp; Navidrome support",
       "Unified library across all sources",
-      "TIDAL Hi-Fi lossless streaming<span class=\"feature-tag\">plugin</span>",
       "Spotify &amp; YouTube browse and playback<span class=\"feature-tag\">plugin</span>"
     ],
     "screenshot": "servers.webp",

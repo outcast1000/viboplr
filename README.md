@@ -137,7 +137,7 @@ The two halves meet in the product: an app written by an AI, designed from day o
 ### Plugins
 - **Plugin System**: The primary extension mechanism — JavaScript plugins provide streaming, metadata, lyrics, image resolution, downloads, context menu items, sidebar views, home shelves, now-playing info items, visualizers, event hooks, settings panels, and scheduler tasks
 - **Built-in Plugins**: Last.fm (scrobbling, history import, similar artists/tracks, bios, community tags), lyrics (LRCLIB, Lyrics.ovh), and artwork (TheAudioDB, Deezer, iTunes, MusicBrainz)
-- **Gallery Plugins**: Installed from the in-app gallery — Spotify, TIDAL (Hi-Fi), YouTube via yt-dlp (search, play, download), Genius (song explanations), qBittorrent, visualizers, and more
+- **Gallery Plugins**: Installed from the in-app gallery — Spotify, YouTube via yt-dlp (search, play, download), Genius (song explanations), qBittorrent, visualizers, and more
 - **Structured Views**: Plugins render via a data model (track lists, card grids, stats, text) — no raw HTML injection
 - **Plugin Management**: Enable/disable plugins, toggle individual contributions, reorder providers, auto-update, and configure settings via the Extensions view
 

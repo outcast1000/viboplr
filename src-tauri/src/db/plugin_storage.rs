@@ -31,6 +31,17 @@ impl Database {
         Ok(())
     }
 
+    /// Everything the database holds for a plugin: its storage keys and its
+    /// scheduled tasks. Used for the retired plugins (`plugins::RETIRED_PLUGIN_IDS`).
+    pub fn plugin_forget(&self, plugin_id: &str) -> Result<(), String> {
+        let conn = self.conn.lock().map_err(|e| e.to_string())?;
+        conn.execute("DELETE FROM plugin_storage WHERE plugin_id = ?1", params![plugin_id])
+            .map_err(|e| e.to_string())?;
+        conn.execute("DELETE FROM plugin_schedules WHERE plugin_id = ?1", params![plugin_id])
+            .map_err(|e| e.to_string())?;
+        Ok(())
+    }
+
     // ── Plugin Scheduler ─────────────────────────────────────────
 
     pub fn plugin_scheduler_register(&self, plugin_id: &str, task_id: &str, interval_ms: i64) -> Result<(), String> {

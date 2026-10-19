@@ -459,7 +459,6 @@ window.__TAURI_INTERNALS__.invoke = async function (cmd, args) {
     case 'get_cached_waveform': return null;
     case 'get_startup_timing': return [];
     case 'plugin_list_installed': return [];
-    case 'tidal_check_status': return null;
     case 'get_tags_for_track': return [TAGS[0], TAGS[6]];
     case 'get_track_play_stats': return { play_count: 23, first_played: now - 86400 * 30, last_played: now - 3600 };
     case 'get_track_play_history': return HISTORY_RECENT.slice(0, 5);
@@ -479,7 +478,6 @@ window.__TAURI_INTERNALS__.invoke = async function (cmd, args) {
     case 'info_get_types_for_entity': return [];
     case 'info_get_cached_values': return [];
     case 'info_get_values_for_entity': return [];
-    case 'tidal_search': return { artists: [], albums: [], tracks: [] };
     case 'get_track_rank': return null;
     case 'get_artist_rank': return null;
     case 'fetch_artist_image': {

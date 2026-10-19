@@ -83,6 +83,53 @@ pub fn trash_merged_plugin_leftovers(
     (moved, failed)
 }
 
+/// Plugins retired outright (2026-10-19): `youtube` (superseded by `ytdlp`)
+/// and `tidal-browse`. Gone from the gallery too; an installed copy is removed
+/// and forgotten by `remove_retired_plugins`. Do not special-case these ids
+/// anywhere else.
+pub const RETIRED_PLUGIN_IDS: &[&str] = &["youtube", "tidal-browse"];
+
+/// Delete a profile's installed copies of the retired plugins: stop and forget
+/// their programs, then delete the plugin folder and its file store
+/// (`plugin-cache/<id>`). Deleted, not trashed — unlike the merged plugins,
+/// nothing of these is meant to be kept. Only a folder that really is that
+/// plugin (its manifest's `id` is the folder name) is touched. Returns the ids
+/// removed and how many could not be; the caller forgets their database rows
+/// (`Database::plugin_forget`) and marks the sweep done only when that is 0.
+pub fn remove_retired_plugins(app_dir: &Path) -> (Vec<String>, usize) {
+    let dir = app_dir.join("plugins");
+    let mut removed = Vec::new();
+    let mut failed = 0;
+    for id in RETIRED_PLUGIN_IDS {
+        let folder = dir.join(id);
+        let manifest_id = std::fs::read_to_string(folder.join("manifest.json"))
+            .ok()
+            .and_then(|s| serde_json::from_str::<serde_json::Value>(&s).ok())
+            .and_then(|m| m.get("id").and_then(|v| v.as_str()).map(str::to_string));
+        if manifest_id.as_deref() != Some(*id) {
+            continue;
+        }
+        crate::plugin_programs::remove_all(app_dir, id);
+        let mut ok = true;
+        for path in [folder, crate::plugin_programs::store_root(app_dir, id)] {
+            if !path.exists() {
+                continue;
+            }
+            if let Err(e) = std::fs::remove_dir_all(&path) {
+                log::warn!("Could not delete {} of the retired '{id}' plugin: {e}", path.display());
+                ok = false;
+            }
+        }
+        if ok {
+            log::info!("Removed the retired '{id}' plugin");
+            removed.push(id.to_string());
+        } else {
+            failed += 1;
+        }
+    }
+    (removed, failed)
+}
+
 /// `trash::delete` without Finder on macOS: the default goes through
 /// `osascript`, which plays the trash sound and can raise an Automation
 /// permission prompt — neither belongs in a startup sweep.
@@ -433,6 +480,33 @@ mod tests {
         assert_eq!(*trashed.borrow(), vec!["deezer", "lrclib"]);
         assert!(tmp.path().join("plugins/itunes").exists());
         assert!(tmp.path().join("plugins/genius").exists());
+    }
+
+    #[test]
+    fn test_retired_plugins_are_removed_with_their_files_and_nothing_else_is() {
+        let tmp = tempfile::tempdir().unwrap();
+        write_plugin(tmp.path(), "youtube", "youtube");
+        write_plugin(tmp.path(), "tidal-browse", "something-else"); // not that plugin
+        write_plugin(tmp.path(), "ytdlp", "ytdlp");
+        let store = crate::plugin_programs::store_root(tmp.path(), "youtube");
+        std::fs::create_dir_all(&store).unwrap();
+        std::fs::write(store.join("cache.json"), "{}").unwrap();
+        let (removed, failed) = remove_retired_plugins(tmp.path());
+        assert_eq!(removed, vec!["youtube"]);
+        assert_eq!(failed, 0);
+        assert!(!tmp.path().join("plugins/youtube").exists());
+        assert!(!store.exists());
+        assert!(tmp.path().join("plugins/tidal-browse").exists());
+        assert!(tmp.path().join("plugins/ytdlp").exists());
+        // Idempotent: a second sweep finds nothing.
+        assert_eq!(remove_retired_plugins(tmp.path()), (vec![], 0));
+    }
+
+    #[test]
+    fn test_retired_plugins_are_not_bundled() {
+        for id in RETIRED_PLUGIN_IDS {
+            assert!(!is_bundled_plugin_id(id), "{id} must not ship");
+        }
     }
 
     #[test]

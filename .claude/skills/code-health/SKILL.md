@@ -79,13 +79,13 @@ Find duplicated logic that should consolidate into a shared hook/util/module.
 - Grep for repeated `invoke(` patterns with similar argument shapes across >2 files — candidates for a shared hook.
 - Duplicate entity-key construction: look for patterns like `` `artist:${name}` ``, `` `album:${artist}:${name}` ``, `` `track:${artist}:${name}` `` — should live in one util.
 - Duplicate time formatting / duration formatting — `utils.ts` has `formatDuration`; flag reimplementations.
-- Duplicate URL-scheme parsing (`file://`, `subsonic://`, `tidal://`) — should live in `queueEntry.ts` helpers.
+- Duplicate URL-scheme parsing (`file://`, `subsonic://`, plugin schemes) — should live in `queueEntry.ts` helpers.
 - Duplicate "is this a local track" checks (`track.path.startsWith("file://")`) scattered across components.
 - Repeated `addLog(`...`)` error-handling patterns that could be wrapped.
 
 **Backend heuristics:**
 - Repeated SQL-building string concatenation across commands that could share a query builder.
-- Duplicate Last.fm / Subsonic / TIDAL request signing code.
+- Duplicate Last.fm / Subsonic request signing code.
 - Repeated `State<'_, AppState>` unwrap + `db.lock()` patterns that could collapse into helpers.
 - Duplicate filename-parsing regex patterns (scanner.rs has 4 canonical ones — flag any parallel implementations).
 

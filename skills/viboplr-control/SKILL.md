@@ -92,7 +92,7 @@ A healthy answer is `{"ok":true, "version":…, "profile":…}`. Multiple files 
 | `PUT /playlists/{id}/order` | `{orderedIds: [..]}` — the full permutation of row ids |
 | `PATCH /playlists/{id}` | `{name, description?}` |
 
-**Plugin catalogs** (search external sources — YouTube, Spotify, TIDAL — through their plugins)
+**Plugin catalogs** (search external sources — YouTube, Spotify — through their plugins)
 
 | Endpoint | Body / notes |
 |---|---|

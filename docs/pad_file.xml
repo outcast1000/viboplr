@@ -78,7 +78,7 @@ At its core is a native playback engine built on libmpv, which decodes every maj
 
 Key features include a Home view with a radio-station carousel and shelves (latest play, made-for-you mixes, most played, liked); endless radio from any track, artist, or tag; auto-continue when the queue ends; a Now Playing view with synced karaoke lyrics, visualizers, and a waveform seek bar; playlists with M3U8 and portable .mixtape export/import; a compact always-on-top mini player; native right-click menus everywhere; 8 built-in skins plus a community gallery and custom JSON skins; and Chrome-like isolated profiles.
 
-Vibo is designed as an orchestrator: a JavaScript plugin system provides streaming sources, scrobbling (Last.fm built in), synced lyrics, artist and album artwork, downloads, sidebar views, home shelves, visualizers, and context-menu actions. Gallery plugins add Spotify, TIDAL, YouTube (via yt-dlp), Genius, qBittorrent, and more, with auto-updates and per-plugin settings.
+Vibo is designed as an orchestrator: a JavaScript plugin system provides streaming sources, scrobbling (Last.fm built in), synced lyrics, artist and album artwork, downloads, sidebar views, home shelves, visualizers, and context-menu actions. Gallery plugins add Spotify, YouTube (via yt-dlp), Genius, qBittorrent, and more, with auto-updates and per-plugin settings.
 
 Built with Tauri 2, Rust, and React for fast startup, instant playback, and a small footprint. No account required and no telemetry surprises.</Char_Desc_2000>
 		</English>

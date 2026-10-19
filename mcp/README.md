@@ -78,7 +78,7 @@ switch; a sheet too large to pass inline can be written to a JSON file and
 passed as `sheetFile`, an absolute path ≤ 1 MB the MCP server reads itself, and
 can name its own song with a `track: { title, artistName }` block; each saved
 sheet records its author, a version that counts up on every save, its dates,
-and the album and length of the copy it was timed to), plugin catalogs (YouTube/Spotify/TIDAL search + play), plugin
+and the album and length of the copy it was timed to), plugin catalogs (YouTube/Spotify search + play), plugin
 home shelves, collections (list + rescan — never add/remove), ad-hoc read-only
 SQL over the library database (`query_library` — writes and the credential
 tables are refused server-side), the app version (`app_version` — with

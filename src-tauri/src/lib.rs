@@ -1093,6 +1093,29 @@ pub fn run() {
                 }
             });
 
+            // Once per profile: the retired plugins (youtube, tidal-browse) are
+            // deleted with their files and database rows. Synchronous for the
+            // same reason as above. The marker means a copy someone installs
+            // by hand later is their own call.
+            timer.time("remove_retired_plugins", || {
+                const MARKER: &str = "retired_plugins_removed";
+                if db.plugin_storage_get("__core__", MARKER).ok().flatten().is_none() {
+                    let (_, failed) = plugins::remove_retired_plugins(&app_dir);
+                    let mut ok = failed == 0;
+                    for id in plugins::RETIRED_PLUGIN_IDS {
+                        if let Err(e) = db.plugin_forget(id) {
+                            log::warn!("Could not forget the retired '{id}' plugin's data: {e}");
+                            ok = false;
+                        }
+                    }
+                    if ok {
+                        if let Err(e) = db.plugin_storage_set("__core__", MARKER, "1") {
+                            log::warn!("Could not record the retired-plugin cleanup: {e}");
+                        }
+                    }
+                }
+            });
+
             timer.time("create_image_dirs", || {
                 let _ = std::fs::create_dir_all(app_dir.join("artist_images"));
                 let _ = std::fs::create_dir_all(app_dir.join("album_images"));

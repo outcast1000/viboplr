@@ -163,7 +163,7 @@ function SourcePanel({ track, resolvedSource, audioProps, mediaInfo, anchor, onK
     pluginProtocol = path.substring(0, path.indexOf("://"));
   }
 
-  // The resolver names itself (e.g. "YouTube", "TIDAL") — the host does not
+  // The resolver names itself (e.g. "yt-dlp", "Soulseek") — the host does not
   // special-case individual plugin ids here. "Library" is internal: its
   // effective source decides whether it reads "Local" or "Subsonic" (a Library
   // row can stream from a Subsonic server), else it falls through to a
@@ -188,7 +188,7 @@ function SourcePanel({ track, resolvedSource, audioProps, mediaInfo, anchor, onK
 
   // External link for the "open URL" action. Derived generically from the
   // resolver's reported sourceUrl — any plugin that returns an http(s) source
-  // (YouTube, TIDAL, …) gets an "Open on <resolver>" button for free.
+  // (yt-dlp, Spotify, …) gets an "Open on <resolver>" button for free.
   let externalUrl: string | null = null;
   let externalLabel: string | null = null;
   if (sourceUrl && (sourceUrl.startsWith("http://") || sourceUrl.startsWith("https://"))) {

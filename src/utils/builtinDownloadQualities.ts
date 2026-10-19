@@ -3,7 +3,7 @@ import type { DownloadQualityOption } from "../types/plugin";
 /// Download quality/format options for built-in (non-plugin) providers.
 ///
 /// Plugin providers declare their own options via `api.downloads.onGetQualities`
-/// (e.g. YouTube "160kbps AAC/M4A", Tidal "FLAC"). Built-in providers don't go
+/// (e.g. YouTube "160kbps AAC/M4A", Soulseek "FLAC"). Built-in providers don't go
 /// through that path, so their options live here. Returns `null` when the
 /// provider isn't a known built-in — the caller then falls back to plugin
 /// options or the generic default selector.

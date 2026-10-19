@@ -161,6 +161,7 @@ import { deleteIfSame } from "../utils/registryOps";
 import { abortError, armFetchAbort, isFetchAborted } from "../utils/pluginFetchAbort";
 import { handlerKey, matchesProviderRef, parseProviderKey, providerKey, providerNames } from "../utils/providerKey";
 import { MERGED_PLUGINS_DONE_KEY, migrateMergedPlugins, providerRowsFor } from "../utils/mergedPlugins";
+import { withoutRetiredContributions, withoutRetiredIds, withoutRetiredKeys } from "../utils/retiredPlugins";
 import { watchPlaybackLevel } from "../playback/levelStore";
 // Hardcoded defaults for information type tab order and provider priority.
 // Plugins cannot override these — users customize via Settings > Providers.
@@ -195,7 +196,6 @@ export const DEFAULT_INFO_TYPE_PRIORITY: Record<string, Record<string, number>> 
 
 // Internal priority for image providers (keyed by "<provider key>:entity")
 export const DEFAULT_IMAGE_PROVIDER_PRIORITY: Record<string, number> = {
-  "tidal-browse:artist": 100,
   // TheAudioDB is the most accurate bundled artist source in practice, so it
   // leads the bundled chain. Deezer follows (broad coverage, now name-gated).
   // iTunes contributes no artist images (musicArtist has no artwork field).
@@ -204,7 +204,6 @@ export const DEFAULT_IMAGE_PROVIDER_PRIORITY: Record<string, number> = {
   "artwork/deezer:artist": 300,
   "artwork/musicbrainz:artist": 500,
   "google:artist": 900,
-  "tidal-browse:album": 100,
   "artwork/itunes:album": 200,
   "artwork/deezer:album": 300,
   "artwork/musicbrainz:album": 500,
@@ -638,8 +637,10 @@ export function usePlugins(
           "pluginContributionVisibility",
         );
         if (!saved) return;
-        contributionVisibilityRef.current = saved;
-        setContributionVisibility(saved);
+        const kept = withoutRetiredContributions(saved);
+        if (kept) await store.set("pluginContributionVisibility", kept);
+        contributionVisibilityRef.current = kept ?? saved;
+        setContributionVisibility(kept ?? saved);
       } catch (e) {
         console.error("Failed to read plugin contribution visibility:", e);
       }
@@ -2900,7 +2901,7 @@ export function usePlugins(
       // slurping their source up front is pure startup cost. `null` (first
       // launch) means "read all" — the auto-enable path below needs every
       // builtin's code without a second IPC round-trip.
-      const storedEnabled =
+      let storedEnabled =
         (await store.get<string[]>("enabledPlugins")) ?? null;
       // The permissions the user approved for each worker-runtime plugin. A
       // worker plugin whose manifest asks for anything not in here does not
@@ -2909,6 +2910,24 @@ export function usePlugins(
         (await store.get<Record<string, string[]>>(PERMISSION_GRANTS_KEY)) ?? {};
       programConsentRef.current =
         (await store.get<Record<string, ProgramConsent>>(PROGRAM_CONSENT_KEY)) ?? {};
+      // The retired plugins (utils/retiredPlugins.ts) are forgotten: the
+      // backend deleted their folders, this drops their switches and grants.
+      // Nothing to drop is the common case, and then nothing is written.
+      const keptEnabled = withoutRetiredIds(storedEnabled);
+      if (keptEnabled) {
+        storedEnabled = keptEnabled;
+        await store.set("enabledPlugins", keptEnabled);
+      }
+      const keptGrants = withoutRetiredKeys(permissionGrantsRef.current);
+      if (keptGrants) {
+        permissionGrantsRef.current = keptGrants;
+        await store.set(PERMISSION_GRANTS_KEY, keptGrants);
+      }
+      const keptConsent = withoutRetiredKeys(programConsentRef.current);
+      if (keptConsent) {
+        programConsentRef.current = keptConsent;
+        await store.set(PROGRAM_CONSENT_KEY, keptConsent);
+      }
       // The bundled image and lyrics plugins were merged into Artwork and
       // Lyrics (utils/mergedPlugins.ts). Applied in memory here — the list
       // decides which plugins' code gets read — and persisted only after the
@@ -3263,9 +3282,11 @@ export function usePlugins(
         await invoke("info_sync_types", { types: allInfoTypes });
 
         // Track plugin info versions (no longer invalidates cache)
-        const storedVersions = (await store.get<Record<string, string>>("pluginInfoVersions")) ?? {};
+        const savedVersions = (await store.get<Record<string, string>>("pluginInfoVersions")) ?? {};
+        const keptVersions = withoutRetiredKeys(savedVersions);
+        const storedVersions = keptVersions ?? savedVersions;
         const newVersions: Record<string, string> = { ...storedVersions };
-        let versionsDirty = false;
+        let versionsDirty = keptVersions !== null;
         for (const st of states) {
           if (st.status !== "active" || !st.manifest.contributes?.informationTypes?.length) continue;
           const prev = storedVersions[st.id];
@@ -4100,8 +4121,8 @@ export function usePlugins(
   );
 
   // Plugin id that owns a custom URL scheme (registered via onResolveStreamByUri).
-  // Mirrors `resolveStreamByUri`'s lookup so a native `tidal://` track can map back
-  // to the TIDAL plugin's download provider. Null when no plugin owns the scheme.
+  // Mirrors `resolveStreamByUri`'s lookup so a native plugin-scheme track can map
+  // back to that plugin's download provider. Null when no plugin owns the scheme.
   const streamUriResolverOwner = useCallback((scheme: string): string | null => {
     for (const [, lp] of loadedPluginsRef.current) {
       if (lp.streamUriResolvers.has(scheme)) return lp.id;

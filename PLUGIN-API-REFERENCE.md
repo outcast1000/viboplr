@@ -8,7 +8,7 @@ Complete reference of all functions and events available to Vibo plugins via the
 
 | API | Description | Used By |
 |-----|-------------|---------|
-| `log(level, message, section?)` | Write a log message to the backend logger (level: "error" / "warn" / "info") | **tidal-browse** — logs streaming server status |
+| `log(level, message, section?)` | Write a log message to the backend logger (level: "error" / "warn" / "info") | — |
 
 ## `api.library` — Library Operations
 
@@ -43,39 +43,39 @@ Complete reference of all functions and events available to Vibo plugins via the
 | `getCurrentTrack()` | Get currently playing track (sync) | — |
 | `isPlaying()` | Check if playback is active (sync) | — |
 | `getPosition()` | Get playback position in seconds (sync) | — |
-| `playTrack(track)` | Play a single PluginTrack | **tidal-browse** — plays selected track from search/album views |
-| `playTracks(tracks, startIndex, context)` | Play multiple PluginTracks with optional playlist context (name, coverUrl, source, metadata) | **tidal-browse** — plays album or search result list; **spotify-browse** — plays playlist from clicked track or start |
+| `playTrack(track)` | Play a single PluginTrack | — |
+| `playTracks(tracks, startIndex, context)` | Play multiple PluginTracks with optional playlist context (name, coverUrl, source, metadata) | **spotify-browse** — plays playlist from clicked track or start |
 | `insertTrack(track, position)` | Insert a PluginTrack into the queue at position (-1 = end) | — |
-| `insertTracks(tracks, position)` | Insert multiple PluginTracks into the queue at position (-1 = end) | **tidal-browse** — enqueues selected tracks; **spotify-browse** — enqueues playlist tracks |
+| `insertTracks(tracks, position)` | Insert multiple PluginTracks into the queue at position (-1 = end) | **spotify-browse** — enqueues playlist tracks |
 | `onTrackStarted(handler)` | Event: track starts playing | **lastfm** — sends "now playing" update to Last.fm |
 | `onTrackScrobbled(handler)` | Event: scrobble threshold met (50% or 4min) | **lastfm** — scrobbles the track to Last.fm |
 | `onTrackLiked(handler)` | Event: track liked/unliked | **lastfm** — syncs love/unlove status with Last.fm |
-| `onStreamResolve(providerId, handler)` | Register fallback stream URL resolver by metadata (title, artist, album) | **tidal-browse** — resolves playback for non-local tracks via TIDAL search; **youtube** — resolves playback via yt-dlp search+download |
-| `onResolveStreamByUri(scheme, handler)` | Register stream URL resolver for a URI scheme (e.g. "tidal", "spotify") | **tidal-browse** — resolves tidal:// URIs to CDN stream URLs |
+| `onStreamResolve(providerId, handler)` | Register fallback stream URL resolver by metadata (title, artist, album) | — |
+| `onResolveStreamByUri(scheme, handler)` | Register stream URL resolver for a URI scheme (e.g. "spotify", "ytdlp") | — |
 
 ## `api.contextMenu` — Context Menu Actions
 
 | API | Description | Used By |
 |-----|-------------|---------|
-| `onAction(actionId, handler)` | Handle right-click context menu action | **tidal-browse** — handles "search-tidal", "play-from-tidal", "download-playlist-from-tidal" actions |
+| `onAction(actionId, handler)` | Handle right-click context menu action | — |
 
 ## `api.ui` — UI & Notifications
 
 | API | Description | Used By |
 |-----|-------------|---------|
-| `setViewData(viewId, data)` | Render/update a plugin sidebar view | **lastfm** — settings panel; **lyrics-search** — settings with domain toggles; **spotify-browse** — playlists/tracks/settings views; **tidal-browse** — search results, album/artist detail; **auto-tagger** — analyze/approved/settings views; **mock-download** — settings panel; **youtube** — dependency status settings |
-| `showNotification(message, options?)` | Show a toast for the result of a user action; `options.action` adds one button. Not for ongoing states — see `.claude/rules/plugins.md` "View design guidelines" | **spotify-browse** — archive/delete/save confirmations; **tidal-browse** — download/error notifications; **auto-tagger** — "applying tags" confirmation |
+| `setViewData(viewId, data)` | Render/update a plugin sidebar view | **lastfm** — settings panel; **lyrics-search** — settings with domain toggles; **spotify-browse** — playlists/tracks/settings views; **auto-tagger** — analyze/approved/settings views; **mock-download** — settings panel |
+| `showNotification(message, options?)` | Show a toast for the result of a user action; `options.action` adds one button. Not for ongoing states — see `.claude/rules/plugins.md` "View design guidelines" | **spotify-browse** — archive/delete/save confirmations; **auto-tagger** — "applying tags" confirmation |
 | `setViewHeader(viewId, header)` | Set a view's host-drawn header (subtitle, status, buttons, logo/banner); `null` restores the manifest `viewHeader` | — (new; see `.claude/rules/plugins.md` "View header") |
-| `navigateToView(viewId)` | Navigate to a plugin sidebar view | **tidal-browse** — opens TIDAL view from context menu |
-| `requestAction(action, payload)` | Request a host-level action (navigate, download, etc.) | **tidal-browse** — tidal-download-album, navigate-to-artist/album, show/hide-loading; **auto-tagger** — refresh-library after applying tags |
-| `onAction(actionId, handler)` | Register handler for UI button/toggle/tab events | **lastfm** — connect/disconnect/import/auto-import actions; **lyrics-search** — domain toggles, test search; **spotify-browse** — tab switching, refresh, play, archive, etc.; **tidal-browse** — search, play, download, view detail; **auto-tagger** — analyze, approve, settings; **mock-download** — toggle/delay/rate settings; **youtube** — refresh, install links |
-| `setBadge(viewId, badge)` | Set dot/count badge on sidebar item | **spotify-browse** — dot badge when playlist changes detected; **tidal-browse** — dot badge when servers are down |
+| `navigateToView(viewId)` | Navigate to a plugin sidebar view | — |
+| `requestAction(action, payload)` | Request a host-level action (navigate, download, etc.) | **auto-tagger** — refresh-library after applying tags |
+| `onAction(actionId, handler)` | Register handler for UI button/toggle/tab events | **lastfm** — connect/disconnect/import/auto-import actions; **lyrics-search** — domain toggles, test search; **spotify-browse** — tab switching, refresh, play, archive, etc.; **auto-tagger** — analyze, approve, settings; **mock-download** — toggle/delay/rate settings |
+| `setBadge(viewId, badge)` | Set dot/count badge on sidebar item | **spotify-browse** — dot badge when playlist changes detected |
 
 ## `api.storage` — Persistent Key-Value Store
 
 | API | Description | Used By |
 |-----|-------------|---------|
-| `get(key)` | Retrieve stored value | **lastfm** — session/credentials/cache; **lyrics-search** — enabled domains; **spotify-browse** — playlists/tracks/sections/settings; **tidal-browse** — quality/mock settings; **auto-tagger** — approved tags/stopwords/settings; **mock-download** — enabled/delay/rates |
+| `get(key)` | Retrieve stored value | **lastfm** — session/credentials/cache; **lyrics-search** — enabled domains; **spotify-browse** — playlists/tracks/sections/settings; **auto-tagger** — approved tags/stopwords/settings; **mock-download** — enabled/delay/rates |
 | `set(key, value)` | Store value | Same plugins as `get` |
 | `delete(key)` | Delete stored value | **lastfm** — clears session on disconnect; **spotify-browse** — clears deleted playlists/sections |
 | `cacheFile(subdir, filename, url)` | Download URL to plugin cache dir, return local path | **spotify-browse** — caches playlist covers and track images |
@@ -87,8 +87,8 @@ Complete reference of all functions and events available to Vibo plugins via the
 
 | API | Description | Used By |
 |-----|-------------|---------|
-| `fetch(url, init?)` | HTTP request (proxied through Rust) | **All plugins** — every plugin uses this for API calls (TIDAL, Last.fm, Deezer, iTunes, MusicBrainz, Genius, LRCLIB, Lyrics.ovh, AudioDB, Google search, GitHub API) |
-| `openUrl(url)` | Open URL in system browser | **lastfm** — opens auth URL; **tidal-browse** — opens uptime status page; **youtube** — opens yt-dlp/ffmpeg install pages |
+| `fetch(url, init?)` | HTTP request (proxied through Rust) | **All plugins** — every plugin uses this for API calls (Last.fm, Deezer, iTunes, MusicBrainz, Genius, LRCLIB, Lyrics.ovh, AudioDB, Google search, GitHub API) |
+| `openUrl(url)` | Open URL in system browser | **lastfm** — opens auth URL |
 | `onDeepLink(handler)` | Handle deep link callbacks | **lastfm** — receives OAuth callback after auth |
 | `openBrowseWindow(url, opts)` | Open internal browser window with JS eval/messaging | **spotify-browse** — scrapes open.spotify.com via injected JS; **lyrics-search** — Google search for lyrics URLs |
 
@@ -129,19 +129,19 @@ Keyed by title + artist (accent/case-insensitive), so a sheet follows the song o
 
 | API | Description | Used By |
 |-----|-------------|---------|
-| `onFetch("artist", handler)` | Register artist image provider | **audiodb** — TheAudioDB artist images; **deezer** — Deezer artist images; **itunes** — iTunes artist artwork; **musicbrainz** — MusicBrainz/Wikimedia artist images; **tidal-browse** — TIDAL artist images |
-| `onFetch("album", handler)` | Register album image provider | **deezer** — Deezer album covers; **itunes** — iTunes album artwork; **musicbrainz** — Cover Art Archive; **tidal-browse** — TIDAL album covers |
+| `onFetch("artist", handler)` | Register artist image provider | **audiodb** — TheAudioDB artist images; **deezer** — Deezer artist images; **itunes** — iTunes artist artwork; **musicbrainz** — MusicBrainz/Wikimedia artist images |
+| `onFetch("album", handler)` | Register album image provider | **deezer** — Deezer album covers; **itunes** — iTunes album artwork; **musicbrainz** — Cover Art Archive |
 
 ## `api.downloads` — Download Providers
 
 | API | Description | Used By |
 |-----|-------------|---------|
 | `getDownloadFormat()` | Get user's configured download format (flac/aac/mp3) | — |
-| `enqueue(request)` | Enqueue a download request (title, uri, provider, etc.) and return its ID | **tidal-browse** — downloads individual TIDAL tracks |
-| `onResolveByUri(providerId, handler)` | Resolve download by URI scheme | **tidal-browse** — resolves `tidal://` URIs; **mock-download** — resolves `mock://` URIs; **youtube** — resolves `external://` URIs (stub) |
-| `onResolveByMetadata(providerId, handler)` | Resolve download by title/artist/album | **tidal-browse** — searches TIDAL by metadata; **mock-download** — matches against mock catalog; **youtube** — searches YouTube via yt-dlp, downloads and converts |
-| `onInteractiveSearch(providerId, handler)` | User-facing search for download candidates | **tidal-browse** — TIDAL track search; **mock-download** — mock catalog search |
-| `onInteractiveResolve(providerId, handler)` | Resolve a user-selected search result | **tidal-browse** — resolves selected TIDAL track; **mock-download** — resolves selected mock track |
+| `enqueue(request)` | Enqueue a download request (title, uri, provider, etc.) and return its ID | — |
+| `onResolveByUri(providerId, handler)` | Resolve download by URI scheme | **mock-download** — resolves `mock://` URIs |
+| `onResolveByMetadata(providerId, handler)` | Resolve download by title/artist/album | **mock-download** — matches against mock catalog |
+| `onInteractiveSearch(providerId, handler)` | User-facing search for download candidates | **mock-download** — mock catalog search |
+| `onInteractiveResolve(providerId, handler)` | Resolve a user-selected search result | **mock-download** — resolves selected mock track |
 
 ## `api.scheduler` — Task Scheduling
 
@@ -162,7 +162,7 @@ Keyed by title + artist (accent/case-insensitive), so a sheet follows the song o
 
 | API | Description | Used By |
 |-----|-------------|---------|
-| `exec(program, args?, opts?)` | Execute an allowlisted program (yt-dlp, ffmpeg), returns { exitCode, stdout, stderr } | **youtube** — yt-dlp version check, audio download, ffmpeg version check, audio conversion |
+| `exec(program, args?, opts?)` | Execute an allowlisted program (yt-dlp, ffmpeg), returns { exitCode, stdout, stderr } | — |
 | `readAudioTags(paths)` | Read embedded tags for a batch of local files (one result per path, null when unreadable; no filename fallback) | **qbittorrent** — real title/artist/album for a finished torrent's files |
 
 ---
@@ -170,7 +170,7 @@ Keyed by title + artist (accent/case-insensitive), so a sheet follows the song o
 ## Summary
 
 - **15 namespaces**, ~73 methods/events
-- Heaviest consumers: **lastfm** (scrobbling + 9 info types + OAuth + history import), **tidal-browse** (search + playback + downloads + images + context menus), **spotify-browse** (web scraping + playback + playlists + scheduling + caching)
+- Heaviest consumers: **lastfm** (scrobbling + 9 info types + OAuth + history import), **spotify-browse** (web scraping + playback + playlists + scheduling + caching)
 - Image-only plugins (audiodb, deezer, itunes, musicbrainz) are minimal: just `network.fetch` + `imageProviders.onFetch`
 - Lyrics plugins (lrclib, lyrics-ovh, lyrics-search) use `informationTypes.onFetch("lyrics")` + `network.fetch`
 - "—" in the "Used By" column means the API is available but no current plugin uses it

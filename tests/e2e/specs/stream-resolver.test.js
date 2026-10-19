@@ -32,7 +32,7 @@ test('source icon appears for playing track', async ({ page }) => {
   await expect(page.locator('.now-playing .now-source-icon')).toBeVisible();
 });
 
-test('track list renders all mock tracks including tidal', async ({ page }) => {
+test('track list renders all mock tracks including a plugin-scheme one', async ({ page }) => {
   const items = page.locator('.entity-list-item');
   await expect(items).toHaveCount(4);
 });
