@@ -1,0 +1,41 @@
+{
+  "name": "yt-dlp",
+  "required": true,
+  "reason": "Search, resolve and download audio/video streams from supported sites",
+  "definition": {
+    "description": "YouTube video/audio downloading",
+    "versionArgs": [
+      "--version"
+    ],
+    "versionPattern": "^(\\S+)",
+    "install": {
+      "macos": "brew install yt-dlp",
+      "windows": "winget install yt-dlp.yt-dlp",
+      "linux": "sudo apt install yt-dlp",
+      "url": "https://github.com/yt-dlp/yt-dlp#installation"
+    },
+    "managed": {
+      "repo": "yt-dlp/yt-dlp-nightly-builds",
+      "assets": {
+        "macos": "yt-dlp_macos",
+        "windows": "yt-dlp.exe",
+        "linux-x64": "yt-dlp_linux",
+        "linux-arm64": "yt-dlp_linux_aarch64"
+      },
+      "zipapp": {
+        "asset": "yt-dlp",
+        "minPython": "3.10"
+      },
+      "checksum": {
+        "file": "SHA2-256SUMS"
+      }
+    },
+    "osTrust": {
+      "args": [
+        "--compat-options",
+        "no-certifi"
+      ],
+      "caFileEnv": "SSL_CERT_FILE"
+    }
+  }
+}

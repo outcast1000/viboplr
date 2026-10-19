@@ -194,29 +194,15 @@ fn parse_ffmpeg_version(output: &str) -> Option<String> {
     })
 }
 
-fn parse_ytdlp_version(output: &str) -> Option<String> {
-    output.lines().next().map(|l| l.trim().to_string())
-}
-
 // Used only by the debug-only `fictional-tool` registry entry below.
 #[cfg(debug_assertions)]
 fn parse_fictional_version(output: &str) -> Option<String> {
     output.lines().next().map(|l| l.trim().to_string())
 }
 
-/// `rqbit 9.0.1` → `9.0.1`.
-fn parse_rqbit_version(output: &str) -> Option<String> {
-    output.lines().next().and_then(|line| {
-        line.trim()
-            .strip_prefix("rqbit ")
-            .map(|rest| rest.split_whitespace().next().unwrap_or("unknown").to_string())
-    })
-}
-
-/// The host's own tools. `ffmpeg` (and the debug-only `fictional-tool`) are the
-/// core's and can never be redefined; `yt-dlp` and `rqbit` are here only until
-/// the plugins that need them declare them (`TRANSITIONAL_BUILTINS`) — a
-/// plugin's definition of either replaces the built-in one.
+/// The host's own tools: `ffmpeg` (and the debug-only `fictional-tool`). No
+/// plugin may redefine them. Every other tool — yt-dlp, rqbit, … — is defined
+/// by the plugin that needs it (`dependency_registry`).
 pub static BUILTIN_REGISTRY: &[DependencyDef] = &[
     DependencyDef {
         name: "ffmpeg",
@@ -234,65 +220,6 @@ pub static BUILTIN_REGISTRY: &[DependencyDef] = &[
             ("Audio format conversion", "Convert WebM downloads to M4A"),
         ],
         managed: None,
-        os_trust: None,
-    },
-    DependencyDef {
-        name: "yt-dlp",
-        description: "YouTube video/audio downloading",
-        version_args: &["--version"],
-        parse_version: VersionParser::Builtin(parse_ytdlp_version),
-        install: InstallInstructions {
-            macos: "brew install yt-dlp",
-            windows: "winget install yt-dlp.yt-dlp",
-            linux: "sudo apt install yt-dlp",
-            url: "https://github.com/yt-dlp/yt-dlp#installation",
-        },
-        internal_consumers: &[],
-        managed: Some(ManagedSource {
-            // The NIGHTLY channel, deliberately. YouTube enforcement changes
-            // land between stable releases and brick playback until the next
-            // one — Aug 2026: googlevideo began 403ing every request shape
-            // stable 2026.07.04's client produced (streams AND downloads dead),
-            // while that week's nightly had already switched player client.
-            // Nightly is also upstream's recommended channel. Same asset
-            // names + SHA2-256SUMS layout as the stable repo.
-            repo: "yt-dlp/yt-dlp-nightly-builds",
-            asset_macos: Some("yt-dlp_macos"),
-            asset_windows: Some("yt-dlp.exe"),
-            asset_linux_x64: Some("yt-dlp_linux"),
-            asset_linux_arm64: Some("yt-dlp_linux_aarch64"),
-            asset_zipapp: Some("yt-dlp"),
-            checksum: Checksum::File("SHA2-256SUMS"),
-        }),
-        os_trust: Some(OsTrust {
-            args: &["--compat-options", "no-certifi"],
-            ca_file_env: Some("SSL_CERT_FILE"),
-        }),
-    },
-    DependencyDef {
-        name: "rqbit",
-        description: "BitTorrent downloads (one-shot, no client to configure)",
-        version_args: &["--version"],
-        parse_version: VersionParser::Builtin(parse_rqbit_version),
-        install: InstallInstructions {
-            macos: "brew install rqbit",
-            windows: "cargo install rqbit",
-            linux: "cargo install rqbit",
-            url: "https://github.com/ikatson/rqbit/releases/latest",
-        },
-        internal_consumers: &[],
-        managed: Some(ManagedSource {
-            // Single static binaries per platform; the macOS one is a universal
-            // build. rqbit publishes no checksums file (asset list checked at
-            // v9.0.1), hence `None` — see the field's doc for what that costs.
-            repo: "ikatson/rqbit",
-            asset_macos: Some("rqbit-osx-universal"),
-            asset_windows: Some("rqbit.exe"),
-            asset_linux_x64: Some("rqbit-linux-amd64"),
-            asset_linux_arm64: Some("rqbit-linux-arm64"),
-            asset_zipapp: None,
-            checksum: Checksum::Unverified,
-        }),
         os_trust: None,
     },
     #[cfg(debug_assertions)]
@@ -313,29 +240,22 @@ pub static BUILTIN_REGISTRY: &[DependencyDef] = &[
     },
 ];
 
-/// Built-ins a plugin definition may replace (the overlap release). Every other
-/// built-in name is refused to plugins.
-pub const TRANSITIONAL_BUILTINS: &[&str] = &["yt-dlp", "rqbit"];
-
-/// A built-in no plugin may redefine.
+/// A built-in — a name no plugin may redefine.
 pub fn is_core_builtin(name: &str) -> bool {
-    !TRANSITIONAL_BUILTINS.contains(&name) && BUILTIN_REGISTRY.iter().any(|d| d.name == name)
+    BUILTIN_REGISTRY.iter().any(|d| d.name == name)
 }
 
-/// The definition in force for `name`: a plugin's (see `dependency_registry`)
-/// before a transitional built-in.
+/// The definition in force for `name`: a built-in, else a plugin's (see
+/// `dependency_registry`, which refuses a built-in's name).
 pub fn get_def(name: &str) -> Option<&'static DependencyDef> {
-    crate::dependency_registry::active_def(name).or_else(|| BUILTIN_REGISTRY.iter().find(|d| d.name == name))
+    BUILTIN_REGISTRY.iter().find(|d| d.name == name).or_else(|| crate::dependency_registry::active_def(name))
 }
 
-/// Every definition in force: the built-ins no plugin replaced, then the
-/// plugin-declared ones.
+/// Every definition in force: the built-ins, then the plugin-declared ones.
 pub fn all_defs() -> Vec<&'static DependencyDef> {
-    let declared = crate::dependency_registry::active_defs();
     BUILTIN_REGISTRY
         .iter()
-        .filter(|b| !declared.iter().any(|d| d.name == b.name))
-        .chain(declared.iter().copied())
+        .chain(crate::dependency_registry::active_defs())
         .collect()
 }
 
@@ -603,14 +523,14 @@ pub fn augmented_path() -> std::ffi::OsString {
 /// The leading arguments and CA-file variable that make `program` verify TLS
 /// against the OS trust store — see `OsTrust` for the per-platform rule.
 fn os_trust_setup(program: &str) -> (Vec<&'static str>, Option<(&'static str, PathBuf)>) {
-    os_trust_setup_in(program, managed_bin_dir().and_then(|b| b.parent()))
+    os_trust_setup_in(get_def(program).and_then(|d| d.os_trust), managed_bin_dir().and_then(|b| b.parent()))
 }
 
 fn os_trust_setup_in(
-    program: &str,
+    trust: Option<OsTrust>,
     app_data_dir: Option<&Path>,
 ) -> (Vec<&'static str>, Option<(&'static str, PathBuf)>) {
-    let Some(trust) = get_def(program).and_then(|d| d.os_trust) else {
+    let Some(trust) = trust else {
         return (Vec::new(), None);
     };
     #[cfg(target_os = "macos")]
@@ -999,28 +919,30 @@ pub fn latest_version(name: &str, cache: &DepCache) -> Result<String, String> {
         .managed
         .as_ref()
         .ok_or_else(|| format!("{} is not a managed dependency", name))?;
-    let url = format!("https://github.com/{}/releases/latest", managed.repo);
-    let result: Result<String, String> = (|| {
-        let resp = redirect_probe_client()?
-            .head(&url)
-            .send()
-            .map_err(|e| format!("HTTP error: {}", crate::error_chain::err_chain(&e)))?;
-        if !resp.status().is_redirection() {
-            // A 404 here means the repo has no non-prerelease release — the same
-            // condition that would make the download alias fail.
-            return Err(format!("HTTP {}", resp.status()));
-        }
-        let location = resp
-            .headers()
-            .get(reqwest::header::LOCATION)
-            .and_then(|v| v.to_str().ok())
-            .ok_or_else(|| "Redirect carried no Location header".to_string())?;
-        parse_latest_tag_from_location(location)
-            .ok_or_else(|| format!("No release tag in redirect target: {}", location))
-    })();
-
+    let result = latest_release_tag(managed.repo);
     cache.set_latest(name, result.as_ref().ok().cloned());
     result
+}
+
+/// The tag `releases/latest` redirects to for `repo` (uncached).
+fn latest_release_tag(repo: &str) -> Result<String, String> {
+    let url = format!("https://github.com/{}/releases/latest", repo);
+    let resp = redirect_probe_client()?
+        .head(&url)
+        .send()
+        .map_err(|e| format!("HTTP error: {}", crate::error_chain::err_chain(&e)))?;
+    if !resp.status().is_redirection() {
+        // A 404 here means the repo has no non-prerelease release — the same
+        // condition that would make the download alias fail.
+        return Err(format!("HTTP {}", resp.status()));
+    }
+    let location = resp
+        .headers()
+        .get(reqwest::header::LOCATION)
+        .and_then(|v| v.to_str().ok())
+        .ok_or_else(|| "Redirect carried no Location header".to_string())?;
+    parse_latest_tag_from_location(location)
+        .ok_or_else(|| format!("No release tag in redirect target: {}", location))
 }
 
 /// Extract the hex digest for `asset` from a `<sha256>  <filename>` checksums
@@ -1449,18 +1371,6 @@ mod tests {
     }
 
     #[test]
-    fn test_parse_ytdlp_version() {
-        let output = "2024.10.22\n";
-        assert_eq!(parse_ytdlp_version(output), Some("2024.10.22".to_string()));
-    }
-
-    #[test]
-    fn test_parse_ytdlp_version_with_whitespace() {
-        let output = "  2024.10.22  \n";
-        assert_eq!(parse_ytdlp_version(output), Some("2024.10.22".to_string()));
-    }
-
-    #[test]
     fn test_cache_get_set() {
         let cache = DepCache::new();
         assert!(cache.get("ffmpeg").is_none());
@@ -1657,7 +1567,6 @@ mod tests {
     fn test_allowed_names_contains_known_deps() {
         let names = allowed_names();
         assert!(names.contains(&"ffmpeg"));
-        assert!(names.contains(&"yt-dlp"));
     }
 
     #[test]
@@ -1742,12 +1651,10 @@ mod tests {
     #[test]
     #[ignore]
     fn probe_latest_version_redirect() {
-        let cache = DepCache::new();
-        let version = latest_version("yt-dlp", &cache).expect("lookup failed");
+        let def = crate::dependency_registry::fixture_def("yt-dlp");
+        let version = latest_release_tag(def.managed.as_ref().unwrap().repo).expect("lookup failed");
         println!("latest yt-dlp (nightly channel): {}", version);
         assert!(version.starts_with("20"), "expected a date-shaped tag, got {}", version);
-        // Second call must be served from the TTL cache, not the network.
-        assert_eq!(latest_version("yt-dlp", &cache).unwrap(), version);
     }
 
     #[test]
@@ -1773,41 +1680,6 @@ mod tests {
     }
 
     #[test]
-    fn test_managed_source_ytdlp_all_platforms() {
-        let def = get_def("yt-dlp").unwrap();
-        let managed = def.managed.as_ref().unwrap();
-        assert!(managed.asset_macos.is_some());
-        assert!(managed.asset_windows.is_some());
-        assert!(managed.asset_linux_x64.is_some());
-        assert_eq!(managed.checksum, Checksum::File("SHA2-256SUMS"));
-        // Current platform resolves to an asset (all dev/CI platforms covered)
-        assert!(managed.platform_asset().is_some());
-    }
-
-    #[test]
-    fn test_managed_source_rqbit_all_platforms() {
-        let def = get_def("rqbit").unwrap();
-        let managed = def.managed.as_ref().unwrap();
-        assert_eq!(managed.repo, "ikatson/rqbit");
-        assert!(managed.asset_macos.is_some());
-        assert!(managed.asset_windows.is_some());
-        assert!(managed.asset_linux_x64.is_some());
-        assert!(managed.asset_linux_arm64.is_some());
-        assert!(managed.asset_zipapp.is_none(), "rqbit is a native binary, never a zipapp");
-        assert!(managed.platform_asset().is_some());
-        // rqbit is also allow-listed for plugin exec by virtue of being here.
-        assert!(allowed_names().contains(&"rqbit"));
-    }
-
-    #[test]
-    fn test_parse_rqbit_version() {
-        assert_eq!(parse_rqbit_version("rqbit 9.0.1\n"), Some("9.0.1".to_string()));
-        assert_eq!(parse_rqbit_version("  rqbit 10.2.0-beta.1"), Some("10.2.0-beta.1".to_string()));
-        assert_eq!(parse_rqbit_version("not rqbit"), None);
-        assert_eq!(parse_rqbit_version(""), None);
-    }
-
-    #[test]
     fn test_ffmpeg_not_managed() {
         assert!(get_def("ffmpeg").unwrap().managed.is_none());
     }
@@ -1820,16 +1692,11 @@ mod tests {
     }
 
     #[test]
-    fn test_only_yt_dlp_is_switched_to_the_os_trust_store() {
-        let yt = get_def("yt-dlp").unwrap().os_trust.expect("yt-dlp bundles certifi, so it needs os_trust");
-        // Repeated --compat-options accumulate in yt-dlp, so a plugin's own
-        // `--compat-options …` can't undo this one.
-        assert_eq!(yt.args, &["--compat-options", "no-certifi"]);
-        assert_eq!(yt.ca_file_env, Some("SSL_CERT_FILE"));
-        for name in ["ffmpeg", "rqbit"] {
-            assert!(get_def(name).unwrap().os_trust.is_none(), "{name} has no bundled CA list to override");
-        }
-        assert_eq!(os_trust_setup_in("ffmpeg", None), (Vec::new(), None));
+    fn test_a_tool_without_os_trust_gets_no_trust_setup() {
+        assert!(get_def("ffmpeg").unwrap().os_trust.is_none());
+        let rqbit = crate::dependency_registry::fixture_def("rqbit");
+        assert!(rqbit.os_trust.is_none(), "rqbit has no bundled CA list to override");
+        assert_eq!(os_trust_setup_in(rqbit.os_trust, None), (Vec::new(), None));
     }
 
     /// On macOS a yt-dlp spawn gets the flag *and* a CA file that really holds
@@ -1838,9 +1705,10 @@ mod tests {
     #[cfg(target_os = "macos")]
     #[test]
     fn test_yt_dlp_spawn_points_at_the_exported_trust_store() {
-        assert_eq!(os_trust_setup_in("yt-dlp", None), (Vec::new(), None));
+        let trust = crate::dependency_registry::fixture_def("yt-dlp").os_trust;
+        assert_eq!(os_trust_setup_in(trust, None), (Vec::new(), None));
         let dir = tempfile::tempdir().unwrap();
-        let (args, ca_file) = os_trust_setup_in("yt-dlp", Some(dir.path()));
+        let (args, ca_file) = os_trust_setup_in(trust, Some(dir.path()));
         assert_eq!(args, vec!["--compat-options", "no-certifi"]);
         let (var, pem) = ca_file.expect("CA file on macOS");
         assert_eq!(var, "SSL_CERT_FILE");

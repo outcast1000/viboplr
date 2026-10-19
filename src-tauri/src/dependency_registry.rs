@@ -676,6 +676,24 @@ pub fn rebuild_again() {
     }
 }
 
+/// The `binaryDependencies` entry a released plugin ships for `name`, copied
+/// verbatim from its manifest (`tests/fixtures/plugin-dependencies/`).
+#[cfg(test)]
+pub(crate) fn fixture_entry(name: &str) -> serde_json::Value {
+    let text = match name {
+        "yt-dlp" => include_str!("../tests/fixtures/plugin-dependencies/yt-dlp.json"),
+        "rqbit" => include_str!("../tests/fixtures/plugin-dependencies/rqbit.json"),
+        other => panic!("no fixture for {other}"),
+    };
+    serde_json::from_str(text).unwrap()
+}
+
+/// That entry's definition, validated and interned like a rebuild would.
+#[cfg(test)]
+pub(crate) fn fixture_def(name: &str) -> &'static DependencyDef {
+    intern(&parse_entry(&fixture_entry(name)).unwrap())
+}
+
 #[cfg(test)]
 pub(crate) fn reset_for_tests() {
     if let Ok(mut reg) = REGISTRY.write() {
@@ -689,81 +707,69 @@ mod tests {
     use serde_json::json;
 
     fn ytdlp_entry() -> serde_json::Value {
-        json!({
-            "name": "yt-dlp",
-            "required": true,
-            "reason": "Search and play",
-            "definition": {
-                "description": "YouTube video/audio downloading",
-                "versionArgs": ["--version"],
-                "versionPattern": "^(\\S+)",
-                "install": {
-                    "macos": "brew install yt-dlp",
-                    "windows": "winget install yt-dlp.yt-dlp",
-                    "linux": "sudo apt install yt-dlp",
-                    "url": "https://github.com/yt-dlp/yt-dlp#installation"
-                },
-                "managed": {
-                    "repo": "yt-dlp/yt-dlp-nightly-builds",
-                    "assets": {
-                        "macos": "yt-dlp_macos",
-                        "windows": "yt-dlp.exe",
-                        "linux-x64": "yt-dlp_linux",
-                        "linux-arm64": "yt-dlp_linux_aarch64"
-                    },
-                    "zipapp": { "asset": "yt-dlp", "minPython": "3.10" },
-                    "checksum": { "file": "SHA2-256SUMS" }
-                },
-                "osTrust": { "args": ["--compat-options", "no-certifi"], "caFileEnv": "SSL_CERT_FILE" }
-            }
-        })
+        fixture_entry("yt-dlp")
     }
 
     fn rqbit_entry() -> serde_json::Value {
-        json!({
-            "name": "rqbit",
-            "required": true,
-            "definition": {
-                "versionArgs": ["--version"],
-                "versionPattern": "^rqbit (\\S+)",
-                "managed": {
-                    "repo": "ikatson/rqbit",
-                    "assets": {
-                        "macos": "rqbit-osx-universal",
-                        "windows": "rqbit.exe",
-                        "linux-x64": "rqbit-linux-amd64",
-                        "linux-arm64": "rqbit-linux-arm64"
-                    },
-                    "checksum": { "none": true }
-                }
-            }
-        })
-    }
-
-    fn builtin(name: &str) -> &'static DependencyDef {
-        dependencies::BUILTIN_REGISTRY.iter().find(|d| d.name == name).unwrap()
+        fixture_entry("rqbit")
     }
 
     #[test]
-    fn test_declared_definitions_reproduce_the_built_ins_exactly() {
-        // The plugins' definitions must download and run exactly what the host's
-        // built-ins did, or an existing managed copy would read as coming from
-        // another source and stop auto-updating.
-        for (entry, name) in [(ytdlp_entry(), "yt-dlp"), (rqbit_entry(), "rqbit")] {
-            let def = intern(&parse_entry(&entry).unwrap());
-            assert_eq!(dependencies::fingerprint(def), dependencies::fingerprint(builtin(name)), "{name}");
+    fn test_plugin_definitions_keep_the_fingerprints_the_host_recorded() {
+        // Hosts up to v1.0.112 defined yt-dlp and rqbit themselves and recorded
+        // these fingerprints in `.sources.json` for every managed copy they
+        // installed. The plugins' definitions must keep producing them, or
+        // those copies read as another source and stop auto-updating.
+        for (name, expected) in [
+            ("yt-dlp", "af969c1a37284e857e1fe6c09f03584aa70c33bb0f6224f1dd62730c99ac173b"),
+            ("rqbit", "4d5deda1d61a1e283d97d901b7e880ff7554a981d4dd717fe448f176ba439080"),
+        ] {
+            assert_eq!(dependencies::fingerprint(fixture_def(name)), expected, "{name}");
         }
     }
 
     #[test]
-    fn test_version_patterns_match_the_built_in_parsers() {
-        let yt = intern(&parse_entry(&ytdlp_entry()).unwrap());
-        let rq = intern(&parse_entry(&rqbit_entry()).unwrap());
-        for out in ["2026.10.10.232918\n", "  2024.10.22  \n"] {
-            assert_eq!(yt.parse_version.parse(out), builtin("yt-dlp").parse_version.parse(out));
-        }
-        for out in ["rqbit 9.0.1\n", "  rqbit 10.2.0-beta.1", "not rqbit", ""] {
-            assert_eq!(rq.parse_version.parse(out), builtin("rqbit").parse_version.parse(out), "{out:?}");
+    fn test_fixture_version_patterns() {
+        let yt = fixture_def("yt-dlp");
+        assert_eq!(yt.parse_version.parse("2026.10.10.232918\n"), Some("2026.10.10.232918".to_string()));
+        assert_eq!(yt.parse_version.parse("  2024.10.22  \n"), Some("2024.10.22".to_string()));
+        let rq = fixture_def("rqbit");
+        assert_eq!(rq.parse_version.parse("rqbit 9.0.1\n"), Some("9.0.1".to_string()));
+        assert_eq!(rq.parse_version.parse("  rqbit 10.2.0-beta.1"), Some("10.2.0-beta.1".to_string()));
+        assert_eq!(rq.parse_version.parse("not rqbit"), None);
+        assert_eq!(rq.parse_version.parse(""), None);
+    }
+
+    #[test]
+    fn test_fixture_managed_sources() {
+        let yt = fixture_def("yt-dlp");
+        let m = yt.managed.as_ref().unwrap();
+        assert_eq!(m.checksum, dependencies::Checksum::File("SHA2-256SUMS"));
+        assert!(m.asset_zipapp.is_some());
+        assert!(m.platform_asset().is_some(), "every dev/CI platform has an asset");
+        let trust = yt.os_trust.expect("yt-dlp bundles certifi, so it needs os_trust");
+        // Repeated --compat-options accumulate in yt-dlp, so a plugin's own
+        // `--compat-options …` can't undo this one.
+        assert_eq!(trust.args, &["--compat-options", "no-certifi"]);
+        assert_eq!(trust.ca_file_env, Some("SSL_CERT_FILE"));
+
+        let rq = fixture_def("rqbit");
+        let m = rq.managed.as_ref().unwrap();
+        assert_eq!(m.repo, "ikatson/rqbit");
+        assert_eq!(m.checksum, dependencies::Checksum::Unverified);
+        assert!(m.asset_zipapp.is_none(), "rqbit is a native binary, never a zipapp");
+        assert!(m.platform_asset().is_some());
+        assert!(rq.os_trust.is_none());
+    }
+
+    #[test]
+    fn test_no_host_definition_of_a_plugin_tool() {
+        // yt-dlp and rqbit belong to their plugins: nothing in force without one.
+        let _g = SERIAL.lock().unwrap_or_else(|e| e.into_inner());
+        reset_for_tests();
+        for name in ["yt-dlp", "rqbit"] {
+            assert!(dependencies::get_def(name).is_none(), "{name}");
+            assert!(!dependencies::allowed_names().contains(&name), "{name}");
         }
     }
 
