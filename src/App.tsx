@@ -218,6 +218,7 @@ import { LATEST_PLAY_SHELF_ID } from "./hooks/useHome";
 import type { HomeShelfItem } from "./types/plugin";
 import { useDependencies } from "./hooks/useDependencies";
 import { DependencyModal } from "./components/DependencyModal";
+import { DefinitionConsentDialog, UnverifiedInstallConfirm } from "./components/DependencyPrompts";
 import ReportProblemModal from "./components/ReportProblemModal";
 import type { DiagnosticContext, DiagnosticSources } from "./utils/diagnosticReport";
 import { recordAppError } from "./utils/errorLog";
@@ -2634,7 +2635,7 @@ function App() {
         // command per OS (brew / winget / apt) from the Rust dependency registry.
         const p = payload as { name?: string; feature?: string };
         if (p.name) {
-          dependencies.promptDep(p.name, p.feature ?? _pluginId).catch(console.error);
+          dependencies.promptDep(p.name, p.feature ?? _pluginId, _pluginId).catch(console.error);
         }
       }
     },
@@ -7302,6 +7303,14 @@ function App() {
           onDismiss={dependencies.dismissModal}
           onRecheck={dependencies.recheckModal}
         />
+      )}
+
+      {dependencies.consentRequest && (
+        <DefinitionConsentDialog request={dependencies.consentRequest} onAnswer={dependencies.answerConsent} />
+      )}
+
+      {dependencies.unverifiedRequest && (
+        <UnverifiedInstallConfirm request={dependencies.unverifiedRequest} onAnswer={dependencies.answerUnverified} />
       )}
 
       {mixtapePreviewPath && (

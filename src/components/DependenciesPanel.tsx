@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import type { DependencyInfo, DepUpdateInfo, InstallProgress } from "../hooks/useDependencies";
+import type { DependencyInfo, DependencyRegistry, DepUpdateInfo, InstallProgress } from "../hooks/useDependencies";
 import { HelpLink } from "./HelpLink";
 import { getPlatform } from "./DependencyModal";
 import { ToggleSwitch } from "./ToggleSwitch";
@@ -15,6 +15,12 @@ export interface DependenciesApi {
   checkUpdates: (force?: boolean) => Promise<unknown>;
   installDep: (name: string) => Promise<string | null>;
   uninstallManaged: (name: string) => Promise<void>;
+  registry: DependencyRegistry;
+  /** Plugin id → name, for "Provided by". */
+  pluginNames: Record<string, string>;
+  reviewDefinitions: (pluginId: string) => Promise<boolean>;
+  revokeDefinitions: (pluginId: string) => Promise<void>;
+  removeUnused: (name: string) => Promise<void>;
 }
 
 /**
@@ -89,6 +95,37 @@ export function DependenciesPanel({
       setActioning(null);
     }
   };
+
+  const handleRemoveUnused = async (name: string) => {
+    setActioning(name);
+    try {
+      await dependencies.removeUnused(name);
+    } catch (e) {
+      console.error("Failed to remove an unused tool:", e);
+    } finally {
+      setActioning(null);
+    }
+  };
+
+  const handleRevoke = async (pluginId: string) => {
+    try {
+      await dependencies.revokeDefinitions(pluginId);
+    } catch (e) {
+      console.error("Failed to take back consent for a plugin's tools:", e);
+    }
+  };
+
+  const handleReview = async (pluginId: string) => {
+    try {
+      await dependencies.reviewDefinitions(pluginId);
+    } catch (e) {
+      console.error("Failed to review a plugin's tools:", e);
+    }
+  };
+
+  const nameOf = (pluginId: string) => dependencies.pluginNames[pluginId] ?? pluginId;
+  const { pendingConsent, conflicts, refused, unused } = dependencies.registry;
+  const waitingPlugins = [...new Set(pendingConsent.map((p) => p.pluginId))];
 
   const handleStopManaging = async (name: string) => {
     setActioning(name);
@@ -173,6 +210,11 @@ export function DependenciesPanel({
                       {dep.origin === "managed" ? "managed by Vibo" : "system"}
                     </span>
                   )}
+                  {dep.managedAvailable && !dep.verified && (
+                    <span className="settings-pill" title="Its publisher offers no checksum: you confirm every install and update, and it never updates on its own">
+                      not verified
+                    </span>
+                  )}
                   {/* Install / Update / manage actions live on the right. */}
                   <span style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 8 }}>
                     {busy && progress && (
@@ -185,9 +227,14 @@ export function DependenciesPanel({
                         {busy ? "Installing..." : "Install"}
                       </button>
                     )}
-                    {installed && outdated && dep.origin === "managed" && (
+                    {installed && outdated && dep.origin === "managed" && !dep.sourceMismatch && (
                       <button className="ds-btn ds-btn--primary ds-btn--sm" onClick={() => handleInstall(dep.name)} disabled={busy}>
                         {busy ? "Updating..." : "Update"}
+                      </button>
+                    )}
+                    {installed && dep.origin === "managed" && dep.sourceMismatch && dep.managedAvailable && (
+                      <button className="ds-btn ds-btn--primary ds-btn--sm" onClick={() => handleInstall(dep.name)} disabled={busy}>
+                        {busy ? "Reinstalling..." : "Reinstall"}
                       </button>
                     )}
                     {installed && outdated && dep.origin === "system" && (
@@ -239,7 +286,29 @@ export function DependenciesPanel({
                     </div>
                   </div>
                 )}
+                {installed && dep.origin === "managed" && dep.sourceMismatch && (
+                  <span style={{ fontSize: "var(--fs-xs)", color: "var(--warning)" }}>
+                    Vibo's copy came from a different source than the one {dep.declaredBy.map(nameOf).join(", ") || "Vibo"} now
+                    uses. It won't update until you reinstall it.
+                  </span>
+                )}
                 <span className="settings-description">{dep.description}</span>
+                {dep.declaredBy.length > 0 && (
+                  <span style={{ fontSize: "var(--fs-xs)", color: "var(--text-tertiary)" }}>
+                    Provided by {dep.declaredBy.map(nameOf).join(", ")}
+                    {!dep.signedDefinition && " — not signed by Vibo, so it updates only when you choose"}
+                    {!dep.signedDefinition && (
+                      <button
+                        className="ds-btn ds-btn--ghost ds-btn--sm"
+                        style={{ marginLeft: 8 }}
+                        onClick={() => handleRevoke(dep.declaredBy[0])}
+                        title={`Stop using the tools ${nameOf(dep.declaredBy[0])} defines; Vibo will ask again`}
+                      >
+                        Revoke
+                      </button>
+                    )}
+                  </span>
+                )}
                 {allConsumers.length > 0 && (
                   <div style={{ fontSize: "var(--fs-xs)", color: "var(--text-tertiary)", display: "flex", flexDirection: "column", gap: 2 }}>
                     <span>Used by:</span>
@@ -253,11 +322,72 @@ export function DependenciesPanel({
               </div>
             );
           })}
+          {waitingPlugins.map((pluginId) => {
+            const items = pendingConsent.filter((p) => p.pluginId === pluginId);
+            return (
+              <div className="settings-row" key={`pending:${pluginId}`}>
+                <div className="settings-row-info">
+                  <span className="settings-label">
+                    {items.map((i) => i.name).join(", ")}
+                    <span style={{ fontSize: "var(--fs-xs)", color: "var(--warning)", fontWeight: 500, marginLeft: 8 }}>
+                      Waiting for your OK
+                    </span>
+                  </span>
+                  <span className="settings-description">
+                    {items[0].pluginName} isn't signed by Vibo and wants Vibo to install{" "}
+                    {items.length > 1 ? "these tools" : "this tool"} for it.
+                  </span>
+                </div>
+                <button className="ds-btn ds-btn--secondary ds-btn--sm" onClick={() => handleReview(pluginId)}>
+                  Review
+                </button>
+              </div>
+            );
+          })}
+          {conflicts.map((c) => (
+            <div className="settings-row" key={`conflict:${c.name}:${c.dropped}`}>
+              <span className="settings-description" style={{ color: "var(--warning)" }}>
+                {nameOf(c.dropped)} defines {c.name} differently from {nameOf(c.kept)}; {nameOf(c.kept)}'s is used
+                ({c.reason}).
+              </span>
+            </div>
+          ))}
+          {refused.map((r) => (
+            <div className="settings-row" key={`refused:${r.pluginId}:${r.name}`}>
+              <span className="settings-description" style={{ color: "var(--warning)" }}>
+                {nameOf(r.pluginId)}'s definition of {r.name} can't be used: {r.reason}
+              </span>
+            </div>
+          ))}
+          {unused.length > 0 && (
+            <div className="settings-row" style={{ flexDirection: "column", alignItems: "stretch", gap: 6 }}>
+              <div className="settings-row-info">
+                <span className="settings-label">Unused</span>
+                <span className="settings-description">
+                  Copies Vibo installed for a plugin that's no longer here. Another profile on this computer may
+                  still use them.
+                </span>
+              </div>
+              {unused.map((name) => (
+                <div key={`unused:${name}`} style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                  <span className="settings-label" style={{ fontWeight: 600 }}>{name}</span>
+                  <button
+                    className="ds-btn ds-btn--ghost ds-btn--sm"
+                    style={{ marginLeft: "auto" }}
+                    onClick={() => handleRemoveUnused(name)}
+                    disabled={actioning === name}
+                  >
+                    {actioning === name ? "Removing..." : "Remove"}
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
           <div className="settings-row">
             <div className="settings-row-info">
               <span className="settings-label">Keep tools up to date automatically</span>
               <span className="settings-description">
-                Silently update Vibo-managed binaries (e.g. yt-dlp) when a newer release is available. Binaries installed via a package manager are never touched.
+                Silently update Vibo-managed binaries (e.g. yt-dlp) when a newer release is available. Binaries installed via a package manager, tools from plugins Vibo hasn't signed, and tools without a checksum are never updated on their own.
               </span>
             </div>
             <ToggleSwitch checked={autoUpdateManagedDeps} onChange={onAutoUpdateManagedDepsChange} />

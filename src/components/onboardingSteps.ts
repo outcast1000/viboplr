@@ -227,6 +227,9 @@ export function spotifyConnection(status: unknown): SpotifyConnection {
  * missing, offered as a managed download, and *required* by some plugin.
  * Optional tools keep their own button — "this plugin works better with it" is
  * the user's call — and a tool with no managed build can't be fetched anyway.
+ * Nor one whose download nothing checks (`verified: false`): that install is
+ * confirmed by the user every time, so it keeps its button instead of popping
+ * a confirmation in the middle of the wizard.
  */
 export function autoInstallableDeps(deps: DependencyInfo[]): string[] {
   return deps
@@ -234,6 +237,7 @@ export function autoInstallableDeps(deps: DependencyInfo[]): string[] {
       (d) =>
         d.status !== "installed" &&
         d.managedAvailable &&
+        d.verified &&
         d.pluginConsumers.some((c) => c.required),
     )
     .map((d) => d.name);

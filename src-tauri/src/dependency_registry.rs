@@ -1,0 +1,893 @@
+//! Binary dependencies that plugins define in their own manifest.
+//!
+//! A plugin's `binaryDependencies` entries say which tools it uses (`name`,
+//! `required`, `reason`). An entry may also carry a `definition` — how to probe,
+//! install and update the tool — so the host needs no code or data of its own
+//! for a tool only plugins use (yt-dlp, rqbit). Everything downstream
+//! (`dependencies.rs`: the Tools tab, managed installs, auto-update, the
+//! `api.system.exec` allow-list) reads the definitions in force through
+//! `dependencies::get_def` / `all_defs`, so a declared tool behaves exactly like
+//! a built-in one.
+//!
+//! **Trust.** A definition is a promise about what the host will download and
+//! run, so it is read only from files on disk, never from the webview (main-realm
+//! code can invoke any command). A definition from a bundled plugin or one signed
+//! by Vibo (`plugin_signing`, which covers `manifest.json`) is registered at once.
+//! One from an unsigned plugin waits for the user's consent, recorded here in
+//! `{profile}/plugin-dependencies/consent.json` against the definition's
+//! fingerprint, so an update that changes the definition asks again. A plugin
+//! whose signature is `invalid` contributes nothing.
+//!
+//! **Conflicts.** Identity is the tool's name (it is the program `exec` runs and
+//! the file in the shared bin dir). Definitions with the same fingerprint
+//! (`dependencies::fingerprint`) merge; a different one for a name already taken
+//! is a conflict: a signed definition beats an unsigned one, otherwise the first
+//! registered stays. The loser is not registered and the conflict is reported.
+
+use crate::dependencies::{
+    self, Checksum, DependencyDef, InstallInstructions, ManagedSource, OsTrust, VersionParser,
+};
+use serde::Serialize;
+use std::collections::HashMap;
+use std::path::{Path, PathBuf};
+use std::sync::{Mutex, RwLock};
+
+/// A plugin folder root to scan, in precedence order.
+#[derive(Debug, Clone)]
+pub struct PluginRoot {
+    pub dir: PathBuf,
+    /// Shipped inside the app bundle: trusted like a signed plugin.
+    pub builtin: bool,
+    /// One folder that IS a plugin (the dev plugin path), id from its manifest.
+    pub single: bool,
+}
+
+#[derive(Debug, Clone, Serialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct PendingConsent {
+    pub plugin_id: String,
+    pub plugin_name: String,
+    pub name: String,
+    pub fingerprint: String,
+    pub repo: Option<String>,
+    pub verified: bool,
+    pub required: bool,
+}
+
+#[derive(Debug, Clone, Serialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct Conflict {
+    pub name: String,
+    pub kept: String,
+    pub dropped: String,
+    pub reason: String,
+}
+
+#[derive(Debug, Clone, Serialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct Refused {
+    pub plugin_id: String,
+    pub name: String,
+    pub reason: String,
+}
+
+#[derive(Debug, Clone, Default, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RegistryStatus {
+    pub pending_consent: Vec<PendingConsent>,
+    pub conflicts: Vec<Conflict>,
+    pub refused: Vec<Refused>,
+}
+
+#[derive(Debug, Clone)]
+struct Active {
+    def: &'static DependencyDef,
+    fingerprint: String,
+    declared_by: Vec<String>,
+    signed: bool,
+}
+
+#[derive(Default)]
+struct Registry {
+    active: Vec<Active>,
+    status: RegistryStatus,
+}
+
+static REGISTRY: RwLock<Option<Registry>> = RwLock::new(None);
+/// The inputs of the last rebuild, so a consent or an uninstall can rebuild
+/// with the same roots (incl. the dev folder the frontend named).
+static LAST_INPUTS: Mutex<Option<(PathBuf, Vec<PluginRoot>)>> = Mutex::new(None);
+/// Definitions are leaked once each and reused: a rebuild that finds the same
+/// definition again hands back the same `&'static`, so repeated rebuilds don't
+/// grow memory. Keyed by the whole canonical definition.
+static INTERNED: Mutex<Option<HashMap<String, &'static DependencyDef>>> = Mutex::new(None);
+
+pub fn active_def(name: &str) -> Option<&'static DependencyDef> {
+    let reg = REGISTRY.read().ok()?;
+    reg.as_ref()?.active.iter().find(|a| a.def.name == name).map(|a| a.def)
+}
+
+pub fn active_defs() -> Vec<&'static DependencyDef> {
+    let Ok(reg) = REGISTRY.read() else { return Vec::new() };
+    reg.as_ref().map(|r| r.active.iter().map(|a| a.def).collect()).unwrap_or_default()
+}
+
+/// Plugin ids whose manifest defines `name` (empty for a built-in).
+pub fn declared_by(name: &str) -> Vec<String> {
+    let Ok(reg) = REGISTRY.read() else { return Vec::new() };
+    reg.as_ref()
+        .and_then(|r| r.active.iter().find(|a| a.def.name == name))
+        .map(|a| a.declared_by.clone())
+        .unwrap_or_default()
+}
+
+/// May the background updater replace `name` silently: a built-in, or a
+/// definition from a bundled or Vibo-signed plugin. An unsigned plugin's tool
+/// updates only on the user's own click.
+pub fn auto_update_allowed(name: &str) -> bool {
+    if let Ok(reg) = REGISTRY.read() {
+        if let Some(a) = reg.as_ref().and_then(|r| r.active.iter().find(|a| a.def.name == name)) {
+            return a.signed;
+        }
+    }
+    dependencies::BUILTIN_REGISTRY.iter().any(|d| d.name == name)
+}
+
+pub fn status() -> RegistryStatus {
+    REGISTRY
+        .read()
+        .ok()
+        .and_then(|r| r.as_ref().map(|r| r.status.clone()))
+        .unwrap_or_default()
+}
+
+// ---- Consent -----------------------------------------------------------
+
+fn consent_file(profile_dir: &Path) -> PathBuf {
+    profile_dir.join("plugin-dependencies").join("consent.json")
+}
+
+fn read_consent(profile_dir: &Path) -> HashMap<String, Vec<String>> {
+    std::fs::read_to_string(consent_file(profile_dir))
+        .ok()
+        .and_then(|s| serde_json::from_str(&s).ok())
+        .unwrap_or_default()
+}
+
+fn write_consent(profile_dir: &Path, map: &HashMap<String, Vec<String>>) -> Result<(), String> {
+    let file = consent_file(profile_dir);
+    if let Some(dir) = file.parent() {
+        std::fs::create_dir_all(dir).map_err(|e| e.to_string())?;
+    }
+    let json = serde_json::to_string(map).map_err(|e| e.to_string())?;
+    let tmp = file.with_extension("tmp");
+    std::fs::write(&tmp, json).map_err(|e| e.to_string())?;
+    std::fs::rename(&tmp, &file).map_err(|e| e.to_string())
+}
+
+/// The user agreed to run these definitions of an unsigned plugin. Only
+/// fingerprints that plugin is currently waiting on are recorded.
+pub fn grant_consent(profile_dir: &Path, plugin_id: &str, fingerprints: &[String]) -> Result<(), String> {
+    let pending = status().pending_consent;
+    let mut map = read_consent(profile_dir);
+    let entry = map.entry(plugin_id.to_string()).or_default();
+    for fp in fingerprints {
+        let waiting = pending.iter().any(|p| p.plugin_id == plugin_id && &p.fingerprint == fp);
+        if !waiting {
+            return Err(format!("{plugin_id} is not waiting for consent to that definition"));
+        }
+        if !entry.contains(fp) {
+            entry.push(fp.clone());
+        }
+    }
+    write_consent(profile_dir, &map)?;
+    rebuild_again();
+    Ok(())
+}
+
+/// Drop a plugin's consents (Revoke, uninstall).
+pub fn revoke_consent(profile_dir: &Path, plugin_id: &str) -> Result<(), String> {
+    let mut map = read_consent(profile_dir);
+    if map.remove(plugin_id).is_some() {
+        write_consent(profile_dir, &map)?;
+    }
+    rebuild_again();
+    Ok(())
+}
+
+// ---- Parsing -----------------------------------------------------------
+
+/// A validated definition, owned, before interning.
+#[derive(Debug, Clone)]
+struct Parsed {
+    name: String,
+    required: bool,
+    description: String,
+    version_args: Vec<String>,
+    version_pattern: String,
+    install: [String; 4],
+    managed: Option<ParsedManaged>,
+    os_trust: Option<(Vec<String>, Option<String>)>,
+}
+
+#[derive(Debug, Clone)]
+struct ParsedManaged {
+    repo: String,
+    assets: [Option<String>; 4],
+    zipapp: Option<String>,
+    checksum: Option<String>,
+}
+
+const ALLOWED_CA_FILE_ENV: &[&str] = &["SSL_CERT_FILE"];
+const HOST_ZIPAPP_PYTHON: (u32, u32) = (3, 10);
+
+fn valid_name(name: &str) -> bool {
+    let mut chars = name.chars();
+    let first_ok = chars.next().is_some_and(|c| c.is_ascii_lowercase() || c.is_ascii_digit());
+    first_ok
+        && name.len() <= 64
+        && name.chars().all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || matches!(c, '.' | '_' | '-'))
+}
+
+fn valid_asset(asset: &str) -> bool {
+    !asset.is_empty() && asset.len() <= 200 && !asset.contains('/') && !asset.contains('\\') && !asset.contains("..")
+}
+
+fn valid_repo(repo: &str) -> bool {
+    let mut parts = repo.split('/');
+    let ok = |s: Option<&str>| {
+        s.is_some_and(|s| !s.is_empty() && s.chars().all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.')) && s != "..")
+    };
+    ok(parts.next()) && ok(parts.next()) && parts.next().is_none()
+}
+
+fn str_field(obj: &serde_json::Map<String, serde_json::Value>, key: &str) -> Result<Option<String>, String> {
+    match obj.get(key) {
+        None | Some(serde_json::Value::Null) => Ok(None),
+        Some(serde_json::Value::String(s)) => Ok(Some(s.clone())),
+        Some(_) => Err(format!("`{key}` must be a string")),
+    }
+}
+
+fn only_keys(obj: &serde_json::Map<String, serde_json::Value>, allowed: &[&str], what: &str) -> Result<(), String> {
+    match obj.keys().find(|k| !allowed.contains(&k.as_str())) {
+        Some(k) => Err(format!("`{what}.{k}` is not understood by this version of Vibo — it needs a newer Vibo")),
+        None => Ok(()),
+    }
+}
+
+fn string_list(v: Option<&serde_json::Value>, key: &str, max: usize) -> Result<Vec<String>, String> {
+    let Some(v) = v else { return Ok(Vec::new()) };
+    let arr = v.as_array().ok_or_else(|| format!("`{key}` must be a list of strings"))?;
+    if arr.len() > max {
+        return Err(format!("`{key}` may hold at most {max} entries"));
+    }
+    arr.iter()
+        .map(|x| {
+            let s = x.as_str().ok_or_else(|| format!("`{key}` must be a list of strings"))?;
+            if s.contains('\0') {
+                return Err(format!("`{key}` contains a NUL character"));
+            }
+            Ok(s.to_string())
+        })
+        .collect()
+}
+
+/// Validate one `binaryDependencies` entry that carries a `definition`.
+fn parse_entry(entry: &serde_json::Value) -> Result<Parsed, String> {
+    let obj = entry.as_object().ok_or("entry is not an object")?;
+    let name = str_field(obj, "name")?.ok_or("`name` is missing")?;
+    if !valid_name(&name) {
+        return Err(format!("`{name}` is not a valid tool name"));
+    }
+    if dependencies::is_core_builtin(&name) {
+        return Err(format!("{name} is one of Vibo's own tools and can't be redefined"));
+    }
+    let required = obj
+        .get("required")
+        .and_then(|v| v.as_bool())
+        .ok_or("`required` must be true or false on an entry with a definition")?;
+    let def = obj.get("definition").and_then(|v| v.as_object()).ok_or("`definition` must be an object")?;
+    only_keys(def, &["description", "versionArgs", "versionPattern", "install", "managed", "osTrust"], "definition")?;
+
+    let description = str_field(def, "description")?.unwrap_or_default();
+    if description.len() > 200 {
+        return Err("`description` is longer than 200 characters".into());
+    }
+    let version_args = string_list(def.get("versionArgs"), "versionArgs", 4)?;
+    let version_pattern = str_field(def, "versionPattern")?.ok_or("`versionPattern` is missing")?;
+    if version_pattern.len() > 200 {
+        return Err("`versionPattern` is longer than 200 characters".into());
+    }
+    let re = regex::Regex::new(&version_pattern).map_err(|e| format!("`versionPattern` is not a valid pattern: {e}"))?;
+    if re.captures_len() != 2 {
+        return Err("`versionPattern` must have exactly one capture group (the version)".into());
+    }
+
+    let install = match def.get("install") {
+        None => [String::new(), String::new(), String::new(), String::new()],
+        Some(v) => {
+            let i = v.as_object().ok_or("`install` must be an object")?;
+            only_keys(i, &["macos", "windows", "linux", "url"], "install")?;
+            let url = str_field(i, "url")?.unwrap_or_default();
+            if !url.is_empty() && !url.starts_with("https://") {
+                return Err("`install.url` must be an https link".into());
+            }
+            [
+                str_field(i, "macos")?.unwrap_or_default(),
+                str_field(i, "windows")?.unwrap_or_default(),
+                str_field(i, "linux")?.unwrap_or_default(),
+                url,
+            ]
+        }
+    };
+
+    let managed = match def.get("managed") {
+        None | Some(serde_json::Value::Null) => None,
+        Some(v) => {
+            let m = v.as_object().ok_or("`managed` must be an object")?;
+            only_keys(m, &["repo", "assets", "zipapp", "checksum"], "managed")?;
+            let repo = str_field(m, "repo")?.ok_or("`managed.repo` is missing")?;
+            if !valid_repo(&repo) {
+                return Err("`managed.repo` must be a GitHub `owner/name`".into());
+            }
+            let assets_obj = m.get("assets").and_then(|v| v.as_object()).ok_or("`managed.assets` must be an object")?;
+            only_keys(assets_obj, &["macos", "windows", "linux-x64", "linux-arm64"], "managed.assets")?;
+            let mut assets: [Option<String>; 4] = [None, None, None, None];
+            for (i, key) in ["macos", "windows", "linux-x64", "linux-arm64"].iter().enumerate() {
+                if let Some(a) = str_field(assets_obj, key)? {
+                    if !valid_asset(&a) {
+                        return Err(format!("`managed.assets.{key}` is not a plain file name"));
+                    }
+                    assets[i] = Some(a);
+                }
+            }
+            let zipapp = match m.get("zipapp") {
+                None | Some(serde_json::Value::Null) => None,
+                Some(z) => {
+                    let z = z.as_object().ok_or("`managed.zipapp` must be an object")?;
+                    only_keys(z, &["asset", "minPython"], "managed.zipapp")?;
+                    let asset = str_field(z, "asset")?.ok_or("`managed.zipapp.asset` is missing")?;
+                    if !valid_asset(&asset) {
+                        return Err("`managed.zipapp.asset` is not a plain file name".into());
+                    }
+                    if let Some(min) = str_field(z, "minPython")? {
+                        let mut parts = min.split('.');
+                        let v = (|| Some((parts.next()?.parse::<u32>().ok()?, parts.next()?.parse::<u32>().ok()?)))()
+                            .filter(|_| parts.next().is_none())
+                            .ok_or("`managed.zipapp.minPython` must look like 3.10")?;
+                        if v > HOST_ZIPAPP_PYTHON {
+                            return Err(format!("`managed.zipapp.minPython` {min} needs a newer Vibo"));
+                        }
+                    }
+                    Some(asset)
+                }
+            };
+            let checksum = {
+                let c = m.get("checksum").and_then(|v| v.as_object()).ok_or(
+                    "`managed.checksum` is missing: give `{ \"file\": … }` or say `{ \"none\": true }`",
+                )?;
+                match (c.get("file"), c.get("none"), c.len()) {
+                    (Some(serde_json::Value::String(f)), None, 1) => {
+                        if !valid_asset(f) {
+                            return Err("`managed.checksum.file` is not a plain file name".into());
+                        }
+                        Some(f.clone())
+                    }
+                    (None, Some(serde_json::Value::Bool(true)), 1) => None,
+                    _ if c.contains_key("pinned") => {
+                        return Err("`managed.checksum.pinned` needs a newer Vibo".into());
+                    }
+                    _ => return Err("`managed.checksum` must be exactly `{ \"file\": … }` or `{ \"none\": true }`".into()),
+                }
+            };
+            Some(ParsedManaged { repo, assets, zipapp, checksum })
+        }
+    };
+
+    let os_trust = match def.get("osTrust") {
+        None | Some(serde_json::Value::Null) => None,
+        Some(v) => {
+            let t = v.as_object().ok_or("`osTrust` must be an object")?;
+            only_keys(t, &["args", "caFileEnv"], "osTrust")?;
+            let args = string_list(t.get("args"), "osTrust.args", 8)?;
+            let env = str_field(t, "caFileEnv")?;
+            if let Some(e) = &env {
+                if !ALLOWED_CA_FILE_ENV.contains(&e.as_str()) {
+                    return Err(format!("`osTrust.caFileEnv` may only be one of {ALLOWED_CA_FILE_ENV:?}"));
+                }
+            }
+            Some((args, env))
+        }
+    };
+
+    Ok(Parsed { name, required, description, version_args, version_pattern, install, managed, os_trust })
+}
+
+fn leak(s: &str) -> &'static str {
+    Box::leak(s.to_string().into_boxed_str())
+}
+
+fn leak_list(v: &[String]) -> &'static [&'static str] {
+    Box::leak(v.iter().map(|s| leak(s)).collect::<Vec<_>>().into_boxed_slice())
+}
+
+fn intern(p: &Parsed) -> &'static DependencyDef {
+    let key = format!("{p:?}");
+    let mut guard = INTERNED.lock().unwrap_or_else(|e| e.into_inner());
+    let map = guard.get_or_insert_with(HashMap::new);
+    if let Some(def) = map.get(&key) {
+        return def;
+    }
+    let re: &'static regex::Regex = Box::leak(Box::new(
+        regex::Regex::new(&p.version_pattern).expect("validated in parse_entry"),
+    ));
+    let def: &'static DependencyDef = Box::leak(Box::new(DependencyDef {
+        name: leak(&p.name),
+        description: leak(&p.description),
+        version_args: leak_list(&p.version_args),
+        parse_version: VersionParser::Pattern(re),
+        install: InstallInstructions {
+            macos: leak(&p.install[0]),
+            windows: leak(&p.install[1]),
+            linux: leak(&p.install[2]),
+            url: leak(&p.install[3]),
+        },
+        internal_consumers: &[],
+        managed: p.managed.as_ref().map(|m| ManagedSource {
+            repo: leak(&m.repo),
+            asset_macos: m.assets[0].as_deref().map(leak),
+            asset_windows: m.assets[1].as_deref().map(leak),
+            asset_linux_x64: m.assets[2].as_deref().map(leak),
+            asset_linux_arm64: m.assets[3].as_deref().map(leak),
+            asset_zipapp: m.zipapp.as_deref().map(leak),
+            checksum: match &m.checksum {
+                Some(f) => Checksum::File(leak(f)),
+                None => Checksum::Unverified,
+            },
+        }),
+        os_trust: p.os_trust.as_ref().map(|(args, env)| OsTrust {
+            args: leak_list(args),
+            ca_file_env: env.as_deref().map(leak),
+        }),
+    }));
+    map.insert(key, def);
+    def
+}
+
+// ---- Scanning ----------------------------------------------------------
+
+struct Candidate {
+    plugin_id: String,
+    plugin_name: String,
+    signed: bool,
+    order: u64,
+    parsed: Parsed,
+}
+
+fn manifest_mtime(dir: &Path) -> u64 {
+    std::fs::metadata(dir.join("manifest.json"))
+        .and_then(|m| m.modified())
+        .ok()
+        .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+        .map(|d| d.as_secs())
+        .unwrap_or(u64::MAX)
+}
+
+/// Read one plugin folder: its id, name, trust, and validated definitions.
+fn read_plugin(
+    dir: &Path,
+    folder_id: Option<&str>,
+    builtin: bool,
+    refused: &mut Vec<Refused>,
+) -> Option<(String, String, bool, u64, Vec<Parsed>)> {
+    let text = std::fs::read_to_string(dir.join("manifest.json")).ok()?;
+    let manifest: serde_json::Value = serde_json::from_str(&text).ok()?;
+    let manifest_id = manifest.get("id").and_then(|v| v.as_str()).map(str::to_string);
+    let id = folder_id.map(str::to_string).or(manifest_id.clone())?;
+    let name = manifest.get("name").and_then(|v| v.as_str()).unwrap_or(&id).to_string();
+    let entries: Vec<&serde_json::Value> = manifest
+        .get("binaryDependencies")
+        .and_then(|v| v.as_array())
+        .map(|a| a.iter().filter(|e| e.get("definition").is_some()).collect())
+        .unwrap_or_default();
+    if entries.is_empty() {
+        return Some((id, name, builtin, 0, Vec::new()));
+    }
+    let signed = if builtin {
+        true
+    } else {
+        let code = std::fs::read_to_string(dir.join("index.js")).ok();
+        let status = crate::plugin_signing::verify_scanned(dir, text.as_bytes(), code.as_deref());
+        let status = match folder_id {
+            Some(folder) => crate::plugin_signing::bind_to_folder(status, manifest_id.as_deref(), folder),
+            None => status,
+        };
+        match status {
+            crate::plugin_signing::SignatureStatus::Verified => true,
+            crate::plugin_signing::SignatureStatus::Unsigned => false,
+            crate::plugin_signing::SignatureStatus::Invalid(why) => {
+                for e in &entries {
+                    refused.push(Refused {
+                        plugin_id: id.clone(),
+                        name: e.get("name").and_then(|v| v.as_str()).unwrap_or("?").to_string(),
+                        reason: format!("the plugin's signature doesn't match its files ({why})"),
+                    });
+                }
+                return Some((id, name, false, 0, Vec::new()));
+            }
+        }
+    };
+    let mut parsed = Vec::new();
+    for e in entries {
+        match parse_entry(e) {
+            Ok(p) => parsed.push(p),
+            Err(reason) => refused.push(Refused {
+                plugin_id: id.clone(),
+                name: e.get("name").and_then(|v| v.as_str()).unwrap_or("?").to_string(),
+                reason,
+            }),
+        }
+    }
+    let order = if builtin { 0 } else { manifest_mtime(dir) };
+    Some((id, name, signed, order, parsed))
+}
+
+fn collect(roots: &[PluginRoot], refused: &mut Vec<Refused>) -> Vec<Candidate> {
+    let mut seen = std::collections::HashSet::new();
+    let mut out = Vec::new();
+    for root in roots {
+        let folders: Vec<(PathBuf, Option<String>)> = if root.single {
+            vec![(root.dir.clone(), None)]
+        } else {
+            let Ok(rd) = std::fs::read_dir(&root.dir) else { continue };
+            let mut v: Vec<_> = rd
+                .filter_map(|e| e.ok())
+                .filter(|e| e.path().is_dir())
+                .filter_map(|e| Some((e.path(), Some(e.file_name().into_string().ok()?))))
+                .collect();
+            v.sort();
+            v
+        };
+        for (dir, folder) in folders {
+            // A bundled folder off the build's allow-list is a leftover from an
+            // older install (see `plugins::is_bundled_plugin_id`).
+            if root.builtin && !root.single {
+                let id = folder.as_deref().unwrap_or_default();
+                if !crate::plugins::is_bundled_plugin_id(id) && !crate::plugins::is_dev_plugin_id(id) {
+                    continue;
+                }
+            }
+            let Some((id, name, signed, order, parsed)) = read_plugin(&dir, folder.as_deref(), root.builtin, refused) else {
+                continue;
+            };
+            // Same precedence as the plugin listing: the first root that has an
+            // id wins, the copies it hides contribute nothing.
+            if !seen.insert(id.clone()) {
+                continue;
+            }
+            for p in parsed {
+                out.push(Candidate { plugin_id: id.clone(), plugin_name: name.clone(), signed, order, parsed: p });
+            }
+        }
+    }
+    out
+}
+
+/// The roots in the plugin listing's precedence: the dev folder (debug builds
+/// only — a release build ignores an unsigned dev folder's definitions), the
+/// profile's plugins, the bundled plugins, then the debug-only test plugins.
+pub fn roots_for(profile_dir: &Path, native_dir: Option<&Path>, dev_dir: Option<&str>) -> Vec<PluginRoot> {
+    let mut roots = Vec::new();
+    if cfg!(debug_assertions) {
+        if let Some(dev) = dev_dir.filter(|d| !d.is_empty()) {
+            roots.push(PluginRoot { dir: PathBuf::from(dev), builtin: false, single: true });
+        }
+    }
+    roots.push(PluginRoot { dir: crate::plugins::plugins_dir(profile_dir), builtin: false, single: false });
+    for dir in native_dir.map(Path::to_path_buf).into_iter().chain(crate::plugins::dev_plugins_dir()) {
+        roots.push(PluginRoot { dir, builtin: true, single: false });
+    }
+    roots
+}
+
+/// Rebuild the registry from the plugins on disk. `roots` in precedence order
+/// (dev folder, user plugins, bundled). Returns whether anything a caller shows
+/// changed (definitions in force, consents waited on, conflicts, refusals).
+pub fn rebuild(profile_dir: &Path, roots: Vec<PluginRoot>) -> bool {
+    let consent = read_consent(profile_dir);
+    let mut refused = Vec::new();
+    let mut candidates = collect(&roots, &mut refused);
+    // Signed before unsigned, then first installed first.
+    candidates.sort_by(|a, b| b.signed.cmp(&a.signed).then(a.order.cmp(&b.order)).then(a.plugin_id.cmp(&b.plugin_id)));
+
+    let mut active: Vec<Active> = Vec::new();
+    let mut pending = Vec::new();
+    let mut conflicts = Vec::new();
+    for c in candidates {
+        let def = intern(&c.parsed);
+        let fp = dependencies::fingerprint(def);
+        if let Some(existing) = active.iter_mut().find(|a| a.def.name == def.name) {
+            if existing.fingerprint == fp {
+                if !existing.declared_by.contains(&c.plugin_id) {
+                    existing.declared_by.push(c.plugin_id);
+                }
+            } else {
+                conflicts.push(Conflict {
+                    name: def.name.to_string(),
+                    kept: existing.declared_by.first().cloned().unwrap_or_default(),
+                    dropped: c.plugin_id,
+                    reason: if existing.signed && !c.signed {
+                        "a definition signed by Vibo wins over an unsigned one".into()
+                    } else {
+                        "the plugin installed first keeps its definition".into()
+                    },
+                });
+            }
+            continue;
+        }
+        if !c.signed && !consent.get(&c.plugin_id).is_some_and(|fps| fps.contains(&fp)) {
+            pending.push(PendingConsent {
+                plugin_id: c.plugin_id,
+                plugin_name: c.plugin_name,
+                name: def.name.to_string(),
+                fingerprint: fp,
+                repo: def.managed.as_ref().map(|m| m.repo.to_string()),
+                verified: def.managed.as_ref().is_none_or(|m| m.checksum != Checksum::Unverified),
+                required: c.parsed.required,
+            });
+            continue;
+        }
+        active.push(Active { def, fingerprint: fp, declared_by: vec![c.plugin_id], signed: c.signed });
+    }
+    for c in &conflicts {
+        log::warn!("Dependency {}: {}'s definition was not used — {}", c.name, c.dropped, c.reason);
+    }
+    for r in &refused {
+        log::warn!("Dependency {} from {} refused: {}", r.name, r.plugin_id, r.reason);
+    }
+    let status = RegistryStatus { pending_consent: pending, conflicts, refused };
+    let summary = |active: &[Active], status: &RegistryStatus| {
+        let mut a: Vec<String> = active
+            .iter()
+            .map(|x| format!("{}={}:{}:{}", x.def.name, x.fingerprint, x.signed, x.declared_by.join(",")))
+            .collect();
+        a.sort();
+        format!("{a:?}|{:?}|{:?}|{:?}", status.pending_consent, status.conflicts, status.refused)
+    };
+    let mut changed = true;
+    if let Ok(mut reg) = REGISTRY.write() {
+        let next = summary(&active, &status);
+        changed = reg.as_ref().is_none_or(|r| summary(&r.active, &r.status) != next);
+        *reg = Some(Registry { active, status });
+    }
+    if let Ok(mut last) = LAST_INPUTS.lock() {
+        *last = Some((profile_dir.to_path_buf(), roots));
+    }
+    changed
+}
+
+/// Rebuild with the inputs of the last rebuild (after a consent change or an
+/// uninstall). A no-op before the first rebuild.
+pub fn rebuild_again() {
+    let last = LAST_INPUTS.lock().ok().and_then(|l| l.clone());
+    if let Some((profile, roots)) = last {
+        let _ = rebuild(&profile, roots);
+    }
+}
+
+#[cfg(test)]
+pub(crate) fn reset_for_tests() {
+    if let Ok(mut reg) = REGISTRY.write() {
+        *reg = None;
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    fn ytdlp_entry() -> serde_json::Value {
+        json!({
+            "name": "yt-dlp",
+            "required": true,
+            "reason": "Search and play",
+            "definition": {
+                "description": "YouTube video/audio downloading",
+                "versionArgs": ["--version"],
+                "versionPattern": "^(\\S+)",
+                "install": {
+                    "macos": "brew install yt-dlp",
+                    "windows": "winget install yt-dlp.yt-dlp",
+                    "linux": "sudo apt install yt-dlp",
+                    "url": "https://github.com/yt-dlp/yt-dlp#installation"
+                },
+                "managed": {
+                    "repo": "yt-dlp/yt-dlp-nightly-builds",
+                    "assets": {
+                        "macos": "yt-dlp_macos",
+                        "windows": "yt-dlp.exe",
+                        "linux-x64": "yt-dlp_linux",
+                        "linux-arm64": "yt-dlp_linux_aarch64"
+                    },
+                    "zipapp": { "asset": "yt-dlp", "minPython": "3.10" },
+                    "checksum": { "file": "SHA2-256SUMS" }
+                },
+                "osTrust": { "args": ["--compat-options", "no-certifi"], "caFileEnv": "SSL_CERT_FILE" }
+            }
+        })
+    }
+
+    fn rqbit_entry() -> serde_json::Value {
+        json!({
+            "name": "rqbit",
+            "required": true,
+            "definition": {
+                "versionArgs": ["--version"],
+                "versionPattern": "^rqbit (\\S+)",
+                "managed": {
+                    "repo": "ikatson/rqbit",
+                    "assets": {
+                        "macos": "rqbit-osx-universal",
+                        "windows": "rqbit.exe",
+                        "linux-x64": "rqbit-linux-amd64",
+                        "linux-arm64": "rqbit-linux-arm64"
+                    },
+                    "checksum": { "none": true }
+                }
+            }
+        })
+    }
+
+    fn builtin(name: &str) -> &'static DependencyDef {
+        dependencies::BUILTIN_REGISTRY.iter().find(|d| d.name == name).unwrap()
+    }
+
+    #[test]
+    fn test_declared_definitions_reproduce_the_built_ins_exactly() {
+        // The plugins' definitions must download and run exactly what the host's
+        // built-ins did, or an existing managed copy would read as coming from
+        // another source and stop auto-updating.
+        for (entry, name) in [(ytdlp_entry(), "yt-dlp"), (rqbit_entry(), "rqbit")] {
+            let def = intern(&parse_entry(&entry).unwrap());
+            assert_eq!(dependencies::fingerprint(def), dependencies::fingerprint(builtin(name)), "{name}");
+        }
+    }
+
+    #[test]
+    fn test_version_patterns_match_the_built_in_parsers() {
+        let yt = intern(&parse_entry(&ytdlp_entry()).unwrap());
+        let rq = intern(&parse_entry(&rqbit_entry()).unwrap());
+        for out in ["2026.10.10.232918\n", "  2024.10.22  \n"] {
+            assert_eq!(yt.parse_version.parse(out), builtin("yt-dlp").parse_version.parse(out));
+        }
+        for out in ["rqbit 9.0.1\n", "  rqbit 10.2.0-beta.1", "not rqbit", ""] {
+            assert_eq!(rq.parse_version.parse(out), builtin("rqbit").parse_version.parse(out), "{out:?}");
+        }
+    }
+
+    #[test]
+    fn test_interning_reuses_the_same_definition() {
+        let a = intern(&parse_entry(&ytdlp_entry()).unwrap());
+        let b = intern(&parse_entry(&ytdlp_entry()).unwrap());
+        assert!(std::ptr::eq(a, b));
+    }
+
+    #[test]
+    fn test_validation_refuses_what_it_cannot_honour() {
+        let cases: Vec<(Box<dyn Fn(&mut serde_json::Value)>, &str)> = vec![
+            (Box::new(|e| e["name"] = json!("ffmpeg")), "own tools"),
+            (Box::new(|e| e["name"] = json!("Bad Name")), "valid tool name"),
+            (Box::new(|e| { e.as_object_mut().unwrap().remove("required"); }), "required"),
+            (Box::new(|e| e["definition"]["versionPattern"] = json!("^\\S+$")), "capture group"),
+            (Box::new(|e| e["definition"]["versionPattern"] = json!("(")), "valid pattern"),
+            (Box::new(|e| e["definition"]["managed"]["repo"] = json!("https://evil.example/x")), "owner/name"),
+            (Box::new(|e| e["definition"]["managed"]["assets"]["macos"] = json!("../x")), "plain file name"),
+            (Box::new(|e| e["definition"]["managed"]["checksum"] = json!({})), "exactly"),
+            (Box::new(|e| { e["definition"]["managed"].as_object_mut().unwrap().remove("checksum"); }), "checksum` is missing"),
+            (Box::new(|e| e["definition"]["managed"]["checksum"] = json!({ "pinned": { "a": "b" } })), "newer Vibo"),
+            (Box::new(|e| e["definition"]["managed"]["version"] = json!("1.0")), "newer Vibo"),
+            (Box::new(|e| e["definition"]["managed"]["zipapp"]["minPython"] = json!("3.12")), "newer Vibo"),
+            (Box::new(|e| e["definition"]["osTrust"]["caFileEnv"] = json!("LD_PRELOAD")), "caFileEnv"),
+            (Box::new(|e| e["definition"]["install"]["url"] = json!("http://x")), "https"),
+            (Box::new(|e| e["definition"]["probeEnv"] = json!({})), "newer Vibo"),
+        ];
+        for (mutate, needle) in cases {
+            let mut e = ytdlp_entry();
+            mutate(&mut e);
+            let err = parse_entry(&e).unwrap_err();
+            assert!(err.contains(needle), "{err:?} should mention {needle:?}");
+        }
+    }
+
+    fn write_plugin(root: &Path, id: &str, entries: serde_json::Value) -> PathBuf {
+        let dir = root.join(id);
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(
+            dir.join("manifest.json"),
+            json!({ "id": id, "name": format!("{id} plugin"), "version": "1.0.0", "binaryDependencies": entries }).to_string(),
+        )
+        .unwrap();
+        std::fs::write(dir.join("index.js"), "function activate() {}").unwrap();
+        dir
+    }
+
+    /// The registry is process-global; tests that rebuild it run under one lock.
+    static SERIAL: Mutex<()> = Mutex::new(());
+
+    #[test]
+    fn test_unsigned_definitions_wait_for_consent_then_register() {
+        let _g = SERIAL.lock().unwrap_or_else(|e| e.into_inner());
+        let profile = tempfile::tempdir().unwrap();
+        let plugins = tempfile::tempdir().unwrap();
+        let mut entry = rqbit_entry();
+        entry["name"] = json!("demo-torrent");
+        entry["definition"]["managed"]["repo"] = json!("someone/rqbit-fork");
+        write_plugin(plugins.path(), "torrents", json!([entry, { "name": "ffmpeg", "required": false }]));
+        let roots = vec![PluginRoot { dir: plugins.path().to_path_buf(), builtin: false, single: false }];
+
+        rebuild(profile.path(), roots.clone());
+        assert!(active_def("demo-torrent").is_none(), "an unsigned definition isn't used before consent");
+        let pending = status().pending_consent;
+        assert_eq!(pending.len(), 1, "a reference-only entry asks nothing");
+        assert_eq!(pending[0].plugin_id, "torrents");
+        assert!(pending[0].required);
+        assert!(!pending[0].verified);
+
+        grant_consent(profile.path(), "torrents", &[pending[0].fingerprint.clone()]).unwrap();
+        assert_eq!(active_def("demo-torrent").unwrap().managed.as_ref().unwrap().repo, "someone/rqbit-fork");
+        assert!(!auto_update_allowed("demo-torrent"), "an unsigned plugin's tool never updates silently");
+        assert_eq!(declared_by("demo-torrent"), vec!["torrents".to_string()]);
+        assert!(status().pending_consent.is_empty());
+
+        // An update that changes the definition asks again.
+        let mut changed = rqbit_entry();
+        changed["name"] = json!("demo-torrent");
+        changed["definition"]["managed"]["repo"] = json!("someone/other-fork");
+        write_plugin(plugins.path(), "torrents", json!([changed]));
+        rebuild_again();
+        assert!(active_def("demo-torrent").is_none());
+        assert_eq!(status().pending_consent.len(), 1);
+
+        // Consent only for what the plugin is waiting on.
+        assert!(grant_consent(profile.path(), "torrents", &["nope".into()]).is_err());
+        revoke_consent(profile.path(), "torrents").unwrap();
+        reset_for_tests();
+    }
+
+    #[test]
+    fn test_bundled_definitions_register_and_conflicts_keep_the_first() {
+        let _g = SERIAL.lock().unwrap_or_else(|e| e.into_inner());
+        let profile = tempfile::tempdir().unwrap();
+        let bundled = tempfile::tempdir().unwrap();
+        let user = tempfile::tempdir().unwrap();
+        // A bundled plugin counts as signed. "lastfm" is on the bundle allow-list.
+        let mut demo = ytdlp_entry();
+        demo["name"] = json!("demo-video");
+        write_plugin(bundled.path(), "lastfm", json!([demo.clone()]));
+        let mut other = demo.clone();
+        other["definition"]["managed"]["repo"] = json!("yt-dlp/yt-dlp");
+        write_plugin(user.path(), "second", json!([other]));
+        write_plugin(user.path(), "same", json!([demo]));
+        let roots = vec![
+            PluginRoot { dir: user.path().to_path_buf(), builtin: false, single: false },
+            PluginRoot { dir: bundled.path().to_path_buf(), builtin: true, single: false },
+        ];
+        rebuild(profile.path(), roots);
+        let def = active_def("demo-video").unwrap();
+        assert_eq!(def.managed.as_ref().unwrap().repo, "yt-dlp/yt-dlp-nightly-builds");
+        assert!(auto_update_allowed("demo-video"));
+        let st = status();
+        assert_eq!(st.conflicts.len(), 1);
+        assert_eq!(st.conflicts[0].kept, "lastfm");
+        assert_eq!(st.conflicts[0].dropped, "second");
+        // An unsigned copy of the very same definition adds nothing to consent
+        // to: it is merged as one more declaring plugin.
+        assert!(st.pending_consent.is_empty());
+        assert_eq!(declared_by("demo-video"), vec!["lastfm".to_string(), "same".to_string()]);
+        assert!(dependencies::allowed_names().contains(&"demo-video"));
+        reset_for_tests();
+    }
+
+}

@@ -4,6 +4,7 @@ import { subscribe, combineUnlisten } from "../utils/tauriEvents";
 import { type PluginState } from "../types/plugin";
 import { useAssignRef, useLatestRef } from "./useLatestRef";
 import { track as trackTelemetry } from "../telemetry";
+import { setDependencyNames } from "../utils/errorKind";
 
 export interface InstallInstructions {
   macos: string;
@@ -31,6 +32,51 @@ export interface DependencyInfo {
   install: InstallInstructions;
   managedAvailable: boolean;
   latestVersion?: string;
+  /** GitHub repo a managed copy comes from. */
+  managedRepo?: string;
+  /** Plugin ids whose manifest defines this tool; empty for one of Vibo's own. */
+  declaredBy: string[];
+  /** Defined by Vibo or a plugin Vibo signed — what may update silently. */
+  signedDefinition: boolean;
+  /** False when nothing checks the download (`checksum: { none: true }`). */
+  verified: boolean;
+  /** The managed copy came from another definition's source; reinstall to fix. */
+  sourceMismatch: boolean;
+}
+
+/** An unsigned plugin's tool definition, waiting for the user's OK. */
+export interface PendingDefinition {
+  pluginId: string;
+  pluginName: string;
+  name: string;
+  fingerprint: string;
+  repo: string | null;
+  verified: boolean;
+  required: boolean;
+}
+
+export interface DependencyRegistry {
+  pendingConsent: PendingDefinition[];
+  conflicts: { name: string; kept: string; dropped: string; reason: string }[];
+  refused: { pluginId: string; name: string; reason: string }[];
+  /** Managed copies no installed plugin defines any more. */
+  unused: string[];
+}
+
+const EMPTY_REGISTRY: DependencyRegistry = { pendingConsent: [], conflicts: [], refused: [], unused: [] };
+
+/** What a consent dialog shows: one unsigned plugin's waiting definitions. */
+export interface DefinitionConsentRequest {
+  pluginId: string;
+  pluginName: string;
+  items: PendingDefinition[];
+}
+
+/** An install or update of a tool whose download nothing can check. */
+export interface UnverifiedInstallRequest {
+  name: string;
+  repo: string | null;
+  update: boolean;
 }
 
 export interface DepUpdateInfo {
@@ -57,6 +103,10 @@ export interface PluginDepDeclaration {
   pluginName: string;
   reason: string;
   required: boolean;
+  /** The entry also defines the tool. Not sent to the backend (it reads
+   *  definitions from disk); part of the signature so a changed definition
+   *  re-checks. */
+  definition?: string;
 }
 
 /**
@@ -67,7 +117,7 @@ export interface PluginDepDeclaration {
  */
 export function pluginDepSignature(decls: PluginDepDeclaration[]): string {
   return decls
-    .map((d) => `${d.name} ${d.pluginName} ${d.required ? 1 : 0}`)
+    .map((d) => `${d.name} ${d.pluginName} ${d.required ? 1 : 0} ${d.definition ?? ""}`)
     .sort()
     .join("");
 }
@@ -86,7 +136,28 @@ function parseDependencyInfo(raw: Record<string, unknown>): DependencyInfo {
     install: raw.install as InstallInstructions,
     managedAvailable: (raw.managedAvailable as boolean) ?? false,
     latestVersion: (raw.latestVersion as string | null) ?? undefined,
+    managedRepo: (raw.managedRepo as string | null) ?? undefined,
+    declaredBy: (raw.declaredBy as string[] | undefined) ?? [],
+    signedDefinition: (raw.signedDefinition as boolean | undefined) ?? true,
+    verified: (raw.verified as boolean | undefined) ?? true,
+    sourceMismatch: (raw.sourceMismatch as boolean | undefined) ?? false,
   };
+}
+
+/**
+ * The consent dialogs to raise on their own: required definitions only (an
+ * optional tool asks when the user goes to install it), one per plugin, and
+ * never again for a set the user already answered this session.
+ */
+export function definitionsToAsk(pending: PendingDefinition[], answered: ReadonlySet<string>): DefinitionConsentRequest[] {
+  const byPlugin = new Map<string, DefinitionConsentRequest>();
+  for (const p of pending) {
+    if (!p.required || answered.has(`${p.pluginId}:${p.fingerprint}`)) continue;
+    const req = byPlugin.get(p.pluginId) ?? { pluginId: p.pluginId, pluginName: p.pluginName, items: [] };
+    req.items.push(p);
+    byPlugin.set(p.pluginId, req);
+  }
+  return [...byPlugin.values()];
 }
 
 export function useDependencies(pluginStates: PluginState[]) {
@@ -94,6 +165,21 @@ export function useDependencies(pluginStates: PluginState[]) {
   const [updates, setUpdates] = useState<DepUpdateInfo[]>([]);
   const [modalState, setModalState] = useState<DepModalState | null>(null);
   const [installing, setInstalling] = useState<Record<string, InstallProgress>>({});
+  const [registry, setRegistry] = useState<DependencyRegistry>(EMPTY_REGISTRY);
+  const [consentRequest, setConsentRequest] = useState<DefinitionConsentRequest | null>(null);
+  const [unverifiedRequest, setUnverifiedRequest] = useState<UnverifiedInstallRequest | null>(null);
+  // Answers for the two dialogs above, resolved by their buttons.
+  const consentAnswerRef = useRef<((ok: boolean) => void) | null>(null);
+  const unverifiedAnswerRef = useRef<((ok: boolean) => void) | null>(null);
+  // Definition sets the user already answered this session (`pluginId:fingerprint`),
+  // so a declined required definition doesn't come back on every check.
+  const answeredRef = useRef<Set<string>>(new Set());
+  // Plugins whose consent the user took back this session: their definitions
+  // wait again, but asking straight away would undo the Revoke click.
+  const revokedRef = useRef<Set<string>>(new Set());
+  const checkAllRef = useRef<(force?: boolean) => Promise<DependencyInfo[]>>(async () => []);
+  const registryRef = useLatestRef(registry);
+  const pluginStatesRef = useLatestRef(pluginStates);
   const checkedRef = useRef<Set<string>>(new Set());
   const shownModalsRef = useRef<Set<string>>(new Set());
   // Plugin-declaration signature the current `deps` were built from; null until
@@ -145,7 +231,13 @@ export function useDependencies(pluginStates: PluginState[]) {
         }).catch(() => {}); // eslint-disable-line no-restricted-syntax -- Fire-and-forget: log-trail only, no user impact on failure
       },
     );
-    return combineUnlisten(stopProgress, stopUpdated);
+    // The set of tools in force moved (a plugin installed, updated or removed;
+    // a consent given or taken back). Only once a first check set the baseline.
+    const stopChanged = subscribe("dependencies-changed", () => {
+      if (checkedSignatureRef.current === null) return;
+      checkAllRef.current().catch(console.error);
+    });
+    return combineUnlisten(stopProgress, stopUpdated, stopChanged);
     // depsRef is a stable ref object; listed only to satisfy exhaustive-deps.
   }, [depsRef]);
 
@@ -157,7 +249,13 @@ export function useDependencies(pluginStates: PluginState[]) {
       if (!ps.enabled) continue;
       if (ps.manifest.binaryDependencies) {
         for (const bd of ps.manifest.binaryDependencies) {
-          result.push({ name: bd.name, pluginName: ps.manifest.name, reason: bd.reason, required: !!bd.required });
+          result.push({
+            name: bd.name,
+            pluginName: ps.manifest.name,
+            reason: bd.reason,
+            required: !!bd.required,
+            definition: bd.definition ? JSON.stringify(bd.definition) : undefined,
+          });
         }
       }
     }
@@ -168,13 +266,21 @@ export function useDependencies(pluginStates: PluginState[]) {
     async (forceRefresh = false) => {
       const pluginDeps = getPluginDeps();
       try {
-        const results = (await invoke("check_dependencies", {
-          names: null,
-          pluginDeps,
-          forceRefresh,
-        })) as Record<string, unknown>[];
+        const [results, reg] = await Promise.all([
+          invoke("check_dependencies", {
+            names: null,
+            pluginDeps: pluginDeps.map(({ definition: _definition, ...d }) => d),
+            forceRefresh,
+          }) as Promise<Record<string, unknown>[]>,
+          (invoke("dependency_registry_status") as Promise<DependencyRegistry>).catch((e) => {
+            console.error("Failed to read the plugin-defined tools:", e);
+            return EMPTY_REGISTRY;
+          }),
+        ]);
         const parsed = results.map(parseDependencyInfo);
         setDeps(parsed);
+        setRegistry({ ...EMPTY_REGISTRY, ...(reg ?? {}) });
+        setDependencyNames(parsed.map((d) => d.name));
         for (const d of parsed) {
           checkedRef.current.add(d.name);
         }
@@ -215,7 +321,7 @@ export function useDependencies(pluginStates: PluginState[]) {
       try {
         const results = (await invoke("check_dependencies", {
           names: [name],
-          pluginDeps: getPluginDeps(),
+          pluginDeps: getPluginDeps().map(({ definition: _definition, ...d }) => d),
           forceRefresh: !checkedRef.current.has(name),
         })) as Record<string, unknown>[];
         if (results.length > 0) {
@@ -256,14 +362,82 @@ export function useDependencies(pluginStates: PluginState[]) {
   // Fill the forward declarations the `dependency-updated` listener reads.
   useAssignRef(checkDepRef, checkDep);
   useAssignRef(checkUpdatesRef, checkUpdates);
+  useAssignRef(checkAllRef, checkAll);
+
+  /** Ask the user to let an unsigned plugin's definitions be used. Resolves
+   *  true when they agreed and the consent was recorded. */
+  const askConsent = useCallback(async (request: DefinitionConsentRequest): Promise<boolean> => {
+    if (consentAnswerRef.current) return false; // one dialog at a time
+    const ok = await new Promise<boolean>((resolve) => {
+      consentAnswerRef.current = resolve;
+      setConsentRequest(request);
+    });
+    consentAnswerRef.current = null;
+    setConsentRequest(null);
+    for (const item of request.items) answeredRef.current.add(`${item.pluginId}:${item.fingerprint}`);
+    if (!ok) return false;
+    try {
+      await invoke("dependency_definitions_consent", {
+        pluginId: request.pluginId,
+        fingerprints: request.items.map((i) => i.fingerprint),
+      });
+      return true;
+    } catch (e) {
+      console.error("Failed to record consent for a plugin's tools:", e);
+      return false;
+    }
+  }, []);
+
+  const answerConsent = useCallback((ok: boolean) => consentAnswerRef.current?.(ok), []);
+
+  /** The Tools tab's "Review" on a waiting definition (also optional ones). */
+  const reviewDefinitions = useCallback(
+    async (pluginId: string): Promise<boolean> => {
+      const items = registry.pendingConsent.filter((p) => p.pluginId === pluginId);
+      if (items.length === 0) return false;
+      return askConsent({ pluginId, pluginName: items[0].pluginName, items });
+    },
+    [registry, askConsent],
+  );
+
+  const revokeDefinitions = useCallback(async (pluginId: string): Promise<void> => {
+    revokedRef.current.add(pluginId);
+    await invoke("dependency_definitions_revoke", { pluginId });
+  }, []);
+
+  // Required definitions are asked for on their own, once per session each.
+  useEffect(() => {
+    const waiting = registry.pendingConsent.filter((p) => !revokedRef.current.has(p.pluginId));
+    const next = definitionsToAsk(waiting, answeredRef.current)[0];
+    if (next && !consentAnswerRef.current) askConsent(next).catch(console.error);
+  }, [registry, askConsent]);
+
+  const answerUnverified = useCallback((ok: boolean) => unverifiedAnswerRef.current?.(ok), []);
+
+  const removeUnused = useCallback(async (name: string): Promise<void> => {
+    await invoke("dependency_remove_unused", { name });
+    await checkAll();
+  }, [checkAll]);
 
   // Install (or update — same backend path) the app-managed copy of a
   // dependency. Returns the installed version, or null on failure.
   const installDep = useCallback(
     async (name: string): Promise<string | null> => {
+      // A download nothing can check is confirmed every time, update included.
+      const dep = depsRef.current.find((d) => d.name === name);
+      const unverified = dep ? !dep.verified : false;
+      if (unverified) {
+        const ok = await new Promise<boolean>((resolve) => {
+          unverifiedAnswerRef.current = resolve;
+          setUnverifiedRequest({ name, repo: dep?.managedRepo ?? null, update: dep?.status === "installed" });
+        });
+        unverifiedAnswerRef.current = null;
+        setUnverifiedRequest(null);
+        if (!ok) return null;
+      }
       setInstalling((prev) => ({ ...prev, [name]: { downloaded: 0, total: null } }));
       try {
-        const version = (await invoke("dependency_install", { name })) as string;
+        const version = (await invoke("dependency_install", { name, confirmedUnverified: unverified })) as string;
         checkedRef.current.delete(name);
         await checkDep(name);
         setUpdates((prev) => prev.filter((u) => u.name !== name));
@@ -279,7 +453,7 @@ export function useDependencies(pluginStates: PluginState[]) {
         });
       }
     },
-    [checkDep],
+    [checkDep, depsRef],
   );
 
   // Remove the app-managed copy; PATH falls back to any system copy. Refreshes
@@ -319,8 +493,26 @@ export function useDependencies(pluginStates: PluginState[]) {
   // missing — for explicit user requests (e.g. a plugin's "Install" button)
   // where the once-per-session guard of requireDep would otherwise swallow the
   // second click after a dismiss.
+  //
+  // `pluginId` (a plugin's `requestAction("require-dependency")`): the plugin
+  // may only ask for a tool its own manifest lists, and when that tool is one
+  // of its unsigned definitions still waiting for consent, the consent dialog
+  // comes first — this is where an optional tool gets asked.
   const promptDep = useCallback(
-    async (name: string, feature: string): Promise<boolean> => {
+    async (name: string, feature: string, pluginId?: string): Promise<boolean> => {
+      if (pluginId) {
+        const plugin = pluginStatesRef.current.find((p) => p.id === pluginId);
+        if (!plugin?.manifest.binaryDependencies?.some((b) => b.name === name)) {
+          console.error(`Plugin ${pluginId} asked for ${name}, which its manifest doesn't list`);
+          return false;
+        }
+        const items = registryRef.current.pendingConsent.filter((p) => p.pluginId === pluginId && p.name === name);
+        if (items.length > 0) {
+          const ok = await askConsent({ pluginId, pluginName: items[0].pluginName, items });
+          if (!ok) return false;
+          await checkAll();
+        }
+      }
       const dep = await checkDep(name);
       if (!dep) return false;
       if (dep.status === "installed") return true;
@@ -329,7 +521,7 @@ export function useDependencies(pluginStates: PluginState[]) {
       trackTelemetry("dependency_missing", { name });
       return false;
     },
-    [checkDep],
+    [checkDep, checkAll, askConsent, pluginStatesRef, registryRef],
   );
 
   const dismissModal = useCallback(() => {
@@ -347,10 +539,24 @@ export function useDependencies(pluginStates: PluginState[]) {
     }
   }, [modalState, checkDep]);
 
+  const pluginNames = useMemo(
+    () => Object.fromEntries(pluginStates.map((p) => [p.id, p.manifest.name])) as Record<string, string>,
+    [pluginStates],
+  );
+
   return {
     deps,
     updates,
     installing,
+    registry,
+    pluginNames,
+    consentRequest,
+    answerConsent,
+    reviewDefinitions,
+    revokeDefinitions,
+    unverifiedRequest,
+    answerUnverified,
+    removeUnused,
     modalState,
     checkAll,
     checkDep,

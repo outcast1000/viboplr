@@ -296,12 +296,10 @@ pub async fn check_dependencies(
             cache.clear();
         }
 
+        let all = dependencies::all_defs();
         let defs_to_check: Vec<&dependencies::DependencyDef> = match &names {
-            Some(names) => dependencies::REGISTRY
-                .iter()
-                .filter(|d| names.iter().any(|n| n == d.name))
-                .collect(),
-            None => dependencies::REGISTRY.iter().collect(),
+            Some(names) => all.into_iter().filter(|d| names.iter().any(|n| n == d.name)).collect(),
+            None => all,
         };
 
         defs_to_check
@@ -334,6 +332,14 @@ pub async fn check_dependencies(
                         .is_some_and(|m| m.platform_asset().is_some()),
                     // Cache-only — this command must stay fast and offline.
                     latest_version: cache.get_latest(def.name).flatten(),
+                    managed_repo: def.managed.as_ref().map(|m| m.repo.to_string()),
+                    declared_by: crate::dependency_registry::declared_by(def.name),
+                    signed_definition: crate::dependency_registry::auto_update_allowed(def.name),
+                    verified: def
+                        .managed
+                        .as_ref()
+                        .is_none_or(|m| m.checksum != dependencies::Checksum::Unverified),
+                    source_mismatch: dependencies::source_mismatch(def.name),
                 }
             })
             .collect()
@@ -349,11 +355,13 @@ pub async fn dependency_install(
     app: tauri::AppHandle,
     state: State<'_, AppState>,
     name: String,
+    confirmed_unverified: Option<bool>,
 ) -> Result<String, String> {
     let cache = Arc::clone(&state.dep_cache);
     tauri::async_runtime::spawn_blocking(move || {
         let progress_name = name.clone();
-        let version = dependencies::install_managed(&name, &cache, |downloaded, total| {
+        let confirmed = confirmed_unverified.unwrap_or(false);
+        let version = dependencies::install_managed(&name, &cache, confirmed, |downloaded, total| {
             let _ = app.emit(
                 "dependency-install-progress",
                 serde_json::json!({ "name": progress_name, "downloaded": downloaded, "total": total }),
@@ -411,8 +419,8 @@ pub async fn dependency_check_updates(
         cache.clear_latest();
     }
     Ok(tauri::async_runtime::spawn_blocking(move || {
-        dependencies::REGISTRY
-            .iter()
+        dependencies::all_defs()
+            .into_iter()
             .filter(|def| def.managed.as_ref().is_some_and(|m| m.platform_asset().is_some()))
             .map(|def| {
                 let (installed, origin) = match dependencies::check_single(def.name, &cache) {
@@ -438,6 +446,75 @@ pub async fn dependency_check_updates(
     })
     .await
     .map_err(|e| e.to_string())?)
+}
+
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DependencyRegistryStatus {
+    #[serde(flatten)]
+    registry: crate::dependency_registry::RegistryStatus,
+    /// Managed copies no definition in force claims.
+    unused: Vec<String>,
+}
+
+/// What the plugin-declared tools are waiting on: unsigned definitions awaiting
+/// consent, conflicts, refused definitions, and unused managed copies.
+#[tauri::command]
+pub async fn dependency_registry_status() -> Result<DependencyRegistryStatus, String> {
+    tauri::async_runtime::spawn_blocking(|| DependencyRegistryStatus {
+        registry: crate::dependency_registry::status(),
+        unused: dependencies::unused_managed(),
+    })
+    .await
+    .map_err(|e| e.to_string())
+}
+
+/// The user agreed, in the host's warning dialog, to let an unsigned plugin's
+/// definitions be used. Only fingerprints the plugin is waiting on are taken.
+#[tauri::command]
+pub async fn dependency_definitions_consent(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    plugin_id: String,
+    fingerprints: Vec<String>,
+) -> Result<(), String> {
+    let profile = state.app_dir.clone();
+    let cache = Arc::clone(&state.dep_cache);
+    tauri::async_runtime::spawn_blocking(move || {
+        crate::dependency_registry::grant_consent(&profile, &plugin_id, &fingerprints)?;
+        cache.clear();
+        let _ = app.emit("dependencies-changed", ());
+        Ok(())
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+/// Take back the consents an unsigned plugin's definitions ran under.
+#[tauri::command]
+pub async fn dependency_definitions_revoke(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    plugin_id: String,
+) -> Result<(), String> {
+    let profile = state.app_dir.clone();
+    let cache = Arc::clone(&state.dep_cache);
+    tauri::async_runtime::spawn_blocking(move || {
+        crate::dependency_registry::revoke_consent(&profile, &plugin_id)?;
+        cache.clear();
+        let _ = app.emit("dependencies-changed", ());
+        Ok(())
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+/// Delete a managed copy that no definition claims any more.
+#[tauri::command]
+pub async fn dependency_remove_unused(name: String) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || dependencies::remove_unused(&name))
+        .await
+        .map_err(|e| e.to_string())?
 }
 
 #[tauri::command]

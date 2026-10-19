@@ -25,6 +25,10 @@ function dep(overrides: Partial<DependencyInfo> = {}): DependencyInfo {
     pluginConsumers: [],
     install: { macos: "brew install yt-dlp", windows: "winget install yt-dlp", linux: "apt install yt-dlp", url: "https://example.com" },
     managedAvailable: true,
+    declaredBy: [],
+    signedDefinition: true,
+    verified: true,
+    sourceMismatch: false,
     ...overrides,
   };
 }
@@ -214,6 +218,11 @@ describe("autoInstallableDeps", () => {
     // Optional tools stay a click away; a tool with no managed build can't be
     // fetched; an installed one needs nothing.
     expect(autoInstallableDeps(deps)).toEqual(["yt-dlp"]);
+  });
+
+  it("leaves a tool nothing can verify to its button", () => {
+    // Its install is confirmed every time, so the wizard can't take it silently.
+    expect(autoInstallableDeps([dep({ name: "rqbit", verified: false, pluginConsumers: [consumer] })])).toEqual([]);
   });
 
   it("counts an errored probe as missing", () => {

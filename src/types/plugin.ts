@@ -261,6 +261,28 @@ export interface PluginBinaryDependency {
   name: string;
   required: boolean;
   reason: string;
+  /** How to probe, install and update the tool, when this plugin defines it
+   *  (rather than using one Vibo or another plugin defines). The backend reads
+   *  it from the manifest on disk and validates it (`dependency_registry.rs`);
+   *  a plugin not signed by Vibo needs the user's consent before it is used. */
+  definition?: PluginDependencyDefinition;
+}
+
+export interface PluginDependencyDefinition {
+  description?: string;
+  versionArgs?: string[];
+  /** One capture group: the version, from the first matching output line. */
+  versionPattern: string;
+  install?: { macos?: string; windows?: string; linux?: string; url?: string };
+  managed?: {
+    /** GitHub `owner/name`; installs come from its `releases/latest`. */
+    repo: string;
+    assets: { macos?: string; windows?: string; "linux-x64"?: string; "linux-arm64"?: string };
+    zipapp?: { asset: string; minPython?: string };
+    /** A checksums file in the same release, or an explicit `none`. */
+    checksum: { file: string } | { none: true };
+  };
+  osTrust?: { args?: string[]; caFileEnv?: "SSL_CERT_FILE" };
 }
 
 export interface PluginManifest {

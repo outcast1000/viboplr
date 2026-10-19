@@ -1,0 +1,13 @@
+.definition-consent-list {
+  margin: 0 0 12px;
+  padding-left: 20px;
+  color: var(--text-secondary);
+  font-size: var(--fs-sm);
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.definition-consent-list strong {
+  color: var(--text-primary);
+}

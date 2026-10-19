@@ -27,14 +27,25 @@ export type ErrorKind =
   | "parse"
   | "unknown";
 
+/** The core's own tools; the ones plugins define are added by `setDependencyNames`. */
+const CORE_TOOL_NAMES = ["ffmpeg", "ffprobe"];
+
+const escapeRegExp = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
+function dependencyPattern(names: readonly string[]): RegExp {
+  const tools = [...new Set([...CORE_TOOL_NAMES, ...names.map((n) => n.toLowerCase())])].map(escapeRegExp).join("|");
+  return new RegExp(`(?<![\\w-])(${tools})(?![\\w-])|\\bnot (installed|on path)\\b|\\benoent.*(?<![\\w-])(${tools})(?![\\w-])`);
+}
+
 /** Ordered most-specific first — the first matching pattern wins. */
 const PATTERNS: Array<[ErrorKind, RegExp]> = [
   // Deliberate stops. Checked first so an aborted request isn't counted as a
   // network failure — user-cancelled work is not a reliability signal.
   ["cancelled", /\b(abort(ed)?|cancell?ed|user cancelled|operation was cancelled)\b/],
-  // Missing companion binaries (yt-dlp / ffmpeg) have their own remedy in the
-  // app, so they must not be lumped in with generic "not found".
-  ["dependency", /\b(yt-dlp|ffmpeg|ffprobe)\b|\bnot (installed|on path)\b|\benoent.*\b(yt-dlp|ffmpeg)\b/],
+  // Missing companion binaries (ffmpeg, and whatever tools plugins define) have
+  // their own remedy in the app, so they must not be lumped in with generic
+  // "not found". Rebuilt by `setDependencyNames`; the name list stays local.
+  ["dependency", dependencyPattern([])],
   ["rate_limit", /\b(429|rate ?limit(ed)?|too many requests|quota exceeded)\b/],
   ["auth", /\b(401|403|unauthor(ized|ised)|forbidden|invalid (api ?key|token|credentials)|authentication failed|login required)\b/],
   ["disk_full", /\b(enospc|no space left|disk (is )?full|insufficient (disk )?space)\b/],
@@ -49,6 +60,13 @@ const PATTERNS: Array<[ErrorKind, RegExp]> = [
   // Broadest bucket last so a specific cause above always wins.
   ["network", /\b(network|fetch (failed|error)|econnrefused|econnreset|enotfound|eai_again|dns|offline|connection (refused|reset|closed|failed)|ssl|tls|certificate|err_internet_disconnected|load failed)\b/],
 ];
+
+/** The tools in force (Extensions → Tools), so an error naming one buckets as
+ *  `dependency`. Called by useDependencies after each check. */
+export function setDependencyNames(names: readonly string[]): void {
+  const i = PATTERNS.findIndex(([kind]) => kind === "dependency");
+  PATTERNS[i] = ["dependency", dependencyPattern(names)];
+}
 
 /**
  * Bucket an arbitrary error into a fixed enum for telemetry.

@@ -50,6 +50,7 @@ fn scan_dev_plugin(dir: &std::path::Path) -> Option<serde_json::Value> {
 
 #[tauri::command]
 pub fn plugin_list_installed(
+    app: AppHandle,
     state: State<'_, AppState>,
     dev_plugin_dir: Option<String>,
     enabled_ids: Option<Vec<String>>,
@@ -106,6 +107,17 @@ pub fn plugin_list_installed(
         }
     }
     mark_shadowed_builtins(&mut plugins, &shadowed);
+
+    // Every install, update and uninstall ends in a plugin reload, which lists
+    // the plugins again: the one place the tools they define are re-read.
+    let changed = crate::dependency_registry::rebuild(
+        &state.app_dir,
+        crate::dependency_registry::roots_for(&state.app_dir, state.native_plugins_dir.as_deref(), dev_plugin_dir.as_deref()),
+    );
+    if changed {
+        state.dep_cache.clear();
+        let _ = app.emit("dependencies-changed", ());
+    }
 
     Ok(plugins)
 }
@@ -806,7 +818,10 @@ pub fn delete_user_plugin(state: State<'_, AppState>, plugin_id: String) -> Resu
     // Its programs would otherwise keep running with
     // no UI left to stop them.
     crate::plugin_programs::remove_all(&state.app_dir, &plugin_id);
-    crate::plugins::delete_plugin(&state.app_dir, &plugin_id)
+    crate::plugins::delete_plugin(&state.app_dir, &plugin_id)?;
+    // A later plugin under the same id must be asked again; this also
+    // rebuilds, so the tools it defined stop being in force.
+    crate::dependency_registry::revoke_consent(&state.app_dir, &plugin_id)
 }
 
 #[tauri::command]

@@ -44,6 +44,7 @@ mod window_arrangement;
 mod plugin_worker;
 mod plugin_signing;
 mod roadie_cleanup;
+mod dependency_registry;
 mod plugin_programs;
 mod trust_store;
 #[cfg(target_os = "macos")]
@@ -210,6 +211,10 @@ macro_rules! invoke_handler {
             commands::dependency_install,
             commands::dependency_uninstall_managed,
             commands::dependency_check_updates,
+            commands::dependency_registry_status,
+            commands::dependency_definitions_consent,
+            commands::dependency_definitions_revoke,
+            commands::dependency_remove_unused,
             commands::plugin_exec,
             commands::plugin_exec_cancel,
             commands::get_video_frames,
@@ -1615,6 +1620,16 @@ pub fn run() {
             // Clone values before moving into AppState, for use in update checker
             let checker_app_dir = app_dir.clone();
             let checker_native_dir = native_plugins_dir.clone();
+            // The tools plugins define (dependency_registry.rs), read before
+            // anything asks for one: the auto-updater below and the frontend's
+            // first dependency check. The plugin listing rebuilds it again with
+            // the dev folder the frontend knows about.
+            timer.time("dependency_registry", || {
+                dependency_registry::rebuild(
+                    &app_dir,
+                    dependency_registry::roots_for(&app_dir, native_plugins_dir.as_deref(), None),
+                )
+            });
             let dep_cache = Arc::new(dependencies::DepCache::new());
             let dep_updater_cache = Arc::clone(&dep_cache);
             let dep_updater_store_path = app_dir.join("app-state.json");

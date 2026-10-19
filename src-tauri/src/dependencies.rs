@@ -30,12 +30,42 @@ pub struct ManagedSource {
     /// time (~16s per invocation); the zipapp is a stable on-disk file that
     /// starts in under a second.
     pub asset_zipapp: Option<&'static str>,
-    /// The release's `<sha256>  <filename>` checksums file, when the project
-    /// publishes one. `None` means the install is verified by nothing beyond
-    /// the TLS connection to github.com — the same channel the checksums file
-    /// itself would arrive over, so what is lost is corruption detection, not
-    /// a signature. Prefer `Some` whenever upstream offers a file.
-    pub checksums_asset: Option<&'static str>,
+    /// How the download is verified — see `Checksum`.
+    pub checksum: Checksum,
+}
+
+/// How a managed download is verified.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Checksum {
+    /// The release's `<sha256>  <filename>` checksums file of this name.
+    File(&'static str),
+    /// Nothing to check against (rqbit publishes no checksums): the install
+    /// is verified by nothing beyond the TLS connection to github.com. Such a
+    /// tool is never auto-updated, and every install or update of one needs
+    /// the user's explicit confirmation (`install_managed`'s
+    /// `confirmed_unverified`).
+    Unverified,
+}
+
+/// How a probe's output is turned into a version string.
+#[derive(Debug, Clone, Copy)]
+pub enum VersionParser {
+    /// A host parser (the built-in tools).
+    Builtin(fn(&str) -> Option<String>),
+    /// A plugin-declared `versionPattern`: the first line (trimmed) it matches,
+    /// capture group 1.
+    Pattern(&'static regex::Regex),
+}
+
+impl VersionParser {
+    pub fn parse(&self, output: &str) -> Option<String> {
+        match self {
+            VersionParser::Builtin(f) => f(output),
+            VersionParser::Pattern(re) => output.lines().find_map(|line| {
+                re.captures(line.trim()).and_then(|c| c.get(1)).map(|m| m.as_str().to_string())
+            }),
+        }
+    }
 }
 
 impl ManagedSource {
@@ -69,7 +99,7 @@ pub struct DependencyDef {
     pub name: &'static str,
     pub description: &'static str,
     pub version_args: &'static [&'static str],
-    pub parse_version: fn(&str) -> Option<String>,
+    pub parse_version: VersionParser,
     pub install: InstallInstructions,
     pub internal_consumers: &'static [(&'static str, &'static str)],
     pub managed: Option<ManagedSource>,
@@ -145,6 +175,16 @@ pub struct DependencyInfo {
     pub managed_available: bool,
     /// Latest released version, if the TTL cache has one (never fetched here).
     pub latest_version: Option<String>,
+    /// GitHub repo a managed copy comes from (shown before an unverified install).
+    pub managed_repo: Option<String>,
+    /// Plugins whose manifest defines this tool (empty for a built-in).
+    pub declared_by: Vec<String>,
+    /// Defined by the host or a plugin signed by Vibo — what may auto-update.
+    pub signed_definition: bool,
+    /// The download is checked against something (false for `Checksum::Unverified`).
+    pub verified: bool,
+    /// The managed copy came from another definition's source (`source_mismatch`).
+    pub source_mismatch: bool,
 }
 
 fn parse_ffmpeg_version(output: &str) -> Option<String> {
@@ -173,12 +213,16 @@ fn parse_rqbit_version(output: &str) -> Option<String> {
     })
 }
 
-pub static REGISTRY: &[DependencyDef] = &[
+/// The host's own tools. `ffmpeg` (and the debug-only `fictional-tool`) are the
+/// core's and can never be redefined; `yt-dlp` and `rqbit` are here only until
+/// the plugins that need them declare them (`TRANSITIONAL_BUILTINS`) — a
+/// plugin's definition of either replaces the built-in one.
+pub static BUILTIN_REGISTRY: &[DependencyDef] = &[
     DependencyDef {
         name: "ffmpeg",
         description: "Audio/video transcoding and format conversion",
         version_args: &["-version"],
-        parse_version: parse_ffmpeg_version,
+        parse_version: VersionParser::Builtin(parse_ffmpeg_version),
         install: InstallInstructions {
             macos: "brew install ffmpeg",
             windows: "winget install Gyan.FFmpeg",
@@ -196,7 +240,7 @@ pub static REGISTRY: &[DependencyDef] = &[
         name: "yt-dlp",
         description: "YouTube video/audio downloading",
         version_args: &["--version"],
-        parse_version: parse_ytdlp_version,
+        parse_version: VersionParser::Builtin(parse_ytdlp_version),
         install: InstallInstructions {
             macos: "brew install yt-dlp",
             windows: "winget install yt-dlp.yt-dlp",
@@ -218,7 +262,7 @@ pub static REGISTRY: &[DependencyDef] = &[
             asset_linux_x64: Some("yt-dlp_linux"),
             asset_linux_arm64: Some("yt-dlp_linux_aarch64"),
             asset_zipapp: Some("yt-dlp"),
-            checksums_asset: Some("SHA2-256SUMS"),
+            checksum: Checksum::File("SHA2-256SUMS"),
         }),
         os_trust: Some(OsTrust {
             args: &["--compat-options", "no-certifi"],
@@ -229,7 +273,7 @@ pub static REGISTRY: &[DependencyDef] = &[
         name: "rqbit",
         description: "BitTorrent downloads (one-shot, no client to configure)",
         version_args: &["--version"],
-        parse_version: parse_rqbit_version,
+        parse_version: VersionParser::Builtin(parse_rqbit_version),
         install: InstallInstructions {
             macos: "brew install rqbit",
             windows: "cargo install rqbit",
@@ -247,7 +291,7 @@ pub static REGISTRY: &[DependencyDef] = &[
             asset_linux_x64: Some("rqbit-linux-amd64"),
             asset_linux_arm64: Some("rqbit-linux-arm64"),
             asset_zipapp: None,
-            checksums_asset: None,
+            checksum: Checksum::Unverified,
         }),
         os_trust: None,
     },
@@ -256,7 +300,7 @@ pub static REGISTRY: &[DependencyDef] = &[
         name: "fictional-tool",
         description: "A fake dependency for testing the dependency UI (debug only)",
         version_args: &["--version"],
-        parse_version: parse_fictional_version,
+        parse_version: VersionParser::Builtin(parse_fictional_version),
         install: InstallInstructions {
             macos: "brew install fictional-tool",
             windows: "winget install Fictional.Tool",
@@ -269,8 +313,145 @@ pub static REGISTRY: &[DependencyDef] = &[
     },
 ];
 
+/// Built-ins a plugin definition may replace (the overlap release). Every other
+/// built-in name is refused to plugins.
+pub const TRANSITIONAL_BUILTINS: &[&str] = &["yt-dlp", "rqbit"];
+
+/// A built-in no plugin may redefine.
+pub fn is_core_builtin(name: &str) -> bool {
+    !TRANSITIONAL_BUILTINS.contains(&name) && BUILTIN_REGISTRY.iter().any(|d| d.name == name)
+}
+
+/// The definition in force for `name`: a plugin's (see `dependency_registry`)
+/// before a transitional built-in.
 pub fn get_def(name: &str) -> Option<&'static DependencyDef> {
-    REGISTRY.iter().find(|d| d.name == name)
+    crate::dependency_registry::active_def(name).or_else(|| BUILTIN_REGISTRY.iter().find(|d| d.name == name))
+}
+
+/// Every definition in force: the built-ins no plugin replaced, then the
+/// plugin-declared ones.
+pub fn all_defs() -> Vec<&'static DependencyDef> {
+    let declared = crate::dependency_registry::active_defs();
+    BUILTIN_REGISTRY
+        .iter()
+        .filter(|b| !declared.iter().any(|d| d.name == b.name))
+        .chain(declared.iter().copied())
+        .collect()
+}
+
+/// What decides which bytes a managed install fetches and how the tool is run:
+/// the managed source and the OS-trust setup, never the cosmetic fields or the
+/// version probe. Two definitions of one name with the same fingerprint are the
+/// same tool; a managed copy installed under another fingerprint came from a
+/// different source (`source_mismatch`).
+pub fn fingerprint(def: &DependencyDef) -> String {
+    use std::fmt::Write;
+    let mut s = String::new();
+    match &def.managed {
+        None => s.push_str("managed:none;"),
+        Some(m) => {
+            let _ = write!(
+                s,
+                "repo={};macos={:?};windows={:?};linux-x64={:?};linux-arm64={:?};zipapp={:?};checksum={:?};",
+                m.repo, m.asset_macos, m.asset_windows, m.asset_linux_x64, m.asset_linux_arm64, m.asset_zipapp, m.checksum
+            );
+        }
+    }
+    match &def.os_trust {
+        None => s.push_str("osTrust:none"),
+        Some(t) => {
+            let _ = write!(s, "osTrust={:?}/{:?}", t.args, t.ca_file_env);
+        }
+    }
+    sha256_hex(s.as_bytes())
+}
+
+fn sources_file() -> Option<PathBuf> {
+    managed_bin_dir().map(|d| d.join(".sources.json"))
+}
+
+fn read_sources(file: &Path) -> HashMap<String, String> {
+    std::fs::read_to_string(file)
+        .ok()
+        .and_then(|s| serde_json::from_str(&s).ok())
+        .unwrap_or_default()
+}
+
+/// Record which definition (by fingerprint) a managed copy was installed from.
+fn record_source(name: &str, def: &DependencyDef) {
+    let Some(file) = sources_file() else { return };
+    let mut map = read_sources(&file);
+    map.insert(name.to_string(), fingerprint(def));
+    let tmp = file.with_extension("tmp");
+    if let Ok(json) = serde_json::to_string(&map) {
+        if std::fs::write(&tmp, json).is_ok() {
+            let _ = std::fs::rename(&tmp, &file);
+        }
+    }
+}
+
+fn forget_source(name: &str) {
+    let Some(file) = sources_file() else { return };
+    let mut map = read_sources(&file);
+    if map.remove(name).is_some() {
+        if let Ok(json) = serde_json::to_string(&map) {
+            let _ = std::fs::write(&file, json);
+        }
+    }
+}
+
+/// The managed copy of `name` was installed from a definition other than the
+/// one in force (its plugin was uninstalled and another one's took over, or a
+/// plugin update moved the source). Auto-update leaves such a copy alone until
+/// the user reinstalls it. A copy installed before sources were recorded counts
+/// as matching.
+pub fn source_mismatch(name: &str) -> bool {
+    let (Some(def), Some(file)) = (get_def(name), sources_file()) else { return false };
+    if managed_binary_path(name).is_none() {
+        return false;
+    }
+    read_sources(&file).get(name).is_some_and(|fp| *fp != fingerprint(def))
+}
+
+/// Managed copies in the bin dir that no definition in force claims — left
+/// behind by an uninstalled plugin (possibly still used by another profile,
+/// since the bin dir is shared).
+pub fn unused_managed() -> Vec<String> {
+    let Some(dir) = managed_bin_dir() else { return Vec::new() };
+    let Ok(entries) = std::fs::read_dir(dir) else { return Vec::new() };
+    let known: HashSet<&str> = all_defs().iter().map(|d| d.name).collect();
+    let mut out: Vec<String> = entries
+        .filter_map(|e| e.ok())
+        .filter(|e| e.path().is_file())
+        .filter_map(|e| e.file_name().into_string().ok())
+        .filter(|n| !n.starts_with('.'))
+        .map(|n| {
+            n.strip_suffix(".exe")
+                .or_else(|| n.strip_suffix(".pyz"))
+                .unwrap_or(&n)
+                .to_string()
+        })
+        .filter(|n| !known.contains(n.as_str()))
+        .collect();
+    out.sort();
+    out.dedup();
+    out
+}
+
+/// Delete an unused managed copy (see `unused_managed`).
+pub fn remove_unused(name: &str) -> Result<(), String> {
+    if !unused_managed().iter().any(|n| n == name) {
+        return Err(format!("{} is not an unused managed copy", name));
+    }
+    let dir = managed_bin_dir().ok_or("Managed bin directory not initialized")?;
+    for file in [binary_filename(name), zipapp_filename(name)] {
+        let path = dir.join(file);
+        if path.is_file() {
+            std::fs::remove_file(&path).map_err(|e| format!("Failed to remove {}: {}", name, e))?;
+        }
+    }
+    forget_source(name);
+    Ok(())
 }
 
 /// Compare two version strings by numeric segments (handles "2024.10.22",
@@ -523,7 +704,7 @@ impl Drop for ProbeClaim<'_> {
 }
 
 pub fn check_single(name: &str, cache: &DepCache) -> DepStatus {
-    let def = match REGISTRY.iter().find(|d| d.name == name) {
+    let def = match get_def(name) {
         Some(d) => d,
         None => {
             let status = DepStatus::Error {
@@ -595,7 +776,7 @@ fn run_probe(def: &DependencyDef) -> DepStatus {
     match output_with_timeout(&mut cmd, PROBE_TIMEOUT) {
         Ok(Some(output)) if output.status.success() => {
             let stdout = String::from_utf8_lossy(&output.stdout).to_string();
-            let version = (def.parse_version)(&stdout)
+            let version = def.parse_version.parse(&stdout)
                 .unwrap_or_else(|| "unknown".to_string());
             // command_with_path prefers the managed copy, so if one exists
             // it is the one that just ran.
@@ -741,7 +922,7 @@ pub fn is_available(name: &str, cache: &DepCache) -> bool {
 }
 
 pub fn allowed_names() -> Vec<&'static str> {
-    REGISTRY.iter().map(|d| d.name).collect()
+    all_defs().iter().map(|d| d.name).collect()
 }
 
 // --- Managed install / update ---
@@ -1018,9 +1199,13 @@ fn extract_member(archive: &[u8], kind: ArchiveKind, member: &str) -> Result<Vec
 /// Download + checksum-verify + atomically install the managed copy of `name`.
 /// `progress` is called with (downloaded, total) as the body streams in.
 /// Returns the installed version.
+///
+/// `confirmed_unverified` must be true for a `Checksum::Unverified` source: the
+/// caller has shown the user that nothing will check the download.
 pub fn install_managed(
     name: &str,
     cache: &DepCache,
+    confirmed_unverified: bool,
     mut progress: impl FnMut(u64, Option<u64>),
 ) -> Result<String, String> {
     let def = get_def(name).ok_or_else(|| format!("Unknown dependency: {}", name))?;
@@ -1028,6 +1213,9 @@ pub fn install_managed(
         .managed
         .as_ref()
         .ok_or_else(|| format!("{} is not a managed dependency", name))?;
+    if managed.checksum == Checksum::Unverified && !confirmed_unverified {
+        return Err(format!("{} can't be verified; installing it needs your confirmation", name));
+    }
     let bin_dir = managed_bin_dir().ok_or("Managed bin directory not initialized")?;
 
     let shape = choose_install_shape(name, managed)?;
@@ -1068,7 +1256,7 @@ pub fn install_managed(
 
         // Verify against the published checksums from the same release when
         // the project publishes any (see `ManagedSource::checksums_asset`).
-        if let Some(checksums_asset) = managed.checksums_asset {
+        if let Checksum::File(checksums_asset) = managed.checksum {
             let checksums = client
                 .get(format!("{}/{}", base, checksums_asset))
                 .send()
@@ -1123,6 +1311,7 @@ pub fn install_managed(
             }
         }
 
+        record_source(name, def);
         cache.invalidate(name);
         match check_single(name, cache) {
             DepStatus::Installed { version, .. } => Ok(version),
@@ -1152,6 +1341,7 @@ pub fn uninstall_managed(name: &str, cache: &DepCache) -> Result<DepStatus, Stri
     if let Some(dir) = managed_bin_dir() {
         let _ = std::fs::remove_file(dir.join(zipapp_filename(name)));
     }
+    forget_source(name);
     cache.invalidate(name);
     Ok(check_single(name, cache))
 }
@@ -1184,9 +1374,18 @@ pub fn auto_update_managed(
         return;
     }
 
-    for def in REGISTRY.iter() {
+    for def in all_defs() {
         let Some(managed) = def.managed.as_ref() else { continue };
         if managed.platform_asset().is_none() {
+            continue;
+        }
+        // Silent installs stay limited to what Vibo vouches for: a definition
+        // from an unsigned plugin, an unverifiable download, or a copy that came
+        // from a different source all wait for the user's own Update click.
+        if !crate::dependency_registry::auto_update_allowed(def.name)
+            || managed.checksum == Checksum::Unverified
+            || source_mismatch(def.name)
+        {
             continue;
         }
         // Re-probe: a copy may have been installed/removed since the cache filled.
@@ -1207,7 +1406,7 @@ pub fn auto_update_managed(
             continue;
         }
         log::info!("Auto-updating managed {} {} -> {}", def.name, installed, latest);
-        match install_managed(def.name, cache, |_, _| {}) {
+        match install_managed(def.name, cache, false, |_, _| {}) {
             Ok(new_version) => {
                 emit(
                     "dependency-updated",
@@ -1402,7 +1601,7 @@ mod tests {
             asset_linux_x64: Some("tool_linux"),
             asset_linux_arm64: Some("tool_linux_aarch64"),
             asset_zipapp: None,
-            checksums_asset: Some("SHA2-256SUMS"),
+            checksum: Checksum::File("SHA2-256SUMS"),
         };
         let shape = choose_install_shape("tool", &managed).unwrap();
         assert!(matches!(shape, InstallShape::Binary(_)));
@@ -1469,7 +1668,7 @@ mod tests {
 
     #[test]
     fn test_registry_has_install_instructions() {
-        for def in REGISTRY.iter() {
+        for def in BUILTIN_REGISTRY.iter() {
             assert!(!def.install.macos.is_empty(), "{} missing macos install", def.name);
             assert!(!def.install.windows.is_empty(), "{} missing windows install", def.name);
             assert!(!def.install.linux.is_empty(), "{} missing linux install", def.name);
@@ -1580,7 +1779,7 @@ mod tests {
         assert!(managed.asset_macos.is_some());
         assert!(managed.asset_windows.is_some());
         assert!(managed.asset_linux_x64.is_some());
-        assert!(managed.checksums_asset.is_some());
+        assert_eq!(managed.checksum, Checksum::File("SHA2-256SUMS"));
         // Current platform resolves to an asset (all dev/CI platforms covered)
         assert!(managed.platform_asset().is_some());
     }

@@ -15,6 +15,10 @@ function dep(name: string, over: Partial<DependencyInfo> = {}): DependencyInfo {
     pluginConsumers: [],
     install: { macos: "", windows: "", linux: "", url: "" },
     managedAvailable: true,
+    declaredBy: [],
+    signedDefinition: true,
+    verified: true,
+    sourceMismatch: false,
     ...over,
   };
 }
