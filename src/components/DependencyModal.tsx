@@ -5,6 +5,9 @@ import { type DependencyInfo, type InstallProgress } from "../hooks/useDependenc
 interface Props {
   dep: DependencyInfo;
   feature: string;
+  /** False when the asking plugin works without the tool (its manifest marks
+   *  it optional): the dialog then says it's needed for one feature. */
+  required?: boolean;
   installProgress?: InstallProgress;
   onInstall?: (name: string) => Promise<string | null>;
   onDismiss: () => void;
@@ -24,12 +27,18 @@ export function getPlatformLabel(platform: "macos" | "windows" | "linux"): strin
   return "Linux";
 }
 
+/** "Merge WebM streams" → "merge WebM streams": only the first letter, so
+ *  names inside the reason keep their case. */
+function lowerFirst(text: string): string {
+  return text.charAt(0).toLowerCase() + text.slice(1);
+}
+
 export function formatBytes(bytes: number): string {
   if (bytes >= 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
   return `${Math.round(bytes / 1024)} KB`;
 }
 
-export function DependencyModal({ dep, feature, installProgress, onInstall, onDismiss, onRecheck }: Props) {
+export function DependencyModal({ dep, feature, required = true, installProgress, onInstall, onDismiss, onRecheck }: Props) {
   const [copied, setCopied] = useState(false);
   const [checking, setChecking] = useState(false);
   const [installing, setInstalling] = useState(false);
@@ -81,11 +90,20 @@ export function DependencyModal({ dep, feature, installProgress, onInstall, onDi
   return (
     <div className="ds-modal-overlay">
       <div className="ds-modal" style={{ width: 440 }} onClick={(e) => e.stopPropagation()}>
-        <h3 className="ds-modal-title">{dep.name} is required</h3>
+        <h3 className="ds-modal-title">{dep.name} is {required ? "required" : "needed"}</h3>
 
         <p style={{ margin: "0 0 16px", color: "var(--text-secondary)", fontSize: "var(--fs-sm)" }}>
-          <strong>{feature}</strong> requires <strong>{dep.name}</strong>{reason ? ` to ${reason.toLowerCase()}` : ""}.
-          Install it to enable this feature.
+          {required ? (
+            <>
+              <strong>{feature}</strong> requires <strong>{dep.name}</strong>{reason ? ` to ${lowerFirst(reason)}` : ""}.
+              Install it to enable this feature.
+            </>
+          ) : (
+            <>
+              <strong>{feature}</strong> uses <strong>{dep.name}</strong>{reason ? ` to ${lowerFirst(reason)}` : ""}.
+              It works without it; install it to turn this on.
+            </>
+          )}
         </p>
 
         {installing && (

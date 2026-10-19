@@ -2621,11 +2621,12 @@ function App() {
         showPluginInExtensions(_pluginId);
       } else if (action === "require-dependency") {
         // A plugin asks the host to surface its platform-aware install modal for a
-        // binary dependency (e.g. YouTube → yt-dlp). The modal pulls the correct
+        // binary dependency (e.g. yt-dlp → ffmpeg). The modal pulls the correct
         // command per OS (brew / winget / apt) from the Rust dependency registry.
-        const p = payload as { name?: string; feature?: string };
-        if (p.name) {
-          dependencies.promptDep(p.name, p.feature ?? _pluginId, _pluginId).catch(console.error);
+        const p = payload as { name?: unknown; feature?: unknown };
+        if (typeof p.name === "string" && p.name) {
+          const feature = typeof p.feature === "string" && p.feature ? p.feature : undefined;
+          dependencies.promptDep(p.name, feature, _pluginId).catch(console.error);
         }
       }
     },
@@ -7275,6 +7276,7 @@ function App() {
         <DependencyModal
           dep={dependencies.modalState.dep}
           feature={dependencies.modalState.feature}
+          required={dependencies.modalState.required}
           installProgress={dependencies.installing[dependencies.modalState.dep.name]}
           onInstall={dependencies.installDep}
           onDismiss={dependencies.dismissModal}

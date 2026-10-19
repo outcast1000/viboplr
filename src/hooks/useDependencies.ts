@@ -127,6 +127,9 @@ export interface InstallProgress {
 interface DepModalState {
   dep: DependencyInfo;
   feature: string;
+  /** The asking plugin's manifest entry marks the tool required; an optional
+   *  one is "needed" for one feature, not for the plugin to work. */
+  required: boolean;
 }
 
 /** One declared "plugin X needs binary Y" pair, as sent to `check_dependencies`. */
@@ -213,7 +216,6 @@ export function useDependencies(pluginStates: PluginState[]) {
   const registryRef = useLatestRef(registry);
   const pluginStatesRef = useLatestRef(pluginStates);
   const checkedRef = useRef<Set<string>>(new Set());
-  const shownModalsRef = useRef<Set<string>>(new Set());
   // Plugin-declaration signature the current `deps` were built from; null until
   // the first successful `checkAll`. See the re-probe effect below.
   const checkedSignatureRef = useRef<string | null>(null);
@@ -505,39 +507,29 @@ export function useDependencies(pluginStates: PluginState[]) {
     [checkDep, checkUpdates],
   );
 
-  const requireDep = useCallback(
-    async (name: string, feature: string): Promise<boolean> => {
-      const dep = await checkDep(name);
-      if (!dep) return false;
-      if (dep.status === "installed") return true;
-
-      if (!shownModalsRef.current.has(name)) {
-        shownModalsRef.current.add(name);
-        setModalState({ dep, feature });
-        trackTelemetry("dependency_missing", { name });
-      }
-      return false;
-    },
-    [checkDep],
-  );
-
-  // Like requireDep, but always (re)shows the modal when the dependency is
-  // missing — for explicit user requests (e.g. a plugin's "Install" button)
-  // where the once-per-session guard of requireDep would otherwise swallow the
-  // second click after a dismiss.
+  // Show the install dialog for a missing tool — every time it's asked, since
+  // it answers an explicit request (a plugin's "Install" button).
   //
   // `pluginId` (a plugin's `requestAction("require-dependency")`): the plugin
   // may only ask for a tool its own manifest lists, and when that tool is one
   // of its unsigned definitions still waiting for consent, the consent dialog
-  // comes first — this is where an optional tool gets asked.
+  // comes first — this is where an optional tool gets asked. The dialog then
+  // names the plugin and says "needed" for a tool its entry marks optional.
   const promptDep = useCallback(
-    async (name: string, feature: string, pluginId?: string): Promise<boolean> => {
+    async (name: string, feature?: string, pluginId?: string): Promise<boolean> => {
+      let label = feature;
+      let required = true;
       if (pluginId) {
         const plugin = pluginStatesRef.current.find((p) => p.id === pluginId);
-        if (!plugin?.manifest.binaryDependencies?.some((b) => b.name === name)) {
+        const entry = plugin?.manifest.binaryDependencies?.find((b) => b.name === name);
+        if (!plugin || !entry) {
           console.error(`Plugin ${pluginId} asked for ${name}, which its manifest doesn't list`);
           return false;
         }
+        // The consumer rows carry the plugin's name, which is how the dialog
+        // finds the reason line, so that is the default label.
+        label ??= plugin.manifest.name;
+        required = !!entry.required;
         const items = registryRef.current.pendingConsent.filter((p) => p.pluginId === pluginId && p.name === name);
         if (items.length > 0) {
           const ok = await askConsent({ pluginId, pluginName: items[0].pluginName, items });
@@ -548,8 +540,7 @@ export function useDependencies(pluginStates: PluginState[]) {
       const dep = await checkDep(name);
       if (!dep) return false;
       if (dep.status === "installed") return true;
-      shownModalsRef.current.add(name);
-      setModalState({ dep, feature });
+      setModalState({ dep, feature: label ?? name, required });
       trackTelemetry("dependency_missing", { name });
       return false;
     },
@@ -567,7 +558,7 @@ export function useDependencies(pluginStates: PluginState[]) {
     if (dep && dep.status === "installed") {
       setModalState(null);
     } else if (dep) {
-      setModalState({ dep, feature: modalState.feature });
+      setModalState({ ...modalState, dep });
     }
   }, [modalState, checkDep]);
 
@@ -601,7 +592,6 @@ export function useDependencies(pluginStates: PluginState[]) {
     checkUpdates,
     installDep,
     uninstallManaged,
-    requireDep,
     promptDep,
     dismissModal,
     recheckModal,
