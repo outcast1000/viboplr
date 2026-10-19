@@ -1,4 +1,4 @@
-import { useEffect, type ReactNode } from "react";
+import { useEffect, useId, type ReactNode } from "react";
 
 interface Props {
   title: string;
@@ -29,11 +29,12 @@ export function AlertModal({
     document.addEventListener("keydown", handleKey);
     return () => document.removeEventListener("keydown", handleKey);
   }, [onDismiss]);
+  const titleId = useId();
 
   return (
     <div className="ds-modal-overlay">
-      <div className="ds-modal" onClick={e => e.stopPropagation()}>
-        <h2 className="ds-modal-title">{title}</h2>
+      <div className="ds-modal" role="dialog" aria-labelledby={titleId} onClick={e => e.stopPropagation()}>
+        <h2 className="ds-modal-title" id={titleId}>{title}</h2>
         <p className={messageClassName}>{message}</p>
         {children}
         <div className="ds-modal-actions">

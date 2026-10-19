@@ -393,9 +393,8 @@ function App() {
   // Core hooks
   const peekNextRef = useRef<() => QueueTrack | null>(() => null);
   const prefetchNextRef = useRef<() => void>(() => {});
-  const crossfadeSecsRef = useRef(3);
   const [crossfadeSecs, setCrossfadeSecs] = useState(3);
-  useAssignRef(crossfadeSecsRef, crossfadeSecs);
+  const crossfadeSecsRef = useLatestRef(crossfadeSecs);
   // The mpv playback engine: whether libmpv loaded is probed once via
   // engine_capabilities (re-probed after a replacement-copy install). Nothing
   // plays without it.
@@ -414,10 +413,8 @@ function App() {
   const [betaUpdates, setBetaUpdates] = usePersistedSetting("betaUpdates", false, restoredRef);
   // Anonymous usage telemetry: default on (opt-out). See telemetry.ts.
   const [telemetryEnabled, setTelemetryEnabled] = usePersistedSetting("telemetryEnabled", true, restoredRef);
-  const useNativeEngineRef = useRef(false);
-  useAssignRef(useNativeEngineRef, mpvCapable);
-  const useNativeVideoRef = useRef(false);
-  useAssignRef(useNativeVideoRef, mpvCapable && mpvVideoCapable);
+  const useNativeEngineRef = useLatestRef(mpvCapable);
+  const useNativeVideoRef = useLatestRef(mpvCapable && mpvVideoCapable);
   // Assigned to `() => handleNext("auto")` once handleNext exists below.
   const nativeEndedRef = useRef<() => void>(() => {});
   // Auto-skip surface for a playback failure on an auto-advanced track: toast +
@@ -692,8 +689,7 @@ function App() {
   // the current track running when a replacing list — a radio station seeded
   // from it — opens on the same song). A ref read at call time, not this
   // render's state: playTracks is reached from stale closures.
-  const audiblePlayingTrackRef = useRef<QueueTrack | null>(null);
-  useAssignRef(audiblePlayingTrackRef, playback.playing ? playback.currentTrack : null);
+  const audiblePlayingTrackRef = useLatestRef<QueueTrack | null>(playback.playing ? playback.currentTrack : null);
 
   // Assigned further down (it needs the end-of-queue handler, which needs the
   // queue hook): what to do when playback was held for a backfill tail that
@@ -771,10 +767,8 @@ function App() {
   const videoLayout = useVideoLayout(restoredRef);
 
   // Plugin system
-  const pluginTrackRef = useRef<QueueTrack | null>(null);
-  useAssignRef(pluginTrackRef, playback.currentTrack);
-  const pluginPlayingRef = useRef(false);
-  useAssignRef(pluginPlayingRef, playback.playing);
+  const currentTrackRef = useLatestRef<QueueTrack | null>(playback.currentTrack);
+  const pluginPlayingRef = useLatestRef(playback.playing);
   const pluginPositionRef = useRef(0);
   // Position lives in the external positionStore (not React state), so the
   // plugin-facing ref is kept fresh by subscription instead of per-render.
@@ -785,8 +779,7 @@ function App() {
   // it to a record). Mirrored into a ref per render like the three above, and
   // announced via one `queue:changed` event so a plugin can re-push its view
   // without polling.
-  const pluginQueueRef = useRef<{ tracks: QueueTrack[]; index: number }>({ tracks: [], index: 0 });
-  useAssignRef(pluginQueueRef, { tracks: queueHook.queue, index: queueHook.queueIndex });
+  const pluginQueueRef = useLatestRef<{ tracks: QueueTrack[]; index: number }>({ tracks: queueHook.queue, index: queueHook.queueIndex });
   // Plugin/external tracks enter the queue with liked hardcoded 0 (they carry no
   // DB row). Reconcile the just-added ones against the durable, metadata-keyed
   // entity_likes store so a song liked in a previous session shows its heart on
@@ -905,9 +898,8 @@ function App() {
   // plugins then load in the background without contending with startup on the
   // single IPC channel. debugMode/devPluginPath are restored before this flips,
   // so the deferred first load already sees their final values.
-  const plugins = usePlugins(pluginTrackRef, pluginPlayingRef, pluginPositionRef, pluginQueueRef, pluginPlaybackCallbacks, pluginHostCallbacksRef, debugMode, devPluginPath, !appRestoring);
-  const waveformPluginsRef = useRef<WaveformPluginBridge | null>(null);
-  useAssignRef(waveformPluginsRef, plugins.waveformBridge);
+  const plugins = usePlugins(currentTrackRef, pluginPlayingRef, pluginPositionRef, pluginQueueRef, pluginPlaybackCallbacks, pluginHostCallbacksRef, debugMode, devPluginPath, !appRestoring);
+  const waveformPluginsRef = useLatestRef<WaveformPluginBridge | null>(plugins.waveformBridge);
   useAssignRef(autoContinueBridgeRef, plugins.autoContinueBridge);
   useAssignRef(prefetchLeadRef, prefetchLeadSecs({
     hasProviders: plugins.autoContinueProviders.length > 0,
@@ -1774,8 +1766,7 @@ function App() {
   // full-library pass fires one bulkUpdateTracks per artist/album/year at once
   // — costs one run, and a long scan still refreshes every few seconds.
   const { loadLibrary, loadTracks } = library;
-  const libraryRefreshRef = useRef<{ loadLibrary: () => Promise<void> | void; loadTracks: () => Promise<void> | void }>({ loadLibrary, loadTracks });
-  useAssignRef(libraryRefreshRef, { loadLibrary, loadTracks });
+  const libraryRefreshRef = useLatestRef<{ loadLibrary: () => Promise<void> | void; loadTracks: () => Promise<void> | void }>({ loadLibrary, loadTracks });
   const [libraryRefresh] = useState(() => createCoalescedRefresh(async ({ tags, files }) => {
     if (tags) {
       try {
@@ -2397,8 +2388,7 @@ function App() {
   const replaceChainRef = useRef<Promise<unknown>>(Promise.resolve());
   // Read at the moment of the swap, which is after the user answered — the
   // render that opened the dialog may be long gone by then.
-  const replaceLiveRef = useRef({ playback, queueHook, tagOpsDeps, pluginStates: plugins.pluginStates });
-  useAssignRef(replaceLiveRef, { playback, queueHook, tagOpsDeps, pluginStates: plugins.pluginStates });
+  const replaceLiveRef = useLatestRef({ playback, queueHook, tagOpsDeps, pluginStates: plugins.pluginStates });
 
   const replaceTrackFileForPlugin = useCallback((pluginId: string, request: ReplaceTrackFileRequest): Promise<ReplaceTrackFileResult> => {
     const run = async (): Promise<ReplaceTrackFileResult> => {
@@ -2413,7 +2403,7 @@ function App() {
         pluginName,
         source: request.source ?? null,
         note: request.note ?? null,
-        playing: isTrackBeingReplaced(pluginTrackRef.current, trackId, row.path),
+        playing: isTrackBeingReplaced(currentTrackRef.current, trackId, row.path),
         answer,
       }));
       setReplacePrompt(null);
@@ -2429,7 +2419,7 @@ function App() {
       };
       try {
         const { playback: player, queueHook: queue, tagOpsDeps: refresh } = replaceLiveRef.current;
-        const playing = pluginTrackRef.current;
+        const playing = currentTrackRef.current;
         const { result, updated } = playing && isTrackBeingReplaced(playing, trackId, row.path)
           ? await player.swapCurrentFile(apply, ({ updated: u }) => u
             ? { ...playing, path: u.path, format: u.format, duration_secs: u.duration_secs ?? playing.duration_secs }
@@ -2447,7 +2437,7 @@ function App() {
     const next = replaceChainRef.current.then(run, run);
     replaceChainRef.current = next.catch(() => undefined);
     return next;
-  }, [notify]);
+  }, [notify, currentTrackRef, replaceLiveRef]);
 
   // Wire plugin host callbacks (uses library, contextMenuActions defined above)
   useAssignRef(pluginHostCallbacksRef, {
@@ -2729,10 +2719,8 @@ function App() {
   }, [pushState, getScrollEl]);
   useAssignRef(beforeNavRef, pushAndScroll);
 
-  const goBackRef = useRef(goBack);
-  useAssignRef(goBackRef, goBack);
-  const pushStateRef = useRef(pushAndScroll);
-  useAssignRef(pushStateRef, pushAndScroll);
+  const goBackRef = useLatestRef(goBack);
+  const pushStateRef = useLatestRef(pushAndScroll);
 
   // Replay a "Latest play" tile. Re-resolves by source rather than replaying a
   // stored track list: library entities play fresh from the current library,
@@ -3005,8 +2993,7 @@ function App() {
   // Opens the hidden Song Quiz (supporter easter egg) — reached only via the
   // viboplr://quiz deep link or Settings > Debug, never from the sidebar.
   // Ref-held so the deep-link effect below never sees a stale closure.
-  const openQuizRef = useRef(() => {});
-  useAssignRef(openQuizRef, () => {
+  const openQuizRef = useLatestRef(() => {
     library.setView("quiz");
     library.setSelectedArtist(null);
     library.setSelectedAlbum(null);
@@ -3022,8 +3009,7 @@ function App() {
   // arrives before the restored queue is applied waits in pendingAppLinksRef
   // — run earlier, the restore would replace what it queued.
   const pendingAppLinksRef = useRef<AppLink[]>([]);
-  const runAppLinkRef = useRef(async (_link: AppLink) => {});
-  useAssignRef(runAppLinkRef, async (link: AppLink) => {
+  const runAppLinkRef = useLatestRef(async (link: AppLink) => {
     if (link.verb === "open") {
       // The page exists only in the main window (same as mini search's picks).
       if (mini.miniModeRef.current) mini.toggleMiniMode();
@@ -3052,8 +3038,7 @@ function App() {
   // unless the app is running under a `perf` profile (see probeControl.ts for
   // why this is a deep link and not scripted keystrokes). Ref-held for the same
   // reason as openQuizRef: the deep-link effect must not capture a stale one.
-  const runProbeCommandRef = useRef(async (_cmd: ProbeCommand) => {});
-  useAssignRef(runProbeCommandRef, async (cmd: ProbeCommand) => {
+  const runProbeCommandRef = useLatestRef(async (cmd: ProbeCommand) => {
     // Order is load-bearing: restore before switching view (a miniaturized
     // window's webview is throttled, so a view switch issued first lands late),
     // and set transport after the mini-mode resize rather than before it.
@@ -3118,15 +3103,13 @@ function App() {
   // Dismiss the first-run wizard, persisting exactly what its own close handler
   // does — reusing that path rather than setting the flags here, so the two
   // can't drift.
-  const dismissProbeOnboardingRef = useRef(() => {});
-  useAssignRef(dismissProbeOnboardingRef, () => {
+  const dismissProbeOnboardingRef = useLatestRef(() => {
     if (showOnboarding) handleOnboardingClose(onboardingProfile ?? "normal");
   });
 
   // Add a local folder as a collection (see probeControl.ts for why the one
   // mutating verb is allowed). `add_collection` auto-starts the scan.
-  const addProbeCollectionRef = useRef(async (_path: string) => {});
-  useAssignRef(addProbeCollectionRef, async (path: string) => {
+  const addProbeCollectionRef = useLatestRef(async (path: string) => {
     const name = path.split("/").filter(Boolean).pop() || "Perf";
     try {
       // `add_collection` does not reject a duplicate path — it registers a
@@ -3150,8 +3133,7 @@ function App() {
   // Declarative fullscreen for the probe. "Am I fullscreen?" is both reads
   // OR'd: the audio overlay and video. Both are *window* fullscreen and never
   // set a DOM :fullscreen element, so `document.fullscreenElement` can't tell.
-  const setProbeFullscreenRef = useRef((_on: boolean) => {});
-  useAssignRef(setProbeFullscreenRef, (on: boolean) => {
+  const setProbeFullscreenRef = useLatestRef((on: boolean) => {
     const now = audioFullscreen || playback.nativeFullscreen;
     if (on === now) return;
     // Entering needs a track; leaving must work regardless of what's playing.
@@ -3163,8 +3145,7 @@ function App() {
   // `resolve_dropped_paths` — the same command the Finder drag-and-drop path
   // uses — so folder walking, tag reading and the media filter behave exactly
   // as they do for a real drop, and video is picked up like any other media.
-  const openProbePathRef = useRef(async (_path: string, _kind?: "audio" | "video") => {});
-  useAssignRef(openProbePathRef, async (path: string, kind?: "audio" | "video") => {
+  const openProbePathRef = useLatestRef(async (path: string, kind?: "audio" | "video") => {
     const resolved = await invoke<Array<{
       path: string; title: string; artist_name: string | null;
       album_artist_name: string | null;
@@ -3200,8 +3181,7 @@ function App() {
   // Gathers the probe state dump and hands it to the backend to write (see
   // write_probe_dump: the caller never names a path). Every source is an
   // existing command — this assembles, it does not instrument.
-  const writeProbeDumpRef = useRef(async () => {});
-  useAssignRef(writeProbeDumpRef, async () => {
+  const writeProbeDumpRef = useLatestRef(async () => {
     const [facts, trackCount, backendTimings, artists] = await Promise.all([
       invoke<{ appVersion?: string; profile?: string; os?: string; arch?: string }>("collect_diagnostics"),
       invoke<number>("get_track_count").catch((e) => {
@@ -3358,7 +3338,7 @@ function App() {
       if (urls && urls.length > 0) handleDeepLink(urls);
     }).catch(() => {}); // eslint-disable-line no-restricted-syntax -- Fire-and-forget: deep link check on startup — no URLs is the common case
     return stopDeepLink;
-  }, [plugins.forwardDeepLink]);
+  }, [plugins.forwardDeepLink, openQuizRef, runAppLinkRef, runProbeCommandRef]);
 
   // A .mixtape the OS asked us to open (Explorer double-click / Finder / a
   // second launch). The backend stash is the single consumption point
@@ -3796,7 +3776,7 @@ function App() {
     for (const link of pendingAppLinksRef.current.splice(0)) {
       runAppLinkRef.current(link).catch((e) => console.error("Failed to follow a viboplr link:", e));
     }
-  }, [appRestoring, consumePendingProfileSwitch, consumePendingMixtapeOpen]);
+  }, [appRestoring, consumePendingProfileSwitch, consumePendingMixtapeOpen, runAppLinkRef]);
 
   // One-shot Collections-view hint: after the ALBUMARTIST update, local
   // libraries scanned before it keep per-track-artist album forks until a Full
@@ -4283,26 +4263,15 @@ function App() {
 
 
   // onEnded handler — uses refs to avoid stale closures from useCallback([])
-  const autoContinueRef = useRef(autoContinue);
-  useAssignRef(autoContinueRef, autoContinue);
-  const queueModeRef = useRef(queueHook.queueMode);
-  useAssignRef(queueModeRef, queueHook.queueMode);
-  const currentTrackRef = useRef(playback.currentTrack);
-  useAssignRef(currentTrackRef, playback.currentTrack);
-  const handleStopRef = useRef(playback.handleStop);
-  useAssignRef(handleStopRef, playback.handleStop);
-  const playNextRef = useRef(queueHook.playNext);
-  useAssignRef(playNextRef, queueHook.playNext);
-  const addToQueueAndPlayRef = useRef(queueHook.addToQueueAndPlay);
-  useAssignRef(addToQueueAndPlayRef, queueHook.addToQueueAndPlay);
-  const addToQueueRef = useRef(queueHook.addToQueue);
-  useAssignRef(addToQueueRef, queueHook.addToQueue);
-  const holdForBackfillTailRef = useRef(queueHook.holdForBackfillTail);
-  useAssignRef(holdForBackfillTailRef, queueHook.holdForBackfillTail);
-  const backfillPendingRef = useRef(queueHook.backfillPending);
-  useAssignRef(backfillPendingRef, queueHook.backfillPending);
-  const queueRef = useRef(queueHook.queue);
-  useAssignRef(queueRef, queueHook.queue);
+  const autoContinueRef = useLatestRef(autoContinue);
+  const queueModeRef = useLatestRef(queueHook.queueMode);
+  const handleStopRef = useLatestRef(playback.handleStop);
+  const playNextRef = useLatestRef(queueHook.playNext);
+  const addToQueueAndPlayRef = useLatestRef(queueHook.addToQueueAndPlay);
+  const addToQueueRef = useLatestRef(queueHook.addToQueue);
+  const holdForBackfillTailRef = useLatestRef(queueHook.holdForBackfillTail);
+  const backfillPendingRef = useLatestRef(queueHook.backfillPending);
+  const queueRef = useLatestRef(queueHook.queue);
 
   // Keep the now-playing track's like state in sync with the durable
   // entity_likes store. currentTrack is seeded verbatim from the queue entry
@@ -4364,7 +4333,7 @@ function App() {
         console.error("Failed to reconcile like states after change:", e);
       }
     });
-  }, [playback.setCurrentTrack, queueHook.setQueue, library.loadLibrary, library.loadTracks]);
+  }, [playback.setCurrentTrack, queueHook.setQueue, library.loadLibrary, library.loadTracks, currentTrackRef, queueRef]);
 
   // The session so far, for auto-continue's plugins: the queue (to skip what
   // was just heard) and its first entry (what the user started from).
@@ -4444,7 +4413,7 @@ function App() {
       }
     }
     handleStopRef.current();
-  }, [fetchAutoContinueRef]);
+  }, [fetchAutoContinueRef, addToQueueAndPlayRef, autoContinueRef, currentTrackRef, handleStopRef, queueModeRef]);
   // Handed to useQueue: a held-for tail that never arrived releases the
   // end-of-queue decision we deferred below.
   useAssignRef(backfillAbandonedRef, () => { void endOfQueue("auto"); });
@@ -4458,7 +4427,7 @@ function App() {
     // behind it — which is what this fixes.
     if (holdForBackfillTailRef.current()) return;
     await endOfQueue(source);
-  }, [endOfQueue]);
+  }, [endOfQueue, holdForBackfillTailRef, playNextRef]);
 
   useAssignRef(mediaSessionNextRef, () => handleNext());
   // Engine-side "ended with nothing gapless-armed" (gapless and crossfade
@@ -4756,7 +4725,7 @@ function App() {
       );
     }
     playback.clearPlaybackError();
-  }, [queueHook, playback, fetchAutoContinueRef]);
+  }, [queueHook, playback, fetchAutoContinueRef, autoContinueRef, currentTrackRef, handleStopRef]);
   useAssignRef(currentTrackDeletedRef, (indices) => { void handleCurrentTrackDeleted(indices); });
 
   useGlobalShortcuts({

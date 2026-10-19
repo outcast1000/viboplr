@@ -47,11 +47,10 @@ pub fn open_skin_in_editor(state: State<'_, AppState>, id: String) -> Result<(),
 // here froze the webview.
 #[tauri::command]
 pub async fn fetch_skin_gallery() -> Result<String, String> {
-    tauri::async_runtime::spawn_blocking(|| {
+    run_blocking(|| {
         skins::fetch_url(&skins::skin_gallery_index_url())
     })
     .await
-    .map_err(|e| format!("Task join error: {}", e))?
 }
 
 #[tauri::command]
@@ -60,11 +59,10 @@ pub async fn install_gallery_skin(
     url: String,
 ) -> Result<String, String> {
     let app_dir = state.app_dir.clone();
-    tauri::async_runtime::spawn_blocking(move || {
+    run_blocking(move || -> Result<_, String> {
         let content = skins::fetch_url(&url)?;
         let dir = skins::skins_dir(&app_dir);
         skins::save_skin_to_dir(&dir, &content)
     })
     .await
-    .map_err(|e| format!("Task join error: {}", e))?
 }

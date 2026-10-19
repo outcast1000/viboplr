@@ -1,19 +1,7 @@
 import { useMemo, useRef, useState } from "react";
 import { isShelfVisible } from "../hooks/useHome";
+import { ToggleSwitch } from "./ToggleSwitch";
 import "./CustomizeHomeModal.css";
-
-function Toggle({ checked, onChange }: { checked: boolean; onChange: () => void }) {
-  return (
-    <button
-      className={`ds-toggle ${checked ? "on" : ""}`}
-      onClick={onChange}
-      role="switch"
-      aria-checked={checked}
-    >
-      <span className="ds-toggle-thumb" />
-    </button>
-  );
-}
 
 /** One row of the Customize list: a built-in shelf, or a registered plugin shelf. */
 export interface CustomizeShelfRow {
@@ -193,7 +181,7 @@ export function CustomizeHomeModal(props: CustomizeHomeModalProps) {
                   </span>
                   {row?.description && <span className="customize-home-desc">{row.description}</span>}
                 </div>
-                <Toggle
+                <ToggleSwitch
                   checked={visible}
                   onChange={() => props.onToggle(id)}
                 />

@@ -7,6 +7,7 @@ import { useCommunityTags, type InvokeInfoFetch } from "../hooks/useCommunityTag
 import { appendCommunityTags } from "../utils/tagSuggestions";
 import type { QueueTrack } from "../types";
 import "./TagPopover.css";
+import { normalizeForMatch } from "../utils/normalize";
 
 interface TagPopoverProps {
   track: QueueTrack;
@@ -82,14 +83,14 @@ export default function TagPopover({ track, suggestions, invokeInfoFetch, plugin
     if (resolvedId == null) return;
     setTags([...tags, name]);
     const names = await tagActions.add(resolvedId, name);
-    if (names == null) setTags(tags.filter((t) => t.toLowerCase() !== name.toLowerCase()));
+    if (names == null) setTags(tags.filter((t) => normalizeForMatch(t) !== normalizeForMatch(name)));
     else setTags(names);
   }
 
   async function handleRemove(name: string) {
     if (resolvedId == null) return;
     const before = tags;
-    setTags(before.filter((t) => t.toLowerCase() !== name.toLowerCase()));
+    setTags(before.filter((t) => normalizeForMatch(t) !== normalizeForMatch(name)));
     const names = await tagActions.remove(resolvedId, before, name);
     if (names == null) setTags(before);
     else setTags(names);

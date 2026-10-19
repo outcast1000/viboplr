@@ -7,6 +7,7 @@ import TagEditor from "./TagEditor";
 import { effectiveTagNames } from "../utils/bulkEditTags";
 import { useCommunityTagsForTracks, type InvokeInfoFetch } from "../hooks/useCommunityTags";
 import { appendCommunityTags } from "../utils/tagSuggestions";
+import { normalizeForMatch } from "../utils/normalize";
 
 /** Summary of the album-identity fields an edit changed, so callers can re-point
  *  an album detail page to where the edited tracks now live. */
@@ -190,7 +191,7 @@ export default function BulkEditModal({ tracks, artistOptions, albumOptions, tag
   function addTag(name: string) {
     const trimmed = name.trim();
     if (!trimmed) return;
-    if (tags.some((t) => t.name.toLowerCase() === trimmed.toLowerCase())) return;
+    if (tags.some((t) => normalizeForMatch(t.name) === normalizeForMatch(trimmed))) return;
     setTags((prev) => [...prev, { name: trimmed }]);
     setDirtyTags(true);
   }

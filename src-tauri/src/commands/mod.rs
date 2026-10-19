@@ -96,20 +96,42 @@ pub struct ImageResolveRegistry {
     pub pending: Mutex<std::collections::HashMap<String, mpsc::Sender<ImageResolveResult>>>,
 }
 
-/// Run a command's database read on the blocking pool instead of the main
-/// thread. Tauri runs a non-`async` command inline on the event loop, so a read
-/// that waited — on a slow query, or (before `Database::reader`) on the
-/// scanner's writes — froze the whole window. DB-touching commands are `async`
-/// and go through this; `test_sync_commands_touching_the_db_are_capped` holds
-/// the line on the ones that are not yet.
-pub(crate) async fn run_db_read<T, F>(f: F) -> Result<T, String>
+/// Run a command's blocking work — a database read or write, file I/O, a
+/// network probe — on the blocking pool instead of the main thread. Tauri runs
+/// a non-`async` command inline on the event loop, so work that waited — on a
+/// slow query, or (before `Database::reader`) on the scanner's writes — froze
+/// the whole window. DB-touching commands are `async` and go through this (or
+/// `with_db`); `test_sync_commands_touching_the_db_are_capped` holds the line
+/// on the ones that are not yet.
+///
+/// The closure's error is anything `Display` (a `rusqlite::Error`, an
+/// `io::Error`, a `String`), turned into the command's `String` here, so call
+/// sites need no inner `.map_err(|e| e.to_string())`. A panic in the closure
+/// surfaces as the one `Task join error: …` message.
+pub(crate) async fn run_blocking<T, E, F>(f: F) -> Result<T, String>
 where
     T: Send + 'static,
-    F: FnOnce() -> Result<T, String> + Send + 'static,
+    E: std::fmt::Display + Send + 'static,
+    F: FnOnce() -> Result<T, E> + Send + 'static,
 {
     tauri::async_runtime::spawn_blocking(f)
         .await
-        .map_err(|e| format!("Task join error: {}", e))?
+        .map_err(|e| format!("Task join error: {e}"))?
+        .map_err(|e| e.to_string())
+}
+
+/// `run_blocking` over the shared database: clones `state.db` and hands the
+/// closure the `&Arc<Database>` (it derefs to `&Database`; the `Arc` is there for
+/// callees that keep a handle, like the scanner and the syncs). The common shape of a DB-backed async command:
+/// `with_db(&state, move |db| db.get_x(id)).await`.
+pub(crate) async fn with_db<T, E, F>(state: &AppState, f: F) -> Result<T, String>
+where
+    T: Send + 'static,
+    E: std::fmt::Display + Send + 'static,
+    F: FnOnce(&Arc<Database>) -> Result<T, E> + Send + 'static,
+{
+    let db = state.db.clone();
+    run_blocking(move || f(&db)).await
 }
 
 pub struct AppState {
@@ -1071,7 +1093,7 @@ mod tests {
     /// runs a non-`async` command on the main thread, so each of these freezes
     /// the window for as long as its query — or its wait for the writer's lock —
     /// takes. The count is a ratchet: new database work goes in an `async`
-    /// command through `run_db_read` (or `spawn_blocking`), and converting one
+    /// command through `with_db` / `run_blocking`, and converting one
     /// of these means lowering `CAP` in the same change.
     /// Byte offset of a fn's body `{`: the first `{` after the parenthesis that
     /// closes its parameter list. Parameter and return types carry no braces.
@@ -1155,7 +1177,7 @@ mod tests").next().unwrap();
         assert!(
             offenders.len() <= CAP,
             "{} sync commands touch state.db (cap {CAP}). Make the new one `async` and run its \
-             database work through `run_db_read`. Offenders: {offenders:?}",
+             database work through `with_db` / `run_blocking`. Offenders: {offenders:?}",
             offenders.len()
         );
     }

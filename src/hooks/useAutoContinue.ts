@@ -3,6 +3,7 @@ import { invoke } from "@tauri-apps/api/core";
 import type { Track, QueueTrack } from "../types";
 import type { PluginTrack } from "../types/plugin";
 import { store } from "../store";
+import { usePersistMirror } from "./usePersistedSetting";
 import { isVideoTrack } from "../utils";
 import { pluginTrackToQueueTrack, trackToQueueTrack } from "../queueEntry";
 import { trackLikeId } from "../utils/likeReconcile";
@@ -69,15 +70,9 @@ export function useAutoContinue(
   }, []);
 
   // Persist
-  useEffect(() => {
-    if (restoredRef.current) store.set("autoContinueEnabled", enabled);
-  }, [enabled]);
-  useEffect(() => {
-    if (restoredRef.current) store.set("autoContinueWeights", weights);
-  }, [weights]);
-  useEffect(() => {
-    if (restoredRef.current) store.set("autoContinueSameFormat", sameFormat);
-  }, [sameFormat]);
+  usePersistMirror("autoContinueEnabled", enabled, restoredRef);
+  usePersistMirror("autoContinueWeights", weights, restoredRef);
+  usePersistMirror("autoContinueSameFormat", sameFormat, restoredRef);
 
   async function fromLibrary(strategy: string, current: QueueTrack, formatFilter: string | null): Promise<QueueTrack | null> {
     try {

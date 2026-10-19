@@ -8,7 +8,7 @@ pub fn record_play(state: State<'_, AppState>, title: String, artist_name: Optio
     state.db.record_play_by_metadata(&title, artist_name.as_deref()).map_err(|e| e.to_string())
 }
 
-// The reads below are `async` + `run_db_read` and run on the read-only
+// The reads below are `async` + `with_db` and run on the read-only
 // connection (`Database::reader`). Sync, they ran on the main thread and
 // waited on the writer, so a scan's chunk writes and its closing FTS rebuild
 // froze the window whenever playback asked for a rank or the History view
@@ -16,14 +16,12 @@ pub fn record_play(state: State<'_, AppState>, title: String, artist_name: Optio
 
 #[tauri::command]
 pub async fn get_history_recent(state: State<'_, AppState>, limit: i64) -> Result<Vec<HistoryEntry>, String> {
-    let db = state.db.clone();
-    run_db_read(move || db.get_history_recent(limit).map_err(|e| e.to_string())).await
+    with_db(&state, move |db| db.get_history_recent(limit)).await
 }
 
 #[tauri::command]
 pub async fn get_history_play_count(state: State<'_, AppState>) -> Result<i64, String> {
-    let db = state.db.clone();
-    run_db_read(move || db.get_history_play_count().map_err(|e| e.to_string())).await
+    with_db(&state, move |db| db.get_history_play_count()).await
 }
 
 #[tauri::command]
@@ -33,14 +31,12 @@ pub async fn get_history_plays_page(
     before_id: Option<i64>,
     limit: i64,
 ) -> Result<Vec<HistoryPlayLite>, String> {
-    let db = state.db.clone();
-    run_db_read(move || db.get_history_plays_page(before_ts, before_id, limit).map_err(|e| e.to_string())).await
+    with_db(&state, move |db| db.get_history_plays_page(before_ts, before_id, limit)).await
 }
 
 #[tauri::command]
 pub async fn get_history_most_played(state: State<'_, AppState>, limit: i64) -> Result<Vec<HistoryMostPlayed>, String> {
-    let db = state.db.clone();
-    run_db_read(move || db.get_history_most_played(limit).map_err(|e| e.to_string())).await
+    with_db(&state, move |db| db.get_history_most_played(limit)).await
 }
 
 #[tauri::command]
@@ -51,71 +47,57 @@ pub async fn get_history_most_played_since(
     // Optional so the History view and plugin callers keep their behaviour.
     min_plays: Option<i64>,
 ) -> Result<Vec<HistoryMostPlayed>, String> {
-    let db = state.db.clone();
-    run_db_read(move || {
-        db.get_history_most_played_since(since_ts, limit, min_plays.unwrap_or(1)).map_err(|e| e.to_string())
-    })
-    .await
+    with_db(&state, move |db| db.get_history_most_played_since(since_ts, limit, min_plays.unwrap_or(1))).await
 }
 
 #[tauri::command]
 pub async fn get_history_most_played_artists(state: State<'_, AppState>, limit: i64) -> Result<Vec<HistoryArtistStats>, String> {
-    let db = state.db.clone();
-    run_db_read(move || db.get_history_most_played_artists(limit).map_err(|e| e.to_string())).await
+    with_db(&state, move |db| db.get_history_most_played_artists(limit)).await
 }
 
 #[tauri::command]
 pub async fn get_history_most_played_artists_since(state: State<'_, AppState>, since_ts: i64, limit: i64) -> Result<Vec<HistoryArtistStats>, String> {
-    let db = state.db.clone();
-    run_db_read(move || db.get_history_most_played_artists_since(since_ts, limit).map_err(|e| e.to_string())).await
+    with_db(&state, move |db| db.get_history_most_played_artists_since(since_ts, limit)).await
 }
 
 #[tauri::command]
 pub async fn search_history_artists(state: State<'_, AppState>, query: String, limit: i64) -> Result<Vec<HistoryArtistStats>, String> {
-    let db = state.db.clone();
-    run_db_read(move || db.search_history_artists(&query, limit).map_err(|e| e.to_string())).await
+    with_db(&state, move |db| db.search_history_artists(&query, limit)).await
 }
 
 #[tauri::command]
 pub async fn search_history_tracks(state: State<'_, AppState>, query: String, limit: i64) -> Result<Vec<HistoryMostPlayed>, String> {
-    let db = state.db.clone();
-    run_db_read(move || db.search_history_tracks(&query, limit).map_err(|e| e.to_string())).await
+    with_db(&state, move |db| db.search_history_tracks(&query, limit)).await
 }
 
 #[tauri::command]
 pub async fn reconnect_history_track(state: State<'_, AppState>, history_track_id: i64) -> Result<Option<Track>, String> {
-    let db = state.db.clone();
-    run_db_read(move || db.reconnect_history_track(history_track_id).map_err(|e| e.to_string())).await
+    with_db(&state, move |db| db.reconnect_history_track(history_track_id)).await
 }
 
 #[tauri::command]
 pub async fn reconnect_history_artist(state: State<'_, AppState>, history_artist_id: i64) -> Result<Option<i64>, String> {
-    let db = state.db.clone();
-    run_db_read(move || db.reconnect_history_artist(history_artist_id).map_err(|e| e.to_string())).await
+    with_db(&state, move |db| db.reconnect_history_artist(history_artist_id)).await
 }
 
 #[tauri::command]
 pub async fn get_track_rank(state: State<'_, AppState>, title: String, artist_name: Option<String>) -> Result<Option<i64>, String> {
-    let db = state.db.clone();
-    run_db_read(move || db.get_track_rank(&title, artist_name.as_deref()).map_err(|e| e.to_string())).await
+    with_db(&state, move |db| db.get_track_rank(&title, artist_name.as_deref())).await
 }
 
 #[tauri::command]
 pub async fn get_artist_rank(state: State<'_, AppState>, artist_name: String) -> Result<Option<i64>, String> {
-    let db = state.db.clone();
-    run_db_read(move || db.get_artist_rank(&artist_name).map_err(|e| e.to_string())).await
+    with_db(&state, move |db| db.get_artist_rank(&artist_name)).await
 }
 
 #[tauri::command]
 pub async fn get_track_play_history(state: State<'_, AppState>, title: String, artist_name: Option<String>, limit: i64) -> Result<Vec<TrackPlayEntry>, String> {
-    let db = state.db.clone();
-    run_db_read(move || db.get_track_play_history(&title, artist_name.as_deref(), limit).map_err(|e| e.to_string())).await
+    with_db(&state, move |db| db.get_track_play_history(&title, artist_name.as_deref(), limit)).await
 }
 
 #[tauri::command]
 pub async fn get_track_play_stats(state: State<'_, AppState>, title: String, artist_name: Option<String>) -> Result<Option<TrackPlayStats>, String> {
-    let db = state.db.clone();
-    run_db_read(move || db.get_track_play_stats(&title, artist_name.as_deref()).map_err(|e| e.to_string())).await
+    with_db(&state, move |db| db.get_track_play_stats(&title, artist_name.as_deref())).await
 }
 
 // Asked as the playing track nears its end, so it must not wait out a scan's
@@ -128,10 +110,8 @@ pub async fn get_auto_continue_track(
     current_artist: Option<String>,
     format_filter: Option<String>,
 ) -> Result<Option<Track>, String> {
-    let db = state.db.clone();
-    run_db_read(move || {
+    with_db(&state, move |db| {
         db.get_auto_continue_track(&strategy, &current_title, current_artist.as_deref(), format_filter.as_deref(), &[])
-            .map_err(|e| e.to_string())
     })
     .await
 }
@@ -153,14 +133,8 @@ pub async fn build_radio_station(
     // strip_diacritics joins for the non-default tastes) — run inline this
     // froze the webview while the queue built. `options` is optional so an
     // older caller (or the control API) gets the defaults.
-    let db = state.db.clone();
     let options = options.unwrap_or_default();
-    tauri::async_runtime::spawn_blocking(move || {
-        db.build_radio_station(&seed_title, seed_artist.as_deref(), target_count, &options)
-            .map_err(|e| e.to_string())
-    })
-    .await
-    .map_err(|e| e.to_string())?
+    with_db(&state, move |db| db.build_radio_station(&seed_title, seed_artist.as_deref(), target_count, &options)).await
 }
 
 #[tauri::command]
@@ -172,11 +146,6 @@ pub async fn pick_radio_seeds(
     // async + spawn_blocking: a full-library GROUP BY with per-row
     // strip_diacritics joins — Home calls this on every shelf refresh.
     // `exclude` is the shown-seed cooldown (see `Database::pick_radio_seeds`).
-    let db = state.db.clone();
     let exclude = exclude.unwrap_or_default();
-    tauri::async_runtime::spawn_blocking(move || {
-        db.pick_radio_seeds(count, &exclude).map_err(|e| e.to_string())
-    })
-    .await
-    .map_err(|e| e.to_string())?
+    with_db(&state, move |db| db.pick_radio_seeds(count, &exclude)).await
 }

@@ -161,7 +161,7 @@ pub async fn plugin_exec(
     // execs are short probes that need neither cancellation nor a line stream,
     // and they must not start paying for pipes and threads.
     let Some(exec_id) = exec_id else {
-        return tauri::async_runtime::spawn_blocking(move || {
+        return run_blocking(move || -> Result<_, String> {
             let mut cmd = build_plugin_command(&program, &args, cwd, &app_dir);
             let output = cmd.output()
                 .map_err(|e| format!("Failed to run {}: {}", program, e))?;
@@ -173,8 +173,7 @@ pub async fn plugin_exec(
                 stderr,
             })
         })
-        .await
-        .map_err(|e| format!("Task join error: {}", e))?;
+        .await;
     };
 
     if !registry.claim(&exec_id) {
@@ -183,7 +182,7 @@ pub async fn plugin_exec(
     }
 
     let stream = stream_output.unwrap_or(false);
-    tauri::async_runtime::spawn_blocking(move || {
+    run_blocking(move || -> Result<_, String> {
         use std::process::Stdio;
         let mut cmd = build_plugin_command(&program, &args, cwd, &app_dir);
         cmd.stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::piped());
@@ -247,7 +246,6 @@ pub async fn plugin_exec(
         })
     })
     .await
-    .map_err(|e| format!("Task join error: {}", e))?
 }
 
 fn build_plugin_command(
@@ -291,7 +289,7 @@ pub async fn check_dependencies(
     let cache = Arc::clone(&state.dep_cache);
     let plugin_deps = plugin_deps.unwrap_or_default();
 
-    Ok(tauri::async_runtime::spawn_blocking(move || {
+    run_blocking(move || -> Result<_, std::convert::Infallible> {
         if force_refresh {
             cache.clear();
         }
@@ -302,7 +300,7 @@ pub async fn check_dependencies(
             None => all,
         };
 
-        defs_to_check
+        Ok(defs_to_check
             .iter()
             .map(|def| {
                 let status = dependencies::check_single(def.name, &cache);
@@ -342,10 +340,9 @@ pub async fn check_dependencies(
                     source_mismatch: dependencies::source_mismatch(def.name),
                 }
             })
-            .collect()
+            .collect())
     })
     .await
-    .map_err(|e| e.to_string())?)
 }
 
 /// Install (or update — same code path, the download URL always points at the
@@ -358,7 +355,7 @@ pub async fn dependency_install(
     confirmed_unverified: Option<bool>,
 ) -> Result<String, String> {
     let cache = Arc::clone(&state.dep_cache);
-    tauri::async_runtime::spawn_blocking(move || {
+    run_blocking(move || -> Result<_, String> {
         let progress_name = name.clone();
         let confirmed = confirmed_unverified.unwrap_or(false);
         let version = dependencies::install_managed(&name, &cache, confirmed, |downloaded, total| {
@@ -375,7 +372,6 @@ pub async fn dependency_install(
         Ok(version)
     })
     .await
-    .map_err(|e| format!("Task join error: {}", e))?
 }
 
 /// Remove the app-managed copy of a dependency, falling back to any system
@@ -386,7 +382,7 @@ pub async fn dependency_uninstall_managed(
     name: String,
 ) -> Result<Option<String>, String> {
     let cache = Arc::clone(&state.dep_cache);
-    tauri::async_runtime::spawn_blocking(move || {
+    run_blocking(move || -> Result<_, String> {
         let status = dependencies::uninstall_managed(&name, &cache)?;
         log::info!("Removed managed copy of {}", name);
         Ok(match status {
@@ -401,7 +397,6 @@ pub async fn dependency_uninstall_managed(
         })
     })
     .await
-    .map_err(|e| format!("Task join error: {}", e))?
 }
 
 /// Latest-vs-installed comparison for every managed dependency. One
@@ -418,8 +413,8 @@ pub async fn dependency_check_updates(
     if force.unwrap_or(false) {
         cache.clear_latest();
     }
-    Ok(tauri::async_runtime::spawn_blocking(move || {
-        dependencies::all_defs()
+    run_blocking(move || -> Result<_, std::convert::Infallible> {
+        Ok(dependencies::all_defs()
             .into_iter()
             .filter(|def| def.managed.as_ref().is_some_and(|m| m.platform_asset().is_some()))
             .map(|def| {
@@ -442,10 +437,9 @@ pub async fn dependency_check_updates(
                     origin,
                 }
             })
-            .collect()
+            .collect())
     })
     .await
-    .map_err(|e| e.to_string())?)
 }
 
 #[derive(serde::Serialize)]
@@ -461,12 +455,13 @@ pub struct DependencyRegistryStatus {
 /// consent, conflicts, refused definitions, and unused managed copies.
 #[tauri::command]
 pub async fn dependency_registry_status() -> Result<DependencyRegistryStatus, String> {
-    tauri::async_runtime::spawn_blocking(|| DependencyRegistryStatus {
-        registry: crate::dependency_registry::status(),
-        unused: dependencies::unused_managed(),
+    run_blocking(|| {
+        Ok::<_, std::convert::Infallible>(DependencyRegistryStatus {
+            registry: crate::dependency_registry::status(),
+            unused: dependencies::unused_managed(),
+        })
     })
     .await
-    .map_err(|e| e.to_string())
 }
 
 /// The user agreed, in the host's warning dialog, to let an unsigned plugin's
@@ -480,14 +475,13 @@ pub async fn dependency_definitions_consent(
 ) -> Result<(), String> {
     let profile = state.app_dir.clone();
     let cache = Arc::clone(&state.dep_cache);
-    tauri::async_runtime::spawn_blocking(move || {
+    run_blocking(move || -> Result<(), String> {
         crate::dependency_registry::grant_consent(&profile, &plugin_id, &fingerprints)?;
         cache.clear();
         let _ = app.emit("dependencies-changed", ());
         Ok(())
     })
     .await
-    .map_err(|e| e.to_string())?
 }
 
 /// Take back the consents an unsigned plugin's definitions ran under.
@@ -499,22 +493,19 @@ pub async fn dependency_definitions_revoke(
 ) -> Result<(), String> {
     let profile = state.app_dir.clone();
     let cache = Arc::clone(&state.dep_cache);
-    tauri::async_runtime::spawn_blocking(move || {
+    run_blocking(move || -> Result<(), String> {
         crate::dependency_registry::revoke_consent(&profile, &plugin_id)?;
         cache.clear();
         let _ = app.emit("dependencies-changed", ());
         Ok(())
     })
     .await
-    .map_err(|e| e.to_string())?
 }
 
 /// Delete a managed copy that no definition claims any more.
 #[tauri::command]
 pub async fn dependency_remove_unused(name: String) -> Result<(), String> {
-    tauri::async_runtime::spawn_blocking(move || dependencies::remove_unused(&name))
-        .await
-        .map_err(|e| e.to_string())?
+    run_blocking(move || dependencies::remove_unused(&name)).await
 }
 
 #[tauri::command]
@@ -536,9 +527,7 @@ pub async fn extract_video_frames(
     track_id: i64,
 ) -> Result<VideoFrameResult, String> {
     let app_dir = state.app_dir.clone();
-    let db = state.db.clone();
-
-    tauri::async_runtime::spawn_blocking(move || {
+    with_db(&state, move |db| -> Result<_, String> {
         if !crate::video_frames::is_ffmpeg_available() {
             return Ok(VideoFrameResult { status: "unavailable".to_string(), paths: None, timestamps: None });
         }
@@ -583,7 +572,6 @@ pub async fn extract_video_frames(
         })
     })
     .await
-    .map_err(|e| format!("Task join error: {}", e))?
 }
 
 #[tauri::command]
@@ -665,8 +653,7 @@ pub async fn get_local_lyrics(
     album_name: Option<String>,
     path: Option<String>,
 ) -> Result<Option<crate::local_lyrics::LocalLyrics>, String> {
-    let db = state.db.clone();
-    tauri::async_runtime::spawn_blocking(move || {
+    with_db(&state, move |db| -> Result<_, std::convert::Infallible> {
         let mut candidates: Vec<std::path::PathBuf> = Vec::new();
         if let Some(bare) = path.as_deref().and_then(|p| p.strip_prefix("file://")) {
             candidates.push(std::path::PathBuf::from(bare));
@@ -689,12 +676,11 @@ pub async fn get_local_lyrics(
                 }
             }
         }
-        crate::local_lyrics::prefer_synced(
+        Ok(crate::local_lyrics::prefer_synced(
             candidates.iter().filter_map(|p| crate::local_lyrics::probe_local_lyrics(p)),
-        )
+        ))
     })
     .await
-    .map_err(|e| format!("Task join error: {}", e))
 }
 
 /// Read embedded tags for a batch of local files — one result per input path, in
@@ -717,11 +703,10 @@ pub async fn get_local_lyrics(
 /// duration: a queue entry with no length shows no seek bar and never scrobbles.
 #[tauri::command]
 pub async fn read_file_tags(paths: Vec<String>) -> Result<Vec<Option<FileTags>>, String> {
-    tauri::async_runtime::spawn_blocking(move || {
-        paths.iter().map(|p| read_one_file_tags(p)).collect()
+    run_blocking(move || {
+        Ok::<_, std::convert::Infallible>(paths.iter().map(|p| read_one_file_tags(p)).collect())
     })
     .await
-    .map_err(|e| format!("Task join error: {}", e))
 }
 
 fn read_one_file_tags(path: &str) -> Option<FileTags> {
@@ -815,7 +800,7 @@ pub async fn extract_storyboard(
 ) -> Result<StoryboardResult, String> {
     let app_dir = state.app_dir.clone();
 
-    tauri::async_runtime::spawn_blocking(move || {
+    run_blocking(move || -> Result<_, String> {
         // False = the cancel raced ahead of this invoke; don't start at all.
         if !crate::storyboard::begin_request(&path, &request_id) {
             return Ok(StoryboardResult { status: "cancelled".to_string(), storyboard: None });
@@ -869,7 +854,6 @@ pub async fn extract_storyboard(
         Ok(StoryboardResult { status: "ok".to_string(), storyboard: Some(board) })
     })
     .await
-    .map_err(|e| format!("Task join error: {}", e))?
 }
 
 /// Drops the caller's interest however `extract_storyboard` returns, so a request

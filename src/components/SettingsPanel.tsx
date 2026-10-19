@@ -1763,28 +1763,14 @@ export function SettingsPanel({
                         <span className="settings-label">Beta updates<HelpLink anchor="beta-updates" topic="beta updates" /></span>
                         <span className="settings-description">Also receive beta releases through the auto-updater. You'll move back to stable automatically when a newer stable version ships.</span>
                       </div>
-                      <div
-                        className={`ds-toggle ${betaUpdates ? "on" : ""}`}
-                        onClick={() => onBetaUpdatesChange(!betaUpdates)}
-                        role="switch"
-                        aria-checked={betaUpdates}
-                      >
-                        <div className="ds-toggle-thumb" />
-                      </div>
+                      <ToggleSwitch checked={betaUpdates} onChange={onBetaUpdatesChange} label="Beta updates" />
                     </div>
                     <div className="settings-row">
                       <div className="settings-row-info">
                         <span className="settings-label">Anonymous usage statistics<HelpLink anchor="telemetry" topic="anonymous usage statistics" /></span>
                         <span className="settings-description">Send anonymous, privacy-preserving usage data — no track titles, file paths, or personal information — to help improve Vibo. Turn this off any time.</span>
                       </div>
-                      <div
-                        className={`ds-toggle ${telemetryEnabled ? "on" : ""}`}
-                        onClick={() => onTelemetryEnabledChange(!telemetryEnabled)}
-                        role="switch"
-                        aria-checked={telemetryEnabled}
-                      >
-                        <div className="ds-toggle-thumb" />
-                      </div>
+                      <ToggleSwitch checked={telemetryEnabled} onChange={onTelemetryEnabledChange} label="Anonymous usage statistics" />
                     </div>
                   </div>
                 </div>
@@ -2034,14 +2020,7 @@ export function SettingsPanel({
                             )
                           )}
                         </div>
-                        <div
-                          className={`ds-toggle ${audioExclusive ? "on" : ""}`}
-                          onClick={() => onAudioExclusiveChange(!audioExclusive)}
-                          role="switch"
-                          aria-checked={audioExclusive}
-                        >
-                          <div className="ds-toggle-thumb" />
-                        </div>
+                        <ToggleSwitch checked={audioExclusive} onChange={onAudioExclusiveChange} label="Exclusive audio access" />
                       </div>
                     )}
                     <div className="settings-row">

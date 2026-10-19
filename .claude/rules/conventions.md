@@ -4,7 +4,7 @@ All new code must follow these conventions. When touching existing code that vio
 
 ## Enforcement
 
-Some of these are now checked by **`npm run lint`** (ESLint flat config, `eslint.config.js`) rather than only by review. It gates on **errors**, and on the **warning total**: warnings are a declared, counted backlog documented in that file, capped by `--max-warnings` in the `lint` script (206), so a change that adds one fails. Clearing some? Lower the cap in the same change. `npm run test:all` runs it first.
+Some of these are now checked by **`npm run lint`** (ESLint flat config, `eslint.config.js`) rather than only by review. It gates on **errors**, and on the **warning total**: warnings are a declared, counted backlog documented in that file, capped by `--max-warnings` in the `lint` script (194), so a change that adds one fails. Clearing some? Lower the cap in the same change. `npm run test:all` runs it first.
 
 | Rule | Enforced as | Convention |
 |---|---|---|
@@ -13,7 +13,7 @@ Some of these are now checked by **`npm run lint`** (ESLint flat config, `eslint
 | Rules of hooks, unused vars, `no-var`, `prefer-const` | error | — |
 | Bare `console.log` in `src/**` | warning | Use `console.debug` for tracing and `console.error` for failures. Currently **0** — keep it there. |
 | `@typescript-eslint/no-explicit-any` in `src/**` | warning | Currently **0** in production code — keep it there (tests are exempt). |
-| `react-hooks/exhaustive-deps`, `set-state-in-effect`, `refs`, `immutability`, `purity` | warning | Known backlog (206, capped by `--max-warnings`); don't add to it. Per-rule counts and what each one's hits actually are live in `eslint.config.js`. |
+| `react-hooks/exhaustive-deps`, `set-state-in-effect`, `refs`, `immutability`, `purity` | warning | Known backlog (194, capped by `--max-warnings`); don't add to it. Per-rule counts and what each one's hits actually are live in `eslint.config.js`. |
 
 Rules deliberately **off**, each with its reasoning in `eslint.config.js`:
 

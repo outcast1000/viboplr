@@ -1,6 +1,7 @@
 // Leaf renderers for PluginViewData node types (split out of PluginViewRenderer.tsx).
 // The recursive dispatcher PluginViewNode lives in PluginViewRenderer.tsx and
 // imports these; none of these renderers recurse back into the dispatcher.
+import { ToggleSwitch } from "../ToggleSwitch";
 import { useState, useCallback, useEffect, useRef, useId } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import type { Track, QueueTrack } from "../../types";
@@ -1463,15 +1464,12 @@ export function PluginToggle({
         <span className="plugin-settings-label">{label}</span>
         {description && <span className="plugin-settings-description">{description}</span>}
       </div>
-      <button
-        className={`ds-toggle${checked ? " on" : ""}`}
-        onClick={() => onAction?.(action, { value: !checked })}
-        role="switch"
-        aria-checked={checked}
+      <ToggleSwitch
+        checked={checked}
+        onChange={(value) => onAction?.(action, { value })}
+        label={label}
         disabled={disabled}
-      >
-        <span className="ds-toggle-thumb" />
-      </button>
+      />
     </div>
   );
 }

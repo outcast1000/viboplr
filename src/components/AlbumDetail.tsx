@@ -22,6 +22,7 @@ import { EntityTagPanel } from "./EntityTagPanel";
 import { buildHeroOverflowItems, type HeroOverflowItem } from "../utils/heroOverflow";
 import type { InfoEntity } from "../types/informationTypes";
 import { store } from "../store";
+import { resolveDetailEntity } from "../utils/detailResolveEntity";
 import { useDetailHeroImages } from "../hooks/useDetailHeroImages";
 import { resolveImageUrl } from "../utils/resolveImageUrl";
 import { placeMissingTracks, sortProviderRows } from "../utils/missingTracks";
@@ -112,21 +113,11 @@ export function AlbumDetail({ name, artistName }: AlbumDetailProps) {
 
   const handleInfoAction = useInfoSectionActions();
 
-  const resolveEntity = useCallback((kind: string, entityName: string) => {
-    if (kind === "artist") {
-      const imgPath = actions.getArtistImage(entityName);
-      return imgPath ? { imageSrc: resolveImageUrl(imgPath) } : undefined;
-    }
-    if (kind === "track") {
-      const [trackName, trackArtistName] = entityName.includes("|||") ? entityName.split("|||") : [entityName, displayArtist];
-      const match = sortedTracks.find(t =>
-        t.title.toLowerCase() === trackName.toLowerCase() &&
-        (!trackArtistName || (t.artist_name ?? "").toLowerCase() === trackArtistName.toLowerCase())
-      );
-      if (match) return { id: match.id ?? undefined };
-    }
-    return undefined;
-  }, [sortedTracks, actions.getArtistImage, displayArtist]);
+  const resolveEntity = useCallback((kind: string, entityName: string) => resolveDetailEntity(kind, entityName, {
+    tracks: sortedTracks,
+    defaultArtist: displayArtist,
+    getArtistImage: actions.getArtistImage,
+  }), [sortedTracks, actions.getArtistImage, displayArtist]);
 
   const handlePlayAll = useCallback(() => {
     actions.playEntityAll("album", name, artistName, {

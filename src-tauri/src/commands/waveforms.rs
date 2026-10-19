@@ -47,7 +47,7 @@ pub async fn analyze_waveform_ffmpeg(
     request_id: String,
 ) -> Result<WaveformAnalysis, String> {
     let dep_cache = std::sync::Arc::clone(&state.dep_cache);
-    tauri::async_runtime::spawn_blocking(move || {
+    run_blocking(move || -> Result<_, String> {
         let status = |s: &str| WaveformAnalysis { status: s.to_string(), rms: None };
         if !path.starts_with("file://") {
             return Ok(status("unsupported"));
@@ -62,7 +62,6 @@ pub async fn analyze_waveform_ffmpeg(
         }
     })
     .await
-    .map_err(|e| format!("Task join error: {}", e))?
 }
 
 /// Stop a pass started by `analyze_waveform_ffmpeg`. Idempotent, and safe to call

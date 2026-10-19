@@ -31,14 +31,6 @@ struct ProgramDownloadProgress {
     total: Option<u64>,
 }
 
-fn blocking<T: Send + 'static>(f: impl FnOnce() -> Result<T, String> + Send + 'static) -> impl std::future::Future<Output = Result<T, String>> {
-    async move {
-        tauri::async_runtime::spawn_blocking(f)
-            .await
-            .map_err(|e| format!("Task failed: {e}"))?
-    }
-}
-
 fn hex(bytes: &[u8]) -> String {
     bytes.iter().map(|b| format!("{b:02x}")).collect()
 }
@@ -175,7 +167,7 @@ pub async fn plugin_program_extract(
     dest: Vec<String>,
 ) -> Result<usize, String> {
     let app_dir = state.app_dir.clone();
-    blocking(move || {
+    run_blocking(move || -> Result<_, String> {
         // Unpacking replaces the destination, so it must be a folder inside the
         // store — never the store itself.
         if dest.is_empty() {
@@ -206,7 +198,7 @@ pub async fn plugin_program_run(
     timeout_secs: Option<u64>,
 ) -> Result<ExecResult, String> {
     let app_dir = state.app_dir.clone();
-    blocking(move || {
+    run_blocking(move || -> Result<_, String> {
         let timeout = Duration::from_secs(
             timeout_secs.unwrap_or(programs::RUN_DEFAULT_TIMEOUT_SECS).clamp(1, programs::RUN_MAX_TIMEOUT_SECS),
         );
@@ -224,7 +216,7 @@ pub async fn plugin_program_start(
     spec: programs::StartSpec,
 ) -> Result<programs::ProgramStatus, String> {
     let app_dir = state.app_dir.clone();
-    blocking(move || programs::start(&app_dir, &plugin_id, &name, &spec)).await
+    run_blocking(move || programs::start(&app_dir, &plugin_id, &name, &spec)).await
 }
 
 #[tauri::command]
@@ -234,7 +226,7 @@ pub async fn plugin_program_status(
     name: String,
 ) -> Result<programs::ProgramStatus, String> {
     let app_dir = state.app_dir.clone();
-    blocking(move || programs::status(&app_dir, &plugin_id, &name)).await
+    run_blocking(move || programs::status(&app_dir, &plugin_id, &name)).await
 }
 
 #[tauri::command]
@@ -243,7 +235,7 @@ pub async fn plugin_program_list(
     plugin_id: String,
 ) -> Result<Vec<programs::ProgramStatus>, String> {
     let app_dir = state.app_dir.clone();
-    blocking(move || programs::list(&app_dir, &plugin_id)).await
+    run_blocking(move || programs::list(&app_dir, &plugin_id)).await
 }
 
 #[tauri::command]
@@ -255,7 +247,7 @@ pub async fn plugin_program_stop(
 ) -> Result<programs::ProgramStatus, String> {
     let app_dir = state.app_dir.clone();
     let grace = Duration::from_secs(grace_secs.unwrap_or(10).clamp(1, 120));
-    blocking(move || programs::stop(&app_dir, &plugin_id, &name, grace)).await
+    run_blocking(move || programs::stop(&app_dir, &plugin_id, &name, grace)).await
 }
 
 #[tauri::command]
@@ -265,7 +257,7 @@ pub async fn plugin_program_remove(
     name: String,
 ) -> Result<(), String> {
     let app_dir = state.app_dir.clone();
-    blocking(move || programs::remove(&app_dir, &plugin_id, &name)).await
+    run_blocking(move || programs::remove(&app_dir, &plugin_id, &name)).await
 }
 
 #[derive(Serialize)]

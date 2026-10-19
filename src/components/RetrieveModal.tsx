@@ -1,3 +1,4 @@
+import { ToggleSwitch } from "./ToggleSwitch";
 import { renderers } from "./renderers";
 import { PluginViewSection } from "./renderers/PluginViewSection";
 import { retrieveWantsSuggestions, type RetrieveModalData, type ProviderRow, type ProviderStatus } from "../hooks/useRetrieveModal";
@@ -155,9 +156,7 @@ export function RetrieveModal({
 
         {!applied && (
           <label className="rm-keepopen">
-            <span className={`ds-toggle${modal.keepOpen ? " on" : ""}`} onClick={() => onSetKeepOpen(!modal.keepOpen)}>
-              <span className="ds-toggle-thumb" />
-            </span>
+            <ToggleSwitch checked={modal.keepOpen} onChange={onSetKeepOpen} />
             <span className="rm-keepopen-label">Keep open (don’t auto-close)</span>
           </label>
         )}

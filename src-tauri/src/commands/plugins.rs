@@ -766,7 +766,7 @@ pub async fn install_gallery_plugin_by_update_url(
     let app_dir = state.app_dir.clone();
     let cancel = Arc::clone(&state.plugin_install_cancel);
 
-    tauri::async_runtime::spawn_blocking(move || {
+    run_blocking(move || -> Result<_, String> {
         // Fresh install — drop any stale cancel request left over for this id.
         take_install_cancel(&cancel, &plugin_id);
 
@@ -795,7 +795,6 @@ pub async fn install_gallery_plugin_by_update_url(
         Ok(())
     })
     .await
-    .map_err(|e| format!("Task join error: {}", e))?
 }
 
 /// Request cancellation of an in-flight `install_gallery_plugin_by_update_url`.

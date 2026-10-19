@@ -199,8 +199,7 @@ pub async fn assistant_land_download(
             Scope::Downloads.label()
         ));
     }
-    let db = state.db.clone();
-    tauri::async_runtime::spawn_blocking(move || {
+    with_db(&state, move |db| -> Result<_, String> {
         let source = match (source_url, source_path) {
             (Some(url), None) => {
                 if !url.starts_with("http://") && !url.starts_with("https://") {
@@ -212,7 +211,7 @@ pub async fn assistant_land_download(
             _ => return Err("pass exactly one of sourceUrl or sourcePath".to_string()),
         };
         let value = assistant_write::land_download(
-            &db,
+            db,
             collection_id,
             subdir.as_deref().unwrap_or(""),
             &artist_name,
@@ -223,13 +222,12 @@ pub async fn assistant_land_download(
         )?;
         if value["newTrack"] == true {
             if let Some(id) = value["libraryTrackId"].as_i64() {
-                super::emit_track_added(&app, &db, id);
+                super::emit_track_added(&app, db, id);
             }
         }
         Ok(value)
     })
     .await
-    .map_err(|e| e.to_string())?
 }
 
 /// `sourcePath` for the two assistant landing commands is a plugin resolve's
@@ -274,8 +272,7 @@ pub async fn assistant_stage_replacement(
 ) -> Result<serde_json::Value, String> {
     use crate::assistant_write::{self, DownloadSource};
     require_replace_scopes(&state.app_dir)?;
-    let db = state.db.clone();
-    tauri::async_runtime::spawn_blocking(move || {
+    with_db(&state, move |db| -> Result<_, String> {
         let source = match (source_url, source_path) {
             (Some(url), None) => {
                 if !url.starts_with("http://") && !url.starts_with("https://") {
@@ -286,10 +283,9 @@ pub async fn assistant_stage_replacement(
             (None, Some(path)) => DownloadSource::LocalFile(resolved_file_path(&path)?),
             _ => return Err("pass exactly one of sourceUrl or sourcePath".to_string()),
         };
-        assistant_write::stage_replacement(&db, track_id, ext.as_deref().unwrap_or(""), source)
+        assistant_write::stage_replacement(db, track_id, ext.as_deref().unwrap_or(""), source)
     })
     .await
-    .map_err(|e| e.to_string())?
 }
 
 /// Phase two: swap a staged replacement in (old file to the Trash).
@@ -301,10 +297,9 @@ pub async fn assistant_confirm_replacement(
     keep_library_tags: Option<bool>,
 ) -> Result<serde_json::Value, String> {
     require_replace_scopes(&state.app_dir)?;
-    let db = state.db.clone();
-    tauri::async_runtime::spawn_blocking(move || {
+    with_db(&state, move |db| {
         crate::assistant_write::confirm_replacement(
-            &db,
+            db,
             track_id,
             &stage_id,
             keep_library_tags.unwrap_or(true),
@@ -312,7 +307,6 @@ pub async fn assistant_confirm_replacement(
         )
     })
     .await
-    .map_err(|e| e.to_string())?
 }
 
 /// The in-app replace (plugin `api.library.replaceTrackFile`), phase one:
@@ -327,13 +321,11 @@ pub async fn stage_track_replacement(
     source_path: String,
 ) -> Result<serde_json::Value, String> {
     use crate::assistant_write::{self, DownloadSource};
-    let db = state.db.clone();
-    tauri::async_runtime::spawn_blocking(move || {
+    with_db(&state, move |db| {
         let bare = source_path.strip_prefix("file://").unwrap_or(&source_path).to_string();
-        assistant_write::stage_replacement(&db, track_id, "", DownloadSource::CopyOf(std::path::PathBuf::from(bare)))
+        assistant_write::stage_replacement(db, track_id, "", DownloadSource::CopyOf(std::path::PathBuf::from(bare)))
     })
     .await
-    .map_err(|e| e.to_string())?
 }
 
 /// Phase two, called only from the host's Replace dialog: swap the stage in
@@ -346,10 +338,9 @@ pub async fn confirm_track_replacement(
     track_id: i64,
     stage_id: String,
 ) -> Result<serde_json::Value, String> {
-    let db = state.db.clone();
-    tauri::async_runtime::spawn_blocking(move || {
+    with_db(&state, move |db| {
         crate::assistant_write::confirm_replacement(
-            &db,
+            db,
             track_id,
             &stage_id,
             true,
@@ -357,7 +348,6 @@ pub async fn confirm_track_replacement(
         )
     })
     .await
-    .map_err(|e| e.to_string())?
 }
 
 /// Throw a staged replacement away. Unscoped like the plugin-download cancel:
@@ -368,10 +358,7 @@ pub async fn assistant_discard_replacement(
     track_id: i64,
     stage_id: String,
 ) -> Result<serde_json::Value, String> {
-    let db = state.db.clone();
-    tauri::async_runtime::spawn_blocking(move || crate::assistant_write::discard_replacement(&db, track_id, &stage_id))
-        .await
-        .map_err(|e| e.to_string())?
+    with_db(&state, move |db| crate::assistant_write::discard_replacement(db, track_id, &stage_id)).await
 }
 
 #[tauri::command]
@@ -415,7 +402,7 @@ pub async fn download_to_path(
     state.direct_download_cancel.store(false, Ordering::SeqCst);
     let cancel_flag = state.direct_download_cancel.clone();
 
-    tauri::async_runtime::spawn_blocking(move || -> Result<DownloadPathResult, String> {
+    run_blocking(move || -> Result<DownloadPathResult, String> {
         let mut final_dest = dest.clone();
 
         // Ensure parent directory exists
@@ -495,7 +482,6 @@ pub async fn download_to_path(
         })
     })
     .await
-    .map_err(|e| e.to_string())?
 }
 
 /// The container a downloaded file's first bytes name, if any.
@@ -535,7 +521,7 @@ pub async fn add_downloaded_track(
     let collection_root = db.get_collection_by_id(collection_id)
         .map_err(|e| e.to_string())?
         .path;
-    tauri::async_runtime::spawn_blocking(move || {
+    run_blocking(move || {
         match scanner::ingest_media_file(&db, &file_path, Some(collection_id), collection_root.as_deref()) {
             Some((track_id, is_new)) => {
                 if let Err(e) = db.refresh_track_after_ingest(track_id) {
@@ -553,7 +539,6 @@ pub async fn add_downloaded_track(
         Ok::<(), String>(())
     })
     .await
-    .map_err(|e| e.to_string())?
 }
 
 #[tauri::command]
@@ -579,7 +564,7 @@ pub async fn download_preview(
     state.direct_download_cancel.store(false, Ordering::SeqCst);
     let cancel_flag = state.direct_download_cancel.clone();
 
-    tauri::async_runtime::spawn_blocking(move || -> Result<UpgradePreviewInfo, String> {
+    run_blocking(move || -> Result<UpgradePreviewInfo, String> {
         // The resolver's concrete extension names the real container (needed for
         // provider-specific qualities like "video"); host-known formats fall back
         // to their own container, everything else to a neutral placeholder.
@@ -642,7 +627,7 @@ pub async fn download_preview(
             new_format,
             new_file_size,
         })
-    }).await.map_err(|e| e.to_string())?
+    }).await
 }
 
 #[tauri::command]
@@ -659,7 +644,7 @@ pub async fn confirm_track_upgrade(
         .ok_or("Track has no local file path")?
         .to_string();
 
-    tauri::async_runtime::spawn_blocking(move || -> Result<(), String> {
+    run_blocking(move || -> Result<(), String> {
         let old_path = std::path::Path::new(&bare_old);
         let new_file = std::path::Path::new(&new_path);
 
@@ -725,19 +710,19 @@ pub async fn confirm_track_upgrade(
         }
 
         Ok(())
-    }).await.map_err(|e| e.to_string())?
+    }).await
 }
 
 #[tauri::command]
 pub async fn cancel_track_upgrade(new_path: String) -> Result<(), String> {
-    tauri::async_runtime::spawn_blocking(move || -> Result<(), String> {
+    run_blocking(move || -> Result<(), String> {
         let path = std::path::Path::new(&new_path);
         if path.exists() {
             std::fs::remove_file(path)
                 .map_err(|e| format!("Failed to remove preview file: {}", e))?;
         }
         Ok(())
-    }).await.map_err(|e| e.to_string())?
+    }).await
 }
 
 #[tauri::command]
@@ -750,7 +735,7 @@ pub async fn save_track_as_copy(
     let db = state.db.clone();
     let track = db.get_track_by_id(track_id).map_err(|e| e.to_string())?;
 
-    tauri::async_runtime::spawn_blocking(move || -> Result<(), String> {
+    run_blocking(move || -> Result<(), String> {
         let new_file = std::path::Path::new(&new_path);
 
         if !new_file.exists() {
@@ -797,5 +782,5 @@ pub async fn save_track_as_copy(
         }
 
         Ok(())
-    }).await.map_err(|e| e.to_string())?
+    }).await
 }

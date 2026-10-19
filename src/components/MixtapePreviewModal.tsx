@@ -1,4 +1,5 @@
-import { invoke, convertFileSrc } from "@tauri-apps/api/core";
+import { invoke } from "@tauri-apps/api/core";
+import { resolveImageSrc } from "../utils/resolveImageUrl";
 import { track as trackTelemetry } from "../telemetry";
 import { open } from "@tauri-apps/plugin-dialog";
 import { subscribe, combineUnlisten } from "../utils/tauriEvents";
@@ -180,7 +181,7 @@ export function MixtapePreviewModal({
           <>
             <div className="mixtape-preview-header">
               <img
-                src={preview.cover_temp_path ? convertFileSrc(preview.cover_temp_path) : playlistDefault}
+                src={resolveImageSrc(preview.cover_temp_path) ?? playlistDefault}
                 alt="Mixtape cover"
                 className="mixtape-preview-cover"
               />

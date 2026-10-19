@@ -1,6 +1,8 @@
+import { ToggleSwitch } from "./ToggleSwitch";
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { PermissionList } from "./PermissionList";
+import { ConfirmModal } from "./ConfirmModal";
 import { ALWAYS_ASK_PERMISSIONS, describePermission } from "../pluginWorker/permissions";
 import type {
   ExtensionItem,
@@ -261,17 +263,13 @@ function PluginCard({
           <div className="ext-pcard-meta">by {ext.author}{ext.version ? ` · v${ext.version}` : ""}</div>
         </div>
         {installed && ext.source !== "dev" && (
-          <button
-            type="button"
-            className={`ds-toggle ext-pcard-toggle${isOn ? " on" : ""}`}
-            role="switch"
-            aria-checked={isOn}
-            aria-label={isOn ? `Disable ${ext.name}` : `Enable ${ext.name}`}
+          <ToggleSwitch
+            className="ext-pcard-toggle"
+            checked={isOn}
+            label={isOn ? `Disable ${ext.name}` : `Enable ${ext.name}`}
             disabled={busy || installing}
-            onClick={onToggleEnabled}
-          >
-            <span className="ds-toggle-thumb" />
-          </button>
+            onChange={onToggleEnabled}
+          />
         )}
       </div>
 
@@ -380,17 +378,12 @@ function PluginRow({
               <button className="ds-btn ds-btn--ghost ds-btn--sm ext-prow-quiet" onClick={onUninstall}>{uninstallLabel(ext)}</button>
             )}
             {ext.source !== "dev" && (
-              <button
-                type="button"
-                className={`ds-toggle${isOn ? " on" : ""}`}
-                role="switch"
-                aria-checked={isOn}
-                aria-label={isOn ? `Disable ${ext.name}` : `Enable ${ext.name}`}
+              <ToggleSwitch
+                checked={isOn}
+                label={isOn ? `Disable ${ext.name}` : `Enable ${ext.name}`}
                 disabled={busy || installing}
-                onClick={onToggleEnabled}
-              >
-                <span className="ds-toggle-thumb" />
-              </button>
+                onChange={onToggleEnabled}
+              />
             )}
           </>
         ) : (
@@ -779,16 +772,11 @@ function PluginDetail({
                     <div className="ext-contrib-label">{c.label}</div>
                     <div className="ext-contrib-detail">{c.detail}</div>
                   </div>
-                  <button
-                    type="button"
-                    className={`ds-toggle${on ? " on" : ""}`}
-                    role="switch"
-                    aria-checked={on}
-                    aria-label={on ? `Hide ${c.label}` : `Show ${c.label}`}
-                    onClick={() => onSetContributionEnabled?.(c.key, !on)}
-                  >
-                    <span className="ds-toggle-thumb" />
-                  </button>
+                  <ToggleSwitch
+                    checked={on}
+                    label={on ? `Hide ${c.label}` : `Show ${c.label}`}
+                    onChange={(v) => onSetContributionEnabled?.(c.key, v)}
+                  />
                 </div>
               );
             })}
@@ -1534,49 +1522,31 @@ export default function ExtensionsView(props: ExtensionsViewProps) {
       )}
 
       {uninstallPrompt && (
-        <div className="ds-modal-overlay">
-          <div className="ds-modal" onClick={(e) => e.stopPropagation()}>
-            <h2 className="ds-modal-title">
-              {uninstallPrompt.revertsToBuiltin ? `Revert ${uninstallPrompt.name} to the built-in version?` : `Uninstall ${uninstallPrompt.name}?`}
-            </h2>
-            <p className="delete-confirm-warning">
-              {uninstallPrompt.revertsToBuiltin
-                ? `This removes the update you installed. ${uninstallPrompt.name} keeps running, as the version that came with Vibo, and keeps its settings. Check for updates to get the newer one back.`
-                : `This removes ${uninstallPrompt.name} from this device. You can reinstall it from the gallery later.`}
-            </p>
-            <div className="ds-modal-actions">
-              <button className="ds-btn ds-btn--ghost" onClick={() => setUninstallPrompt(null)}>Cancel</button>
-              <button
-                className="ds-btn ds-btn--danger"
-                autoFocus
-                onClick={() => { const id = uninstallPrompt.id; setUninstallPrompt(null); onUninstall(id, "plugin"); }}
-              >
-                {uninstallPrompt.revertsToBuiltin ? "Revert" : "Uninstall"}
-              </button>
-            </div>
-          </div>
-        </div>
+        <ConfirmModal
+          title={uninstallPrompt.revertsToBuiltin ? `Revert ${uninstallPrompt.name} to the built-in version?` : `Uninstall ${uninstallPrompt.name}?`}
+          messageClassName="delete-confirm-warning"
+          message={uninstallPrompt.revertsToBuiltin
+            ? `This removes the update you installed. ${uninstallPrompt.name} keeps running, as the version that came with Vibo, and keeps its settings. Check for updates to get the newer one back.`
+            : `This removes ${uninstallPrompt.name} from this device. You can reinstall it from the gallery later.`}
+          destructive
+          autoFocusConfirm
+          confirmLabel={uninstallPrompt.revertsToBuiltin ? "Revert" : "Uninstall"}
+          onCancel={() => setUninstallPrompt(null)}
+          onConfirm={() => { const id = uninstallPrompt.id; setUninstallPrompt(null); onUninstall(id, "plugin"); }}
+        />
       )}
 
       {deleteSkinPrompt && (
-        <div className="ds-modal-overlay">
-          <div className="ds-modal" onClick={(e) => e.stopPropagation()}>
-            <h2 className="ds-modal-title">Delete {deleteSkinPrompt.name}?</h2>
-            <p className="delete-confirm-warning">
-              This removes the skin file from disk. This can't be undone.
-            </p>
-            <div className="ds-modal-actions">
-              <button className="ds-btn ds-btn--ghost" onClick={() => setDeleteSkinPrompt(null)}>Cancel</button>
-              <button
-                className="ds-btn ds-btn--danger"
-                autoFocus
-                onClick={() => { const id = deleteSkinPrompt.id; setDeleteSkinPrompt(null); onUninstall(id, "skin"); }}
-              >
-                Delete
-              </button>
-            </div>
-          </div>
-        </div>
+        <ConfirmModal
+          title={`Delete ${deleteSkinPrompt.name}?`}
+          messageClassName="delete-confirm-warning"
+          message="This removes the skin file from disk. This can't be undone."
+          destructive
+          autoFocusConfirm
+          confirmLabel="Delete"
+          onCancel={() => setDeleteSkinPrompt(null)}
+          onConfirm={() => { const id = deleteSkinPrompt.id; setDeleteSkinPrompt(null); onUninstall(id, "skin"); }}
+        />
       )}
       </>, document.body)}
     </div>

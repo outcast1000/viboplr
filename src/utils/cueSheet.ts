@@ -3,6 +3,7 @@
 // Playing art by `components/CueOverlay.tsx`. The Rust side
 // (`src-tauri/src/cue_sheets.rs`) validates and normalizes every sheet
 // before storing it, so what arrives here is already sorted and well-formed;
+import { normalizeForMatch } from "./normalize";
 // this module only decides what is on screen at a given second.
 
 export type CueKind = "text" | "quote" | "image" | "shape";
@@ -257,8 +258,7 @@ export function sameCueSong(
   a: { title: string; artistName?: string | null },
   b: { title: string; artistName?: string | null },
 ): boolean {
-  const norm = (s: string | null | undefined) =>
-    (s ?? "").normalize("NFD").replace(/\p{M}/gu, "").toLowerCase().trim();
+  const norm = (s: string | null | undefined) => normalizeForMatch(s ?? "").trim();
   return norm(a.title) === norm(b.title) && norm(a.artistName) === norm(b.artistName);
 }
 

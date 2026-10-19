@@ -1,7 +1,8 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from "react";
+import { FolderErrorModal } from "./modals/ConfirmModals";
 import { computeSelection } from "../utils/rowSelection";
 import { fetchLikeStates, applyLikeState } from "../utils/likeReconcile";
-import { invoke, convertFileSrc } from "@tauri-apps/api/core";
+import { invoke } from "@tauri-apps/api/core";
 import { subscribe, combineUnlisten } from "../utils/tauriEvents";
 import { formatDuration } from "../utils";
 import { save, open as openFileDialog } from "@tauri-apps/plugin-dialog";
@@ -19,7 +20,7 @@ import { TrackRow, type TrackRowThumb } from "./TrackRow";
 import { ViewSearchBar } from "./ViewSearchBar";
 import { buildHeroOverflowItems, type HeroOverflowItem } from "../utils/heroOverflow";
 import playlistDefault from "../assets/playlist-default.png";
-import { resolveImageUrl } from "../utils/resolveImageUrl";
+import { resolveImageSrc, resolveImageUrl } from "../utils/resolveImageUrl";
 import { IconHeartFilled, IconBan, IconRefresh, IconSparkles } from "./Icons";
 import { LikeDislikeButtons } from "./LikeDislikeButtons";
 import { nextTriState } from "../likeKeys";
@@ -806,17 +807,14 @@ export function PlaylistsView({ searchQuery, onSearchChange, onPlayTracks, onEnq
   }, [showPlaylistMenu]);
 
   const imageUrl = useCallback(
-    (imagePath: string | null) => {
-      if (!imagePath) return undefined;
-      return convertFileSrc(imagePath);
-    },
+    (imagePath: string | null) => resolveImageSrc(imagePath) ?? undefined,
     [],
   );
 
   // Auto-playlist covers come from the mix's first artist (recorded in metadata),
   // resolved through the canonical artist-image chain (cached → fetch → ready event).
   const autoCoverSrc = useCallback((pl: Playlist): string => {
-    if (pl.image_path) return convertFileSrc(pl.image_path);
+    if (pl.image_path) return resolveImageSrc(pl.image_path) ?? playlistDefault;
     const artist = firstArtist(pl.metadata);
     const resolved = artist ? artistImages.getImage(artist) : null;
     // resolveImageUrl (not convertFileSrc) so the #v=N cache-buster on a
@@ -927,15 +925,7 @@ export function PlaylistsView({ searchQuery, onSearchChange, onPlayTracks, onEnq
   );
 
   const folderErrorModal = folderError && (
-    <div className="ds-modal-overlay">
-      <div className="ds-modal" onClick={(e) => e.stopPropagation()}>
-        <h2 className="ds-modal-title">Open Containing Folder</h2>
-        <p className="delete-confirm-warning">{folderError}</p>
-        <div className="ds-modal-actions">
-          <button className="ds-btn ds-btn--ghost" onClick={() => setFolderError(null)}>OK</button>
-        </div>
-      </div>
-    </div>
+    <FolderErrorModal message={folderError} onDismiss={() => setFolderError(null)} />
   );
 
   // Detail view

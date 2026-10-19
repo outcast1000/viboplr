@@ -11,20 +11,15 @@ pub async fn get_artists(
     limit: Option<i64>,
     offset: Option<i64>,
 ) -> Result<Vec<Artist>, String> {
-    let db = state.db.clone();
-    run_db_read(move || {
-        db.get_artists_filtered(liked_only.unwrap_or(false), sort.as_deref(), limit, offset).map_err(|e| e.to_string())
+    with_db(&state, move |db| {
+        db.get_artists_filtered(liked_only.unwrap_or(false), sort.as_deref(), limit, offset)
     })
     .await
 }
 
 #[tauri::command]
 pub async fn get_artist_by_id(state: State<'_, AppState>, artist_id: i64) -> Result<Option<Artist>, String> {
-    let db = state.db.clone();
-    run_db_read(move || {
-        db.get_artist_by_id(artist_id).map_err(|e| e.to_string())
-    })
-    .await
+    with_db(&state, move |db| db.get_artist_by_id(artist_id)).await
 }
 
 #[tauri::command]
@@ -36,10 +31,8 @@ pub async fn get_albums(
     limit: Option<i64>,
     offset: Option<i64>,
 ) -> Result<Vec<Album>, String> {
-    let db = state.db.clone();
-    run_db_read(move || {
+    with_db(&state, move |db| {
         db.get_albums_sorted(artist_id, sort.as_deref(), liked_only.unwrap_or(false), limit, offset)
-            .map_err(|e| e.to_string())
     })
     .await
 }
@@ -48,8 +41,7 @@ pub async fn get_albums(
 /// favorites" shelf.
 #[tauri::command]
 pub async fn pick_forgotten_mixes(state: State<'_, AppState>, max_mixes: usize, mix_size: usize) -> Result<Vec<TrackMix>, String> {
-    let db = state.db.clone();
-    run_db_read(move || db.pick_forgotten_mixes(max_mixes, mix_size).map_err(|e| e.to_string())).await
+    with_db(&state, move |db| db.pick_forgotten_mixes(max_mixes, mix_size)).await
 }
 
 /// Raw extra tags (the catch-all of file/Subsonic tag keys with no dedicated
@@ -59,8 +51,7 @@ pub async fn get_track_extra_tags(
     state: State<'_, AppState>,
     track_id: i64,
 ) -> Result<Option<serde_json::Value>, String> {
-    let db = state.db.clone();
-    run_db_read(move || {
+    with_db(&state, move |db| -> Result<_, String> {
         let raw = db.get_extra_tags(track_id).map_err(|e| e.to_string())?;
         Ok(raw.and_then(|s| serde_json::from_str::<serde_json::Value>(&s).ok()))
     })
@@ -69,20 +60,12 @@ pub async fn get_track_extra_tags(
 
 #[tauri::command]
 pub async fn get_album_by_id(state: State<'_, AppState>, album_id: i64) -> Result<Option<Album>, String> {
-    let db = state.db.clone();
-    run_db_read(move || {
-        db.get_album_by_id(album_id).map_err(|e| e.to_string())
-    })
-    .await
+    with_db(&state, move |db| db.get_album_by_id(album_id)).await
 }
 
 #[tauri::command]
 pub async fn get_track_count(state: State<'_, AppState>) -> Result<i64, String> {
-    let db = state.db.clone();
-    run_db_read(move || {
-        db.get_track_count().map_err(|e| e.to_string())
-    })
-    .await
+    with_db(&state, move |db| db.get_track_count()).await
 }
 
 #[tauri::command]
@@ -90,10 +73,7 @@ pub async fn get_tracks(
     state: State<'_, AppState>,
     opts: TrackQuery,
 ) -> Result<Vec<Track>, String> {
-    let db = state.db.clone();
-    tauri::async_runtime::spawn_blocking(move || db.get_tracks(&opts).map_err(|e| e.to_string()))
-        .await
-        .map_err(|e| e.to_string())?
+    with_db(&state, move |db| db.get_tracks(&opts)).await
 }
 
 #[tauri::command]
@@ -104,13 +84,7 @@ pub async fn search_all(
     album_limit: i64,
     track_limit: i64,
 ) -> Result<SearchAllResults, String> {
-    let db = state.db.clone();
-    run_db_read(move || {
-        db
-            .search_all(&query, artist_limit, album_limit, track_limit)
-            .map_err(|e| e.to_string())
-    })
-    .await
+    with_db(&state, move |db| db.search_all(&query, artist_limit, album_limit, track_limit)).await
 }
 
 #[tauri::command]
@@ -126,8 +100,7 @@ pub async fn search_entity(
     media_type: Option<String>,
     liked_only: Option<bool>,
 ) -> Result<SearchEntityResult, String> {
-    let db = state.db.clone();
-    run_db_read(move || {
+    with_db(&state, move |db| {
         let track_opts = TrackQuery {
             limit: Some(limit),
             offset: Some(offset),
@@ -168,8 +141,7 @@ pub async fn search_information_values(
     resolve_tracks: Option<bool>,
     limit: Option<i64>,
 ) -> Result<Vec<InfoValueMatch>, String> {
-    let db = state.db.clone();
-    run_db_read(move || {
+    with_db(&state, move |db| {
         db
             .search_information_values(
                 &query,
@@ -182,20 +154,13 @@ pub async fn search_information_values(
                 resolve_tracks.unwrap_or(false),
                 limit.unwrap_or(50),
             )
-            .map_err(|e| e.to_string())
     })
     .await
 }
 
 #[tauri::command]
 pub async fn get_track_by_id(state: State<'_, AppState>, track_id: i64) -> Result<Track, String> {
-    let db = state.db.clone();
-    run_db_read(move || {
-        db
-            .get_track_by_id(track_id)
-            .map_err(|e| e.to_string())
-    })
-    .await
+    with_db(&state, move |db| db.get_track_by_id(track_id)).await
 }
 
 #[tauri::command]
@@ -203,13 +168,7 @@ pub async fn find_artist_by_name(
     state: State<'_, AppState>,
     name: String,
 ) -> Result<Option<Artist>, String> {
-    let db = state.db.clone();
-    run_db_read(move || {
-        db
-            .find_artist_by_name(&name)
-            .map_err(|e| e.to_string())
-    })
-    .await
+    with_db(&state, move |db| db.find_artist_by_name(&name)).await
 }
 
 #[tauri::command]
@@ -218,13 +177,7 @@ pub async fn find_album_by_name(
     title: String,
     artist_name: Option<String>,
 ) -> Result<Option<Album>, String> {
-    let db = state.db.clone();
-    run_db_read(move || {
-        db
-            .find_album_by_name(&title, artist_name.as_deref())
-            .map_err(|e| e.to_string())
-    })
-    .await
+    with_db(&state, move |db| db.find_album_by_name(&title, artist_name.as_deref())).await
 }
 
 #[tauri::command]
@@ -246,11 +199,9 @@ pub async fn find_track_by_metadata(
     artist_name: Option<String>,
     album_name: Option<String>,
 ) -> Result<Option<Track>, String> {
-    let db = state.db.clone();
-    run_db_read(move || {
+    with_db(&state, move |db| {
         db
             .find_track_by_metadata(&title, artist_name.as_deref(), album_name.as_deref())
-            .map_err(|e| e.to_string())
     })
     .await
 }
@@ -266,11 +217,9 @@ pub async fn find_tracks_by_metadata(
     artist_name: Option<String>,
     album_name: Option<String>,
 ) -> Result<Vec<Track>, String> {
-    let db = state.db.clone();
-    run_db_read(move || {
+    with_db(&state, move |db| {
         db
             .find_tracks_by_metadata(&title, artist_name.as_deref(), album_name.as_deref())
-            .map_err(|e| e.to_string())
     })
     .await
 }
@@ -280,11 +229,7 @@ pub async fn find_track_id_by_path(
     state: State<'_, AppState>,
     path: String,
 ) -> Result<Option<i64>, String> {
-    let db = state.db.clone();
-    run_db_read(move || {
-        db.find_track_id_by_path(&path).map_err(|e| e.to_string())
-    })
-    .await
+    with_db(&state, move |db| db.find_track_id_by_path(&path)).await
 }
 
 /// Bulk sibling of `find_track_id_by_path`, returning `(path, track id)` for
@@ -297,12 +242,7 @@ pub async fn find_track_ids_by_paths(
     state: State<'_, AppState>,
     paths: Vec<String>,
 ) -> Result<Vec<(String, i64)>, String> {
-    let db = state.db.clone();
-    tauri::async_runtime::spawn_blocking(move || {
-        db.find_track_ids_by_paths(&paths).map_err(|e| e.to_string())
-    })
-    .await
-    .map_err(|e| e.to_string())?
+    with_db(&state, move |db| db.find_track_ids_by_paths(&paths)).await
 }
 
 /// Find duplicate tracks grouped by normalized title + artist, optionally
@@ -320,8 +260,7 @@ pub async fn find_duplicate_tracks(
 ) -> Result<Vec<Vec<Track>>, String> {
     // async + spawn_blocking: a non-async command runs inline on the main
     // thread, and this one loads and groups the whole library.
-    let db = state.db.clone();
-    tauri::async_runtime::spawn_blocking(move || {
+    with_db(&state, move |db| {
         db.find_duplicate_groups(
             match_duration,
             duration_tolerance_secs,
@@ -329,10 +268,8 @@ pub async fn find_duplicate_tracks(
             size_tolerance_pct,
             local_only,
         )
-        .map_err(|e| e.to_string())
     })
     .await
-    .map_err(|e| e.to_string())?
 }
 
 /// A file-manager drop resolved into a playable queue entry. `path` is a
@@ -364,7 +301,7 @@ pub async fn resolve_dropped_paths(paths: Vec<String>) -> Result<Vec<DroppedTrac
     // async + spawn_blocking: dropping a folder walks it recursively and reads
     // tags from every media file — run inline this froze the webview for the
     // whole walk (a 500-song folder = 500 lofty parses on the main thread).
-    tauri::async_runtime::spawn_blocking(move || {
+    run_blocking(move || -> Result<_, String> {
         let mut out = Vec::new();
         let mut seen = std::collections::HashSet::new();
         for p in paths {
@@ -391,7 +328,6 @@ pub async fn resolve_dropped_paths(paths: Vec<String>) -> Result<Vec<DroppedTrac
         Ok(out)
     })
     .await
-    .map_err(|e| e.to_string())?
 }
 
 /// Whether a local file currently exists on disk. Used by stream resolution to
@@ -429,11 +365,7 @@ pub async fn get_tracks_by_paths(
     state: State<'_, AppState>,
     paths: Vec<String>,
 ) -> Result<Vec<Track>, String> {
-    let db = state.db.clone();
-    run_db_read(move || {
-        db.get_tracks_by_paths(&paths).map_err(|e| e.to_string())
-    })
-    .await
+    with_db(&state, move |db| db.get_tracks_by_paths(&paths)).await
 }
 
 #[tauri::command]
@@ -441,13 +373,7 @@ pub async fn get_tracks_by_ids(
     state: State<'_, AppState>,
     ids: Vec<i64>,
 ) -> Result<Vec<Track>, String> {
-    let db = state.db.clone();
-    run_db_read(move || {
-        db
-            .get_tracks_by_ids(&ids)
-            .map_err(|e| e.to_string())
-    })
-    .await
+    with_db(&state, move |db| db.get_tracks_by_ids(&ids)).await
 }
 
 #[tauri::command]
@@ -455,13 +381,7 @@ pub async fn get_tracks_by_artist(
     state: State<'_, AppState>,
     artist_id: i64,
 ) -> Result<Vec<Track>, String> {
-    let db = state.db.clone();
-    run_db_read(move || {
-        db
-            .get_tracks_by_artist(artist_id)
-            .map_err(|e| e.to_string())
-    })
-    .await
+    with_db(&state, move |db| db.get_tracks_by_artist(artist_id)).await
 }
 
 #[tauri::command]
@@ -470,29 +390,17 @@ pub async fn get_tags(
     limit: Option<i64>,
     offset: Option<i64>,
 ) -> Result<Vec<Tag>, String> {
-    let db = state.db.clone();
-    run_db_read(move || {
-        db.get_tags(limit, offset).map_err(|e| e.to_string())
-    })
-    .await
+    with_db(&state, move |db| db.get_tags(limit, offset)).await
 }
 
 #[tauri::command]
 pub async fn get_tag_by_id(state: State<'_, AppState>, tag_id: i64) -> Result<Option<Tag>, String> {
-    let db = state.db.clone();
-    run_db_read(move || {
-        db.get_tag_by_id(tag_id).map_err(|e| e.to_string())
-    })
-    .await
+    with_db(&state, move |db| db.get_tag_by_id(tag_id)).await
 }
 
 #[tauri::command]
 pub async fn find_tag_by_name(state: State<'_, AppState>, name: String) -> Result<Option<Tag>, String> {
-    let db = state.db.clone();
-    run_db_read(move || {
-        db.find_tag_by_name(&name).map_err(|e| e.to_string())
-    })
-    .await
+    with_db(&state, move |db| db.find_tag_by_name(&name)).await
 }
 
 #[tauri::command]
@@ -500,13 +408,7 @@ pub async fn get_tags_for_track(
     state: State<'_, AppState>,
     track_id: i64,
 ) -> Result<Vec<Tag>, String> {
-    let db = state.db.clone();
-    run_db_read(move || {
-        db
-            .get_tags_for_track(track_id)
-            .map_err(|e| e.to_string())
-    })
-    .await
+    with_db(&state, move |db| db.get_tags_for_track(track_id)).await
 }
 
 #[tauri::command]
@@ -514,13 +416,7 @@ pub async fn get_tag_counts_for_tracks(
     state: State<'_, AppState>,
     track_ids: Vec<i64>,
 ) -> Result<Vec<(i64, String, i64)>, String> {
-    let db = state.db.clone();
-    run_db_read(move || {
-        db
-            .get_tag_counts_for_tracks(&track_ids)
-            .map_err(|e| e.to_string())
-    })
-    .await
+    with_db(&state, move |db| db.get_tag_counts_for_tracks(&track_ids)).await
 }
 
 #[tauri::command]
@@ -559,13 +455,7 @@ pub async fn get_tracks_by_tag(
     state: State<'_, AppState>,
     tag_id: i64,
 ) -> Result<Vec<Track>, String> {
-    let db = state.db.clone();
-    run_db_read(move || {
-        db
-            .get_tracks_by_tag(tag_id)
-            .map_err(|e| e.to_string())
-    })
-    .await
+    with_db(&state, move |db| db.get_tracks_by_tag(tag_id)).await
 }
 
 #[tauri::command]
@@ -574,13 +464,7 @@ pub async fn get_top_artists_for_tag(
     tag_id: i64,
     limit: i64,
 ) -> Result<Vec<(String, i64)>, String> {
-    let db = state.db.clone();
-    run_db_read(move || {
-        db
-            .get_top_artists_for_tag(tag_id, limit)
-            .map_err(|e| e.to_string())
-    })
-    .await
+    with_db(&state, move |db| db.get_top_artists_for_tag(tag_id, limit)).await
 }
 
 /// The Now Playing cue sheet for a song (`cue_sheets.rs`), or null.
@@ -598,9 +482,8 @@ pub fn cue_sheet_get(
 #[tauri::command]
 pub async fn cue_sheet_list(state: State<'_, AppState>) -> Result<Vec<crate::cue_sheets::CueSheetRow>, String> {
     let dir = state.app_dir.clone();
-    tauri::async_runtime::spawn_blocking(move || crate::cue_sheets::list_cue_sheets(&dir))
+    run_blocking(move || crate::cue_sheets::list_cue_sheets(&dir))
         .await
-        .map_err(|e| format!("list cue sheets: {e}"))?
 }
 
 /// Validate, normalize and store a cue sheet; returns the stored row so the
@@ -746,8 +629,7 @@ pub async fn get_track_like_states(
     state: State<'_, AppState>,
     tracks: Vec<TrackLikeQuery>,
 ) -> Result<Vec<i32>, String> {
-    let db = state.db.clone();
-    run_db_read(move || {
+    with_db(&state, move |db| {
         let pairs: Vec<(String, Option<String>)> = tracks
             .into_iter()
             .map(|t| (t.title, t.artist_name))
@@ -767,8 +649,7 @@ pub async fn get_entity_like_state(
     name: String,
     artist_name: Option<String>,
 ) -> Result<i32, String> {
-    let db = state.db.clone();
-    run_db_read(move || {
+    with_db(&state, move |db| {
         if !matches!(kind.as_str(), "artist" | "album" | "tag") {
             return Err(format!("Unknown kind: {}", kind));
         }
@@ -799,8 +680,7 @@ const LIKES_FILE_VERSION: u32 = 1;
 #[tauri::command]
 pub async fn export_likes(state: State<'_, AppState>, path: String) -> Result<usize, String> {
     // async + spawn_blocking: full-table read + file write off the main thread.
-    let db = state.db.clone();
-    tauri::async_runtime::spawn_blocking(move || {
+    with_db(&state, move |db| -> Result<_, String> {
         let likes = db.export_all_likes().map_err(|e| e.to_string())?;
         let count = likes.len();
         let exported_at: i64 = std::time::SystemTime::now()
@@ -818,7 +698,6 @@ pub async fn export_likes(state: State<'_, AppState>, path: String) -> Result<us
         Ok(count)
     })
     .await
-    .map_err(|e| e.to_string())?
 }
 
 /// Import like/dislike state from a JSON file at `path` (produced by
@@ -834,7 +713,7 @@ pub async fn import_likes(
 ) -> Result<usize, String> {
     // async + spawn_blocking: file read + full reconcile pass off the main thread.
     let db = state.db.clone();
-    let applied = tauri::async_runtime::spawn_blocking(move || {
+    let applied = run_blocking(move || -> Result<_, String> {
         let content = std::fs::read_to_string(&path).map_err(|e| e.to_string())?;
         let file: LikesFile = serde_json::from_str(&content)
             .map_err(|_| "This file isn't a valid Vibo likes export.".to_string())?;
@@ -846,8 +725,7 @@ pub async fn import_likes(
         }
         db.import_likes_rows(&file.likes).map_err(|e| e.to_string())
     })
-    .await
-    .map_err(|e| e.to_string())??;
+    .await?;
     let _ = app.emit("entity-likes-changed", serde_json::json!({ "kind": "bulk" }));
     Ok(applied)
 }
@@ -861,15 +739,13 @@ pub async fn pick_liked_entities(
     order: String,
     limit: u32,
 ) -> Result<Vec<LikedEntityInfo>, String> {
-    let db = state.db.clone();
-    run_db_read(move || db.pick_liked_entities(&kind, &order, limit).map_err(|e| e.to_string())).await
+    with_db(&state, move |db| db.pick_liked_entities(&kind, &order, limit)).await
 }
 
 /// Library tracks with no recorded plays — for the Home "Never played" shelf.
 #[tauri::command]
 pub async fn pick_never_played_tracks(state: State<'_, AppState>, limit: u32) -> Result<Vec<Track>, String> {
-    let db = state.db.clone();
-    run_db_read(move || db.pick_never_played_tracks(limit).map_err(|e| e.to_string())).await
+    with_db(&state, move |db| db.pick_never_played_tracks(limit)).await
 }
 
 /// Reveal a local file in the OS file manager.
@@ -947,7 +823,7 @@ pub async fn delete_tracks(
     // seconds.
     let db = state.db.clone();
     let app_dir = state.app_dir.clone();
-    tauri::async_runtime::spawn_blocking(move || {
+    run_blocking(move || -> Result<_, String> {
         let tracks = db.get_tracks_by_ids(&track_ids).map_err(|e| e.to_string())?;
         let mut deleted_ids = Vec::new();
         let mut failures = Vec::new();
@@ -1034,7 +910,6 @@ pub async fn delete_tracks(
         Ok(DeleteTracksResult { deleted_ids, deleted_paths, failures })
     })
     .await
-    .map_err(|e| e.to_string())?
 }
 
 #[tauri::command]
@@ -1047,8 +922,7 @@ pub async fn bulk_update_tracks(
     // async + spawn_blocking: this rewrites tags into every selected local
     // audio file (lofty read-modify-write per file) — run inline it froze the
     // webview for the whole batch.
-    let db = state.db.clone();
-    tauri::async_runtime::spawn_blocking(move || {
+    with_db(&state, move |db| -> Result<_, String> {
     // Resolve each nullable field to its tri-state: Unchanged / Clear / Set.
     // Names are trimmed here, once, so the file and the library get the same value.
     let artist_u = crate::models::FieldUpdate::from_double_opt(fields.artist_name).trimmed_name();
@@ -1131,7 +1005,6 @@ pub async fn bulk_update_tracks(
     }
     })
     .await
-    .map_err(|e| e.to_string())?
 }
 
 #[tauri::command]

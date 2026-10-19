@@ -1,4 +1,5 @@
-import { invoke, convertFileSrc } from "@tauri-apps/api/core";
+import { invoke } from "@tauri-apps/api/core";
+import { resolveImageSrc } from "../utils/resolveImageUrl";
 import { track as trackTelemetry } from "../telemetry";
 import { save, open } from "@tauri-apps/plugin-dialog";
 import { IMAGE_PICKER_FILTERS } from "../utils/imageFileFilters";
@@ -307,7 +308,7 @@ export function MixtapeExportModal({ tracks, defaultTitle, defaultCoverPath, def
               <div className="mixtape-export-form">
                 <div className="mixtape-export-cover-section">
                   {coverPath ? (
-                    <img className="mixtape-export-cover-preview" src={convertFileSrc(coverPath)} alt="Cover" />
+                    <img className="mixtape-export-cover-preview" src={resolveImageSrc(coverPath) ?? undefined} alt="Cover" />
                   ) : (
                     <div className="mixtape-export-cover-placeholder" onClick={handleCoverChoose}>No cover</div>
                   )}
@@ -442,7 +443,7 @@ export function MixtapeExportModal({ tracks, defaultTitle, defaultCoverPath, def
                     {track.imageUrl && (
                       <img
                         className="mixtape-track-thumb"
-                        src={track.imageUrl.startsWith("http") ? track.imageUrl : convertFileSrc(track.imageUrl)}
+                        src={resolveImageSrc(track.imageUrl) ?? undefined}
                         alt=""
                       />
                     )}

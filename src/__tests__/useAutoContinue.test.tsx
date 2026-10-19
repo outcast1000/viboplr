@@ -11,7 +11,7 @@ const storeValues: Record<string, unknown> = {};
 vi.mock("../store", () => ({
   store: {
     get: vi.fn(async (key: string) => storeValues[key]),
-    set: vi.fn(),
+    set: vi.fn(async () => {}),
   },
 }));
 

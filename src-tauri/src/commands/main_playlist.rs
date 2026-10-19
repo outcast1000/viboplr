@@ -10,11 +10,10 @@ pub async fn main_playlist_write(
     state_data: Option<crate::models::MainPlaylistState>,
 ) -> Result<(), String> {
     let dir = state.app_dir.clone();
-    tauri::async_runtime::spawn_blocking(move || {
+    run_blocking(move || {
         crate::main_playlist::write(&dir, manifest.as_ref(), state_data.as_ref())
     })
     .await
-    .map_err(|e| e.to_string())?
 }
 
 #[tauri::command]
@@ -22,25 +21,22 @@ pub async fn main_playlist_read(
     state: State<'_, AppState>,
 ) -> Result<crate::models::MainPlaylistReadResult, String> {
     let dir = state.app_dir.clone();
-    tauri::async_runtime::spawn_blocking(move || crate::main_playlist::read(&dir))
+    run_blocking(move || crate::main_playlist::read(&dir))
         .await
-        .map_err(|e| e.to_string())?
 }
 
 #[tauri::command]
 pub async fn main_playlist_clear(state: State<'_, AppState>) -> Result<(), String> {
     let dir = state.app_dir.clone();
-    tauri::async_runtime::spawn_blocking(move || crate::main_playlist::clear(&dir))
+    run_blocking(move || crate::main_playlist::clear(&dir))
         .await
-        .map_err(|e| e.to_string())?
 }
 
 #[tauri::command]
 pub async fn main_playlist_gc(state: State<'_, AppState>) -> Result<(), String> {
     let dir = state.app_dir.clone();
-    tauri::async_runtime::spawn_blocking(move || crate::main_playlist::gc(&dir))
+    run_blocking(move || crate::main_playlist::gc(&dir))
         .await
-        .map_err(|e| e.to_string())?
 }
 
 #[tauri::command]
@@ -49,9 +45,8 @@ pub async fn main_playlist_set_cover(
     source: Option<crate::models::ImageSource>,
 ) -> Result<(), String> {
     let dir = state.app_dir.clone();
-    tauri::async_runtime::spawn_blocking(move || crate::main_playlist::set_cover(&dir, source.as_ref()))
+    run_blocking(move || crate::main_playlist::set_cover(&dir, source.as_ref()))
         .await
-        .map_err(|e| e.to_string())?
 }
 
 #[tauri::command]
@@ -63,9 +58,8 @@ pub async fn main_playlist_set_thumb(
 ) -> Result<(), String> {
     let dir = state.app_dir.clone();
     let key_clone = key.clone();
-    let filename = tauri::async_runtime::spawn_blocking(move || crate::main_playlist::set_thumb(&dir, &key_clone, &source))
-        .await
-        .map_err(|e| e.to_string())??;
+    let filename = run_blocking(move || crate::main_playlist::set_thumb(&dir, &key_clone, &source))
+        .await?;
     let _ = app.emit(
         "main-playlist-thumb-ready",
         serde_json::json!({ "key": key, "filename": filename }),
@@ -87,9 +81,8 @@ pub async fn main_playlist_set_thumb_from_video(
     let key_clone = key.clone();
     let video = std::path::PathBuf::from(video_path);
     let filename =
-        tauri::async_runtime::spawn_blocking(move || crate::main_playlist::set_thumb_from_video(&dir, &key_clone, &video))
-            .await
-            .map_err(|e| e.to_string())??;
+        run_blocking(move || crate::main_playlist::set_thumb_from_video(&dir, &key_clone, &video))
+            .await?;
     if let Some(filename) = filename {
         let _ = app.emit(
             "main-playlist-thumb-ready",
@@ -105,9 +98,8 @@ pub async fn main_playlist_remove_thumb(
     key: String,
 ) -> Result<(), String> {
     let dir = state.app_dir.clone();
-    tauri::async_runtime::spawn_blocking(move || crate::main_playlist::remove_thumb(&dir, &key))
+    run_blocking(move || crate::main_playlist::remove_thumb(&dir, &key))
         .await
-        .map_err(|e| e.to_string())?
 }
 
 #[tauri::command]

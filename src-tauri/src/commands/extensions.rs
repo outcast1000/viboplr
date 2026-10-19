@@ -15,12 +15,11 @@ pub async fn check_for_extension_updates(
     let app_dir = state.app_dir.clone();
     let native_dir = state.native_plugins_dir.clone().unwrap_or_default();
 
-    tauri::async_runtime::spawn_blocking(move || {
+    run_blocking(move || {
         let app_version = app.package_info().version.to_string();
-        crate::update_checker::check_all_updates(&app_dir, &native_dir, &app_version)
+        Ok::<_, std::convert::Infallible>(crate::update_checker::check_all_updates(&app_dir, &native_dir, &app_version))
     })
     .await
-    .map_err(|e| format!("Task join error: {}", e))
 }
 
 #[tauri::command]
@@ -33,7 +32,7 @@ pub async fn download_and_install_plugin_update(
     let app_dir = state.app_dir.clone();
     let cancel = Arc::clone(&state.plugin_install_cancel);
 
-    tauri::async_runtime::spawn_blocking(move || {
+    run_blocking(move || -> Result<_, String> {
         // Carried across the install: reaching this command at all means the old
         // copy declared an updateUrl, and the new zip may not. Losing it would
         // make THIS update the last one the plugin ever hears about.
@@ -52,7 +51,6 @@ pub async fn download_and_install_plugin_update(
         Ok(())
     })
     .await
-    .map_err(|e| format!("Task join error: {}", e))?
 }
 
 #[tauri::command]
@@ -64,7 +62,7 @@ pub async fn download_and_install_skin_update(
 ) -> Result<(), String> {
     let app_dir = state.app_dir.clone();
 
-    tauri::async_runtime::spawn_blocking(move || {
+    run_blocking(move || -> Result<_, String> {
         let content = crate::skins::fetch_url(&download_url)?;
         let dir = crate::skins::skins_dir(&app_dir);
         crate::skins::update_skin_in_dir(&dir, &skin_id, &content)?;
@@ -72,7 +70,6 @@ pub async fn download_and_install_skin_update(
         Ok(())
     })
     .await
-    .map_err(|e| format!("Task join error: {}", e))?
 }
 
 #[tauri::command]
@@ -82,9 +79,8 @@ pub async fn install_plugin_from_url(
 ) -> Result<String, String> {
     let app_dir = state.app_dir.clone();
 
-    tauri::async_runtime::spawn_blocking(move || {
+    run_blocking(move || {
         crate::plugins::install_plugin_from_url(&app_dir, &url)
     })
     .await
-    .map_err(|e| format!("Task join error: {}", e))?
 }

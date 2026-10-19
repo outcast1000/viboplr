@@ -448,11 +448,10 @@ pub async fn mcp_setup_info(
 ) -> Result<crate::mcp_setup::McpSetupInfo, String> {
     let resource_dir = app.path().resource_dir().ok();
     let profile_name = state.profile_name.clone();
-    tauri::async_runtime::spawn_blocking(move || {
-        crate::mcp_setup::collect(resource_dir.as_deref(), &profile_name)
+    run_blocking(move || {
+        Ok::<_, std::convert::Infallible>(crate::mcp_setup::collect(resource_dir.as_deref(), &profile_name))
     })
     .await
-    .map_err(|e| format!("Failed to inspect the MCP setup: {e}"))
 }
 
 /// Rotate the bearer token. Implemented as stop → clear → start so the running

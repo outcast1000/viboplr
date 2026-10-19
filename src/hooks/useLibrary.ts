@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import type { Artist, Album, Tag, Track, TrackSelection, Collection, CollectionStats, View, ViewMode, SortField, SortDir, ColumnConfig, TrackColumnId } from "../types";
-import { store } from "../store";
+import { usePersistMirror } from "./usePersistedSetting";
 import { normalizeForMatch } from "../utils/normalize";
 import { librarySelection } from "../queueEntry";
 
@@ -79,12 +79,12 @@ export function useLibrary(restoredRef: React.RefObject<boolean>, onBeforeNaviga
   // `view` and the selected artist / album / tag / track are deliberately not
   // persisted — startup always lands on Home (conventions.md "Default Startup
   // View"), so writing them only cost a store IPC per navigation.
-  useEffect(() => { if (restoredRef.current) store.set("trackSortField", sortField); }, [sortField]);
-  useEffect(() => { if (restoredRef.current) store.set("trackSortDir", sortDir); }, [sortDir]);
-  useEffect(() => { if (restoredRef.current) store.set("trackColumns", trackColumns); }, [trackColumns]);
-  useEffect(() => { if (restoredRef.current) store.set("trackViewMode", trackViewMode); }, [trackViewMode]);
-  useEffect(() => { if (restoredRef.current) store.set("mediaTypeFilter", mediaTypeFilter); }, [mediaTypeFilter]);
-  useEffect(() => { if (restoredRef.current) store.set("trackLikedFirst", trackLikedFirst); }, [trackLikedFirst]);
+  usePersistMirror("trackSortField", sortField, restoredRef);
+  usePersistMirror("trackSortDir", sortDir, restoredRef);
+  usePersistMirror("trackColumns", trackColumns, restoredRef);
+  usePersistMirror("trackViewMode", trackViewMode, restoredRef);
+  usePersistMirror("mediaTypeFilter", mediaTypeFilter, restoredRef);
+  usePersistMirror("trackLikedFirst", trackLikedFirst, restoredRef);
 
   const loadLibrary = useCallback(async () => {
     try {

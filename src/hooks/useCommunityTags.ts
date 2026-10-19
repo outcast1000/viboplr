@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import type { InfoEntity, InfoFetchResult } from "../types/informationTypes";
 import { rankCommunityTags, type CommunityTagLike } from "../utils/tagSuggestions";
+import { normalizeForMatch } from "../utils/normalize";
 
 /** Cap on distinct-artist Last.fm fetches for a multi-track community lookup. */
 const MAX_COMMUNITY_ARTISTS = 8;
@@ -145,7 +146,7 @@ export function useCommunityTagsForTracks(opts: {
       const artistName = (t.artist_name ?? "").trim();
       const title = (t.title ?? "").trim();
       if (!artistName || !title) continue;
-      const key = artistName.toLowerCase();
+      const key = normalizeForMatch(artistName);
       if (seen.has(key)) continue;
       seen.add(key);
       out.push({ title, artistName });
@@ -154,7 +155,7 @@ export function useCommunityTagsForTracks(opts: {
     return out;
   }, [tracks]);
   // Stable primitive dependency so the effect doesn't re-fire on array identity.
-  const repsKey = reps.map((r) => r.artistName.toLowerCase()).join("|");
+  const repsKey = reps.map((r) => normalizeForMatch(r.artistName)).join("|");
 
   const [tags, setTags] = useState<CommunityTagLike[]>([]);
   const [loading, setLoading] = useState(false);

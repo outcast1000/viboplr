@@ -18,7 +18,7 @@ pub async fn plugin_trash_collection_path(
 ) -> Result<(), String> {
     let db = state.db.clone();
     // async + spawn_blocking: trash::delete round-trips through the OS.
-    tauri::async_runtime::spawn_blocking(move || {
+    run_blocking(move || -> Result<_, String> {
         let collection = db.get_collection_by_id(collection_id).map_err(|e| e.to_string())?;
         if collection.kind != "local" {
             return Err("only local collections have files to remove".to_string());
@@ -58,7 +58,6 @@ pub async fn plugin_trash_collection_path(
         Ok(())
     })
     .await
-    .map_err(|e| format!("Task join error: {}", e))?
 }
 
 #[tauri::command]
@@ -76,8 +75,7 @@ pub async fn add_collection(
     // round-trips) and the manifest arm fetches + parses the manifest before
     // creating anything — run inline these froze the webview for the whole
     // handshake. The heavy scan/sync itself already runs on its own thread.
-    let db = state.db.clone();
-    tauri::async_runtime::spawn_blocking(move || {
+    with_db(&state, move |db| -> Result<_, String> {
     match kind.as_str() {
         "local" => {
             let folder_path = path.as_deref().ok_or("Path is required for local collections")?;
@@ -276,7 +274,7 @@ pub async fn add_collection(
                 let collection = db
                     .add_collection("seed", &name, None, None, None, None, None, None)
                     .map_err(|e| e.to_string())?;
-                crate::seed::seed_database(&db, collection.id, 50, 200, 2000)?;
+                crate::seed::seed_database(db, collection.id, 50, 200, 2000)?;
                 Ok(collection)
             }
             #[cfg(not(debug_assertions))]
@@ -288,7 +286,6 @@ pub async fn add_collection(
     }
     })
     .await
-    .map_err(|e| e.to_string())?
 }
 
 #[tauri::command]
@@ -304,20 +301,12 @@ pub fn remove_collection(state: State<'_, AppState>, collection_id: i64) -> Resu
 
 #[tauri::command]
 pub async fn get_collections(state: State<'_, AppState>) -> Result<Vec<Collection>, String> {
-    let db = state.db.clone();
-    run_db_read(move || {
-        db.get_collections().map_err(|e| e.to_string())
-    })
-    .await
+    with_db(&state, move |db| db.get_collections()).await
 }
 
 #[tauri::command]
 pub async fn get_collection_stats(state: State<'_, AppState>) -> Result<Vec<CollectionStats>, String> {
-    let db = state.db.clone();
-    run_db_read(move || {
-        db.get_collection_stats().map_err(|e| e.to_string())
-    })
-    .await
+    with_db(&state, move |db| db.get_collection_stats()).await
 }
 
 #[tauri::command]
@@ -363,8 +352,7 @@ pub async fn update_subsonic_connection(
     password: Option<String>,
 ) -> Result<SubsonicConnectionUpdate, String> {
     // async + spawn_blocking: verifying pings the server.
-    let db = state.db.clone();
-    tauri::async_runtime::spawn_blocking(move || {
+    with_db(&state, move |db| -> Result<_, String> {
         let collection = db.get_collection_by_id(collection_id).map_err(|e| e.to_string())?;
         if collection.kind != "subsonic" {
             return Err(format!("Connection settings are not editable for '{}' collections", collection.kind));
@@ -427,7 +415,6 @@ pub async fn update_subsonic_connection(
         })
     })
     .await
-    .map_err(|e| e.to_string())?
 }
 
 #[tauri::command]
@@ -465,8 +452,7 @@ pub async fn test_collection_connection(
 ) -> Result<String, String> {
     // async + spawn_blocking: pings the server — a slow/unreachable host froze
     // the webview for the whole timeout when this ran inline.
-    let db = state.db.clone();
-    tauri::async_runtime::spawn_blocking(move || {
+    with_db(&state, move |db| -> Result<_, String> {
         let collection = db
             .get_collection_by_id(collection_id)
             .map_err(|e| e.to_string())?;
@@ -497,7 +483,6 @@ pub async fn test_collection_connection(
         result
     })
     .await
-    .map_err(|e| e.to_string())?
 }
 
 #[tauri::command]
@@ -508,13 +493,12 @@ pub async fn subsonic_test_connection(
 ) -> Result<String, String> {
     log::info!("subsonic_test_connection called with url: {}", url);
     // async + spawn_blocking: SubsonicClient::new probes the server inline.
-    tauri::async_runtime::spawn_blocking(move || {
+    run_blocking(move || -> Result<_, String> {
         SubsonicClient::new(&url, &username, &password)
             .map_err(|e| format!("{}", e))?;
         Ok("Connected successfully".to_string())
     })
     .await
-    .map_err(|e| e.to_string())?
 }
 
 // --- Publish a music source (export bundle / publish to server) ---

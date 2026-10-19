@@ -1,3 +1,4 @@
+import { ToggleSwitch } from "./ToggleSwitch";
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { open } from "@tauri-apps/plugin-dialog";
@@ -1232,14 +1233,7 @@ function PlaybackStep({
               Keep the music going with similar tracks when the queue ends
             </span>
           </div>
-          <button
-            className={`ds-toggle ${autoContinueEnabled ? "on" : ""}`}
-            role="switch"
-            aria-checked={autoContinueEnabled}
-            onClick={() => onAutoContinueEnabledChange(!autoContinueEnabled)}
-          >
-            <span className="ds-toggle-thumb" />
-          </button>
+          <ToggleSwitch checked={autoContinueEnabled} onChange={onAutoContinueEnabledChange} label="Auto-continue" />
         </div>
         <div className="settings-row">
           <div className="settings-row-info">
@@ -1248,14 +1242,7 @@ function PlaybackStep({
               Count video plays in your history and stats, like audio
             </span>
           </div>
-          <button
-            className={`ds-toggle ${trackVideoHistory ? "on" : ""}`}
-            role="switch"
-            aria-checked={trackVideoHistory}
-            onClick={() => onTrackVideoHistoryChange(!trackVideoHistory)}
-          >
-            <span className="ds-toggle-thumb" />
-          </button>
+          <ToggleSwitch checked={trackVideoHistory} onChange={onTrackVideoHistoryChange} label="Track video history" />
         </div>
       </div>
     </>

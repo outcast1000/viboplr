@@ -23,6 +23,7 @@ import { EntityTagPanel } from "./EntityTagPanel";
 import { buildHeroOverflowItems, type HeroOverflowItem } from "../utils/heroOverflow";
 import type { InfoEntity } from "../types/informationTypes";
 import { store } from "../store";
+import { resolveDetailEntity } from "../utils/detailResolveEntity";
 import { useDetailHeroImages } from "../hooks/useDetailHeroImages";
 import { resolveImageUrl } from "../utils/resolveImageUrl";
 import { isVariousArtists } from "../utils/variousArtists";
@@ -89,24 +90,12 @@ export function ArtistDetail({ name }: ArtistDetailProps) {
     store.set("artistDetailBelowTabOrder", order);
   }, []);
 
-  const resolveEntity = useCallback((kind: string, entityName: string) => {
-    if (kind === "artist") {
-      const imgPath = actions.getArtistImage(entityName);
-      if (artist && artist.name.toLowerCase() === entityName.toLowerCase()) {
-        return { id: artist.id, imageSrc: imgPath ? resolveImageUrl(imgPath) : undefined };
-      }
-      return imgPath ? { imageSrc: resolveImageUrl(imgPath) } : undefined;
-    }
-    if (kind === "track") {
-      const [trackName, trackArtistName] = entityName.includes("|||") ? entityName.split("|||") : [entityName, artist?.name];
-      const match = sortedTracks.find(t =>
-        t.title.toLowerCase() === trackName.toLowerCase() &&
-        (!trackArtistName || (t.artist_name ?? "").toLowerCase() === trackArtistName.toLowerCase())
-      );
-      if (match) return { id: match.id ?? undefined };
-    }
-    return undefined;
-  }, [artist, sortedTracks, actions.getArtistImage]);
+  const resolveEntity = useCallback((kind: string, entityName: string) => resolveDetailEntity(kind, entityName, {
+    tracks: sortedTracks,
+    defaultArtist: artist?.name,
+    artist,
+    getArtistImage: actions.getArtistImage,
+  }), [artist, sortedTracks, actions.getArtistImage]);
 
   const handleInfoAction = useInfoSectionActions();
 

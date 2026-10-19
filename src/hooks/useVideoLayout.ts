@@ -1,5 +1,5 @@
-import { useEffect, useState } from "react";
-import { store } from "../store";
+import { useMemo, useState } from "react";
+import { usePersistMirror } from "./usePersistedSetting";
 
 // "queue" is not a side of the main content area — it pins the video to the
 // bottom of the queue panel (column 3). It shares the DockSide type because the
@@ -40,11 +40,8 @@ export function useVideoLayout(restoredRef: React.RefObject<boolean>) {
   const effectiveSize = isCollapsed ? 0 : videoSize;
 
   // Persist full layout state
-  useEffect(() => {
-    if (restoredRef.current) {
-      store.set("videoLayout", { dockSide, fitMode, sizes, isCollapsed });
-    }
-  }, [dockSide, fitMode, sizes, isCollapsed]);
+  const layout = useMemo(() => ({ dockSide, fitMode, sizes, isCollapsed }), [dockSide, fitMode, sizes, isCollapsed]);
+  usePersistMirror("videoLayout", layout, restoredRef);
 
   function setDockSide(side: DockSide) {
     setDockSideState(side);

@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { ConfirmModal } from "./ConfirmModal";
 import { PermissionList } from "./PermissionList";
 
 // Asks the user about one plugin's permissions at the moment they apply: after
@@ -39,30 +40,25 @@ export function PluginPermissionPrompt({ pluginName, mode, requested, pending, r
     }
   };
   return (
-    <div className="ds-modal-overlay">
-      <div className="ds-modal" style={{ width: 440 }} onClick={(e) => e.stopPropagation()}>
-        <h2 className="ds-modal-title">
-          {mode === "update" ? `${pluginName} needs new permissions` : `Allow ${pluginName}?`}
-        </h2>
-        <p className="delete-confirm-warning">
-          {mode === "update"
-            ? isPartial
-              ? "The update asks for more than you allowed before. It won't run until you allow the new ones."
-              : "The update asks for the permissions below. It won't run until you allow them."
-            : "This plugin asks for the permissions below. It can't do anything outside this list."}
-        </p>
-        <div className="plugin-install-perms">
-          <PermissionList requested={requested} pending={pendingSet} markNew={isPartial} reasons={reasons} />
-        </div>
-        <div className="ds-modal-actions">
-          <button className="ds-btn ds-btn--ghost" onClick={onNotNow} disabled={working}>
-            Not now
-          </button>
-          <button className="ds-btn ds-btn--primary" autoFocus onClick={allow} disabled={working}>
-            {working ? "Starting…" : mode === "install" ? "Allow and enable" : "Allow and start"}
-          </button>
-        </div>
+    <ConfirmModal
+      width={440}
+      title={mode === "update" ? `${pluginName} needs new permissions` : `Allow ${pluginName}?`}
+      messageClassName="delete-confirm-warning"
+      message={mode === "update"
+        ? isPartial
+          ? "The update asks for more than you allowed before. It won't run until you allow the new ones."
+          : "The update asks for the permissions below. It won't run until you allow them."
+        : "This plugin asks for the permissions below. It can't do anything outside this list."}
+      cancelLabel="Not now"
+      confirmLabel={working ? "Starting…" : mode === "install" ? "Allow and enable" : "Allow and start"}
+      autoFocusConfirm
+      busy={working}
+      onCancel={onNotNow}
+      onConfirm={allow}
+    >
+      <div className="plugin-install-perms">
+        <PermissionList requested={requested} pending={pendingSet} markNew={isPartial} reasons={reasons} />
       </div>
-    </div>
+    </ConfirmModal>
   );
 }

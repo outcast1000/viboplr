@@ -9,16 +9,14 @@ use super::*;
 #[tauri::command]
 pub async fn home_snapshot_read(state: State<'_, AppState>) -> Result<tauri::ipc::Response, String> {
     let dir = state.app_dir.clone();
-    let bytes = tauri::async_runtime::spawn_blocking(move || crate::home_snapshot::read(&dir))
-        .await
-        .map_err(|e| e.to_string())??;
+    let bytes = run_blocking(move || crate::home_snapshot::read(&dir))
+        .await?;
     Ok(tauri::ipc::Response::new(bytes.unwrap_or_default()))
 }
 
 #[tauri::command]
 pub async fn home_snapshot_write(state: State<'_, AppState>, snapshot: serde_json::Value) -> Result<(), String> {
     let dir = state.app_dir.clone();
-    tauri::async_runtime::spawn_blocking(move || crate::home_snapshot::write(&dir, &snapshot))
+    run_blocking(move || crate::home_snapshot::write(&dir, &snapshot))
         .await
-        .map_err(|e| e.to_string())?
 }
