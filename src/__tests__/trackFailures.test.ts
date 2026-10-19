@@ -128,4 +128,11 @@ describe("trackFailureReportLines", () => {
       "Resolver yt-dlp: Found a source",
     ]);
   });
+
+  it("names the album when known — two copies of one song can share a collection", () => {
+    const lines = trackFailureReportLines(playbackFailure, {
+      title: "El Rodeo", artist_name: "Kyuss", album_title: "Muchas Gracias (best of)",
+    });
+    expect(lines.slice(0, 2)).toEqual(["Track: El Rodeo — Kyuss", "Album: Muchas Gracias (best of)"]);
+  });
 });

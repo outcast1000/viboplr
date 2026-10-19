@@ -126,10 +126,14 @@ export function describeTrackFailure(f: TrackFailure, now: number = Date.now()):
 }
 
 /** Lines for the "Report a problem" context block. */
-export function trackFailureReportLines(f: TrackFailure, track: { title: string; artist_name: string | null }): string[] {
+export function trackFailureReportLines(
+  f: TrackFailure,
+  track: { title: string; artist_name: string | null; album_title?: string | null },
+): string[] {
   const d = describeTrackFailure(f);
   return [
     `Track: ${track.title}${track.artist_name ? ` — ${track.artist_name}` : ""}`,
+    ...(track.album_title ? [`Album: ${track.album_title}`] : []),
     `Stage: ${f.stage}`,
     `Error: ${f.summary}`,
     ...d.rows.filter((r) => r.label !== "When").map((r) => `${r.label}: ${r.value}`),

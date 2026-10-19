@@ -7185,6 +7185,12 @@ function App() {
             context: {
               title: "Playback failure",
               lines: [
+                // Without the track, a report names a failure nobody can find
+                // again — two copies of one song can sit in one collection.
+                ...(playback.failedTrack ? [
+                  `Track: ${playback.failedTrack.title}${playback.failedTrack.artist_name ? ` — ${playback.failedTrack.artist_name}` : ""}`,
+                  ...(playback.failedTrack.album_title ? [`Album: ${playback.failedTrack.album_title}`] : []),
+                ] : []),
                 `Error: ${playback.playbackError}`,
                 `Source: ${sourceClass(playback.failedTrack?.path ?? null)}`,
                 `Format: ${playback.failedTrack?.format ?? "unknown"}`,
