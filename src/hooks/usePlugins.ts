@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { invoke, type InvokeArgs, type InvokeOptions } from "@tauri-apps/api/core";
+import { saveCueSheet } from "../utils/cueOps";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { subscribe, safeUnlisten } from "../utils/tauriEvents";
 import { isExperimental } from "../utils/pluginStability";
@@ -1716,17 +1717,23 @@ export function usePlugins(
           list() {
             return invoke<PluginCueSheet[]>("cue_sheet_list");
           },
-          // The command normalizes and emits `cue-sheet-changed`, so an open
-          // Now Playing view picks up a sheet a plugin installs mid-song.
+          // The same save the control API runs (utils/cueOps.ts): the past-
+          // the-end check, and the album / length filled from what the app
+          // knows when the plugin doesn't say. A declared `durationSecs` wins
+          // — a shared sheet was timed to its author's copy. The command
+          // normalizes and emits `cue-sheet-changed`, so an open Now Playing
+          // view picks up a sheet a plugin installs mid-song.
           set(title, artistName, sheet, meta) {
-            return invoke<PluginCueSheet>("cue_sheet_set", {
-              title,
-              artistName: artistName ?? null,
+            return saveCueSheet<PluginCueSheet>(
+              {
+                currentTrack: () => currentTrackRef.current,
+                currentDurationSecs: () => null,
+                queue: () => queueRef.current?.tracks ?? [],
+              },
+              { title, artistName: artistName ?? null },
               sheet,
-              author: meta?.author ?? null,
-              albumName: meta?.albumName ?? null,
-              durationSecs: meta?.durationSecs ?? null,
-            });
+              { author: meta?.author ?? null, albumName: meta?.albumName ?? null, durationSecs: meta?.durationSecs ?? null },
+            );
           },
           delete(title, artistName) {
             return invoke<boolean>("cue_sheet_delete", { title, artistName: artistName ?? null });

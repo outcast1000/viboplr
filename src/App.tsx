@@ -2865,7 +2865,7 @@ function App() {
         contextMenuActions.startRadio({
           title: action.seed.title,
           artistName: action.seed.artist_name,
-          coverPath: action.seed.image_url ?? action.coverUrl ?? null,
+          coverPath: action.coverPath,
         });
         return;
       case "tracks": {
@@ -4619,6 +4619,8 @@ function App() {
     next: () => handleNext(),
     previous: () => queueHook.playPrevious(),
     startRadio: playActions.startRadio,
+    playAlbum: playActions.playAlbum,
+    playArtist: playActions.playArtist,
     queueOps: queueOpsDeps,
     bitPerfect: bitPerfect.control ? { pin: bitPerfect.pin, state: bitPerfect.state, output: bitPerfect.output } : null,
     mini: {

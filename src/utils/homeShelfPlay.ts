@@ -7,9 +7,10 @@ export interface RadioSeed {
   image_url?: string | null;
 }
 
-// What "playing" a shelf item resolves to. The caller (App.tsx) maps each kind
-// to a concrete play handler. `none` means the play button should not act
-// (and should not be rendered).
+// What "playing" a shelf item resolves to. Both callers — the Home page's play
+// button (App.tsx) and the control API's `home.play` — map each kind to the
+// same canonical play action, so every decision about WHAT plays lives here.
+// `none` means the play button should not act (and should not be rendered).
 export type ShelfPlayAction =
   | { kind: "album-id"; id: number }
   | { kind: "artist-id"; id: number }
@@ -18,7 +19,10 @@ export type ShelfPlayAction =
   // immediately and backfills the rest from the shelf's resolve-play handler
   // instead of blocking on it. Absent = the tracks ARE the whole list.
   | { kind: "tracks"; tracks: PluginTrack[]; partial?: true; context?: { name: string; imagePath?: string | null; source?: string } }
-  | { kind: "radio"; seed: RadioSeed; coverUrl?: string | null }
+  // `coverPath`: the station's banner cover — the seed's own image, else the
+  // card's. Decided here so the two callers can't pick differently (they did:
+  // the control API dropped the seed image).
+  | { kind: "radio"; seed: RadioSeed; coverPath: string | null }
   | { kind: "none" };
 
 export function resolveShelfPlayAction(
@@ -44,7 +48,10 @@ export function resolveShelfPlayAction(
   if (displayKind === "playlist-cards") {
     const it = item as { name: string; coverUrl?: string | null; tracks: PluginTrack[]; partial?: boolean };
     const first = it.tracks?.[0] as unknown as { __radioSeed?: RadioSeed } | undefined;
-    if (first?.__radioSeed) return { kind: "radio", seed: first.__radioSeed, coverUrl: it.coverUrl ?? null };
+    if (first?.__radioSeed) {
+      const seed = first.__radioSeed;
+      return { kind: "radio", seed, coverPath: seed.image_url ?? it.coverUrl ?? null };
+    }
     return {
       kind: "tracks",
       tracks: it.tracks,

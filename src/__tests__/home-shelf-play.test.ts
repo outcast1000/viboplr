@@ -55,18 +55,25 @@ describe("resolveShelfPlayAction", () => {
     });
   });
 
-  it("playlist with __radioSeed → radio (carries card coverUrl as fallback)", () => {
+  it("playlist with __radioSeed → radio, covered by the seed's own image first", () => {
     const seed = { title: "Seed", artist_name: "A", image_url: "http://x/s.jpg" };
     const tracks = [{ title: "Seed", __radioSeed: seed }];
     const item = { id: "r1", name: "Radio", coverUrl: "http://x/card.jpg", tracks } as unknown as HomeShelfItem;
-    expect(resolveShelfPlayAction("playlist-cards", item)).toEqual({ kind: "radio", seed, coverUrl: "http://x/card.jpg" });
+    expect(resolveShelfPlayAction("playlist-cards", item)).toEqual({ kind: "radio", seed, coverPath: "http://x/s.jpg" });
   });
 
-  it("playlist with __radioSeed and no coverUrl → radio with null coverUrl", () => {
-    const seed = { title: "Seed", artist_name: "A", image_url: "http://x/s.jpg" };
+  it("radio falls back to the card's cover when the seed has no image", () => {
+    const seed = { title: "Seed", artist_name: "A", image_url: null };
+    const tracks = [{ title: "Seed", __radioSeed: seed }];
+    const item = { id: "r1", name: "Radio", coverUrl: "http://x/card.jpg", tracks } as unknown as HomeShelfItem;
+    expect(resolveShelfPlayAction("playlist-cards", item)).toEqual({ kind: "radio", seed, coverPath: "http://x/card.jpg" });
+  });
+
+  it("radio with no seed image and no card cover → null coverPath", () => {
+    const seed = { title: "Seed", artist_name: "A" };
     const tracks = [{ title: "Seed", __radioSeed: seed }];
     const item = { id: "r1", name: "Radio", coverUrl: null, tracks } as unknown as HomeShelfItem;
-    expect(resolveShelfPlayAction("playlist-cards", item)).toEqual({ kind: "radio", seed, coverUrl: null });
+    expect(resolveShelfPlayAction("playlist-cards", item)).toEqual({ kind: "radio", seed, coverPath: null });
   });
 
   it("playlist marked partial → tracks flagged for backfill", () => {

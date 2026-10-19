@@ -50,7 +50,8 @@ import { editTrackTags, writeFileMetadata, type FileMetadataEdit, type TagOpsDep
 import { sameSong } from "./useLikeActions";
 import { trackToQueueTrack, playlistTrackToQueueTrack, pluginTrackToQueueTrack, nextQueueKey, type PlaylistTrackRow } from "../queueEntry";
 import { toPlaylistTrackPayload } from "../utils/playlistPayload";
-import { cueCountBucket, cueErrorField, cuePastEndError, sameCueSong, splitSheetMeta, type CueSheetRow, type CueSheetTrack } from "../utils/cueSheet";
+import { cueCountBucket, cueErrorField, sameCueSong, splitSheetMeta, type CueSheetRow, type CueSheetTrack } from "../utils/cueSheet";
+import { saveCueSheet, type CueOpsDeps } from "../utils/cueOps";
 import { track } from "../telemetry";
 import { gatherCueContext } from "../utils/cueContext";
 import { buildExternalQueueTrack } from "../utils/externalTrack";
@@ -127,6 +128,10 @@ export interface ControlApiDeps {
   /** usePlayActions.startRadio — resolves with the station's track count,
    *  or null when nothing started. */
   startRadio: (seed: { title: string; artistName: string | null; coverPath: string | null }) => Promise<number | null>;
+  /** usePlayActions.playAlbum / playArtist — the Home page's play for a
+   *  library album / artist card, so `home.play` queues it the same way. */
+  playAlbum: (albumId: number, opts?: { tracks?: Track[] }) => Promise<void>;
+  playArtist: (artistId: number, opts?: { tracks?: Track[] }) => Promise<void>;
   /** App's shared queue-entry deps (utils/queueOps.ts) — every verb that puts
    *  tracks into the queue goes through them, so like reconcile and the
    *  duplicate check are the same as for a plugin or the Cmd+K dropdown. */
@@ -312,32 +317,12 @@ function cueSetSong(
   return { title, artistName: artistName ?? track.artistName ?? null };
 }
 
-/** What the app itself knows about the addressed song — its length and album,
- *  from the engine / playing entry, a queue entry, else the library row. The
- *  same lookup order `cues.context` describes the song in, so the length
- *  recorded is the one the author was shown. */
-async function cueSongFacts(
-  d: ControlApiDeps,
-  song: { title: string; artistName: string | null },
-): Promise<{ durationSecs: number | null; albumName: string | null }> {
-  const current = d.playback.currentTrack;
-  if (current && sameCueSong({ title: current.title, artistName: current.artist_name }, song)) {
-    return {
-      durationSecs: d.playback.durationSecs || current.duration_secs || null,
-      albumName: current.album_title ?? null,
-    };
-  }
-  const queued = d.queueHook.queue.find((t) => sameCueSong({ title: t.title, artistName: t.artist_name }, song));
-  if (queued?.duration_secs) return { durationSecs: queued.duration_secs, albumName: queued.album_title ?? null };
-  try {
-    const row = await invoke<Track | null>("find_track_by_metadata", {
-      title: song.title, artistName: song.artistName, albumName: null,
-    });
-    return { durationSecs: row?.duration_secs ?? null, albumName: row?.album_title ?? null };
-  } catch (e) {
-    console.error("Failed to look up the cue sheet song:", e);
-    return { durationSecs: null, albumName: null };
-  }
+function cueOpsDeps(d: ControlApiDeps): CueOpsDeps {
+  return {
+    currentTrack: () => d.playback.currentTrack,
+    currentDurationSecs: () => d.playback.durationSecs,
+    queue: () => d.queueHook.queue,
+  };
 }
 
 /** Resolve request trackIds to library tracks, preserving request order. */
@@ -852,29 +837,16 @@ export function useControlApi(deps: ControlApiDeps) {
 
       case "cues.set": {
         if (payload.sheet === undefined) bad("sheet is required: { cues: [...] } — GET /v1/cues/context describes the format");
-        const { sheet, track: sheetTrack, author: sheetAuthor } = splitSheetMeta(payload.sheet);
-        const song = cueSetSong(d, payload, sheetTrack);
-        // The app's own facts first; the sheet's block only fills a gap (a
-        // song nothing here knows the length of).
-        const facts = await cueSongFacts(d, song);
-        const durationSecs = facts.durationSecs ?? sheetTrack?.durationSecs ?? null;
+        const song = cueSetSong(d, payload, splitSheetMeta(payload.sheet).track);
         // Both outcomes are counted (anonymously: mode, cue-count bucket, the
         // rejected field's name) — whether assistants use this and where they
-        // trip over the format is what the field test is for.
-        const pastEnd = cuePastEndError(sheet, durationSecs);
-        if (pastEnd) {
-          track("cue_sheet_rejected", { field: cueErrorField(pastEnd) });
-          bad(pastEnd);
-        }
+        // trip over the format is what the field test is for. No declared
+        // length: the app's own facts come first, the sheet's block fills a gap.
         let row: CueSheetRow;
         try {
-          row = await invoke<CueSheetRow>("cue_sheet_set", {
-            ...song,
-            sheet,
+          row = await saveCueSheet(cueOpsDeps(d), song, payload.sheet, {
             // `source` is the field's name before 1.0.93; still accepted.
-            author: optionalString(payload.author) ?? optionalString(payload.source) ?? sheetAuthor,
-            albumName: facts.albumName ?? sheetTrack?.albumName ?? null,
-            durationSecs,
+            author: optionalString(payload.author) ?? optionalString(payload.source),
           });
         } catch (e) {
           track("cue_sheet_rejected", { field: cueErrorField(errorText(e)) });
@@ -1198,19 +1170,21 @@ export function useControlApi(deps: ControlApiDeps) {
         const action = resolveShelfPlayAction(displayKind, item);
 
         if (action.kind === "album-id" || action.kind === "artist-id") {
+          // The Home page's own play (usePlayActions.playAlbum / playArtist), so
+          // the queue gets the same banner — the entity's name, cover and
+          // description. The tracks are read here only to report the count.
           const tracks = action.kind === "album-id"
             ? await invoke<Track[]>("get_tracks", { opts: { albumId: action.id } })
             : await invoke<Track[]>("get_tracks_by_artist", { artistId: action.id });
           if (tracks.length === 0) bad("that entity has no tracks");
-          const name = (item as { name?: string }).name ?? entry.shelf.title;
-          playNow(d.queueOps, tracks.map(trackToQueueTrack), { context: { name, source: "control-api" } });
-          return { queued: tracks.length, name };
+          await (action.kind === "album-id" ? d.playAlbum : d.playArtist)(action.id, { tracks });
+          return { queued: tracks.length, name: (item as { name?: string }).name ?? entry.shelf.title };
         }
         if (action.kind === "radio") {
           const queued = await d.startRadio({
             title: action.seed.title,
             artistName: action.seed.artist_name,
-            coverPath: action.coverUrl ?? null,
+            coverPath: action.coverPath,
           });
           if (queued === null) bad("couldn't start that station");
           return { queued, name: `Radio: ${action.seed.title}` };
