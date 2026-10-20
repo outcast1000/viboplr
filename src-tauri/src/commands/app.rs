@@ -163,6 +163,40 @@ pub fn open_devtools_for_window(app: AppHandle, label: String) {
     }
 }
 
+// --- Native menus ---
+
+/// Pop up a menu built with `@tauri-apps/api/menu`, in place of its
+/// `Menu.popup()` (`plugin:menu|popup`). Tauri's own command holds the
+/// webview's resources-table lock for as long as the menu is open (2.11.x,
+/// `menu/plugin.rs` `popup`). On Windows `TrackPopupMenu` keeps pumping
+/// messages while open, so an IPC call landing meanwhile — a sync command such
+/// as `plugin:menu|new` or `plugin:resources|close` runs on the main thread —
+/// blocks on that lock while its holder waits for the main thread to close the
+/// menu: the window and the menu both freeze for good. Here the lock is
+/// released as soon as the menu is looked up. Must stay `async`: the popup
+/// waits on the main thread, so running it there would deadlock too — and that
+/// wait runs on a blocking thread, not an async worker, for as long as the menu
+/// stays open. Covers what `showNativeMenu` needs only: a `Menu` (not a
+/// `Submenu`) in the calling window. Extend this rather than calling
+/// `.popup()` (lint-banned in `eslint.config.js`).
+#[tauri::command]
+pub async fn popup_native_menu(
+    webview: tauri::Webview,
+    window: tauri::Window,
+    rid: tauri::ResourceId,
+    x: f64,
+    y: f64,
+) -> Result<(), String> {
+    let menu = webview
+        .resources_table()
+        .get::<tauri::menu::Menu<tauri::Wry>>(rid)
+        .map_err(|e| e.to_string())?;
+    run_blocking(move || {
+        tauri::menu::ContextMenu::popup_at(&*menu, window, tauri::LogicalPosition::new(x, y))
+    })
+    .await
+}
+
 #[tauri::command]
 pub fn open_folder(folder_path: String) -> Result<(), String> {
     let path = std::path::Path::new(&folder_path);

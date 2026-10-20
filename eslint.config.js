@@ -49,6 +49,15 @@ const NO_SILENT_CATCH = {
     "Empty .catch() handler. Log with console.error, or add an eslint-disable with a comment explaining why failure is safe to ignore (conventions.md > Error Logging).",
 };
 
+/** `Menu.popup()` / `Submenu.popup()` — Tauri's popup command holds the
+ *  resources lock while the menu is open, which deadlocks the app on Windows.
+ *  Go through `showNativeMenu` (nativeMenu.ts → `popup_native_menu`). */
+const NO_MENU_POPUP = {
+  selector: 'CallExpression[callee.property.name="popup"]',
+  message:
+    "Don't call .popup() on a Tauri menu — it can deadlock the app on Windows. Use showNativeMenu from nativeMenu.ts.",
+};
+
 export default tseslint.config(
   {
     ignores: [
@@ -75,7 +84,7 @@ export default tseslint.config(
       globals: { ...globals.browser },
     },
     rules: {
-      "no-restricted-syntax": ["error", NO_REF_WRITE_IN_RENDER, NO_SILENT_CATCH],
+      "no-restricted-syntax": ["error", NO_REF_WRITE_IN_RENDER, NO_SILENT_CATCH, NO_MENU_POPUP],
       "no-empty": ["error", { allowEmptyCatch: false }],
 
       // The codebase logs deliberately (conventions.md requires console.error in

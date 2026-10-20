@@ -253,6 +253,7 @@ macro_rules! invoke_handler {
             commands::install_gallery_skin,
             commands::open_devtools,
             commands::open_devtools_for_window,
+            commands::popup_native_menu,
             commands::plugin_list_installed,
             commands::plugin_read_file,
             commands::plugin_asset_path,

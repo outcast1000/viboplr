@@ -629,6 +629,8 @@ window.__TAURI_INTERNALS__.invoke = async function (cmd, args) {
       return false;
     case 'assistant_pause_set':
       return !!(args && args.paused);
+    case 'popup_native_menu':
+      return null;
     default:
       console.warn('[tauri-mock] unhandled invoke:', cmd, args);
       return null;

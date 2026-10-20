@@ -1,5 +1,5 @@
 import { Menu, MenuItem, CheckMenuItem, PredefinedMenuItem, Submenu } from "@tauri-apps/api/menu";
-import { LogicalPosition } from "@tauri-apps/api/dpi";
+import { invoke } from "@tauri-apps/api/core";
 
 export type MenuItemSpec =
   | { kind: "item"; text: string; enabled?: boolean; action: () => void }
@@ -50,7 +50,10 @@ export async function showNativeMenu(x: number, y: number, specs: MenuItemSpec[]
   const items = await buildItems(specs);
   const menu = await Menu.new({ items });
   try {
-    await menu.popup(new LogicalPosition(x, y));
+    // Not `menu.popup()`: Tauri's popup command holds the resources lock while
+    // the menu is open, and on Windows any menu IPC landing meanwhile
+    // deadlocks the app (see `popup_native_menu` in commands/app.rs).
+    await invoke("popup_native_menu", { rid: menu.rid, x, y });
   } finally {
     await closeItems(items);
     await menu.close().catch((e) => console.error("Failed to close menu:", e));
