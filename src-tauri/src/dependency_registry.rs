@@ -884,10 +884,18 @@ mod tests {
         // Hosts up to v1.0.112 defined yt-dlp and rqbit themselves and recorded
         // these fingerprints in `.sources.json` for every managed copy they
         // installed. The plugins' definitions must keep producing them, or
-        // those copies read as another source and stop auto-updating.
+        // those copies read as another source (Tools offers Reinstall, the
+        // update notice leaves them out).
+        //
+        // rqbit moved on deliberately: plugin 0.6.0 (Vibo 1.0.113+) verifies
+        // against GitHub's asset digest instead of `checksum: none`, so every
+        // copy installed under the old definition — fingerprint
+        // 4d5deda1d61a1e283d97d901b7e880ff7554a981d4dd717fe448f176ba439080,
+        // hosts ≤ 1.0.112 and rqbit plugin ≤ 0.5.0 — is offered Reinstall once
+        // (owner decision, 2026-10-20). Change either literal only on purpose.
         for (name, expected) in [
             ("yt-dlp", "af969c1a37284e857e1fe6c09f03584aa70c33bb0f6224f1dd62730c99ac173b"),
-            ("rqbit", "4d5deda1d61a1e283d97d901b7e880ff7554a981d4dd717fe448f176ba439080"),
+            ("rqbit", "bbd6c242bbeaeef4cd19017da4a1c3a6dcb36f5d4e97040c8c2c715bc62cdb3d"),
         ] {
             assert_eq!(dependencies::fingerprint(fixture_def(name)), expected, "{name}");
         }
@@ -921,7 +929,8 @@ mod tests {
         let rq = fixture_def("rqbit");
         let m = rq.managed.as_ref().unwrap();
         assert_eq!(m.repo, "ikatson/rqbit");
-        assert_eq!(m.checksum, dependencies::Checksum::Unverified);
+        // rqbit publishes no checksums file; GitHub records a sha256 per asset.
+        assert_eq!(m.checksum, dependencies::Checksum::GitHubDigest);
         assert!(m.asset_zipapp.is_none(), "rqbit is a native binary, never a zipapp");
         assert!(m.platform_asset().is_some());
         assert!(rq.os_trust.is_none());
@@ -1053,6 +1062,8 @@ mod tests {
         let mut entry = rqbit_entry();
         entry["name"] = json!("demo-torrent");
         entry["definition"]["managed"]["repo"] = json!("someone/rqbit-fork");
+        // Spelled out: the consent dialog says when nothing checks the download.
+        entry["definition"]["managed"]["checksum"] = json!({ "none": true });
         write_plugin(plugins.path(), "torrents", json!([entry, { "name": "ffmpeg", "required": false }]));
         let roots = vec![PluginRoot { dir: plugins.path().to_path_buf(), builtin: false, single: false }];
 

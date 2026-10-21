@@ -116,11 +116,17 @@ pub fn switch_profile(
 /// restart code, for which `ExitRequested`'s `prevent_exit` does nothing, so
 /// the hold has to happen before it is called.
 #[tauri::command]
-pub fn relaunch_app(app: AppHandle, state: State<'_, AppState>) {
-    state.db.write_barrier();
+pub async fn relaunch_app(app: AppHandle, state: State<'_, AppState>) -> Result<(), String> {
+    // Drain an in-flight DB write first — off the main thread, since it waits.
+    let db = Arc::clone(&state.db);
+    run_blocking(move || -> Result<(), String> {
+        db.write_barrier();
+        Ok(())
+    })
+    .await?;
     if crate::quit_handshake::should_hold(&state.app_dir) {
         crate::quit_handshake::run(app, state.app_dir.clone(), |app| app.restart());
-        return;
+        return Ok(());
     }
     app.restart();
 }

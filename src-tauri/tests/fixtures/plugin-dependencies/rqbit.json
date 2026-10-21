@@ -23,7 +23,7 @@
         "linux-arm64": "rqbit-linux-arm64"
       },
       "checksum": {
-        "none": true
+        "github": true
       }
     }
   }
