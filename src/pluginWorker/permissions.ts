@@ -245,6 +245,7 @@ export const PERMISSION_TABLE: Record<string, PermissionCheck | null> = {
   "system.getDependency": OWN,
   // Which build of a program to fetch; says nothing about the user.
   "system.platform": OWN,
+  "system.userFolders": OWN,
   "system.readAudioTags": need("files:read"),
   "system.openPath": need("system:open"),
   "system.revealPath": need("system:open"),
@@ -260,6 +261,9 @@ export const PERMISSION_TABLE: Record<string, PermissionCheck | null> = {
   "system.programs.list": OWN,
   "system.programs.stop": need("programs:run"),
   "system.programs.remove": need("programs:run"),
+  // Being told Vibo is quitting, to stop its own programs: no permission, like
+  // reading their status — it does nothing on its own.
+  "system.programs.onAppQuitting": OWN,
 
   "env.get": (args) => `env:${String(args[0])}`,
 };
@@ -356,7 +360,7 @@ export function describePermission(perm: string): PermissionDescription {
     case "programs:run":
       return {
         label: "Download and run programs on this computer",
-        detail: "They can keep running after Vibo quits and start when you log in. A program run this way can do anything you can.",
+        detail: "They can keep running after Vibo quits. A program run this way can do anything you can.",
         sensitive: true,
       };
     case "assistant:host":
@@ -418,8 +422,12 @@ export function networkHosts(granted: readonly string[]): string[] {
 }
 
 export class PermissionError extends Error {
-  constructor(readonly pluginId: string, readonly path: string, readonly required: string) {
-    super(`Permission denied: plugin "${pluginId}" needs "${required}" to call api.${path} — declare it in manifest.permissions`);
+  /** `declined`: an optional permission the user just said no to — the plugin
+   *  declared it, so "declare it" would be the wrong advice. */
+  constructor(readonly pluginId: string, readonly path: string, readonly required: string, readonly declined = false) {
+    super(declined
+      ? `Permission denied: plugin "${pluginId}" needs "${required}" to call api.${path} — the user didn't allow it`
+      : `Permission denied: plugin "${pluginId}" needs "${required}" to call api.${path} — declare it in manifest.permissions`);
     this.name = "PermissionError";
   }
 }

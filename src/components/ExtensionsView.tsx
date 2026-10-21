@@ -96,8 +96,6 @@ interface ExtensionsViewProps {
   onSetPluginViewMode?: (mode: PluginViewMode) => void;
   // Tools tab (external binaries). Owned by useDependencies in App.tsx.
   dependencies?: DependenciesApi;
-  autoUpdateManagedDeps?: boolean;
-  onAutoUpdateManagedDepsChange?: (enabled: boolean) => void;
   /** One-shot tab switch from elsewhere (Settings' "Open Tools"); bump `seq` to re-fire.
    *  `detailId` also opens that extension's detail pane (a plugin's own
    *  "Extension settings" link, `requestAction("open-extension-settings")`). */
@@ -959,7 +957,7 @@ export default function ExtensionsView(props: ExtensionsViewProps) {
     pluginGalleryLoading, pluginGalleryError, skinGalleryLoading, skinGalleryError,
     onPreviewSkin, onCreateSkin, onOpenSkinInEditor, onRefreshSkin, onSubmitSkin,
     pluginViewMode = "list", onSetPluginViewMode,
-    dependencies, autoUpdateManagedDeps = true, onAutoUpdateManagedDepsChange, tabRequest,
+    dependencies, tabRequest,
     isVisible = true, style,
   } = props;
 
@@ -1328,8 +1326,6 @@ export default function ExtensionsView(props: ExtensionsViewProps) {
       {tab === "tools" && dependencies ? (
         <DependenciesPanel
           dependencies={dependencies}
-          autoUpdateManagedDeps={autoUpdateManagedDeps}
-          onAutoUpdateManagedDepsChange={(v) => onAutoUpdateManagedDepsChange?.(v)}
           searchQuery={searchQuery}
           isVisible={isVisible}
         />

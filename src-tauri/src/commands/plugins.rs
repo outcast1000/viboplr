@@ -607,7 +607,9 @@ pub async fn plugin_fetch(url: String, method: Option<String>, headers: Option<s
     let method_owned = method_str.to_string();
     let work = async move {
         let start = std::time::Instant::now();
-        let resp = req.send().await.map_err(|e| e.to_string())?;
+        // The whole source chain: reqwest's Display names no cause, and plugins
+        // read it ("Connection refused" is how slskd's setup finds a free port).
+        let resp = req.send().await.map_err(|e| crate::error_chain::err_chain(&e))?;
         let status = resp.status().as_u16();
         log::info!("HTTP {} plugin_fetch {} -> {} ({:.0}ms)", method_owned, url, status, start.elapsed().as_secs_f64() * 1000.0);
         // The URL the response actually came from, after reqwest followed any
@@ -618,7 +620,7 @@ pub async fn plugin_fetch(url: String, method: Option<String>, headers: Option<s
         let final_url = resp.url().to_string();
         // Before `text()`, which consumes the response.
         let resp_headers = flatten_response_headers(resp.headers());
-        let text = resp.text().await.map_err(|e| e.to_string())?;
+        let text = resp.text().await.map_err(|e| crate::error_chain::err_chain(&e))?;
         Ok(serde_json::json!({
             "status": status,
             "body": text,
@@ -888,6 +890,16 @@ mod tests {
         assert!(!plugin_fetch_cancel("t-early".into()));
         let out = tokio::time::timeout(std::time::Duration::from_secs(2), fetch_with_id(url, "t-early")).await.expect("did not hang");
         assert_eq!(out.unwrap_err(), FETCH_ABORTED);
+    }
+
+    #[tokio::test]
+    async fn test_a_refused_connection_says_so() {
+        // The slskd plugin picks a free port by looking for "refused"; reqwest's
+        // Display alone says only "error sending request".
+        let (listener, url) = silent_server();
+        drop(listener);
+        let err = plugin_fetch(url, None, None, None, None, Some(2000), None, None).await.unwrap_err();
+        assert!(err.to_lowercase().contains("refused"), "{err}");
     }
     use reqwest::header::{HeaderMap, HeaderValue, SET_COOKIE};
 

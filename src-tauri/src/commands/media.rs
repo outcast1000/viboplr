@@ -332,7 +332,7 @@ pub async fn check_dependencies(
                     latest_version: cache.get_latest(def.name).flatten(),
                     managed_repo: def.managed.as_ref().map(|m| m.repo.to_string()),
                     declared_by: crate::dependency_registry::declared_by(def.name),
-                    signed_definition: crate::dependency_registry::auto_update_allowed(def.name),
+                    signed_definition: crate::dependency_registry::signed_definition(def.name),
                     verified: def
                         .managed
                         .as_ref()
@@ -346,7 +346,18 @@ pub async fn check_dependencies(
 }
 
 /// Install (or update — same code path, the download URL always points at the
-/// latest release) the app-managed copy of a dependency.
+/// latest release) the app-managed copy of a dependency. Only ever the user's
+/// click (Tools, the update notice, an install dialog): nothing updates a tool
+/// silently.
+///
+/// A copy running as a plugin's background program in this profile is stopped
+/// first (SIGTERM, then a kill after the grace) and started again afterwards
+/// with the arguments its plugin registered — after a failed install too, so an
+/// update attempt never leaves it stopped. A start a plugin asks for in between
+/// is refused (`plugin_programs::begin_update`); if one copy won't stop, nothing
+/// installs and the ones already stopped start again. A copy running from another profile
+/// isn't seen (the bin dir is shared): on Windows the swap then fails with "is
+/// it running?"; on macOS that copy keeps its open files until it restarts.
 #[tauri::command]
 pub async fn dependency_install(
     app: tauri::AppHandle,
@@ -355,21 +366,103 @@ pub async fn dependency_install(
     confirmed_unverified: Option<bool>,
 ) -> Result<String, String> {
     let cache = Arc::clone(&state.dep_cache);
+    let app_dir = state.app_dir.clone();
     run_blocking(move || -> Result<_, String> {
-        let progress_name = name.clone();
-        let confirmed = confirmed_unverified.unwrap_or(false);
-        let version = dependencies::install_managed(&name, &cache, confirmed, |downloaded, total| {
-            let _ = app.emit(
-                "dependency-install-progress",
-                serde_json::json!({ "name": progress_name, "downloaded": downloaded, "total": total }),
-            );
+        let running = crate::plugin_programs::running_for_dependency(&app_dir, &name);
+        let updating = crate::plugin_programs::begin_update(&name);
+        let mut stopped = Vec::new();
+        let mut stop_error = None;
+        for reg in &running {
+            log::info!("Stopping {}:{} to update {}", reg.plugin_id, reg.name, name);
+            match crate::plugin_programs::stop(&app_dir, &reg.plugin_id, &reg.name, SERVICE_UPDATE_GRACE) {
+                Ok(_) => stopped.push(reg.clone()),
+                Err(e) => {
+                    stop_error = Some(format!("Couldn't stop {} to update {}: {}", reg.name, name, e));
+                    break;
+                }
+            }
+        }
+        // One still running would be swapped from under (and restarted as a
+        // second copy), so nothing installs; the ones already stopped start again.
+        let result = match &stop_error {
+            Some(e) => Err(e.clone()),
+            None => {
+                let progress_name = name.clone();
+                let confirmed = confirmed_unverified.unwrap_or(false);
+                dependencies::install_managed(&name, &cache, confirmed, |downloaded, total| {
+                    let _ = app.emit(
+                        "dependency-install-progress",
+                        serde_json::json!({ "name": progress_name, "downloaded": downloaded, "total": total }),
+                    );
+                })
+            }
+        };
+        drop(updating);
+        let mut restart_errors = Vec::new();
+        for reg in &stopped {
+            match crate::plugin_programs::restart(&app_dir, reg) {
+                Ok(()) => {
+                    let _ = app.emit(
+                        "program-restarted",
+                        serde_json::json!({ "pluginId": reg.plugin_id, "name": reg.name }),
+                    );
+                }
+                Err(e) => {
+                    log::warn!("{}:{} didn't start again after the update: {}", reg.plugin_id, reg.name, e);
+                    restart_errors.push(format!("{} didn't start again: {}", reg.name, e));
+                }
+            }
+        }
+        let version = result.map_err(|e| match restart_errors.is_empty() {
+            true => e,
+            false => format!("{e}\n{}", restart_errors.join("\n")),
         })?;
         let _ = app.emit(
             "dependency-installed",
             serde_json::json!({ "name": name, "version": version }),
         );
         log::info!("Installed managed {} {}", name, version);
+        if !restart_errors.is_empty() {
+            return Err(format!("{} {} is installed, but {}", name, version, restart_errors.join("; ")));
+        }
         Ok(version)
+    })
+    .await
+}
+
+/// How long a service gets to shut down cleanly before an update kills it.
+const SERVICE_UPDATE_GRACE: std::time::Duration = std::time::Duration::from_secs(15);
+
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DependencyService {
+    plugin_id: String,
+    name: String,
+    running: bool,
+    started_at: Option<u64>,
+}
+
+/// The background programs of this profile that run Vibo's copy of `name`
+/// (the Tools row's status line). Read-only: starting and stopping is the
+/// plugin's.
+#[tauri::command]
+pub async fn dependency_services(
+    state: State<'_, AppState>,
+    name: String,
+) -> Result<Vec<DependencyService>, String> {
+    let app_dir = state.app_dir.clone();
+    run_blocking(move || {
+        Ok::<_, std::convert::Infallible>(
+            crate::plugin_programs::services_for_dependency(&app_dir, &name)
+                .into_iter()
+                .map(|(reg, running)| DependencyService {
+                    plugin_id: reg.plugin_id,
+                    name: reg.name,
+                    running,
+                    started_at: if running { reg.started_at } else { None },
+                })
+                .collect(),
+        )
     })
     .await
 }
@@ -382,7 +475,13 @@ pub async fn dependency_uninstall_managed(
     name: String,
 ) -> Result<Option<String>, String> {
     let cache = Arc::clone(&state.dep_cache);
+    let app_dir = state.app_dir.clone();
     run_blocking(move || -> Result<_, String> {
+        // Starting and stopping a service is its plugin's; removal doesn't pull
+        // the files out from under one.
+        if let Some(reg) = crate::plugin_programs::running_for_dependency(&app_dir, &name).first() {
+            return Err(format!("{} is running (started by {}); stop it there first", name, reg.plugin_id));
+        }
         let status = dependencies::uninstall_managed(&name, &cache)?;
         log::info!("Removed managed copy of {}", name);
         Ok(match status {
@@ -435,6 +534,11 @@ pub async fn dependency_check_updates(
                     latest,
                     outdated,
                     origin,
+                    source_mismatch: dependencies::source_mismatch(def.name),
+                    verified: def
+                        .managed
+                        .as_ref()
+                        .is_none_or(|m| m.checksum != dependencies::Checksum::Unverified),
                 }
             })
             .collect())
@@ -504,8 +608,17 @@ pub async fn dependency_definitions_revoke(
 
 /// Delete a managed copy that no definition claims any more.
 #[tauri::command]
-pub async fn dependency_remove_unused(name: String) -> Result<(), String> {
-    run_blocking(move || dependencies::remove_unused(&name)).await
+pub async fn dependency_remove_unused(state: State<'_, AppState>, name: String) -> Result<(), String> {
+    let app_dir = state.app_dir.clone();
+    run_blocking(move || {
+        // Same rule as dependency_uninstall_managed: a service whose definition
+        // left force can still be running from the folder.
+        if let Some(reg) = crate::plugin_programs::running_for_dependency(&app_dir, &name).first() {
+            return Err(format!("{} is running (started by {}); stop it there first", name, reg.plugin_id));
+        }
+        dependencies::remove_unused(&name)
+    })
+    .await
 }
 
 #[tauri::command]

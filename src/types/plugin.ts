@@ -2297,6 +2297,10 @@ export interface PluginSystemAPI {
    *  `arm64` | `x64` (other CPUs by Rust's name) — for picking which build of a
    *  program to download. No permission. Feature-detect. */
   platform?(): Promise<{ os: string; arch: string }>;
+  /** The user's standard folders (absolute paths; null where the OS has none),
+   *  for a folder setting's default — e.g. `<downloads>/Soulseek` — so the user
+   *  needn't pick one before anything works. No permission. Feature-detect. */
+  userFolders?(): Promise<{ home: string | null; downloads: string | null; music: string | null }>;
   /** Programs the plugin downloads into its own file store and runs — see
    *  `PluginProgramsAPI`. Needs the `programs:run` permission. Absent on older
    *  hosts: feature-detect with `typeof api.system.programs?.start === "function"`. */
@@ -2319,12 +2323,25 @@ export interface PluginProgramStatus {
 }
 
 /** What `start` runs. Paths are segments inside the plugin's file store, the
- *  same form `api.storage.files` takes. */
+ *  same form `api.storage.files` takes. Give exactly one of `path` and
+ *  `dependency`. */
 export interface PluginProgramSpec {
-  path: string[];
+  /** A binary in the plugin's store that `download` / `extract` brought. */
+  path?: string[];
+  /**
+   * Vibo's managed copy of a tool this plugin lists in `binaryDependencies`
+   * (installed through Extensions → Tools). The first start — and the first
+   * after the tool's definition changes its source — asks the user "Let <plugin>
+   * run <tool> in the background?"; an update of the same source never asks
+   * again. A system copy on PATH is never started: it is the user's own. Vibo
+   * stops and restarts it around an update the user clicks; everything else
+   * about it (config, data, stop) stays the plugin's.
+   */
+  dependency?: string;
   args?: string[];
   env?: Record<string, string>;
-  /** Working directory; defaults to the binary's folder. */
+  /** Working directory inside the store; defaults to the binary's folder, or
+   *  to the store itself for a `dependency`. */
   cwd?: string[];
   /** Keep running after Vibo quits (default `true`). `false` ties the program
    *  to the app: the host stops it when Vibo exits. */
@@ -2393,6 +2410,13 @@ export interface PluginProgramsAPI {
   stop(name: string, opts?: { graceSecs?: number }): Promise<PluginProgramStatus>;
   /** Stop it and forget it. Its files stay in the store. */
   remove(name: string): Promise<void>;
+  /**
+   * Called when Vibo is quitting while one of this plugin's programs started
+   * with `outliveApp: false` runs: stop it your own (clean) way here. The quit
+   * waits for every plugin's handler, at most 5s in total, then the host stops
+   * what is still running. Returns an unsubscriber. Feature-detect.
+   */
+  onAppQuitting?(handler: () => void | Promise<void>): () => void;
 }
 
 /** Embedded tags for one file. Every field is optional; a missing one means the

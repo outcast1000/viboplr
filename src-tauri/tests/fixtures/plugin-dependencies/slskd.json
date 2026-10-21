@@ -1,0 +1,32 @@
+{
+  "name": "slskd",
+  "required": false,
+  "reason": "Run a Soulseek client on this computer, if you don't run slskd yourself",
+  "definition": {
+    "description": "Soulseek client the Soulseek plugin can run for you",
+    "versionArgs": ["--version"],
+    "versionPattern": "^v?(\\d+\\.\\d+\\.\\d+)",
+    "probeEnv": {
+      "DOTNET_BUNDLE_EXTRACT_BASE_DIR": "{install}/.probe-extract",
+      "DOTNET_CLI_TELEMETRY_OPTOUT": "1",
+      "DOTNET_NOLOGO": "1"
+    },
+    "install": {
+      "url": "https://github.com/slskd/slskd/releases"
+    },
+    "managed": {
+      "repo": "slskd/slskd",
+      "assets": {
+        "macos-arm64": "slskd-{version}-osx-arm64.zip",
+        "macos-x64": "slskd-{version}-osx-x64.zip",
+        "windows-x64": "slskd-{version}-win-x64.zip",
+        "windows-arm64": "slskd-{version}-win-arm64.zip",
+        "linux-x64": "slskd-{version}-linux-x64.zip",
+        "linux-arm64": "slskd-{version}-linux-arm64.zip"
+      },
+      "layout": "folder",
+      "entry": "slskd",
+      "checksum": { "github": true }
+    }
+  }
+}

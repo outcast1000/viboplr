@@ -83,7 +83,13 @@ import { useAutoContinue } from "./hooks/useAutoContinue";
 import { usePasteImage } from "./hooks/usePasteImage";
 import { useNavigationHistory, type NavState } from "./hooks/useNavigationHistory";
 import { useAppUpdater, updateBadgeFor } from "./hooks/useAppUpdater";
-import { resolveUpdateNotice, dismissNotice, type UpdateNoticeDismissals } from "./utils/updateNotice";
+import {
+  resolveUpdateNotice,
+  dismissNotice,
+  updateAllOrder,
+  type ToolUpdate,
+  type UpdateNoticeDismissals,
+} from "./utils/updateNotice";
 import { UpdateNoticeBanner } from "./components/UpdateNoticeBanner";
 import {
   useMiniMode, cycleRestingSize, cycleMiniWidth,
@@ -113,7 +119,7 @@ import { RetrieveModal } from "./components/RetrieveModal";
 import { useExtensions, type PermissionRequest } from "./hooks/useExtensions";
 import { PluginPermissionPrompt } from "./components/PluginPermissionPrompt";
 import { UnsignedProgramsWarning } from "./components/UnsignedProgramsWarning";
-import { OptionalPermissionsPrompt, ProgramInstallConfirm } from "./components/ProgramPrompts";
+import { DependencyRunConfirm, OptionalPermissionsPrompt, ProgramInstallConfirm } from "./components/ProgramPrompts";
 import { PluginInstallModal } from "./components/PluginInstallModal";
 import { useAssistantInstall } from "./hooks/useAssistantInstall";
 
@@ -483,9 +489,6 @@ function App() {
       throw e; // the Settings section shows the failure inline
     }
   }, [setControlApiEnabled]);
-  // Default ON — stale yt-dlp breaks against YouTube and the failure looks
-  // like an app bug to users. See MANAGED-DEPENDENCIES-PLAN.md.
-  const [autoUpdateManagedDeps, setAutoUpdateManagedDeps] = usePersistedSetting("autoUpdateManagedDeps", true, restoredRef);
   const [minimizeToMiniPlayer, setMinimizeToMiniPlayer] = usePersistedSetting("minimizeToMiniPlayer", false, restoredRef);
   const [confirmTrashDelete, setConfirmTrashDelete] = usePersistedSetting("confirmTrashDelete", true, restoredRef);
   const [bitPerfectSkipConfirm, setBitPerfectSkipConfirm] = usePersistedSetting("bitPerfectSkipConfirm", false, restoredRef);
@@ -1876,11 +1879,64 @@ function App() {
   const [updateNoticeDismissed, setUpdateNoticeDismissed] = usePersistedSetting<UpdateNoticeDismissals>(
     "updateNoticeDismissed", {}, restoredRef,
   );
+  // Vibo's own copies with a newer release — the same gate as the Tools row's
+  // Update button (a copy from another source shows Reinstall there instead).
+  const toolUpdates = useMemo((): ToolUpdate[] => dependencies.updates
+    .filter((u) => u.outdated && u.origin === "managed" && u.latest && !u.sourceMismatch)
+    .map((u) => ({
+      name: u.name,
+      installed: u.installed,
+      latest: u.latest!,
+      running: dependencies.services[u.name]?.some((s) => s.running) ?? false,
+    })), [dependencies.updates, dependencies.services]);
   const updateNotice = useMemo(() => resolveUpdateNotice({
     appUpdate: updater.updateState.available,
     extensionUpdates: extensionsHook.updates,
+    toolUpdates,
     dismissed: updateNoticeDismissed,
-  }), [updater.updateState.available, extensionsHook.updates, updateNoticeDismissed]);
+  }), [updater.updateState.available, extensionsHook.updates, toolUpdates, updateNoticeDismissed]);
+  // A tool update started from the banner that failed: kept until the next
+  // attempt (a toast would be gone before anyone read it).
+  const [toolUpdateFailure, setToolUpdateFailure] = useState<string | null>(null);
+  const [noticeBusy, setNoticeBusy] = useState(false);
+  const handleUpdateNoticeUpdate = useCallback(async () => {
+    if (!updateNotice) return;
+    setNoticeBusy(true);
+    setToolUpdateFailure(null);
+    const failed: string[] = [];
+    let extensionsFailed = false;
+    try {
+      for (const part of updateAllOrder(updateNotice)) {
+        if (part === "tools") {
+          for (const item of updateNotice.items.filter((i) => i.kind === "tools")) {
+            try {
+              await dependencies.installDep(item.name);
+            } catch (e) {
+              console.error(`Failed to update ${item.name}:`, e);
+              failed.push(`${item.name}: ${e instanceof Error ? e.message : String(e)}`);
+            }
+          }
+        } else if (part === "extensions") {
+          try {
+            // Its own failures show in its result modal.
+            if ((await extensionsHook.updateAll()).length > 0) extensionsFailed = true;
+          } catch (e) {
+            console.error("Failed to update extensions:", e);
+            failed.push(`extensions: ${e instanceof Error ? e.message : String(e)}`);
+          }
+        } else if (failed.length === 0 && !extensionsFailed) {
+          // Last: the app relaunches when it's done — so not after a failure,
+          // which the relaunch would wipe before anyone read it.
+          await updater.handleInstallUpdate();
+        }
+      }
+    } catch (e) {
+      console.error("Failed to install updates:", e);
+    } finally {
+      setNoticeBusy(false);
+      if (failed.length > 0) setToolUpdateFailure(`Couldn't update ${failed.join("; ")}`);
+    }
+  }, [updateNotice, dependencies, extensionsHook, updater]);
   // Height of the update strip, so the Now Playing video theater (absolute over
   // the whole `.main`) starts below it instead of covering its buttons.
   const [updateNoticeHeight, setUpdateNoticeHeight] = useState(0);
@@ -1924,6 +1980,20 @@ function App() {
       consumePendingProfileSwitch();
     });
   }, [consumePendingProfileSwitch]);
+
+  // Vibo is quitting while a plugin program that asked not to outlive it runs
+  // (quit_handshake.rs): let each plugin stop its own, then let the quit go on.
+  // Rust stops whatever is left after 5s either way.
+  const runAppQuittingRef = useLatestRef(plugins.runAppQuitting);
+  useEffect(() => {
+    return subscribe("app-quitting", () => {
+      runAppQuittingRef.current()
+        .catch((e) => console.error("Plugins' quit handlers failed:", e))
+        .finally(() => {
+          invoke("app_quit_ready").catch((e) => console.error("Failed to let the quit go on:", e));
+        });
+    });
+  }, [runAppQuittingRef]);
 
   // True while a now-playing-bar like/dislike write is in flight, used to
   // disable the bar's like control as a visual cue (the hook already guards the
@@ -3457,7 +3527,7 @@ function App() {
           nowPlayingInfoPersistence: savedNowPlayingInfoTop,
           nowPlayingInfoOrder: savedNowPlayingInfoOrder,
           loggingEnabled: savedLoggingEnabled, debugLogging: savedDebugLogging, debugMode: savedDebugMode,
-          devPluginPath: savedDevPluginPath, autoUpdateManagedDeps: savedAutoUpdateDeps,
+          devPluginPath: savedDevPluginPath,
           controlApiEnabled: savedControlApiEnabled,
         } = await timeAsync("store.restore", () => readPersistedSettings(store));
         for (const key of RETIRED_STORE_KEYS) {
@@ -3684,8 +3754,6 @@ function App() {
         // Mirror only — lib.rs already started (or failed to start) the server
         // from this same key before the webview existed.
         if (savedControlApiEnabled) setControlApiEnabled(true);
-        // Default ON: only disable when explicitly set to false.
-        if (savedAutoUpdateDeps === false) setAutoUpdateManagedDeps(false);
         if (savedDebugLogging) { setDebugLogging(true); setDebugLoggingRef(true); }
         if (savedDebugMode) setDebugMode(true);
         if (savedDevPluginPath) setDevPluginPath(savedDevPluginPath);
@@ -4588,6 +4656,16 @@ function App() {
     if (downloadModal) modals.push("download");
     if (bitPerfect.confirmPin) modals.push("bit-perfect-confirm");
     if (centralSearch.isOpen) modals.push("search");
+    // Dialogs waiting on the user's answer — an assistant that asked for an
+    // install sees what it is waiting on.
+    if (assistantInstall.flow) modals.push("extension-install");
+    if (plugins.optionalPermissionsRequest || permissionQueue.length > 0) modals.push("plugin-permissions");
+    if (plugins.unsignedProgramsRequest) modals.push("unsigned-programs");
+    if (plugins.programInstallRequest) modals.push("program-install");
+    if (plugins.dependencyRunRequest) modals.push("program-run");
+    if (dependencies.modalState) modals.push("tool-install");
+    if (dependencies.consentRequest) modals.push("tool-definition-consent");
+    if (dependencies.unverifiedRequest) modals.push("tool-unverified");
     const sel = library.selectedTrack;
     return {
       view: library.view,
@@ -4887,10 +4965,6 @@ function App() {
 
   function handleLoggingEnabledChange(enabled: boolean) {
     setLoggingEnabled(enabled); // persistence: usePersistedSetting
-  }
-
-  function handleAutoUpdateManagedDepsChange(enabled: boolean) {
-    setAutoUpdateManagedDeps(enabled); // persistence: usePersistedSetting
   }
 
   function handleDebugLoggingChange(enabled: boolean) {
@@ -6021,17 +6095,25 @@ function App() {
           {updateNotice && !showOnboarding && !showcase && (
             <UpdateNoticeBanner
               notice={updateNotice}
-              installing={updateNotice.kind === "app" && updater.updateState.downloading}
-              progress={updater.updateState.progress}
-              error={updater.updateState.error}
-              onUpdate={() => {
-                if (updateNotice.kind === "app") updater.handleInstallUpdate();
-                else extensionsHook.updateAll();
-              }}
+              installing={noticeBusy || (updateNotice.parts.includes("app") && updater.updateState.downloading)}
+              progress={updater.updateState.downloading ? updater.updateState.progress : null}
+              // Only an install failure belongs here. A failed *check* is about
+              // a release this banner can't be announcing (it has one, so the
+              // check succeeded at some point) — that stays in Settings.
+              failure={
+                toolUpdateFailure ??
+                (updateNotice.parts.includes("app") && updater.updateState.error?.stage === "install"
+                  ? updater.updateState.error.message
+                  : null)
+              }
+              onUpdate={() => { handleUpdateNoticeUpdate().catch(console.error); }}
               onOpenDetails={() => {
-                if (updateNotice.kind === "app") {
+                if (updateNotice.parts.includes("app")) {
                   setSettingsScrollTarget("app-update");
                   library.setView("settings");
+                } else if (updateNotice.kind === "tools") {
+                  setExtTabRequest((prev) => ({ tab: "tools", seq: (prev?.seq ?? 0) + 1 }));
+                  library.setView("extensions");
                 } else {
                   library.setView("extensions");
                 }
@@ -6453,8 +6535,6 @@ function App() {
               pluginViewMode={pluginViewMode}
               onSetPluginViewMode={handlePluginViewModeChange}
               dependencies={dependencies}
-              autoUpdateManagedDeps={autoUpdateManagedDeps}
-              onAutoUpdateManagedDepsChange={handleAutoUpdateManagedDepsChange}
               tabRequest={extTabRequest}
             />
           </FreezeWhileHidden>
@@ -6945,6 +7025,17 @@ function App() {
           label={plugins.programInstallRequest.label}
           onInstall={() => plugins.programInstallRequest?.answer(true)}
           onCancel={() => plugins.programInstallRequest?.answer(false)}
+        />
+      )}
+      {plugins.dependencyRunRequest && (
+        <DependencyRunConfirm
+          key={`run:${plugins.dependencyRunRequest.pluginId}:${plugins.dependencyRunRequest.dependency}`}
+          pluginName={plugins.dependencyRunRequest.pluginName}
+          dependency={plugins.dependencyRunRequest.dependency}
+          version={plugins.dependencyRunRequest.version}
+          repo={plugins.dependencyRunRequest.repo}
+          onAllow={() => plugins.dependencyRunRequest?.answer(true)}
+          onCancel={() => plugins.dependencyRunRequest?.answer(false)}
         />
       )}
       {plugins.unsignedProgramsRequest && (

@@ -1,24 +1,24 @@
 import { useLayoutEffect, useRef, useState } from "react";
-import type { UpdateError } from "../hooks/useAppUpdater";
-import type { UpdateNotice } from "../utils/updateNotice";
+import { noticeItemLine, type UpdateNotice } from "../utils/updateNotice";
 import { UpdateProgress } from "./UpdateProgress";
 import "./UpdateNoticeBanner.css";
 
 export interface UpdateNoticeBannerProps {
   notice: UpdateNotice;
-  /** The app update is downloading/installing right now. */
+  /** Something in this notice is downloading/installing right now. */
   installing: boolean;
-  /** Byte progress of that download, when the app notice is installing. */
+  /** Byte progress of that download, when known. */
   progress: { downloaded: number; total: number } | null;
   /**
    * Why the last attempt from *this* banner failed. Without it the strip just
-   * reverts to "Update & restart" and the explanation lives only in Settings —
-   * i.e. behind the page this banner exists to save the user from opening.
+   * reverts to "Update & restart" and the explanation lives only in Settings or
+   * Extensions — i.e. behind the page this banner exists to save the user from
+   * opening.
    */
-  error: UpdateError | null;
-  /** Install the app update (and relaunch), or update every extension. */
+  failure: string | null;
+  /** Install everything in the notice (tools, extensions, then the app). */
   onUpdate: () => void;
-  /** Open the surface that owns the detail: Settings, or Extensions. */
+  /** Open the surface that owns the detail: Settings, Extensions or Tools. */
   onOpenDetails: () => void;
   /** Hide this notice until its signature changes. */
   onDismiss: () => void;
@@ -49,7 +49,7 @@ export function UpdateNoticeBanner({
   notice,
   installing,
   progress,
-  error,
+  failure,
   onUpdate,
   onOpenDetails,
   onDismiss,
@@ -71,17 +71,20 @@ export function UpdateNoticeBanner({
     };
   }, [onHeightChange]);
   const isApp = notice.kind === "app";
-  // Only an install failure belongs here. A failed *check* is about a release
-  // this banner can't be announcing (it has one, so the check succeeded at
-  // some point) — that one stays in Settings, where its retry lives.
-  const failure = isApp && error?.stage === "install" ? error : null;
-  // Release notes for the app; the affected extension names otherwise. Both
-  // answer "what am I being asked to install?", which the Settings row never
-  // did — the updater has always fetched the notes and shown them nowhere.
-  // A single extension is already named in the headline, so it gets no
-  // disclosure that would only repeat it.
-  const names = notice.names ?? [];
-  const details = isApp ? notice.body : names.length > 1 ? names.join(", ") : undefined;
+  // Release notes for the app alone; the list of what would be installed
+  // otherwise. Both answer "what am I being asked to install?", which the
+  // Settings row never did — the updater has always fetched the notes and shown
+  // them nowhere. A single item is already named in the headline, so it gets
+  // no disclosure that would only repeat it — unless it's a running tool, whose
+  // restart is worth saying before the click.
+  const lines = notice.items.map(noticeItemLine);
+  const listWorthShowing = notice.items.length > 1 || notice.items.some((i) => i.running);
+  const details = isApp
+    ? notice.body
+    : listWorthShowing
+      ? [lines.join("\n"), notice.body ? `\nWhat's new in Vibo:\n${notice.body}` : ""].join("")
+      : undefined;
+  const detailsLabel = isApp ? "Details" : notice.kind === "extensions" ? "Extensions" : notice.kind === "tools" ? "Tools" : "Details";
 
   return (
     <div ref={rootRef} className={`update-notice ${failure ? "has-error" : ""}`} role="status" aria-live="polite">
@@ -121,7 +124,7 @@ export function UpdateNoticeBanner({
                 {failure ? "Try again" : isApp ? "Update & restart" : "Update all"}
               </button>
               <button type="button" className="ds-btn ds-btn--ghost ds-btn--sm" onClick={onOpenDetails}>
-                {isApp ? "Details" : "Extensions"}
+                {detailsLabel}
               </button>
             </>
           )}
@@ -144,7 +147,7 @@ export function UpdateNoticeBanner({
         </div>
       </div>
 
-      {failure && <div className="update-notice-error">{failure.message}</div>}
+      {failure && <div className="update-notice-error">{failure}</div>}
 
       {notesOpen && details && <div className="update-notice-notes">{details}</div>}
     </div>

@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
+import { TauriEvent } from "@tauri-apps/api/event";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
-import { safeUnlisten } from "../utils/tauriEvents";
+import { combineUnlisten, subscribe } from "../utils/tauriEvents";
 import type { QueueTrack } from "../types";
 import { nextQueueKey } from "../queueEntry";
 
@@ -57,9 +58,6 @@ export function useFileDrop(deps: UseFileDropDeps) {
   useAssignRef(depsRef, deps);
 
   useEffect(() => {
-    let unlisten: (() => void) | undefined;
-    let disposed = false;
-
     async function handleDrop(paths: string[]) {
       const { enqueue, findDuplicates, expandQueue, notify } = depsRef.current;
       try {
@@ -94,32 +92,25 @@ export function useFileDrop(deps: UseFileDropDeps) {
       }
     }
 
-    getCurrentWebview()
-      .onDragDropEvent((event) => {
-        const p = event.payload;
-        if (p.type === "enter" || p.type === "over") {
-          // `enter` carries paths; `over` doesn't (position only). Ignore an
-          // `enter` with no paths defensively so the overlay only lights up for
-          // real file drags; the following `over` events keep it lit.
-          if (p.type === "enter" && p.paths.length === 0) return;
-          setIsDragging(true);
-        } else if (p.type === "leave") {
-          setIsDragging(false);
-        } else if (p.type === "drop") {
-          setIsDragging(false);
-          if (p.paths.length > 0) void handleDrop(p.paths);
-        }
-      })
-      .then((fn) => {
-        if (disposed) safeUnlisten(fn);
-        else unlisten = fn;
-      })
-      .catch((e) => console.error("Failed to subscribe to file-drop events:", e));
-
-    return () => {
-      disposed = true;
-      safeUnlisten(unlisten);
-    };
+    // The four events `onDragDropEvent` listens to, subscribed one by one: its
+    // combined unlisten calls the four inner ones and drops their promises, so
+    // the tauri stale-id rejection (see safeUnlisten) escaped as an unhandled
+    // rejection on every StrictMode remount.
+    const target = { target: { kind: "Webview" as const, label: getCurrentWebview().label } };
+    return combineUnlisten(
+      // `enter` carries paths; `over` doesn't (position only). Ignore an `enter`
+      // with no paths defensively so the overlay only lights up for real file
+      // drags; the following `over` events keep it lit.
+      subscribe<{ paths: string[] }>(TauriEvent.DRAG_ENTER, (e) => {
+        if (e.payload.paths.length > 0) setIsDragging(true);
+      }, target),
+      subscribe(TauriEvent.DRAG_OVER, () => setIsDragging(true), target),
+      subscribe(TauriEvent.DRAG_LEAVE, () => setIsDragging(false), target),
+      subscribe<{ paths: string[] }>(TauriEvent.DRAG_DROP, (e) => {
+        setIsDragging(false);
+        if (e.payload.paths.length > 0) void handleDrop(e.payload.paths);
+      }, target),
+    );
   }, []);
 
   return { isDragging };

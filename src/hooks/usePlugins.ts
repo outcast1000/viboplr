@@ -13,6 +13,7 @@ import {
   type ContributionVisibility,
 } from "../utils/pluginContributions";
 import { getVersion } from "@tauri-apps/api/app";
+import { audioDir, downloadDir, homeDir } from "@tauri-apps/api/path";
 import { track as trackTelemetry } from "../telemetry";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { open as openDialog } from "@tauri-apps/plugin-dialog";
@@ -298,6 +299,23 @@ export interface OptionalPermissionsRequest {
   answer: (allowed: boolean) => void;
 }
 
+/** Rust's answer to starting a dependency the user hasn't agreed to run yet. */
+const DEPENDENCY_RUN_UNCONFIRMED = "DEPENDENCY_RUN_UNCONFIRMED";
+/** What `programs.start({ dependency })` rejects with when the user says no. */
+export const DEPENDENCY_RUN_DECLINED = "Run declined";
+/** How long a quit waits for every plugin's `onAppQuitting` (Rust waits 5s). */
+const APP_QUIT_BUDGET_MS = 4500;
+
+/** "Let <plugin> run <tool> in the background?" */
+export interface DependencyRunRequest {
+  pluginId: string;
+  pluginName: string;
+  dependency: string;
+  version: string | null;
+  repo: string | null;
+  answer: (allowed: boolean) => void;
+}
+
 /** The host's confirmation before every `api.system.programs.download` — each
  *  install or update of a program is the user's call, not just the first. */
 export interface ProgramInstallRequest {
@@ -532,6 +550,9 @@ export function usePlugins(
   const [unsignedProgramsRequest, setUnsignedProgramsRequest] = useState<UnsignedProgramsRequest | null>(null);
   const [optionalPermissionsRequest, setOptionalPermissionsRequest] = useState<OptionalPermissionsRequest | null>(null);
   const [programInstallRequest, setProgramInstallRequest] = useState<ProgramInstallRequest | null>(null);
+  const [dependencyRunRequest, setDependencyRunRequest] = useState<DependencyRunRequest | null>(null);
+  // `api.system.programs.onAppQuitting`, one per plugin.
+  const appQuittingHandlersRef = useRef<Map<string, () => void | Promise<void>>>(new Map());
   // One host dialog at a time: a plugin firing two installs at once (or an
   // install while its permission prompt is up) waits its turn.
   const hostPromptChainRef = useRef<Promise<unknown>>(Promise.resolve());
@@ -832,6 +853,49 @@ export function usePlugins(
         },
       });
     })), [queueHostPrompt]);
+
+  /** "Let <plugin> run <tool> in the background?" — the first start of Vibo's
+   *  copy of a tool, and again after its source changed. Names the version and
+   *  where it comes from. */
+  const confirmDependencyRun = useCallback((pluginId: string, pluginName: string, dependency: string) =>
+    queueHostPrompt(async () => {
+      let version: string | null = null;
+      let repo: string | null = null;
+      try {
+        const [info] = await invoke<{ version?: string; managedRepo?: string | null }[]>("check_dependencies", {
+          names: [dependency], pluginDeps: null, forceRefresh: false,
+        });
+        version = info?.version ?? null;
+        repo = info?.managedRepo ?? null;
+      } catch (e) {
+        console.error(`Failed to read ${dependency}'s version for the run dialog:`, e);
+      }
+      return new Promise<boolean>((resolve) => {
+        setDependencyRunRequest({
+          pluginId, pluginName, dependency, version, repo,
+          answer: (ok) => {
+            setDependencyRunRequest(null);
+            resolve(ok);
+          },
+        });
+      });
+    }), [queueHostPrompt]);
+
+  /** Vibo is quitting while a program that asked not to outlive it runs: give
+   *  every plugin's `onAppQuitting` handler a chance, together at most
+   *  `APP_QUIT_BUDGET_MS`. */
+  const runAppQuitting = useCallback(async () => {
+    const handlers = [...appQuittingHandlersRef.current.entries()];
+    if (handlers.length === 0) return;
+    const all = Promise.allSettled(handlers.map(async ([pluginId, handler]) => {
+      try {
+        await handler();
+      } catch (e) {
+        console.error(`[plugin:${pluginId}] quit handler failed:`, e);
+      }
+    }));
+    await Promise.race([all, new Promise((resolve) => setTimeout(resolve, APP_QUIT_BUDGET_MS))]);
+  }, []);
 
   const buildAPI = useCallback(
     (pluginId: string, loaded: LoadedPlugin): ViboplrPluginAPI => {
@@ -2241,6 +2305,24 @@ export function usePlugins(
           async platform() {
             return invoke<{ os: string; arch: string }>("plugin_platform");
           },
+          // A sensible default for a folder setting (a downloads folder) without
+          // making the user pick one first. Each is null where the OS has none.
+          async userFolders() {
+            const read = async (get: () => Promise<string>, name: string) => {
+              try {
+                return await get();
+              } catch (e) {
+                console.error(`Couldn't read the ${name} folder:`, e);
+                return null;
+              }
+            };
+            const [home, downloads, music] = await Promise.all([
+              read(homeDir, "home"),
+              read(downloadDir, "downloads"),
+              read(audioDir, "music"),
+            ]);
+            return { home, downloads, music };
+          },
           // Programs run outside the worker sandbox, so they are a worker-only
           // surface: the permission gate (programs:run, network for downloads)
           // and the activation-time consent — including the unsigned-plugin
@@ -2299,10 +2381,39 @@ export function usePlugins(
               },
               async start(name: string, spec: PluginProgramSpec) {
                 workerOnly();
-                return invoke<PluginProgramStatus>("plugin_program_start", {
+                const send = () => invoke<PluginProgramStatus>("plugin_program_start", {
                   pluginId, name,
-                  spec: { path: spec.path, args: spec.args ?? [], env: spec.env ?? {}, cwd: spec.cwd ?? null, outliveApp: spec.outliveApp ?? true },
+                  spec: {
+                    path: spec.path ?? null,
+                    dependency: spec.dependency ?? null,
+                    args: spec.args ?? [],
+                    env: spec.env ?? {},
+                    cwd: spec.cwd ?? null,
+                    outliveApp: spec.outliveApp ?? true,
+                  },
                 });
+                let refusal: unknown;
+                try {
+                  return await send();
+                } catch (e) {
+                  refusal = e;
+                }
+                // Running Vibo's copy of a tool in the background needs the
+                // user's yes once per source; Rust refuses until it has one.
+                const dep = spec.dependency;
+                if (!dep || !String(refusal).startsWith(DEPENDENCY_RUN_UNCONFIRMED)) throw refusal;
+                const allowed = await confirmDependencyRun(pluginId, loaded.manifest.name, dep);
+                if (!allowed) throw new Error(DEPENDENCY_RUN_DECLINED);
+                await invoke("plugin_program_confirm_dependency", { pluginId, dependency: dep });
+                return send();
+              },
+              onAppQuitting(handler: () => void | Promise<void>) {
+                appQuittingHandlersRef.current.set(pluginId, handler);
+                return () => {
+                  if (appQuittingHandlersRef.current.get(pluginId) === handler) {
+                    appQuittingHandlersRef.current.delete(pluginId);
+                  }
+                };
               },
               async status(name: string) {
                 workerOnly();
@@ -2331,7 +2442,7 @@ export function usePlugins(
         },
       };
     },
-    [currentTrackRef, playingRef, positionRef, queueRef, tapInvoke, syncScrobblerPluginIds, confirmProgramInstall, optionalGranted],
+    [currentTrackRef, playingRef, positionRef, queueRef, tapInvoke, syncScrobblerPluginIds, confirmProgramInstall, confirmDependencyRun, optionalGranted],
   );
 
   // Line-by-line output from a streaming `plugin_exec`, routed to the plugin
@@ -2454,6 +2565,7 @@ export function usePlugins(
     if (runtimeAssistantInstructionsRef.current.delete(pluginId) || toolsRemoved) {
       setAssistantVersion((v) => v + 1);
     }
+    appQuittingHandlersRef.current.delete(pluginId);
 
     loadedPluginsRef.current.delete(pluginId);
   }, []);
@@ -4356,6 +4468,8 @@ export function usePlugins(
     unsignedProgramsRequest,
     optionalPermissionsRequest,
     programInstallRequest,
+    dependencyRunRequest,
+    runAppQuitting,
     permissionsToApprove,
     permissionReasonsFor,
     revokePermissions,

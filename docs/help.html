@@ -179,7 +179,7 @@
           <li><strong>Managed</strong> — Vibo installed it for you ("Install for me") into its own folder, and can update or remove it. A managed copy always takes precedence over a system one.</li>
           <li><strong>System</strong> — found on your PATH, e.g. installed via Homebrew or winget. Vibo never modifies these; update them with your package manager.</li>
         </ul>
-        <p><strong>Keep tools up to date automatically</strong> applies only to managed copies: Vibo checks daily and silently installs new releases. This matters most for <code>yt-dlp</code>, where an outdated version is the usual reason YouTube stops working.</p>
+        <p>For managed copies Vibo checks for new releases daily and announces them in the update bar at the top of the window, next to app and extension updates — nothing installs until you click <strong>Update</strong>. Keep <code>yt-dlp</code> current: an outdated version is the usual reason YouTube stops working. A tool a plugin runs in the background (such as slskd for Soulseek) is stopped and started again around its update.</p>
       </div>
     </div>
   </section>

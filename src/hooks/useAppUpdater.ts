@@ -1,7 +1,6 @@
 import { useState, useRef, useEffect } from "react";
 import { getVersion } from "@tauri-apps/api/app";
 import { invoke } from "@tauri-apps/api/core";
-import { relaunch } from "@tauri-apps/plugin-process";
 import { subscribe } from "../utils/tauriEvents";
 
 import { useAssignRef } from "./useLatestRef";
@@ -215,7 +214,9 @@ export function useAppUpdater(
       onBeforeInstall?.();
       await new Promise((r) => setTimeout(r, 300));
       await invoke("app_update_install");
-      await relaunch();
+      // Not plugin-process's relaunch(): a restart skips the quit handshake
+      // unless the host holds it first (commands/app.rs relaunch_app).
+      await invoke("relaunch_app");
     } catch (e) {
       console.error("Failed to install update:", e);
       const detail = errText(e);

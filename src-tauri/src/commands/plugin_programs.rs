@@ -210,13 +210,38 @@ pub async fn plugin_program_run(
 
 #[tauri::command]
 pub async fn plugin_program_start(
+    app: tauri::AppHandle,
     state: State<'_, AppState>,
     plugin_id: String,
     name: String,
     spec: programs::StartSpec,
 ) -> Result<programs::ProgramStatus, String> {
     let app_dir = state.app_dir.clone();
-    run_blocking(move || programs::start(&app_dir, &plugin_id, &name, &spec)).await
+    let event = (plugin_id.clone(), name.clone());
+    let result = run_blocking(move || programs::start(&app_dir, &plugin_id, &name, &spec)).await;
+    emit_program_changed(&app, &event.0, &event.1);
+    result
+}
+
+/// A plugin started or stopped one of its programs: the Tools status lines
+/// (`useDependencies` services) re-read.
+fn emit_program_changed(app: &tauri::AppHandle, plugin_id: &str, name: &str) {
+    use tauri::Emitter;
+    let _ = app.emit("program-changed", serde_json::json!({ "pluginId": plugin_id, "name": name }));
+}
+
+/// The user agreed, in the host's dialog, that this plugin may run Vibo's copy
+/// of `dependency` in the background (asked when `start` answered
+/// `DEPENDENCY_RUN_UNCONFIRMED`). Recorded per source, so an update of the tool
+/// doesn't ask again.
+#[tauri::command]
+pub async fn plugin_program_confirm_dependency(
+    state: State<'_, AppState>,
+    plugin_id: String,
+    dependency: String,
+) -> Result<(), String> {
+    let app_dir = state.app_dir.clone();
+    run_blocking(move || programs::confirm_dependency_run(&app_dir, &plugin_id, &dependency)).await
 }
 
 #[tauri::command]
@@ -240,6 +265,7 @@ pub async fn plugin_program_list(
 
 #[tauri::command]
 pub async fn plugin_program_stop(
+    app: tauri::AppHandle,
     state: State<'_, AppState>,
     plugin_id: String,
     name: String,
@@ -247,7 +273,10 @@ pub async fn plugin_program_stop(
 ) -> Result<programs::ProgramStatus, String> {
     let app_dir = state.app_dir.clone();
     let grace = Duration::from_secs(grace_secs.unwrap_or(10).clamp(1, 120));
-    run_blocking(move || programs::stop(&app_dir, &plugin_id, &name, grace)).await
+    let event = (plugin_id.clone(), name.clone());
+    let result = run_blocking(move || programs::stop(&app_dir, &plugin_id, &name, grace)).await;
+    emit_program_changed(&app, &event.0, &event.1);
+    result
 }
 
 #[tauri::command]

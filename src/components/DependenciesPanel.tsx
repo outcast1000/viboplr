@@ -1,8 +1,14 @@
 import { useEffect, useRef, useState } from "react";
-import type { DependencyInfo, DependencyRegistry, DepUpdateInfo, InstallProgress, UndefinedTool } from "../hooks/useDependencies";
+import type {
+  DependencyInfo,
+  DependencyRegistry,
+  DependencyService,
+  DepUpdateInfo,
+  InstallProgress,
+  UndefinedTool,
+} from "../hooks/useDependencies";
 import { HelpLink } from "./HelpLink";
 import { getPlatform } from "./DependencyModal";
-import { ToggleSwitch } from "./ToggleSwitch";
 // Reuses the Settings card/row look; imported here so the Tools tab doesn't
 // depend on SettingsPanel having been loaded first.
 import "./SettingsPanel.css";
@@ -10,6 +16,8 @@ import "./SettingsPanel.css";
 export interface DependenciesApi {
   deps: DependencyInfo[];
   updates: DepUpdateInfo[];
+  /** Tool name → plugins running Vibo's copy of it as a background program. */
+  services?: Record<string, DependencyService[]>;
   installing: Record<string, InstallProgress>;
   checkAll: (forceRefresh?: boolean) => Promise<unknown>;
   checkUpdates: (force?: boolean) => Promise<unknown>;
@@ -46,20 +54,37 @@ export function dependencyAttentionCount(
 }
 
 /**
+ * "Running · started by Soulseek · since 10:42" / "Not running" for each
+ * plugin that registered a background program on this tool. Status only:
+ * starting and stopping it is the plugin's.
+ */
+export function serviceLines(
+  services: DependencyService[] | undefined,
+  pluginName: (pluginId: string) => string,
+  formatTime: (unixSecs: number) => string = (s) =>
+    new Date(s * 1000).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
+): { running: boolean; text: string }[] {
+  return (services ?? []).map((s) => ({
+    running: s.running,
+    text: s.running
+      ? `Running · started by ${pluginName(s.pluginId)}${s.startedAt ? ` · since ${formatTime(s.startedAt)}` : ""}`
+      : `Not running · ${pluginName(s.pluginId)}`,
+  }));
+}
+
+/**
  * External-binary dependencies (ffmpeg, yt-dlp, …): status, origin, install /
- * update / take-over / stop-managing, and the auto-update toggle. Rendered as
- * the Extensions view's Tools tab.
+ * update / take-over / stop-managing, and whether a plugin runs one as a
+ * background program. Rendered as the Extensions view's Tools tab. Nothing here
+ * updates on its own: an update is announced (the update notice, this tab's
+ * badge) and installed on the user's click.
  */
 export function DependenciesPanel({
   dependencies,
-  autoUpdateManagedDeps,
-  onAutoUpdateManagedDepsChange,
   searchQuery = "",
   isVisible,
 }: {
   dependencies: DependenciesApi;
-  autoUpdateManagedDeps: boolean;
-  onAutoUpdateManagedDepsChange: (enabled: boolean) => void;
   searchQuery?: string;
   /** The Extensions view stays mounted; checks run when the tab is shown. */
   isVisible: boolean;
@@ -69,6 +94,16 @@ export function DependenciesPanel({
   const [copiedCmd, setCopiedCmd] = useState<string | null>(null);
   // Name of the dep whose inline "let Vibo manage" confirm is open.
   const [takeoverConfirm, setTakeoverConfirm] = useState<string | null>(null);
+  // Why the last install / update / removal of a row failed, until the next
+  // attempt on it — "stop it there first", "didn't start again: …".
+  const [rowErrors, setRowErrors] = useState<Record<string, string>>({});
+  const setRowError = (name: string, error: unknown) =>
+    setRowErrors((prev) => {
+      const next = { ...prev };
+      if (error === null) delete next[name];
+      else next[name] = error instanceof Error ? error.message : String(error);
+      return next;
+    });
 
   // First time the tab is shown: fill in presence if startup hasn't yet, and run
   // the latest-version pass (24h TTL-cached backend-side, so cheap on repeat).
@@ -97,10 +132,12 @@ export function DependenciesPanel({
   const handleInstall = async (name: string) => {
     setActioning(name);
     setTakeoverConfirm(null);
+    setRowError(name, null);
     try {
       await dependencies.installDep(name);
     } catch (e) {
       console.error("Failed to install dependency:", e);
+      setRowError(name, e);
     } finally {
       setActioning(null);
     }
@@ -139,10 +176,12 @@ export function DependenciesPanel({
 
   const handleStopManaging = async (name: string) => {
     setActioning(name);
+    setRowError(name, null);
     try {
       await dependencies.uninstallManaged(name);
     } catch (e) {
       console.error("Failed to stop managing dependency:", e);
+      setRowError(name, e);
     } finally {
       setActioning(null);
     }
@@ -221,7 +260,7 @@ export function DependenciesPanel({
                     </span>
                   )}
                   {dep.managedAvailable && !dep.verified && (
-                    <span className="settings-pill" title="Its publisher offers no checksum: you confirm every install and update, and it never updates on its own">
+                    <span className="settings-pill" title="Its publisher offers no checksum: you confirm every install and update">
                       not verified
                     </span>
                   )}
@@ -283,10 +322,26 @@ export function DependenciesPanel({
                     {dep.origin === "system" ? " (installed outside Vibo — update via your package manager)" : ""}
                   </span>
                 )}
+                {rowErrors[dep.name] && (
+                  <span className="dep-row-error" role="alert" style={{ fontSize: "var(--fs-xs)", color: "var(--error)", whiteSpace: "pre-wrap" }}>
+                    {rowErrors[dep.name]}
+                  </span>
+                )}
+                {dep.origin === "managed" &&
+                  serviceLines(dependencies.services?.[dep.name], nameOf).map((line, i) => (
+                    <span
+                      key={i}
+                      className="dep-service-line"
+                      style={{ fontSize: "var(--fs-xs)", color: line.running ? "var(--success)" : "var(--text-tertiary)" }}
+                    >
+                      {line.running ? "● " : "○ "}
+                      {line.text}
+                    </span>
+                  ))}
                 {takeoverConfirm === dep.name && (
                   <div style={{ display: "flex", flexDirection: "column", gap: 8, padding: "8px 10px", background: "var(--bg-tertiary)", borderRadius: "var(--ds-radius)" }}>
                     <span style={{ fontSize: "var(--fs-xs)", color: "var(--text-secondary)" }}>
-                      Vibo will download and keep its own copy of {dep.name} up to date automatically. Your existing system copy is left in place but no longer used — you can remove it later via your package manager.
+                      Vibo will download its own copy of {dep.name} and tell you when an update is available. Your existing system copy is left in place but no longer used — you can remove it later via your package manager.
                     </span>
                     <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
                       <button className="ds-btn ds-btn--ghost ds-btn--sm" onClick={() => setTakeoverConfirm(null)} disabled={busy}>Cancel</button>
@@ -410,15 +465,6 @@ export function DependenciesPanel({
               ))}
             </div>
           )}
-          <div className="settings-row">
-            <div className="settings-row-info">
-              <span className="settings-label">Keep tools up to date automatically</span>
-              <span className="settings-description">
-                Silently update Vibo-managed binaries (e.g. yt-dlp) when a newer release is available. Binaries installed via a package manager, tools from plugins Vibo hasn't signed, and tools without a checksum are never updated on their own.
-              </span>
-            </div>
-            <ToggleSwitch checked={autoUpdateManagedDeps} onChange={onAutoUpdateManagedDepsChange} />
-          </div>
         </div>
       </div>
     </div>

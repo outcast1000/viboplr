@@ -16,6 +16,11 @@ pub struct InstallInstructions {
 /// Where to fetch an app-managed copy of a binary from. All assets come from
 /// GitHub releases of `repo`; a `None` asset means the platform/arch has no
 /// managed binary and falls back to instruct-only install.
+///
+/// Asset names may be templates: `{tag}` is the release tag and `{version}` the
+/// tag without a leading `v` (slskd names its assets `slskd-0.26.1-osx-arm64.zip`).
+/// A source with a template, or verified by GitHub's digest, installs from the
+/// one tag it resolved (`releases/download/{tag}`), never `releases/latest`.
 #[derive(Debug, Clone)]
 pub struct ManagedSource {
     pub repo: &'static str,
@@ -23,6 +28,15 @@ pub struct ManagedSource {
     pub asset_windows: Option<&'static str>,
     pub asset_linux_x64: Option<&'static str>,
     pub asset_linux_arm64: Option<&'static str>,
+    /// Arch-specific assets; each wins over the generic one for its OS.
+    pub asset_macos_arm64: Option<&'static str>,
+    pub asset_macos_x64: Option<&'static str>,
+    pub asset_windows_x64: Option<&'static str>,
+    pub asset_windows_arm64: Option<&'static str>,
+    /// `Some(entry)`: the archive is installed whole as `{bin}/{name}/` and
+    /// `entry` inside it is the program (slskd ships a folder). `None`: one
+    /// file, `{bin}/{name}`.
+    pub folder_entry: Option<&'static str>,
     /// Platform-independent zipapp asset from the same release, runnable by a
     /// system Python. On macOS the installer prefers this over the PyInstaller
     /// one-file binary when a suitable Python is present: the one-file form
@@ -45,6 +59,10 @@ pub enum Checksum {
     /// the user's explicit confirmation (`install_managed`'s
     /// `confirmed_unverified`).
     Unverified,
+    /// The sha256 GitHub records for every release asset (`assets[].digest`):
+    /// for a project that publishes no checksums file (slskd). See
+    /// `github_asset_digest`.
+    GitHubDigest,
 }
 
 /// How a probe's output is turned into a version string.
@@ -69,23 +87,58 @@ impl VersionParser {
 }
 
 impl ManagedSource {
-    /// Base URL the platform assets and checksums file download from.
-    fn download_base(&self) -> String {
-        format!("https://github.com/{}/releases/latest/download", self.repo)
+    /// Base URL the platform assets and checksums file download from: the one
+    /// release `tag` names, else whatever `releases/latest` redirects to.
+    fn download_base(&self, tag: Option<&str>) -> String {
+        match tag {
+            Some(tag) => format!("https://github.com/{}/releases/download/{}", self.repo, tag),
+            None => format!("https://github.com/{}/releases/latest/download", self.repo),
+        }
     }
 
+    /// The install must name a release tag up front: an asset name carries the
+    /// version, or the digest to check against belongs to one release.
+    fn needs_tag(&self) -> bool {
+        self.checksum == Checksum::GitHubDigest
+            || self
+                .all_assets()
+                .chain(match self.checksum {
+                    Checksum::File(f) => Some(f),
+                    _ => None,
+                })
+                .any(|a| a.contains('{'))
+    }
+
+    fn all_assets(&self) -> impl Iterator<Item = &'static str> {
+        [
+            self.asset_macos,
+            self.asset_windows,
+            self.asset_linux_x64,
+            self.asset_linux_arm64,
+            self.asset_macos_arm64,
+            self.asset_macos_x64,
+            self.asset_windows_x64,
+            self.asset_windows_arm64,
+            self.asset_zipapp,
+        ]
+        .into_iter()
+        .flatten()
+    }
+
+    /// This platform's asset name (a template until `with_tag` fills it in).
     pub fn platform_asset(&self) -> Option<&'static str> {
+        let arm = cfg!(target_arch = "aarch64");
         #[cfg(target_os = "macos")]
         {
-            self.asset_macos
+            if arm { self.asset_macos_arm64 } else { self.asset_macos_x64 }.or(self.asset_macos)
         }
         #[cfg(target_os = "windows")]
         {
-            self.asset_windows
+            if arm { self.asset_windows_arm64 } else { self.asset_windows_x64 }.or(self.asset_windows)
         }
         #[cfg(target_os = "linux")]
         {
-            if cfg!(target_arch = "aarch64") {
+            if arm {
                 self.asset_linux_arm64
             } else {
                 self.asset_linux_x64
@@ -94,11 +147,20 @@ impl ManagedSource {
     }
 }
 
+/// An asset template with `{tag}` / `{version}` filled in from `tag`.
+pub fn with_tag(template: &str, tag: &str) -> String {
+    template.replace("{tag}", tag).replace("{version}", tag.trim_start_matches('v'))
+}
+
 #[derive(Debug, Clone)]
 pub struct DependencyDef {
     pub name: &'static str,
     pub description: &'static str,
     pub version_args: &'static [&'static str],
+    /// Environment for the version probe only (slskd's .NET runtime needs an
+    /// extraction folder). A value may start `{install}/`, the managed copy's
+    /// folder; such a variable is left out when probing a system copy.
+    pub probe_env: &'static [(&'static str, &'static str)],
     pub parse_version: VersionParser,
     pub install: InstallInstructions,
     pub internal_consumers: &'static [(&'static str, &'static str)],
@@ -179,7 +241,7 @@ pub struct DependencyInfo {
     pub managed_repo: Option<String>,
     /// Plugins whose manifest defines this tool (empty for a built-in).
     pub declared_by: Vec<String>,
-    /// Defined by the host or a plugin signed by Vibo — what may auto-update.
+    /// Defined by the host or a bundled / Vibo-signed plugin.
     pub signed_definition: bool,
     /// The download is checked against something (false for `Checksum::Unverified`).
     pub verified: bool,
@@ -208,6 +270,7 @@ pub static BUILTIN_REGISTRY: &[DependencyDef] = &[
         name: "ffmpeg",
         description: "Audio/video transcoding and format conversion",
         version_args: &["-version"],
+        probe_env: &[],
         parse_version: VersionParser::Builtin(parse_ffmpeg_version),
         install: InstallInstructions {
             macos: "brew install ffmpeg",
@@ -227,6 +290,7 @@ pub static BUILTIN_REGISTRY: &[DependencyDef] = &[
         name: "fictional-tool",
         description: "A fake dependency for testing the dependency UI (debug only)",
         version_args: &["--version"],
+        probe_env: &[],
         parse_version: VersionParser::Builtin(parse_fictional_version),
         install: InstallInstructions {
             macos: "brew install fictional-tool",
@@ -275,6 +339,19 @@ pub fn fingerprint(def: &DependencyDef) -> String {
                 "repo={};macos={:?};windows={:?};linux-x64={:?};linux-arm64={:?};zipapp={:?};checksum={:?};",
                 m.repo, m.asset_macos, m.asset_windows, m.asset_linux_x64, m.asset_linux_arm64, m.asset_zipapp, m.checksum
             );
+            // Appended only when present, so a definition without them keeps the
+            // fingerprint every existing `.sources.json` entry was recorded under.
+            for (key, value) in [
+                ("macos-arm64", m.asset_macos_arm64),
+                ("macos-x64", m.asset_macos_x64),
+                ("windows-x64", m.asset_windows_x64),
+                ("windows-arm64", m.asset_windows_arm64),
+                ("folder", m.folder_entry),
+            ] {
+                if let Some(value) = value {
+                    let _ = write!(s, "{key}={value:?};");
+                }
+            }
         }
     }
     match &def.os_trust {
@@ -340,9 +417,10 @@ pub fn unused_managed() -> Vec<String> {
     let Some(dir) = managed_bin_dir() else { return Vec::new() };
     let Ok(entries) = std::fs::read_dir(dir) else { return Vec::new() };
     let known: HashSet<&str> = all_defs().iter().map(|d| d.name).collect();
+    // Files are one-file tools; folders are folder tools (`{bin}/{name}/`).
     let mut out: Vec<String> = entries
         .filter_map(|e| e.ok())
-        .filter(|e| e.path().is_file())
+        .filter(|e| e.path().is_file() || e.path().is_dir())
         .filter_map(|e| e.file_name().into_string().ok())
         .filter(|n| !n.starts_with('.'))
         .map(|n| {
@@ -369,6 +447,10 @@ pub fn remove_unused(name: &str) -> Result<(), String> {
         if path.is_file() {
             std::fs::remove_file(&path).map_err(|e| format!("Failed to remove {}: {}", name, e))?;
         }
+    }
+    let folder = dir.join(name);
+    if folder.is_dir() {
+        std::fs::remove_dir_all(&folder).map_err(|e| format!("Failed to remove {}: {}", name, e))?;
     }
     forget_source(name);
     Ok(())
@@ -485,9 +567,28 @@ fn binary_filename(name: &str) -> String {
     }
 }
 
+/// Where the managed copy of `name` lives: `{bin}/{name}` for a one-file tool,
+/// the entry inside `{bin}/{name}/` for a folder one (`ManagedSource::folder_entry`).
+fn managed_entry_path(bin_dir: &Path, name: &str) -> PathBuf {
+    match folder_entry_of(name) {
+        Some(entry) => bin_dir.join(name).join(binary_filename(entry)),
+        None => bin_dir.join(binary_filename(name)),
+    }
+}
+
+fn folder_entry_of(name: &str) -> Option<&'static str> {
+    get_def(name).and_then(|d| d.managed.as_ref()).and_then(|m| m.folder_entry)
+}
+
+/// The folder a folder tool's managed copy is installed in (`{bin}/{name}`).
+pub fn managed_folder(name: &str) -> Option<PathBuf> {
+    folder_entry_of(name)?;
+    Some(managed_bin_dir()?.join(name))
+}
+
 /// Path of the app-managed copy, if one has been installed.
 pub fn managed_binary_path(name: &str) -> Option<PathBuf> {
-    let path = managed_bin_dir()?.join(binary_filename(name));
+    let path = managed_entry_path(managed_bin_dir()?, name);
     path.is_file().then_some(path)
 }
 
@@ -692,6 +793,12 @@ fn run_probe(def: &DependencyDef) -> DepStatus {
 
     let mut cmd = command_with_path(def.name);
     cmd.args(def.version_args);
+    let install_dir = matches!(resolved, Some((_, DepOrigin::Managed)))
+        .then(|| managed_folder(def.name))
+        .flatten();
+    for (key, value) in probe_env(def.probe_env, install_dir.as_deref()) {
+        cmd.env(key, value);
+    }
 
     match output_with_timeout(&mut cmd, PROBE_TIMEOUT) {
         Ok(Some(output)) if output.status.success() => {
@@ -720,6 +827,27 @@ fn run_probe(def: &DependencyDef) -> DepStatus {
         },
         Err(_) => DepStatus::NotFound,
     }
+}
+
+/// A definition's `probe_env` as it applies to one probe: `{install}/…` values
+/// resolve inside the managed folder (created first, since slskd's runtime
+/// extracts into it), and are dropped when there is no managed folder — a
+/// system copy gets only the literal values.
+fn probe_env(env: &[(&str, &str)], install_dir: Option<&Path>) -> Vec<(String, std::ffi::OsString)> {
+    env.iter()
+        .filter_map(|(key, value)| match value.strip_prefix("{install}") {
+            None => Some((key.to_string(), value.into())),
+            Some(rest) => {
+                let dir = install_dir?;
+                let path = match rest.trim_start_matches('/') {
+                    "" => dir.to_path_buf(),
+                    rel => dir.join(rel),
+                };
+                let _ = std::fs::create_dir_all(&path);
+                Some((key.to_string(), path.into_os_string()))
+            }
+        })
+        .collect()
 }
 
 /// `Command::output()` with an upper bound: returns Ok(None) if the child
@@ -855,6 +983,12 @@ pub struct DepUpdateInfo {
     pub latest: Option<String>,
     pub outdated: bool,
     pub origin: Option<DepOrigin>,
+    /// Same as the listing's: the managed copy came from another source
+    /// (offered Reinstall, not Update). Carried here so a caller holding only
+    /// the update check — the update notice — needn't wait for the listing.
+    pub source_mismatch: bool,
+    /// False when nothing can check the download (`Checksum::Unverified`).
+    pub verified: bool,
 }
 
 fn http_client() -> Result<reqwest::blocking::Client, String> {
@@ -882,9 +1016,16 @@ fn redirect_probe_client() -> Result<reqwest::blocking::Client, String> {
 /// the same way the release tag itself is read, so the comparison feeds
 /// `version_lt` in the same shape as before.
 pub fn parse_latest_tag_from_location(location: &str) -> Option<String> {
+    let tag = parse_raw_tag_from_location(location)?;
+    let tag = tag.trim_start_matches('v');
+    (!tag.is_empty()).then(|| tag.to_string())
+}
+
+/// The tag exactly as the redirect names it (a leading `v` kept): what release
+/// download URLs and asset templates need.
+fn parse_raw_tag_from_location(location: &str) -> Option<String> {
     let tag = location.rsplit_once("/releases/tag/")?.1;
     let tag = tag.split(['?', '#']).next()?.trim_end_matches('/');
-    let tag = tag.trim_start_matches('v');
     (!tag.is_empty()).then(|| tag.to_string())
 }
 
@@ -924,8 +1065,14 @@ pub fn latest_version(name: &str, cache: &DepCache) -> Result<String, String> {
     result
 }
 
-/// The tag `releases/latest` redirects to for `repo` (uncached).
+/// The tag `releases/latest` redirects to for `repo` (uncached), without a
+/// leading `v`.
 fn latest_release_tag(repo: &str) -> Result<String, String> {
+    latest_release_raw_tag(repo).map(|tag| tag.trim_start_matches('v').to_string())
+}
+
+/// The tag `releases/latest` redirects to for `repo` (uncached), as named.
+fn latest_release_raw_tag(repo: &str) -> Result<String, String> {
     let url = format!("https://github.com/{}/releases/latest", repo);
     let resp = redirect_probe_client()?
         .head(&url)
@@ -941,8 +1088,89 @@ fn latest_release_tag(repo: &str) -> Result<String, String> {
         .get(reqwest::header::LOCATION)
         .and_then(|v| v.to_str().ok())
         .ok_or_else(|| "Redirect carried no Location header".to_string())?;
-    parse_latest_tag_from_location(location)
-        .ok_or_else(|| format!("No release tag in redirect target: {}", location))
+    let tag = parse_raw_tag_from_location(location)
+        .ok_or_else(|| format!("No release tag in redirect target: {}", location))?;
+    // It goes into download URLs, so hold it to what tags look like.
+    if !tag.chars().all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | '-' | '+')) {
+        return Err(format!("Unexpected release tag: {}", tag));
+    }
+    Ok(tag)
+}
+
+/// The sha256 GitHub records for `asset` of release `tag` (`Checksum::GitHubDigest`).
+///
+/// The REST API answers it, but `api.github.com` allows 60 unauthenticated
+/// requests an hour **per IP**, spent by everyone else behind a shared NAT,
+/// where it answers `403` (see `latest_version`). On that refusal the same
+/// digest is read from the release's asset list on `github.com` itself, which
+/// shows it next to every asset. Anything else — no digest, an answer we can't
+/// read — fails the install: the digest is the only check there is.
+fn github_asset_digest(repo: &str, tag: &str, asset: &str) -> Result<String, String> {
+    let client = http_client()?;
+    let api = format!("https://api.github.com/repos/{}/releases/tags/{}", repo, tag);
+    let resp = client
+        .get(&api)
+        .header(reqwest::header::ACCEPT, "application/vnd.github+json")
+        .send()
+        .map_err(|e| format!("Couldn't ask GitHub for {}'s checksum: {}", asset, crate::error_chain::err_chain(&e)))?;
+    let status = resp.status();
+    if status.is_success() {
+        let json: serde_json::Value = resp
+            .json()
+            .map_err(|e| format!("Couldn't read GitHub's answer about {}: {}", asset, e))?;
+        return digest_from_release_json(&json, asset);
+    }
+    if status != reqwest::StatusCode::FORBIDDEN && status != reqwest::StatusCode::TOO_MANY_REQUESTS {
+        return Err(format!("GitHub couldn't give {}'s checksum: HTTP {}", asset, status));
+    }
+    log::info!("GitHub API refused the checksum lookup for {} ({}); reading the release page", asset, status);
+    let page = format!("https://github.com/{}/releases/expanded_assets/{}", repo, tag);
+    let resp = client
+        .get(&page)
+        .send()
+        .map_err(|e| format!("Couldn't read {}'s checksum from GitHub: {}", asset, crate::error_chain::err_chain(&e)))?;
+    if !resp.status().is_success() {
+        return Err(format!("Couldn't read {}'s checksum from GitHub: HTTP {}", asset, resp.status()));
+    }
+    let html = resp
+        .text()
+        .map_err(|e| format!("Couldn't read {}'s checksum from GitHub: {}", asset, e))?;
+    digest_from_assets_html(&html, asset).ok_or_else(|| format!("GitHub shows no checksum for {}", asset))
+}
+
+/// `assets[name == asset].digest` (`"sha256:<hex>"`) of a release, as hex.
+fn digest_from_release_json(release: &serde_json::Value, asset: &str) -> Result<String, String> {
+    let entry = release
+        .get("assets")
+        .and_then(|a| a.as_array())
+        .and_then(|a| a.iter().find(|x| x.get("name").and_then(|n| n.as_str()) == Some(asset)))
+        .ok_or_else(|| format!("The release has no {}", asset))?;
+    entry
+        .get("digest")
+        .and_then(|d| d.as_str())
+        .and_then(sha256_of_digest)
+        .ok_or_else(|| format!("GitHub has no checksum for {}", asset))
+}
+
+/// The digest GitHub's release page shows for `asset`: the copy button labelled
+/// "…digest for <asset>" carries it as its `value`.
+fn digest_from_assets_html(html: &str, asset: &str) -> Option<String> {
+    let escaped = asset
+        .replace('&', "&amp;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;")
+        .replace('"', "&quot;");
+    let needle = format!("digest for {}\"", escaped);
+    let at = html.find(&needle)?;
+    let start = html[..at].rfind('<')?;
+    let end = at + html[at..].find('>')?;
+    let value = html[start..end].split("value=\"").nth(1)?.split('"').next()?;
+    sha256_of_digest(value)
+}
+
+fn sha256_of_digest(digest: &str) -> Option<String> {
+    let hex = digest.strip_prefix("sha256:")?;
+    (hex.len() == 64 && hex.chars().all(|c| c.is_ascii_hexdigit())).then(|| hex.to_ascii_lowercase())
 }
 
 /// Extract the hex digest for `asset` from a `<sha256>  <filename>` checksums
@@ -1140,14 +1368,21 @@ pub fn install_managed(
     }
     let bin_dir = managed_bin_dir().ok_or("Managed bin directory not initialized")?;
 
+    // One release for everything below, when the names or the digest depend on it.
+    let tag = if managed.needs_tag() { Some(latest_release_raw_tag(managed.repo)?) } else { None };
+    let fill = |template: &str| match &tag {
+        Some(tag) => with_tag(template, tag),
+        None => template.to_string(),
+    };
+
     let shape = choose_install_shape(name, managed)?;
     let (asset, dest_filename) = match &shape {
-        InstallShape::Binary(asset) => (*asset, binary_filename(name)),
-        InstallShape::Zipapp { asset, .. } => (*asset, zipapp_filename(name)),
+        InstallShape::Binary(asset) => (fill(asset), binary_filename(name)),
+        InstallShape::Zipapp { asset, .. } => (fill(asset), zipapp_filename(name)),
     };
 
     let client = http_client()?;
-    let base = managed.download_base();
+    let base = managed.download_base(tag.as_deref());
     let download_url = format!("{}/{}", base, asset);
 
     // Stream the binary to a temp file next to the final location.
@@ -1160,7 +1395,11 @@ pub fn install_managed(
     }
     let total = resp.content_length();
 
-    let temp_path = bin_dir.join(format!(".{}.download", dest_filename));
+    let temp_path = match managed.folder_entry {
+        // Named after the asset so the unpacker can tell the archive kind.
+        Some(_) => bin_dir.join(format!(".{}.download-{}", name, asset)),
+        None => bin_dir.join(format!(".{}.download", dest_filename)),
+    };
     let result: Result<String, String> = (|| {
         let mut data: Vec<u8> = Vec::with_capacity(total.unwrap_or(0) as usize);
         let mut buf = [0u8; 64 * 1024];
@@ -1176,60 +1415,74 @@ pub fn install_managed(
             progress(downloaded, total);
         }
 
-        // Verify against the published checksums from the same release when
-        // the project publishes any (see `ManagedSource::checksums_asset`).
-        if let Checksum::File(checksums_asset) = managed.checksum {
-            let checksums = client
-                .get(format!("{}/{}", base, checksums_asset))
-                .send()
-                .map_err(|e| format!("Checksums download error: {}", e))?
-                .text()
-                .map_err(|e| format!("Checksums read error: {}", e))?;
-            let expected = parse_checksum_line(&checksums, asset)
-                .ok_or_else(|| format!("No checksum entry for {}", asset))?;
-            let actual = sha256_hex(&data);
-            if actual != expected {
-                return Err(format!(
-                    "Checksum mismatch for {} (expected {}, got {})",
-                    asset, expected, actual
-                ));
+        let expected = match managed.checksum {
+            // The checksums file from the same release.
+            Checksum::File(checksums_asset) => {
+                let resp = client
+                    .get(format!("{}/{}", base, fill(checksums_asset)))
+                    .send()
+                    .map_err(|e| format!("Checksums download error: {}", e))?;
+                if !resp.status().is_success() {
+                    return Err(format!("Checksums download failed: HTTP {}", resp.status()));
+                }
+                let checksums = resp.text().map_err(|e| format!("Checksums read error: {}", e))?;
+                Some(parse_checksum_line(&checksums, &asset).ok_or_else(|| format!("No checksum entry for {}", asset))?)
             }
-        } else {
-            log::warn!(
+            Checksum::GitHubDigest => {
+                let tag = tag.as_deref().ok_or("No release tag to check the download against")?;
+                Some(github_asset_digest(managed.repo, tag, &asset)?)
+            }
+            Checksum::Unverified => None,
+        };
+        match expected {
+            Some(expected) => {
+                let actual = sha256_hex(&data);
+                if actual != expected {
+                    return Err(format!(
+                        "Checksum mismatch for {} (expected {}, got {})",
+                        asset, expected, actual
+                    ));
+                }
+            }
+            None => log::warn!(
                 "{}: {} publishes no checksums file; installed {} ({} bytes, sha256 {}) unverified",
                 name, managed.repo, asset, data.len(), sha256_hex(&data)
-            );
+            ),
         }
 
-        // An archive asset carries the binary inside it (checked above as the
-        // archive, which is what the checksums file names).
-        let data = match ArchiveKind::of(asset) {
-            Some(kind) => extract_member(&data, kind, &binary_filename(name))?,
-            None => data,
-        };
+        if let Some(entry) = managed.folder_entry {
+            install_folder(bin_dir, name, entry, &temp_path, &data)?;
+        } else {
+            // An archive asset carries the binary inside it (checked above as the
+            // archive, which is what the checksums name).
+            let data = match ArchiveKind::of(&asset) {
+                Some(kind) => extract_member(&data, kind, &binary_filename(name))?,
+                None => data,
+            };
 
-        std::fs::write(&temp_path, &data).map_err(|e| format!("Write error: {}", e))?;
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::PermissionsExt;
-            std::fs::set_permissions(&temp_path, std::fs::Permissions::from_mode(0o755))
-                .map_err(|e| format!("chmod error: {}", e))?;
-        }
-
-        // Atomic rename handles concurrent profiles; on Windows a running
-        // binary holds a lock, so surface that as a retryable error.
-        let final_path = bin_dir.join(&dest_filename);
-        std::fs::rename(&temp_path, &final_path)
-            .map_err(|e| format!("Install error (is {} running?): {}", name, e))?;
-
-        match &shape {
-            InstallShape::Zipapp { python, .. } => {
-                write_zipapp_wrapper(bin_dir, name, python)?;
+            std::fs::write(&temp_path, &data).map_err(|e| format!("Write error: {}", e))?;
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::PermissionsExt;
+                std::fs::set_permissions(&temp_path, std::fs::Permissions::from_mode(0o755))
+                    .map_err(|e| format!("chmod error: {}", e))?;
             }
-            InstallShape::Binary(_) => {
-                // Drop the companion zipapp if a previous install used that
-                // shape — the binary just overwrote its wrapper.
-                let _ = std::fs::remove_file(bin_dir.join(zipapp_filename(name)));
+
+            // Atomic rename handles concurrent profiles; on Windows a running
+            // binary holds a lock, so surface that as a retryable error.
+            let final_path = bin_dir.join(&dest_filename);
+            std::fs::rename(&temp_path, &final_path)
+                .map_err(|e| format!("Install error (is {} running?): {}", name, e))?;
+
+            match &shape {
+                InstallShape::Zipapp { python, .. } => {
+                    write_zipapp_wrapper(bin_dir, name, python)?;
+                }
+                InstallShape::Binary(_) => {
+                    // Drop the companion zipapp if a previous install used that
+                    // shape — the binary just overwrote its wrapper.
+                    let _ = std::fs::remove_file(bin_dir.join(zipapp_filename(name)));
+                }
             }
         }
 
@@ -1248,6 +1501,46 @@ pub fn install_managed(
     result
 }
 
+/// Unpack a verified folder-tool archive as `{bin}/{name}/`, replacing the copy
+/// there (`plugin_programs::archive`: a sibling partial folder renamed in only
+/// once every entry made it; `..`, roots and links skipped; size caps). The
+/// release is unpacked beside the old copy first and swapped in only once it
+/// holds `entry`, so a release that dropped or renamed it leaves the working
+/// copy alone.
+fn install_folder(bin_dir: &Path, name: &str, entry: &str, archive: &Path, data: &[u8]) -> Result<(), String> {
+    std::fs::write(archive, data).map_err(|e| format!("Write error: {}", e))?;
+    // Dot-named, so `unused_managed` never lists it.
+    let staged = bin_dir.join(format!(".{}.staged-{}", name, std::process::id()));
+    let unpacked = crate::plugin_programs::archive::extract(archive, &staged);
+    let _ = std::fs::remove_file(archive);
+    unpacked.map_err(|e| format!("Install error: {}", e))?;
+    let result = (|| {
+        let program = staged.join(binary_filename(entry));
+        if !program.is_file() {
+            return Err(format!("The downloaded archive has no {}", entry));
+        }
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let mode = std::fs::metadata(&program).map(|m| m.permissions().mode()).unwrap_or(0o644);
+            std::fs::set_permissions(&program, std::fs::Permissions::from_mode(mode | 0o755))
+                .map_err(|e| format!("chmod error: {}", e))?;
+        }
+        let dest = bin_dir.join(name);
+        if dest.is_file() {
+            // A one-file copy from an older definition of the same name.
+            std::fs::remove_file(&dest).map_err(|e| format!("Install error (is {} running?): {}", name, e))?;
+        } else if dest.is_dir() {
+            std::fs::remove_dir_all(&dest).map_err(|e| format!("Install error (is {} running?): {}", name, e))?;
+        }
+        std::fs::rename(&staged, &dest).map_err(|e| format!("Install error (is {} running?): {}", name, e))
+    })();
+    if result.is_err() {
+        let _ = std::fs::remove_dir_all(&staged);
+    }
+    result
+}
+
 /// Remove the app-managed copy of a dependency. After this, PATH resolution
 /// falls back to any system copy. Returns the post-removal status so the caller
 /// can report whether a system copy took over.
@@ -1256,8 +1549,15 @@ pub fn uninstall_managed(name: &str, cache: &DepCache) -> Result<DepStatus, Stri
     if def.managed.is_none() {
         return Err(format!("{} is not a managed dependency", name));
     }
-    if let Some(path) = managed_binary_path(name) {
-        std::fs::remove_file(&path).map_err(|e| format!("Failed to remove {}: {}", name, e))?;
+    match managed_folder(name) {
+        Some(folder) if folder.is_dir() => {
+            std::fs::remove_dir_all(&folder).map_err(|e| format!("Failed to remove {} (is it running?): {}", name, e))?;
+        }
+        _ => {
+            if let Some(path) = managed_binary_path(name) {
+                std::fs::remove_file(&path).map_err(|e| format!("Failed to remove {}: {}", name, e))?;
+            }
+        }
     }
     // Companion zipapp, if the managed copy was the wrapper shape.
     if let Some(dir) = managed_bin_dir() {
@@ -1266,81 +1566,6 @@ pub fn uninstall_managed(name: &str, cache: &DepCache) -> Result<DepStatus, Stri
     forget_source(name);
     cache.invalidate(name);
     Ok(check_single(name, cache))
-}
-
-/// Whether silent auto-update of managed copies is enabled. Read straight
-/// from the profile's store file (same pattern as `loggingEnabled` in lib.rs)
-/// so the background thread needs no IPC. Default: enabled.
-fn auto_update_enabled(store_path: &Path) -> bool {
-    if let Ok(contents) = std::fs::read_to_string(store_path) {
-        if let Ok(json) = serde_json::from_str::<serde_json::Value>(&contents) {
-            return json
-                .get("autoUpdateManagedDeps")
-                .and_then(|v| v.as_bool())
-                .unwrap_or(true);
-        }
-    }
-    true
-}
-
-/// One pass of the background auto-updater: for every managed dependency whose
-/// in-use copy is the app-managed one and is older than the latest release,
-/// reinstall it. System (package-manager) copies are never touched. Emits
-/// `dependency-updated { name, from, to }` per successful update.
-pub fn auto_update_managed(
-    cache: &DepCache,
-    store_path: &Path,
-    emit: impl Fn(&str, serde_json::Value),
-) {
-    if !auto_update_enabled(store_path) {
-        return;
-    }
-
-    for def in all_defs() {
-        let Some(managed) = def.managed.as_ref() else { continue };
-        if managed.platform_asset().is_none() {
-            continue;
-        }
-        // Silent installs stay limited to what Vibo vouches for: a definition
-        // from an unsigned plugin, an unverifiable download, or a copy that came
-        // from a different source all wait for the user's own Update click.
-        if !crate::dependency_registry::auto_update_allowed(def.name)
-            || managed.checksum == Checksum::Unverified
-            || source_mismatch(def.name)
-        {
-            continue;
-        }
-        // Re-probe: a copy may have been installed/removed since the cache filled.
-        cache.invalidate(def.name);
-        let DepStatus::Installed { version: installed, origin: DepOrigin::Managed } =
-            check_single(def.name, cache)
-        else {
-            continue;
-        };
-        let latest = match latest_version(def.name, cache) {
-            Ok(v) => v,
-            Err(e) => {
-                log::warn!("Auto-update: latest version check for {} failed: {}", def.name, e);
-                continue;
-            }
-        };
-        if !version_lt(&installed, &latest) {
-            continue;
-        }
-        log::info!("Auto-updating managed {} {} -> {}", def.name, installed, latest);
-        match install_managed(def.name, cache, false, |_, _| {}) {
-            Ok(new_version) => {
-                emit(
-                    "dependency-updated",
-                    serde_json::json!({ "name": def.name, "from": installed, "to": new_version }),
-                );
-            }
-            Err(e) => {
-                // E.g. Windows file lock while the binary runs — retry next cycle.
-                log::warn!("Auto-update of {} failed: {}", def.name, e);
-            }
-        }
-    }
 }
 
 #[cfg(test)]
@@ -1510,6 +1735,11 @@ mod tests {
             asset_windows: Some("tool.exe"),
             asset_linux_x64: Some("tool_linux"),
             asset_linux_arm64: Some("tool_linux_aarch64"),
+            asset_macos_arm64: None,
+            asset_macos_x64: None,
+            asset_windows_x64: None,
+            asset_windows_arm64: None,
+            folder_entry: None,
             asset_zipapp: None,
             checksum: Checksum::File("SHA2-256SUMS"),
         };
@@ -1657,6 +1887,24 @@ mod tests {
         assert!(version.starts_with("20"), "expected a date-shaped tag, got {}", version);
     }
 
+    /// Hits the network: both routes to a real release asset's GitHub digest
+    /// agree (slskd 0.26.1's osx-arm64 zip, the hash its plugin used to pin).
+    #[test]
+    #[ignore]
+    fn probe_github_asset_digest() {
+        let expected = "5cf79a4d41ad40906aababc6bd05585899f102e7c544e38157df747f01cb6f4b";
+        let asset = "slskd-0.26.1-osx-arm64.zip";
+        assert_eq!(github_asset_digest("slskd/slskd", "0.26.1", asset).unwrap(), expected);
+        let html = http_client()
+            .unwrap()
+            .get("https://github.com/slskd/slskd/releases/expanded_assets/0.26.1")
+            .send()
+            .unwrap()
+            .text()
+            .unwrap();
+        assert_eq!(digest_from_assets_html(&html, asset).as_deref(), Some(expected), "the page fallback");
+    }
+
     #[test]
     fn test_parse_latest_tag_rejects_a_non_release_redirect() {
         // Anything that isn't a release-tag URL must be an error, not a version:
@@ -1800,5 +2048,207 @@ mod tests {
         let cmd = command_with_path("yt-dlp");
         assert_eq!(env_value(&cmd, "PYTHONUTF8"), Some("1"));
         assert_eq!(env_value(&cmd, "PYTHONIOENCODING"), Some("utf-8"));
+    }
+
+    fn source(checksum: Checksum) -> ManagedSource {
+        ManagedSource {
+            repo: "example/tool",
+            asset_macos: Some("tool-mac"),
+            asset_windows: Some("tool.exe"),
+            asset_linux_x64: Some("tool-linux"),
+            asset_linux_arm64: Some("tool-linux-arm"),
+            asset_macos_arm64: None,
+            asset_macos_x64: None,
+            asset_windows_x64: None,
+            asset_windows_arm64: None,
+            folder_entry: None,
+            asset_zipapp: None,
+            checksum,
+        }
+    }
+
+    #[test]
+    fn test_with_tag_fills_version_and_tag() {
+        assert_eq!(with_tag("slskd-{version}-osx-arm64.zip", "0.26.1"), "slskd-0.26.1-osx-arm64.zip");
+        assert_eq!(with_tag("tool-{version}.zip", "v2.0.0"), "tool-2.0.0.zip");
+        assert_eq!(with_tag("tool-{tag}.zip", "v2.0.0"), "tool-v2.0.0.zip");
+        assert_eq!(with_tag("plain", "v2.0.0"), "plain");
+    }
+
+    #[test]
+    fn test_a_tag_is_resolved_only_when_something_depends_on_it() {
+        // Today's definitions keep downloading through `releases/latest`.
+        assert!(!source(Checksum::File("SHA2-256SUMS")).needs_tag());
+        assert!(!source(Checksum::Unverified).needs_tag());
+        assert!(source(Checksum::GitHubDigest).needs_tag(), "the digest belongs to one release");
+        let mut templated = source(Checksum::Unverified);
+        templated.asset_linux_x64 = Some("tool-{version}-linux");
+        assert!(templated.needs_tag());
+        assert!(source(Checksum::File("SUMS-{version}")).needs_tag());
+    }
+
+    #[test]
+    fn test_download_base_by_tag() {
+        let m = source(Checksum::GitHubDigest);
+        assert_eq!(m.download_base(None), "https://github.com/example/tool/releases/latest/download");
+        assert_eq!(m.download_base(Some("0.26.1")), "https://github.com/example/tool/releases/download/0.26.1");
+    }
+
+    #[test]
+    fn test_arch_specific_assets_win_over_the_generic_one() {
+        let mut m = source(Checksum::Unverified);
+        m.asset_macos_arm64 = Some("tool-mac-arm");
+        m.asset_macos_x64 = Some("tool-mac-intel");
+        m.asset_windows_x64 = Some("tool-win-x64.exe");
+        m.asset_windows_arm64 = Some("tool-win-arm.exe");
+        let expected = if cfg!(target_os = "macos") {
+            if cfg!(target_arch = "aarch64") { "tool-mac-arm" } else { "tool-mac-intel" }
+        } else if cfg!(target_os = "windows") {
+            if cfg!(target_arch = "aarch64") { "tool-win-arm.exe" } else { "tool-win-x64.exe" }
+        } else if cfg!(target_arch = "aarch64") {
+            "tool-linux-arm"
+        } else {
+            "tool-linux"
+        };
+        assert_eq!(m.platform_asset(), Some(expected));
+        // Without them, the generic asset still serves.
+        assert!(source(Checksum::Unverified).platform_asset().is_some());
+    }
+
+    #[test]
+    fn test_fingerprint_of_a_definition_without_new_fields_is_unchanged() {
+        // The extra fields are appended only when present (pinned against real
+        // definitions in `dependency_registry`'s literal-hash test); here: setting
+        // one moves it.
+        let def = |m: ManagedSource| DependencyDef {
+            name: "tool",
+            description: "",
+            version_args: &[],
+            probe_env: &[],
+            parse_version: VersionParser::Builtin(|_| None),
+            install: InstallInstructions { macos: "", windows: "", linux: "", url: "" },
+            internal_consumers: &[],
+            managed: Some(m),
+            os_trust: None,
+        };
+        let plain = fingerprint(&def(source(Checksum::Unverified)));
+        let mut folder = source(Checksum::Unverified);
+        folder.folder_entry = Some("tool");
+        assert_ne!(fingerprint(&def(folder)), plain);
+        let mut arch = source(Checksum::Unverified);
+        arch.asset_macos_arm64 = Some("x");
+        assert_ne!(fingerprint(&def(arch)), plain);
+    }
+
+    #[test]
+    fn test_raw_tag_keeps_the_v() {
+        let loc = "https://github.com/o/r/releases/tag/v1.2.3";
+        assert_eq!(parse_raw_tag_from_location(loc).as_deref(), Some("v1.2.3"));
+        assert_eq!(parse_latest_tag_from_location(loc).as_deref(), Some("1.2.3"));
+    }
+
+    #[test]
+    fn test_digest_from_release_json() {
+        let release = serde_json::json!({ "assets": [
+            { "name": "a.zip", "digest": "sha256:AB".to_string() + &"c".repeat(62) },
+            { "name": "b.zip", "digest": null },
+            { "name": "c.zip", "digest": "md5:abc" },
+        ]});
+        assert_eq!(digest_from_release_json(&release, "a.zip").unwrap(), format!("ab{}", "c".repeat(62)));
+        assert!(digest_from_release_json(&release, "b.zip").unwrap_err().contains("no checksum"));
+        assert!(digest_from_release_json(&release, "c.zip").unwrap_err().contains("no checksum"));
+        assert!(digest_from_release_json(&release, "zzz.zip").unwrap_err().contains("has no zzz.zip"));
+    }
+
+    #[test]
+    fn test_digest_from_assets_html() {
+        // As github.com/<repo>/releases/expanded_assets/<tag> renders it (2026-10).
+        let a = "5cf79a4d41ad40906aababc6bd05585899f102e7c544e38157df747f01cb6f4b";
+        let b = "ccc278d659a658787a575cc40a0be9a19511e0578ba457a4c0675db987e4e8e7";
+        let html = format!(
+            r#"<li><a href="/slskd/slskd/releases/download/0.26.1/slskd-0.26.1-osx-arm64.zip"><span>slskd-0.26.1-osx-arm64.zip</span></a>
+<clipboard-copy id="clipboard-button-sha256:{a}" aria-label="Copy to clipboard digest for slskd-0.26.1-osx-arm64.zip" type="button" value="sha256:{a}" class="Button"></clipboard-copy></li>
+<li><clipboard-copy aria-label="Copy to clipboard digest for slskd-0.26.1-osx-x64.zip" value="sha256:{b}"></clipboard-copy></li>"#
+        );
+        assert_eq!(digest_from_assets_html(&html, "slskd-0.26.1-osx-arm64.zip").as_deref(), Some(a));
+        assert_eq!(digest_from_assets_html(&html, "slskd-0.26.1-osx-x64.zip").as_deref(), Some(b));
+        // A name that only ends like a listed one doesn't borrow its digest.
+        assert_eq!(digest_from_assets_html(&html, "x64.zip"), None);
+        assert_eq!(digest_from_assets_html(&html, "missing.zip"), None);
+        assert_eq!(digest_from_assets_html("<b value=\"sha256:zz\">digest for a.zip\"", "a.zip"), None);
+    }
+
+    #[test]
+    fn test_probe_env_resolves_install_paths_and_drops_them_for_a_system_copy() {
+        let env = [("DOTNET_BUNDLE_EXTRACT_BASE_DIR", "{install}/.probe-extract"), ("DOTNET_NOLOGO", "1")];
+        let dir = tempfile::tempdir().unwrap();
+        let managed = probe_env(&env, Some(dir.path()));
+        assert_eq!(managed.len(), 2);
+        assert_eq!(managed[0].1, dir.path().join(".probe-extract").into_os_string());
+        assert!(dir.path().join(".probe-extract").is_dir(), "the runtime extracts into it");
+        let system = probe_env(&env, None);
+        assert_eq!(system, vec![("DOTNET_NOLOGO".to_string(), std::ffi::OsString::from("1"))]);
+    }
+
+    fn zip_of(entries: &[(&str, &[u8], u32)]) -> Vec<u8> {
+        use std::io::Write;
+        let mut buf = std::io::Cursor::new(Vec::new());
+        {
+            let mut zip = zip::ZipWriter::new(&mut buf);
+            for (name, data, mode) in entries {
+                let opts = zip::write::SimpleFileOptions::default().unix_permissions(*mode);
+                zip.start_file(*name, opts).unwrap();
+                zip.write_all(data).unwrap();
+            }
+            zip.finish().unwrap();
+        }
+        buf.into_inner()
+    }
+
+    #[test]
+    fn test_install_folder_unpacks_the_whole_release_and_replaces_the_old_one() {
+        let bin = tempfile::tempdir().unwrap();
+        let archive = bin.path().join(".slskd.download-slskd-1.0.0-osx-arm64.zip");
+        let exe = binary_filename("slskd");
+        let v1 = zip_of(&[(&exe, b"v1", 0o644), ("wwwroot/index.html", b"<html>", 0o644)]);
+        install_folder(bin.path(), "slskd", "slskd", &archive, &v1).unwrap();
+        let program = bin.path().join("slskd").join(binary_filename("slskd"));
+        assert!(program.is_file());
+        assert!(bin.path().join("slskd/wwwroot/index.html").is_file(), "the rest of the release comes along");
+        assert!(!archive.exists(), "the download is removed once unpacked");
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            assert_eq!(std::fs::metadata(&program).unwrap().permissions().mode() & 0o111, 0o111, "made runnable");
+        }
+
+        let v2 = zip_of(&[(&exe, b"v2", 0o755)]);
+        install_folder(bin.path(), "slskd", "slskd", &archive, &v2).unwrap();
+        assert_eq!(std::fs::read(&program).unwrap(), b"v2");
+        assert!(!bin.path().join("slskd/wwwroot").exists(), "an update replaces the folder, not merges into it");
+    }
+
+    #[test]
+    fn test_install_folder_refuses_a_release_without_its_entry() {
+        let bin = tempfile::tempdir().unwrap();
+        let archive = bin.path().join(".slskd.download-x.zip");
+        let err = install_folder(bin.path(), "slskd", "slskd", &archive, &zip_of(&[("other", b"x", 0o755)])).unwrap_err();
+        assert!(err.contains("no slskd"), "{err}");
+    }
+
+    #[test]
+    fn test_a_release_without_its_entry_leaves_the_installed_copy_alone() {
+        let bin = tempfile::tempdir().unwrap();
+        let archive = bin.path().join(".slskd.download-x.zip");
+        let exe = binary_filename("slskd");
+        install_folder(bin.path(), "slskd", "slskd", &archive, &zip_of(&[(&exe, b"v1", 0o755)])).unwrap();
+        let err = install_folder(bin.path(), "slskd", "slskd", &archive, &zip_of(&[("renamed", b"v2", 0o755)])).unwrap_err();
+        assert!(err.contains("no slskd"), "{err}");
+        assert_eq!(std::fs::read(bin.path().join("slskd").join(&exe)).unwrap(), b"v1", "the old copy still runs");
+        let leftovers: Vec<_> = std::fs::read_dir(bin.path()).unwrap().flatten()
+            .map(|e| e.file_name().to_string_lossy().into_owned())
+            .filter(|n| n != "slskd")
+            .collect();
+        assert!(leftovers.is_empty(), "nothing staged is left behind: {leftovers:?}");
     }
 }

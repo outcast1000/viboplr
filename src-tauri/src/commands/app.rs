@@ -87,17 +87,59 @@ pub fn switch_profile(
     // exit below can't cut a statement off mid-write.
     state.db.write_barrier();
 
+    // A plugin service tied to the app is stopped by its plugin first
+    // (quit_handshake.rs) — and only then is the new instance started, so the
+    // two never run side by side for the length of the wait.
+    if crate::quit_handshake::should_hold(&state.app_dir) {
+        crate::quit_handshake::run(app.clone(), state.app_dir.clone(), move |app| {
+            match spawn_profile_instance(app, &bin, &name) {
+                Ok(()) => app.exit(0),
+                // The command already answered, so the failure travels as an
+                // event (useProfileSwitch). The plugins start their stopped
+                // services again when they next need them.
+                Err(e) => {
+                    use tauri::Emitter;
+                    crate::quit_handshake::reset();
+                    let _ = app.emit("profile-switch-failed", serde_json::json!({ "name": name, "message": e }));
+                }
+            }
+        });
+        return Ok(());
+    }
+    spawn_profile_instance(&app, &bin, &name)?;
+    app.exit(0);
+    Ok(())
+}
+
+/// Restart the app (after an installed update). Goes through the quit
+/// handshake like every other quit: `AppHandle::restart` exits with Tauri's
+/// restart code, for which `ExitRequested`'s `prevent_exit` does nothing, so
+/// the hold has to happen before it is called.
+#[tauri::command]
+pub fn relaunch_app(app: AppHandle, state: State<'_, AppState>) {
+    state.db.write_barrier();
+    if crate::quit_handshake::should_hold(&state.app_dir) {
+        crate::quit_handshake::run(app, state.app_dir.clone(), |app| app.restart());
+        return;
+    }
+    app.restart();
+}
+
+/// Start the app again under `name` (the switch's second half).
+fn spawn_profile_instance(app: &AppHandle, bin: &std::path::Path, name: &str) -> Result<(), String> {
     // Release the single-instance lock before spawning — otherwise the child
     // forwards-and-exits against the still-live parent. Release builds only
     // (the plugin is not registered in debug).
     #[cfg(not(debug_assertions))]
-    tauri_plugin_single_instance::destroy(&app);
+    tauri_plugin_single_instance::destroy(app);
+    #[cfg(debug_assertions)]
+    let _ = app;
 
     // env_remove: env takes precedence over argv at startup and the child
     // inherits our env — an inherited VIBOPLR_PROFILE would silently override
     // the new --profile.
-    let spawned = std::process::Command::new(&bin)
-        .args(["--profile", &name])
+    let spawned = std::process::Command::new(bin)
+        .args(["--profile", name])
         .env_remove("VIBOPLR_PROFILE")
         .spawn();
     if let Err(e) = spawned {
@@ -107,7 +149,6 @@ pub fn switch_profile(
         );
         return Err(format!("Failed to launch profile '{}': {}", name, e));
     }
-    app.exit(0);
     Ok(())
 }
 
@@ -145,6 +186,13 @@ pub fn create_profile_shortcut(app: AppHandle, name: String) -> Result<String, S
         appimage.as_deref(),
     )
     .map(|p| p.to_string_lossy().to_string())
+}
+
+/// The webview ran every plugin's `onAppQuitting` handler: the held quit may
+/// go ahead (`quit_handshake`).
+#[tauri::command]
+pub fn app_quit_ready() {
+    crate::quit_handshake::ready();
 }
 
 // --- Debug commands ---

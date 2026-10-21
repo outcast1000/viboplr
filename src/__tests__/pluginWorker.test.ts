@@ -358,6 +358,9 @@ describe("optional permissions", () => {
     const g = gateApi("p", [], api, (e) => denied.push(e), { declared: ["programs:run"], granted: () => [], request: async () => false }) as any;
     await expect(g.system.programs.start("slskd", { path: ["bin"] })).rejects.toThrow(/programs:run/);
     expect(denied).toHaveLength(1);
+    // The plugin did declare it; the user said no — not "declare it".
+    expect(denied[0].declined).toBe(true);
+    expect(denied[0].message).toMatch(/^Permission denied: .*the user didn't allow it$/);
     expect(programs.start).not.toHaveBeenCalled();
   });
 

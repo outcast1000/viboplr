@@ -125,11 +125,11 @@ fn unpack_zip(archive: &Path, dest: &Path) -> Result<Unpacked, String> {
         budget.entry()?;
         let mut entry = zip.by_index(i).map_err(|e| format!("Bad zip entry: {e}"))?;
         let Some(rel) = entry.enclosed_name().and_then(|p| safe_relative(&p)) else {
-            log::warn!("plugin programs: skipped unsafe zip entry {:?}", entry.name());
+            log::warn!("unpack: skipped unsafe zip entry {:?}", entry.name());
             continue;
         };
         if entry.is_symlink() {
-            log::warn!("plugin programs: skipped symlink {}", rel.display());
+            log::warn!("unpack: skipped symlink {}", rel.display());
             continue;
         }
         if entry.is_dir() {
@@ -153,7 +153,7 @@ fn unpack_tar_gz(archive: &Path, dest: &Path) -> Result<Unpacked, String> {
         let mut entry = entry.map_err(|e| format!("Bad tar entry: {e}"))?;
         let raw = entry.path().map_err(|e| format!("Bad tar entry path: {e}"))?.into_owned();
         let Some(rel) = safe_relative(&raw) else {
-            log::warn!("plugin programs: skipped unsafe tar entry {}", raw.display());
+            log::warn!("unpack: skipped unsafe tar entry {}", raw.display());
             continue;
         };
         let kind = entry.header().entry_type();
@@ -164,7 +164,7 @@ fn unpack_tar_gz(archive: &Path, dest: &Path) -> Result<Unpacked, String> {
             let sha = write_file(dest, &rel, &mut entry, mode, &mut budget)?;
             files.push((rel, sha));
         } else {
-            log::warn!("plugin programs: skipped non-file tar entry {}", rel.display());
+            log::warn!("unpack: skipped non-file tar entry {}", rel.display());
         }
     }
     Ok(files)

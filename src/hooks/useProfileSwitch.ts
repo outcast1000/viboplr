@@ -1,5 +1,7 @@
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
+import { subscribe } from "../utils/tauriEvents";
+import { useLatestRef } from "./useLatestRef";
 import { decideSwitchAction } from "../utils/profileSwitch";
 import type { Notify } from "./useToasts";
 
@@ -26,6 +28,17 @@ export function useProfileSwitch({ restoredRef, flushQueue, saveStore, notify }:
   // The profile being switched to (drives the blocking overlay), or null.
   const [switching, setSwitching] = useState<string | null>(null);
   const switchingRef = useRef(false);
+  const notifyRef = useLatestRef(notify);
+
+  // With a plugin service to stop first, `switch_profile` answers before the
+  // new instance is started (quit_handshake.rs); a failed start comes back here.
+  useEffect(() => subscribe<{ name: string; message: string }>("profile-switch-failed", (event) => {
+    const { name, message } = event.payload;
+    console.error(`Failed to switch to profile "${name}":`, message);
+    notifyRef.current(`Couldn't switch to profile “${name}”: ${message}`, { kind: "error" });
+    switchingRef.current = false;
+    setSwitching(null);
+  }), [notifyRef]);
 
   const switchToProfile = useCallback(
     async (name: string, opts?: { allowCreate?: boolean }) => {

@@ -132,11 +132,16 @@ fn without_verbatim_prefix(p: PathBuf) -> PathBuf {
     p
 }
 
-/// What the plugin asks to start. Paths are store-relative segments.
+/// What the plugin asks to start. Paths are store-relative segments. Exactly
+/// one of `path` (a binary in the plugin's store) and `dependency` (Vibo's
+/// managed copy of a tool the plugin's manifest lists) is given.
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct StartSpec {
-    pub path: Vec<String>,
+    #[serde(default)]
+    pub path: Option<Vec<String>>,
+    #[serde(default)]
+    pub dependency: Option<String>,
     #[serde(default)]
     pub args: Vec<String>,
     #[serde(default)]
@@ -166,6 +171,10 @@ pub struct Registration {
     pub outlive_app: bool,
     pub pid: Option<u32>,
     pub started_at: Option<u64>,
+    /// Started from Vibo's managed copy of this tool (`StartSpec::dependency`):
+    /// `exe` lives in the shared bin dir, not the plugin's store.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub dependency: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -208,10 +217,149 @@ fn write_registration(path: &Path, reg: &Registration) -> Result<(), String> {
 }
 
 /// The registration's pid, if that process is still alive and still running
-/// a binary out of the plugin's store.
+/// a binary out of the plugin's store — or, for a dependency, out of that
+/// tool's managed folder (or its one managed file).
 fn running_pid(app_dir: &Path, reg: &Registration) -> Option<u32> {
     let pid = reg.pid?;
-    process::is_ours(pid, &store_root(app_dir, &reg.plugin_id)).then_some(pid)
+    let root = match &reg.dependency {
+        None => store_root(app_dir, &reg.plugin_id),
+        Some(dep) => dependency_root(dep, &reg.exe)?,
+    };
+    process::is_ours(pid, &root).then_some(pid)
+}
+
+/// What a dependency registration's process must be running from. Read off
+/// the bin dir, not the definition in force, so an uninstall that already
+/// dropped the definition can still stop it.
+fn dependency_root(dep: &str, exe: &Path) -> Option<PathBuf> {
+    let bin = crate::dependencies::managed_bin_dir()?;
+    let folder = bin.join(dep);
+    if folder.is_dir() {
+        return Some(folder);
+    }
+    (exe.parent() == Some(bin)).then(|| exe.to_path_buf())
+}
+
+/// Tools whose managed copy an install is replacing right now. A start of one
+/// is refused until the install is done, so a plugin polling its service can't
+/// launch the old copy while its folder is being swapped.
+static UPDATING: std::sync::Mutex<Vec<String>> = std::sync::Mutex::new(Vec::new());
+
+/// Held by `dependency_install` from stopping the tool's services until just
+/// before it starts them again.
+pub struct UpdateGuard(String);
+
+impl Drop for UpdateGuard {
+    fn drop(&mut self) {
+        let mut updating = UPDATING.lock().unwrap_or_else(|e| e.into_inner());
+        if let Some(i) = updating.iter().position(|n| *n == self.0) {
+            updating.swap_remove(i);
+        }
+    }
+}
+
+pub fn begin_update(name: &str) -> UpdateGuard {
+    UPDATING.lock().unwrap_or_else(|e| e.into_inner()).push(name.to_string());
+    UpdateGuard(name.to_string())
+}
+
+fn is_updating(name: &str) -> bool {
+    UPDATING.lock().unwrap_or_else(|e| e.into_inner()).iter().any(|n| n == name)
+}
+
+/// The registrations of this profile whose dependency is `name` and that are
+/// running now (what an update must stop and start again).
+pub fn running_for_dependency(app_dir: &Path, name: &str) -> Vec<Registration> {
+    let Ok(plugins) = std::fs::read_dir(app_dir.join(REGISTRY_DIR)) else { return Vec::new() };
+    plugins
+        .flatten()
+        .flat_map(|p| registrations(&p.path()))
+        .filter(|r| r.dependency.as_deref() == Some(name) && running_pid(app_dir, r).is_some())
+        .collect()
+}
+
+/// This profile's registrations of tool `name`, with whether each is running
+/// (the Tools row's status line).
+pub fn services_for_dependency(app_dir: &Path, name: &str) -> Vec<(Registration, bool)> {
+    let Ok(plugins) = std::fs::read_dir(app_dir.join(REGISTRY_DIR)) else { return Vec::new() };
+    plugins
+        .flatten()
+        .flat_map(|p| registrations(&p.path()))
+        .filter(|r| r.dependency.as_deref() == Some(name))
+        .map(|r| {
+            let running = running_pid(app_dir, &r).is_some();
+            (r, running)
+        })
+        .collect()
+}
+
+// ---- Running a dependency (`StartSpec::dependency`) ---------------------
+
+/// The error `start` answers with until the user agreed to let this plugin run
+/// this tool in the background; the frontend asks and retries.
+pub const DEPENDENCY_RUN_UNCONFIRMED: &str = "DEPENDENCY_RUN_UNCONFIRMED";
+
+fn dependency_runs_path(app_dir: &Path, plugin_id: &str) -> PathBuf {
+    registry_dir(app_dir, plugin_id).join(".dependency-runs")
+}
+
+fn read_dependency_runs(app_dir: &Path, plugin_id: &str) -> std::collections::BTreeMap<String, String> {
+    std::fs::read_to_string(dependency_runs_path(app_dir, plugin_id))
+        .ok()
+        .and_then(|s| serde_json::from_str(&s).ok())
+        .unwrap_or_default()
+}
+
+/// The managed copy of `dep` that `plugin_id` may start: the plugin lists the
+/// tool, its definition is in force, Vibo installed the copy in use (a system
+/// copy is the user's own and never started), and that copy came from the
+/// definition in force.
+fn dependency_exe(plugin_id: &str, dep: &str) -> Result<PathBuf, String> {
+    if !crate::dependency_registry::declares(plugin_id, dep) {
+        return Err(format!("{dep} isn't in this plugin's binaryDependencies"));
+    }
+    let def = crate::dependencies::get_def(dep).ok_or_else(|| format!("No definition of {dep} is in force"))?;
+    if def.managed.is_none() {
+        return Err(format!("Vibo doesn't install {dep}, so it can't start it"));
+    }
+    let exe = crate::dependencies::managed_binary_path(dep)
+        .ok_or_else(|| format!("{dep} isn't installed by Vibo (Extensions → Tools)"))?;
+    if let Some(bin) = crate::dependencies::managed_bin_dir() {
+        if bin.join(format!("{dep}.pyz")).is_file() {
+            return Err(format!("{dep} is installed as a Python app and can't run in the background"));
+        }
+    }
+    if crate::dependencies::source_mismatch(dep) {
+        return Err(format!("{dep} came from another source; reinstall it in Extensions → Tools"));
+    }
+    Ok(exe)
+}
+
+/// The user agreed that `plugin_id` may run `dep` in the background. Recorded
+/// against the definition's fingerprint, i.e. its source: an update of the
+/// same source doesn't ask again, a plugin moving the source does.
+pub fn confirm_dependency_run(app_dir: &Path, plugin_id: &str, dep: &str) -> Result<(), String> {
+    validate_plugin_id(plugin_id)?;
+    dependency_exe(plugin_id, dep)?;
+    let def = crate::dependencies::get_def(dep).ok_or_else(|| format!("No definition of {dep} is in force"))?;
+    let mut runs = read_dependency_runs(app_dir, plugin_id);
+    runs.insert(dep.to_string(), crate::dependencies::fingerprint(def));
+    let path = dependency_runs_path(app_dir, plugin_id);
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent).map_err(|e| format!("Couldn't create {}: {e}", parent.display()))?;
+    }
+    let text = serde_json::to_string_pretty(&runs).map_err(|e| e.to_string())?;
+    std::fs::write(&path, text).map_err(|e| format!("Couldn't record the consent: {e}"))
+}
+
+fn require_dependency_run(app_dir: &Path, plugin_id: &str, dep: &str) -> Result<(), String> {
+    let def = crate::dependencies::get_def(dep).ok_or_else(|| format!("No definition of {dep} is in force"))?;
+    let fingerprint = crate::dependencies::fingerprint(def);
+    if read_dependency_runs(app_dir, plugin_id).get(dep) == Some(&fingerprint) {
+        Ok(())
+    } else {
+        Err(format!("{DEPENDENCY_RUN_UNCONFIRMED}: {dep}"))
+    }
 }
 
 fn status_of(app_dir: &Path, plugin_id: &str, name: &str, reg: Option<&Registration>) -> ProgramStatus {
@@ -297,10 +445,26 @@ pub fn ensure_executable(path: &Path) -> Result<(), String> {
 /// approved (`approved.rs`). The caller holds `approved::store_lock`.
 fn launch(app_dir: &Path, reg: &mut Registration) -> Result<u32, String> {
     let root = store_root(app_dir, &reg.plugin_id);
-    crate::commands::ensure_within_root(&root, &reg.exe)?;
     crate::commands::ensure_within_root(&root, &reg.cwd)?;
-    approved::require(app_dir, &reg.plugin_id, &reg.exe)?;
-    ensure_executable(&reg.exe)?;
+    match reg.dependency.clone() {
+        None => {
+            crate::commands::ensure_within_root(&root, &reg.exe)?;
+            approved::require(app_dir, &reg.plugin_id, &reg.exe)?;
+            ensure_executable(&reg.exe)?;
+        }
+        // Vibo's own install, verified when it was downloaded; its modes were set
+        // then, and a shared cross-profile file is never chmod-ed from here.
+        Some(dep) => {
+            if is_updating(&dep) {
+                return Err(format!("{dep} is being updated; start it again in a moment"));
+            }
+            let exe = dependency_exe(&reg.plugin_id, &dep)?;
+            if exe != reg.exe {
+                return Err(format!("{dep} moved since it was registered; start it again"));
+            }
+            require_dependency_run(app_dir, &reg.plugin_id, &dep)?;
+        }
+    }
     let plan = process::SpawnPlan {
         exe: reg.exe.clone(),
         args: reg.args.clone(),
@@ -329,10 +493,16 @@ pub fn start(app_dir: &Path, plugin_id: &str, name: &str, spec: &StartSpec) -> R
             return Ok(status_of(app_dir, plugin_id, name, Some(&existing)));
         }
     }
-    let exe = resolve_in_store(app_dir, plugin_id, &spec.path, true)?;
-    let cwd = match &spec.cwd {
-        Some(segments) => resolve_in_store(app_dir, plugin_id, segments, true)?,
-        None => exe.parent().map(Path::to_path_buf).unwrap_or_else(|| store_root(app_dir, plugin_id)),
+    let (exe, dependency) = match (&spec.path, &spec.dependency) {
+        (Some(path), None) => (resolve_in_store(app_dir, plugin_id, path, true)?, None),
+        (None, Some(dep)) => (dependency_exe(plugin_id, dep)?, Some(dep.clone())),
+        _ => return Err("Give exactly one of `path` and `dependency`".to_string()),
+    };
+    let cwd = match (&spec.cwd, &dependency) {
+        (Some(segments), _) => resolve_in_store(app_dir, plugin_id, segments, true)?,
+        // Never the shared bin dir: a program's working folder is its plugin's.
+        (None, Some(_)) => resolve_in_store(app_dir, plugin_id, &[], false)?,
+        (None, None) => exe.parent().map(Path::to_path_buf).unwrap_or_else(|| store_root(app_dir, plugin_id)),
     };
     if !cwd.is_dir() {
         return Err(format!("{} is not a folder", cwd.display()));
@@ -347,14 +517,19 @@ pub fn start(app_dir: &Path, plugin_id: &str, name: &str, spec: &StartSpec) -> R
         outlive_app: spec.outlive_app,
         pid: None,
         started_at: None,
+        dependency,
     };
     let pid = {
         let _store = approved::store_lock();
         launch(app_dir, &mut reg)?
     };
+    watch_startup(app_dir, plugin_id, name, pid)?;
+    Ok(status_of(app_dir, plugin_id, name, Some(&reg)))
+}
 
-    // A program that exits at once (a bad config, a port taken, "already
-    // running") would otherwise read as started; say why instead.
+/// A program that exits at once (a bad config, a port taken, "already
+/// running") would otherwise read as started; say why instead.
+fn watch_startup(app_dir: &Path, plugin_id: &str, name: &str, pid: u32) -> Result<(), String> {
     let deadline = Instant::now() + STARTUP_WATCH;
     while Instant::now() < deadline {
         if !process::pid_alive(pid) {
@@ -367,7 +542,22 @@ pub fn start(app_dir: &Path, plugin_id: &str, name: &str, spec: &StartSpec) -> R
         }
         std::thread::sleep(Duration::from_millis(100));
     }
-    Ok(status_of(app_dir, plugin_id, name, Some(&reg)))
+    Ok(())
+}
+
+/// Start a registration again exactly as it was registered (the host's restart
+/// after it updated the tool). Same checks as `start`.
+pub fn restart(app_dir: &Path, reg: &Registration) -> Result<(), String> {
+    let mut reg = reg.clone();
+    if let Some(dep) = &reg.dependency {
+        // The update may have moved the entry (a one-file copy became a folder).
+        reg.exe = dependency_exe(&reg.plugin_id, dep)?;
+    }
+    let pid = {
+        let _store = approved::store_lock();
+        launch(app_dir, &mut reg)?
+    };
+    watch_startup(app_dir, &reg.plugin_id, &reg.name, pid)
 }
 
 pub fn stop(app_dir: &Path, plugin_id: &str, name: &str, grace: Duration) -> Result<ProgramStatus, String> {
@@ -405,10 +595,23 @@ pub fn remove_all(app_dir: &Path, plugin_id: &str) {
         }
     }
     approved::forget_all(app_dir, plugin_id);
+    let _ = std::fs::remove_file(dependency_runs_path(app_dir, plugin_id));
     let _ = std::fs::remove_dir(&dir);
 }
 
+/// Is a program that asked not to outlive Vibo (`outliveApp: false`) running?
+/// Decides whether a quit waits for the plugins (`quit_handshake`).
+pub fn has_running_tied_to_app(app_dir: &Path) -> bool {
+    let Ok(plugins) = std::fs::read_dir(app_dir.join(REGISTRY_DIR)) else { return false };
+    plugins
+        .flatten()
+        .flat_map(|p| registrations(&p.path()))
+        .any(|reg| !reg.outlive_app && running_pid(app_dir, &reg).is_some())
+}
+
 /// App exit: stop the programs whose plugin asked them not to outlive Vibo.
+/// The backstop after `quit_handshake` gave each plugin the chance to stop its
+/// own cleanly.
 pub fn stop_tied_to_app(app_dir: &Path) {
     let Ok(plugins) = std::fs::read_dir(app_dir.join(REGISTRY_DIR)) else { return };
     for plugin in plugins.flatten() {
@@ -650,7 +853,8 @@ mod tests {
         }
         approve(app.path(), "p", &["bin", "sleeper"]);
         let spec = StartSpec {
-            path: segs(&["bin", "sleeper"]),
+            path: Some(segs(&["bin", "sleeper"])),
+            dependency: None,
             args: vec!["30".into()],
             env: Default::default(),
             cwd: None,
@@ -663,7 +867,9 @@ mod tests {
         assert_eq!(again.pid, first.pid, "a second start reports the running copy");
         assert_eq!(list(app.path(), "p").unwrap().len(), 1);
 
+        assert!(has_running_tied_to_app(app.path()), "an outliveApp: false program holds the quit");
         stop_tied_to_app(app.path());
+        assert!(!has_running_tied_to_app(app.path()));
         let after = status(app.path(), "p", "d").unwrap();
         assert!(after.registered && !after.running, "{after:?}");
         assert!(!process::pid_alive(first.pid.unwrap()));
@@ -679,7 +885,8 @@ mod tests {
         store_file(app.path(), "p", &["bin", "fail.sh"], "#!/bin/sh\necho 'port 5030 is taken'\nexit 1\n");
         approve(app.path(), "p", &["bin", "fail.sh"]);
         let spec = StartSpec {
-            path: segs(&["bin", "fail.sh"]),
+            path: Some(segs(&["bin", "fail.sh"])),
+            dependency: None,
             args: vec![],
             env: Default::default(),
             cwd: None,
@@ -687,6 +894,126 @@ mod tests {
         };
         let err = start(app.path(), "p", "f", &spec).unwrap_err();
         assert!(err.contains("port 5030 is taken"), "{err}");
+    }
+
+    /// A real binary installed as Vibo's managed copy of a folder tool, with a
+    /// bundled plugin declaring it (from `repo`). The caller holds
+    /// `dependency_registry::TEST_SERIAL`. False when the copy can't run here.
+    #[cfg(unix)]
+    fn managed_service(plugins: &Path, app: &Path, tool: &str, repo: &str) -> bool {
+        crate::dependencies::set_managed_bin_dir(std::env::temp_dir().join(format!("viboplr-test-bin-{}", std::process::id())));
+        let bin = crate::dependencies::managed_bin_dir().unwrap();
+        let folder = bin.join(tool);
+        std::fs::create_dir_all(&folder).unwrap();
+        std::fs::copy("/bin/sleep", folder.join(tool)).unwrap();
+        #[cfg(target_os = "macos")]
+        {
+            let signed = std::process::Command::new("codesign")
+                .args(["-f", "-s", "-"])
+                .arg(folder.join(tool))
+                .status()
+                .map(|s| s.success())
+                .unwrap_or(false);
+            if !signed {
+                eprintln!("codesign unavailable; skipping");
+                return false;
+            }
+        }
+        let mut entry = crate::dependency_registry::fixture_entry("slskd");
+        entry["name"] = serde_json::json!(tool);
+        entry["definition"]["managed"]["entry"] = serde_json::json!(tool);
+        entry["definition"]["managed"]["repo"] = serde_json::json!(repo);
+        // "lastfm" is on the bundle allow-list, so its definition counts as signed.
+        let dir = plugins.join("lastfm");
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(
+            dir.join("manifest.json"),
+            serde_json::json!({ "id": "lastfm", "name": "Last.fm", "version": "1.0.0", "binaryDependencies": [entry] }).to_string(),
+        )
+        .unwrap();
+        crate::dependency_registry::rebuild(
+            app,
+            vec![crate::dependency_registry::PluginRoot { dir: plugins.to_path_buf(), builtin: true, single: false }],
+        );
+        true
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn test_a_plugin_runs_the_managed_copy_of_a_tool_it_declares() {
+        let app = tempfile::tempdir().unwrap();
+        let plugins = tempfile::tempdir().unwrap();
+        let tool = format!("demo-svc-{}", std::process::id());
+        let _g = crate::dependency_registry::TEST_SERIAL.lock().unwrap_or_else(|e| e.into_inner());
+        if !managed_service(plugins.path(), app.path(), &tool, "example/svc") {
+            return;
+        }
+        let spec = StartSpec {
+            path: None,
+            dependency: Some(tool.clone()),
+            args: vec!["30".into()],
+            env: Default::default(),
+            cwd: None,
+            outlive_app: true,
+        };
+
+        // Only a plugin that lists the tool, and only once the user agreed.
+        let err = start(app.path(), "lyrics", "svc", &spec).unwrap_err();
+        assert!(err.contains("isn't in this plugin's binaryDependencies"), "{err}");
+        let err = start(app.path(), "lastfm", "svc", &spec).unwrap_err();
+        assert!(err.starts_with(DEPENDENCY_RUN_UNCONFIRMED), "{err}");
+        assert!(!status(app.path(), "lastfm", "svc").unwrap().registered, "a refused start registers nothing");
+
+        confirm_dependency_run(app.path(), "lastfm", &tool).unwrap();
+        let first = start(app.path(), "lastfm", "svc", &spec).unwrap();
+        assert!(first.running, "{first:?}");
+        let reg = read_registration(&registry_path(app.path(), "lastfm", "svc")).unwrap();
+        assert_eq!(reg.dependency.as_deref(), Some(tool.as_str()));
+        assert_eq!(
+            std::fs::canonicalize(&reg.cwd).unwrap(),
+            std::fs::canonicalize(store_root(app.path(), "lastfm")).unwrap(),
+            "never the shared bin dir"
+        );
+        assert_eq!(running_for_dependency(app.path(), &tool).len(), 1);
+        assert_eq!(services_for_dependency(app.path(), &tool), vec![(reg.clone(), true)]);
+
+        // The host's restart around an update: same registration, no new consent.
+        stop(app.path(), "lastfm", "svc", Duration::from_secs(5)).unwrap();
+        assert!(running_for_dependency(app.path(), &tool).is_empty());
+        restart(app.path(), &reg).unwrap();
+        assert!(status(app.path(), "lastfm", "svc").unwrap().running);
+
+        // A plugin that moves the source is asked again.
+        stop(app.path(), "lastfm", "svc", Duration::from_secs(5)).unwrap();
+        assert!(managed_service(plugins.path(), app.path(), &tool, "example/other"));
+        let err = start(app.path(), "lastfm", "svc", &spec).unwrap_err();
+        assert!(err.starts_with(DEPENDENCY_RUN_UNCONFIRMED), "{err}");
+
+        // Uninstall stops it and forgets the consent.
+        confirm_dependency_run(app.path(), "lastfm", &tool).unwrap();
+        let pid = start(app.path(), "lastfm", "svc", &spec).unwrap().pid.unwrap();
+        remove_all(app.path(), "lastfm");
+        assert!(!process::pid_alive(pid));
+        assert!(!dependency_runs_path(app.path(), "lastfm").exists());
+
+        crate::dependency_registry::reset_for_tests();
+        let _ = std::fs::remove_dir_all(crate::dependencies::managed_bin_dir().unwrap().join(&tool));
+    }
+
+    #[test]
+    fn test_start_takes_exactly_one_of_path_and_dependency() {
+        let app = tempfile::tempdir().unwrap();
+        let both = StartSpec {
+            path: Some(segs(&["bin", "x"])),
+            dependency: Some("slskd".into()),
+            args: vec![],
+            env: Default::default(),
+            cwd: None,
+            outlive_app: true,
+        };
+        assert!(start(app.path(), "p", "x", &both).unwrap_err().contains("exactly one"));
+        let neither = StartSpec { path: None, dependency: None, ..both };
+        assert!(start(app.path(), "p", "x", &neither).unwrap_err().contains("exactly one"));
     }
 
     /// A file the plugin wrote itself (`api.storage.files`) never runs, and an
@@ -697,7 +1024,8 @@ mod tests {
         let app = tempfile::tempdir().unwrap();
         let script = store_file(app.path(), "p", &["bin", "x.sh"], "#!/bin/sh\necho hi\n");
         let spec = StartSpec {
-            path: segs(&["bin", "x.sh"]),
+            path: Some(segs(&["bin", "x.sh"])),
+            dependency: None,
             args: vec![],
             env: Default::default(),
             cwd: None,
@@ -740,6 +1068,7 @@ mod tests {
             outlive_app: true,
             pid: None,
             started_at: None,
+            dependency: None,
         };
         assert!(launch(app.path(), &mut reg).unwrap_err().contains("has changed"));
         assert!(reg.pid.is_none());
@@ -759,6 +1088,7 @@ mod tests {
             outlive_app: true,
             pid: Some(std::process::id()),
             started_at: Some(1),
+            dependency: None,
         };
         write_registration(&registry_path(app.path(), "p", "x"), &reg).unwrap();
         let s = status(app.path(), "p", "x").unwrap();

@@ -68,8 +68,10 @@ const STORE_DEFAULTS = {
 // track always starts from the top), and positionSecs alone made the store
 // rewrite the whole file every 5s of playback. heroTvEffect / miniSizeMigrated
 // belonged to 0.9-era migrations that have since been removed. playbackEngine
-// chose between mpv and the browser engine, which is gone.
-export const RETIRED_STORE_KEYS = ["positionSecs", "currentTrackEntry", "heroTvEffect", "miniSizeMigrated", "miniTitleScroll", "playbackEngine"] as const;
+// chose between mpv and the browser engine, which is gone. autoUpdateManagedDeps
+// switched the silent tool updater, which is gone: tool updates are announced
+// and installed on the user's click, like app and extension updates.
+export const RETIRED_STORE_KEYS = ["positionSecs", "currentTrackEntry", "heroTvEffect", "miniSizeMigrated", "miniTitleScroll", "playbackEngine", "autoUpdateManagedDeps"] as const;
 
 export interface AppStore {
   get<T>(key: string): Promise<T | undefined>;

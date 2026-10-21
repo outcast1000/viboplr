@@ -39,6 +39,39 @@ export function OptionalPermissionsPrompt({ pluginName, permissions, reasons, on
   );
 }
 
+export interface DependencyRunConfirmProps {
+  pluginName: string;
+  dependency: string;
+  version: string | null;
+  repo: string | null;
+  onAllow: () => void;
+  onCancel: () => void;
+}
+
+/** The first time a plugin starts Vibo's copy of a tool as a background
+ *  program (and again if its source changes; an update never asks). */
+export function DependencyRunConfirm({ pluginName, dependency, version, repo, onAllow, onCancel }: DependencyRunConfirmProps) {
+  const what = version ? `${dependency} ${version}` : dependency;
+  return (
+    <ConfirmModal
+      portal
+      width={460}
+      title={`Run ${dependency} in the background?`}
+      messageClassName="delete-confirm-warning"
+      message={<>
+        {pluginName} wants to run {what}{repo ? ` (from ${repo})` : ""} on this computer. It keeps running while
+        you use Vibo, and after you quit if {pluginName} is set to keep it running. You can stop it any time
+        in {pluginName}.
+      </>}
+      cancelLabel="Don't allow"
+      confirmLabel="Allow"
+      autoFocusCancel
+      onCancel={onCancel}
+      onConfirm={onAllow}
+    />
+  );
+}
+
 export interface ProgramInstallConfirmProps {
   pluginName: string;
   fileName: string;

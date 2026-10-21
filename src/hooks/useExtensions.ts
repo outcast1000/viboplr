@@ -305,9 +305,10 @@ export function useExtensions(props: UseExtensionsProps) {
     [updates, performUpdate],
   );
 
-  const updateAll = useCallback(async () => {
+  /** Resolves with the names of the updates that failed (shown in the modal). */
+  const updateAll = useCallback(async (): Promise<string[]> => {
     const available = updates.filter((u) => u.status === "available");
-    if (available.length === 0) return;
+    if (available.length === 0) return [];
     let succeeded = 0;
     let anyPlugin = false;
     const updatedPlugins: string[] = [];
@@ -347,6 +348,7 @@ export function useExtensions(props: UseExtensionsProps) {
         message: `${succeeded} of ${available.length} updated. Failed: ${failed.join(", ")}.`,
       });
     }
+    return failed;
   }, [updates, performUpdate, onReloadAllPlugins, askAboutNewPermissions]);
 
   const installFromGallery = useCallback(

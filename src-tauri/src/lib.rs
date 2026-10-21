@@ -46,6 +46,7 @@ mod plugin_signing;
 mod roadie_cleanup;
 mod dependency_registry;
 mod plugin_programs;
+mod quit_handshake;
 mod trust_store;
 #[cfg(target_os = "macos")]
 mod cursor_tracker;
@@ -80,6 +81,7 @@ macro_rules! invoke_handler {
             commands::list_profiles,
             commands::create_profile,
             commands::switch_profile,
+            commands::relaunch_app,
             commands::get_pending_profile_switch,
             commands::create_profile_shortcut,
             commands::add_collection,
@@ -215,6 +217,7 @@ macro_rules! invoke_handler {
             commands::dependency_definitions_consent,
             commands::dependency_definitions_revoke,
             commands::dependency_remove_unused,
+            commands::dependency_services,
             commands::plugin_exec,
             commands::plugin_exec_cancel,
             commands::get_video_frames,
@@ -301,6 +304,7 @@ macro_rules! invoke_handler {
             commands::plugin_program_extract,
             commands::plugin_program_run,
             commands::plugin_program_start,
+            commands::plugin_program_confirm_dependency,
             commands::plugin_program_status,
             commands::plugin_program_list,
             commands::plugin_program_stop,
@@ -384,6 +388,7 @@ macro_rules! invoke_handler {
             commands::assistant_scopes_get,
             commands::assistant_scopes_set,
             commands::assistant_pause_get,
+            commands::app_quit_ready,
             commands::assistant_pause_set,
             commands::assistant_land_download,
             commands::assistant_stage_replacement,
@@ -1345,12 +1350,21 @@ pub fn run() {
                 // (1) on macOS, win.close() hides rather than terminates;
                 // (2) on Windows, hidden plugin browse windows keep the process alive
                 //     so RunEvent::ExitRequested never fires.
-                window.on_window_event(|event| {
-                    if let tauri::WindowEvent::CloseRequested { .. } = event {
+                let close_app = app.handle().clone();
+                let close_app_dir = app_dir.clone();
+                window.on_window_event(move |event| {
+                    if let tauri::WindowEvent::CloseRequested { api, .. } = event {
                         // Marks a deliberate close in the log: without it a
                         // session that ends here is indistinguishable from one
                         // that hung or crashed.
                         log::info!("Exit: main window closed");
+                        // A plugin service that asked not to outlive Vibo gets
+                        // stopped by its plugin first (quit_handshake.rs).
+                        if quit_handshake::should_hold(&close_app_dir) {
+                            api.prevent_close();
+                            quit_handshake::run(close_app.clone(), close_app_dir.clone(), |_| std::process::exit(0));
+                            return;
+                        }
                         std::process::exit(0);
                     }
                 });
@@ -1632,8 +1646,6 @@ pub fn run() {
                 )
             });
             let dep_cache = Arc::new(dependencies::DepCache::new());
-            let dep_updater_cache = Arc::clone(&dep_cache);
-            let dep_updater_store_path = app_dir.join("app-state.json");
 
             // Localhost control API (AI control). The state object always
             // exists; the server starts only when the profile's store enables it.
@@ -1685,28 +1697,10 @@ pub fn run() {
                 });
             });
 
-            // Auto-update app-managed dependency copies (e.g. yt-dlp, which
-            // breaks against YouTube within weeks when stale). Only touches
-            // binaries in the managed bin dir — never package-manager installs.
-            {
-                let updater_app_handle = app.handle().clone();
-                std::thread::spawn(move || {
-                    loop {
-                        // Let startup settle before any network traffic.
-                        std::thread::sleep(std::time::Duration::from_secs(30));
-                        dependencies::auto_update_managed(
-                            &dep_updater_cache,
-                            &dep_updater_store_path,
-                            |event, payload| {
-                                let _ = updater_app_handle.emit(event, payload);
-                            },
-                        );
-                        // Re-run daily; the latest-version TTL cache makes
-                        // earlier wakeups free anyway.
-                        std::thread::sleep(std::time::Duration::from_secs(24 * 60 * 60 - 30));
-                    }
-                });
-            }
+            // Managed tools are never updated silently: the frontend's update
+            // check announces them and the user's click installs
+            // (`dependency_install`). See conventions.md "Install an App /
+            // Extension Update".
 
             // Spawn the update checker thread
             {
@@ -1739,6 +1733,17 @@ pub fn run() {
         .expect("error while building tauri application")
         .run(|app, event| {
             match &event {
+                // Cmd-Q / the OS (no code) and `AppHandle::exit` (probe quit, a
+                // profile switch): hold it while plugins stop their services.
+                tauri::RunEvent::ExitRequested { api, code, .. } => {
+                    if let Some(state) = app.try_state::<AppState>() {
+                        if quit_handshake::should_hold(&state.app_dir) {
+                            api.prevent_exit();
+                            let code = code.unwrap_or(0);
+                            quit_handshake::run(app.clone(), state.app_dir.clone(), move |app| app.exit(code));
+                        }
+                    }
+                }
                 tauri::RunEvent::Exit => {
                     log::info!("Exit: app exit requested");
                     // Courtesy cleanup: without it the discovery file merely goes

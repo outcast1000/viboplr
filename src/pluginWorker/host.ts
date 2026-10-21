@@ -101,8 +101,8 @@ export function gateApi(
           continue;
         }
         const fn = value as AnyFn;
-        const deny = (perm: string): never => {
-          const e = new PermissionError(pluginId, path, perm);
+        const deny = (perm: string, declined = false): never => {
+          const e = new PermissionError(pluginId, path, perm, declined);
           onDenied(e);
           throw e;
         };
@@ -124,7 +124,7 @@ export function gateApi(
           return optional.request().then((ok) => {
             const still = unmetPermissions(path, args, [...granted, ...optional.granted()], optional.declared);
             if (!ok || !still || still.missing.length > 0 || still.askable.length > 0) {
-              return deny(still?.askable[0] ?? still?.missing[0] ?? unmet.askable[0]);
+              return deny(still?.askable[0] ?? still?.missing[0] ?? unmet.askable[0], !ok);
             }
             return fn.apply(obj, args);
           });

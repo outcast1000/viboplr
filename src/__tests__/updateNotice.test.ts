@@ -4,6 +4,10 @@ import {
   dismissNotice,
   appNoticeSignature,
   extensionsNoticeSignature,
+  toolsNoticeSignature,
+  noticeItemLine,
+  updateAllOrder,
+  type ToolUpdate,
   type UpdateNoticeDismissals,
 } from "../utils/updateNotice";
 import type { ExtensionUpdate } from "../types/plugin";
@@ -55,17 +59,22 @@ describe("resolveUpdateNotice", () => {
   });
 
   /**
-   * One banner at a time. An extension update can be *gated* on the app one
-   * (`requires_app_update`), and two stacked strips would push the view down
-   * twice for a single errand.
+   * One line for everything pending (owner decision, 2026-10-20): two stacked
+   * strips would push the view down twice, and one-at-a-time hid the rest
+   * behind a dismiss.
    */
-  it("ranks the app update ahead of extension updates", () => {
+  it("combines the app and extension updates into one line, app first", () => {
     const notice = resolveUpdateNotice({
-      appUpdate: { version: "1.0.57", body: "" },
+      appUpdate: { version: "1.0.57", body: "- notes" },
       extensionUpdates: [ext()],
       dismissed: NO_DISMISSALS,
     });
-    expect(notice?.kind).toBe("app");
+    expect(notice).toMatchObject({
+      kind: "mixed",
+      parts: ["app", "extensions"],
+      title: "2 updates: Vibo, 1 extension",
+      body: "- notes",
+    });
   });
 
   /** They're separate errands, so silencing one must not silence the other. */
@@ -146,6 +155,74 @@ describe("resolveUpdateNotice", () => {
       extensionUpdates: [ext({ latestVersion: "1.9.0" })],
       dismissed,
     })).not.toBeNull();
+  });
+});
+
+describe("tool updates", () => {
+  const ytdlp: ToolUpdate = { name: "yt-dlp", installed: "2026.10.10", latest: "2026.10.19" };
+  const slskd: ToolUpdate = { name: "slskd", installed: "0.26.1", latest: "0.27.0", running: true };
+
+  it("announces a single tool by name", () => {
+    const notice = resolveUpdateNotice({
+      appUpdate: null, extensionUpdates: [], toolUpdates: [ytdlp], dismissed: NO_DISMISSALS,
+    });
+    expect(notice).toMatchObject({ kind: "tools", title: "An update is available for yt-dlp" });
+  });
+
+  it("counts several tools and says a running one restarts", () => {
+    const notice = resolveUpdateNotice({
+      appUpdate: null, extensionUpdates: [], toolUpdates: [ytdlp, slskd], dismissed: NO_DISMISSALS,
+    })!;
+    expect(notice.title).toBe("2 tool updates are available");
+    expect(notice.items.map(noticeItemLine)).toEqual([
+      "yt-dlp 2026.10.10 → 2026.10.19",
+      "slskd 0.26.1 → 0.27.0 · running, restarts after the update",
+    ]);
+  });
+
+  it("joins the combined line with the app and extensions", () => {
+    const notice = resolveUpdateNotice({
+      appUpdate: { version: "1.0.113", body: "" },
+      extensionUpdates: [ext(), ext({ id: "genius", name: "Genius" }), ext({ id: "x", name: "X" })],
+      toolUpdates: [ytdlp, slskd],
+      dismissed: NO_DISMISSALS,
+    })!;
+    expect(notice.title).toBe("6 updates: Vibo, 3 extensions, 2 tools");
+    // Tools first, the app last: its install relaunches Vibo.
+    expect(updateAllOrder(notice)).toEqual(["tools", "extensions", "app"]);
+  });
+
+  /** yt-dlp follows nightlies: a new build is a new announcement. */
+  it("re-announces a dismissed tool once a newer release lands", () => {
+    const first = resolveUpdateNotice({
+      appUpdate: null, extensionUpdates: [], toolUpdates: [ytdlp], dismissed: NO_DISMISSALS,
+    })!;
+    const dismissed = dismissNotice(NO_DISMISSALS, first);
+    expect(resolveUpdateNotice({
+      appUpdate: null, extensionUpdates: [], toolUpdates: [ytdlp], dismissed,
+    })).toBeNull();
+    expect(resolveUpdateNotice({
+      appUpdate: null, extensionUpdates: [], toolUpdates: [{ ...ytdlp, latest: "2026.10.20" }], dismissed,
+    })).not.toBeNull();
+    expect(toolsNoticeSignature([ytdlp, slskd])).toBe(toolsNoticeSignature([slskd, ytdlp]));
+  });
+
+  /** Dismissing the combined line dismisses each part it showed — and only those. */
+  it("dismisses every part a combined notice covered", () => {
+    const notice = resolveUpdateNotice({
+      appUpdate: { version: "1.0.113", body: "" },
+      extensionUpdates: [],
+      toolUpdates: [ytdlp],
+      dismissed: NO_DISMISSALS,
+    })!;
+    const dismissed = dismissNotice(NO_DISMISSALS, notice);
+    expect(dismissed).toEqual({ app: "app:1.0.113", tools: toolsNoticeSignature([ytdlp]) });
+    expect(resolveUpdateNotice({
+      appUpdate: { version: "1.0.113", body: "" },
+      extensionUpdates: [ext()],
+      toolUpdates: [ytdlp],
+      dismissed,
+    })).toMatchObject({ kind: "extensions" });
   });
 });
 

@@ -36,7 +36,7 @@ export interface DependencyInfo {
   managedRepo?: string;
   /** Plugin ids whose manifest defines this tool; empty for one of Vibo's own. */
   declaredBy: string[];
-  /** Defined by Vibo or a plugin Vibo signed — what may update silently. */
+  /** Defined by Vibo or a bundled / Vibo-signed plugin. */
   signedDefinition: boolean;
   /** False when nothing checks the download (`checksum: { none: true }`). */
   verified: boolean;
@@ -117,12 +117,27 @@ export interface DepUpdateInfo {
   latest?: string;
   outdated: boolean;
   origin?: "managed" | "system";
+  /** As on `DependencyInfo`, so the update notice needn't wait for the listing. */
+  sourceMismatch?: boolean;
+  verified?: boolean;
 }
 
 export interface InstallProgress {
   downloaded: number;
   total: number | null;
 }
+
+/** A plugin's background program running Vibo's copy of a tool (`dependency_services`). */
+export interface DependencyService {
+  pluginId: string;
+  name: string;
+  running: boolean;
+  /** Unix seconds, while running. */
+  startedAt: number | null;
+}
+
+const FIRST_UPDATE_CHECK_MS = 30_000;
+const UPDATE_CHECK_INTERVAL_MS = 24 * 60 * 60 * 1000;
 
 interface DepModalState {
   dep: DependencyInfo;
@@ -219,14 +234,14 @@ export function useDependencies(pluginStates: PluginState[]) {
   // Plugin-declaration signature the current `deps` were built from; null until
   // the first successful `checkAll`. See the re-probe effect below.
   const checkedSignatureRef = useRef<string | null>(null);
-  // Forward declarations for the `dependency-updated` listener below, which is
-  // installed once and must re-probe the dep the background updater replaced.
-  // Both are defined further down, hence the assign-later ref pattern.
-  const checkDepRef = useRef<(name: string) => Promise<DependencyInfo | null>>(async () => null);
+  // Forward declarations for the listeners and the schedule below, which are
+  // installed once; both are defined further down (assign-later ref pattern).
   const checkUpdatesRef = useRef<(force?: boolean) => Promise<DepUpdateInfo[]>>(async () => []);
-  // Read by that listener to tell "the list is on screen, refresh this row"
-  // from "nothing has ever run a check" — see the guard there.
+  const refreshServicesRef = useRef<(names: string[]) => Promise<void>>(async () => {});
   const depsRef = useLatestRef(deps);
+  const updatesRef = useLatestRef(updates);
+  // Tool name → the background programs (in this profile) running Vibo's copy.
+  const [services, setServices] = useState<Record<string, DependencyService[]>>({});
 
   useEffect(() => {
     const stopProgress = subscribe<{ name: string; downloaded: number; total: number | null }>(
@@ -236,44 +251,35 @@ export function useDependencies(pluginStates: PluginState[]) {
         setInstalling((prev) => ({ ...prev, [name]: { downloaded, total } }));
       },
     );
-    // Background auto-updater replaced a managed copy — re-probe it so the row
-    // shows the new version, and leave a log trail. It must be a re-probe, not
-    // a removal: dropping the row was the whole state change here, and nothing
-    // ever performed the "next look" it assumed, so a silently updated dep
-    // vanished from the list until the user hit Refresh (DependenciesPanel's presence
-    // check is gated on `deps.length === 0`, and ffmpeg keeps it non-empty).
-    const stopUpdated = subscribe<{ name: string; from: string; to: string }>(
-      "dependency-updated",
-      (event) => {
-        const { name, from, to } = event.payload;
-        // Force a real probe: the binary changed under us.
-        checkedRef.current.delete(name);
-        // Only refresh a row that is already in the list. The updater fires 30s
-        // after launch, typically before anything has run a check — probing here
-        // would then *create* a one-row `deps`, and DependenciesPanel's presence check
-        // (gated on `deps.length === 0`) would skip its full `checkAll`, leaving
-        // the Tools tab showing yt-dlp and no ffmpeg.
-        if (depsRef.current.some((d) => d.name === name)) {
-          checkDepRef.current(name).catch(console.error);
-          // Clears the now-stale "Update available" line for this dep.
-          checkUpdatesRef.current().catch(console.error);
-        }
-        invoke("write_frontend_log", {
-          level: "info",
-          message: `Auto-updated ${name} ${from} -> ${to}`,
-          section: "dependencies",
-        }).catch(() => {}); // eslint-disable-line no-restricted-syntax -- Fire-and-forget: log-trail only, no user impact on failure
-      },
-    );
     // The set of tools in force moved (a plugin installed, updated or removed;
     // a consent given or taken back). Only once a first check set the baseline.
     const stopChanged = subscribe("dependencies-changed", () => {
       if (checkedSignatureRef.current === null) return;
       checkAllRef.current().catch(console.error);
     });
-    return combineUnlisten(stopProgress, stopUpdated, stopChanged);
-    // depsRef is a stable ref object; listed only to satisfy exhaustive-deps.
-  }, [depsRef]);
+    // An update restarted a service (its "since" moved), or a plugin started
+    // or stopped one.
+    const refresh = () => {
+      const names = new Set([...depsRef.current, ...updatesRef.current].map((d) => d.name));
+      refreshServicesRef.current([...names]).catch(console.error);
+    };
+    const stopRestarted = subscribe("program-restarted", refresh);
+    const stopChangedProgram = subscribe("program-changed", refresh);
+    return combineUnlisten(stopProgress, stopChanged, stopRestarted, stopChangedProgram);
+    // Stable ref objects; listed only to satisfy exhaustive-deps.
+  }, [depsRef, updatesRef]);
+
+  // The update check, on the same rhythm as the app's and the extensions':
+  // 30s after launch (off the startup path), then daily. It only *finds*
+  // updates — the update notice announces them and nothing installs until the
+  // user clicks. Backend lookups are TTL-cached, so a repeat is cheap.
+  useEffect(() => {
+    let timer = window.setTimeout(function tick() {
+      checkUpdatesRef.current().catch(console.error);
+      timer = window.setTimeout(tick, UPDATE_CHECK_INTERVAL_MS);
+    }, FIRST_UPDATE_CHECK_MS);
+    return () => window.clearTimeout(timer);
+  }, []);
 
   const getPluginDeps = useCallback((): PluginDepDeclaration[] => {
     const result: PluginDepDeclaration[] = [];
@@ -380,22 +386,46 @@ export function useDependencies(pluginStates: PluginState[]) {
     [getPluginDeps],
   );
 
+  // Which of `names` run as a plugin's background program right now (the Tools
+  // row's status line, and "restarts after the update" in the update notice).
+  const refreshServices = useCallback(async (names: string[]): Promise<void> => {
+    const entries = await Promise.all(
+      names.map(async (name) => {
+        try {
+          return [name, ((await invoke("dependency_services", { name })) as DependencyService[] | null) ?? []] as const;
+        } catch (e) {
+          console.error(`Failed to read whether ${name} is running:`, e);
+          return [name, [] as DependencyService[]] as const;
+        }
+      }),
+    );
+    setServices((prev) => {
+      const next = { ...prev };
+      for (const [name, list] of entries) {
+        if (list.length > 0) next[name] = list;
+        else delete next[name];
+      }
+      return next;
+    });
+  }, []);
+
   // Latest-vs-installed for all managed deps (network, 24h TTL-cached backend-side).
   // `force` (the user's Refresh click) skips that cache.
   const checkUpdates = useCallback(async (force = false): Promise<DepUpdateInfo[]> => {
     try {
-      const results = (await invoke("dependency_check_updates", { force })) as DepUpdateInfo[];
+      const results = ((await invoke("dependency_check_updates", { force })) as DepUpdateInfo[] | null) ?? [];
       setUpdates(results);
+      await refreshServices(results.filter((u) => u.origin === "managed").map((u) => u.name));
       return results;
     } catch (e) {
       console.error("Failed to check dependency updates:", e);
       return [];
     }
-  }, []);
+  }, [refreshServices]);
 
-  // Fill the forward declarations the `dependency-updated` listener reads.
-  useAssignRef(checkDepRef, checkDep);
+  // Fill the forward declarations the listeners and the schedule read.
   useAssignRef(checkUpdatesRef, checkUpdates);
+  useAssignRef(refreshServicesRef, refreshServices);
   useAssignRef(checkAllRef, checkAll);
 
   /** Ask the user to let an unsigned plugin's definitions be used. Resolves
@@ -458,12 +488,15 @@ export function useDependencies(pluginStates: PluginState[]) {
   const installDep = useCallback(
     async (name: string): Promise<string | null> => {
       // A download nothing can check is confirmed every time, update included.
+      // The update notice can install before the listing has loaded; the
+      // update check then carries the same answer.
       const dep = depsRef.current.find((d) => d.name === name);
-      const unverified = dep ? !dep.verified : false;
+      const update = updatesRef.current.find((u) => u.name === name);
+      const unverified = dep ? !dep.verified : update?.verified === false;
       if (unverified) {
         const ok = await new Promise<boolean>((resolve) => {
           unverifiedAnswerRef.current = resolve;
-          setUnverifiedRequest({ name, repo: dep?.managedRepo ?? null, update: dep?.status === "installed" });
+          setUnverifiedRequest({ name, repo: dep?.managedRepo ?? null, update: dep ? dep.status === "installed" : !!update?.installed });
         });
         unverifiedAnswerRef.current = null;
         setUnverifiedRequest(null);
@@ -475,6 +508,7 @@ export function useDependencies(pluginStates: PluginState[]) {
         checkedRef.current.delete(name);
         await checkDep(name);
         setUpdates((prev) => prev.filter((u) => u.name !== name));
+        await refreshServices([name]);
         return version;
       } catch (e) {
         console.error("Failed to install dependency:", e);
@@ -487,7 +521,7 @@ export function useDependencies(pluginStates: PluginState[]) {
         });
       }
     },
-    [checkDep, depsRef],
+    [checkDep, depsRef, updatesRef, refreshServices],
   );
 
   // Remove the app-managed copy; PATH falls back to any system copy. Refreshes
@@ -575,6 +609,7 @@ export function useDependencies(pluginStates: PluginState[]) {
   return {
     deps,
     updates,
+    services,
     installing,
     registry,
     pluginNames,
