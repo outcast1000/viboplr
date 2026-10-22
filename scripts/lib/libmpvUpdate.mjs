@@ -137,3 +137,53 @@ export function prBody(changes) {
   );
   return lines.join("\n");
 }
+
+/**
+ * The CI jobs main's ruleset requires before a merge ("Protect main"). The
+ * update workflow starts CI on its branch so the PR can satisfy them; keep this
+ * in step with the ruleset and with the job names in .github/workflows/ci.yml.
+ */
+export const REQUIRED_CHECKS = ["typecheck", "rust-check-and-test", "test-ts"];
+
+/**
+ * How the required checks stand on a PR, from `gh pr view --json statusCheckRollup`.
+ * "passed" only when every required check has a successful run; a missing one
+ * is "pending" (CI was started but hasn't reported), a non-success conclusion
+ * is "failed".
+ */
+export function requiredChecksState(rollup, required = REQUIRED_CHECKS) {
+  let pending = false;
+  for (const name of required) {
+    const runs = (rollup ?? []).filter((c) => c.name === name);
+    if (!runs.length || runs.some((c) => c.status && c.status !== "COMPLETED")) {
+      pending = true;
+      continue;
+    }
+    if (!runs.some((c) => c.conclusion === "SUCCESS")) return "failed";
+  }
+  return pending ? "pending" : "passed";
+}
+
+/**
+ * What `npm run bump` does about a libmpv update — no question asked. `pr`: the
+ * open Update libmpv PR ({ number, title, url, isDraft }) or null; the workflow
+ * keeps it a draft while its engine tests or the component publish fail.
+ * `checks`: requiredChecksState of that PR. `behind`: upstream has a newer build
+ * than the lock. `onMain`: a merge reaches this release only when it is cut from main.
+ *   merge — merge, pull, vendor, release with it
+ *   run   — no PR to take: start the workflow (it's for the next release)
+ *   skip  — a PR exists but can't go in this release; `reason` says why
+ *   none  — nothing pending
+ */
+export function libmpvAction({ pr, checks, behind, onMain }) {
+  if (pr) {
+    const what = `libmpv update PR #${pr.number} (${pr.title})`;
+    if (pr.isDraft) return { action: "skip", reason: `${what} is a draft — its engine tests or the component publish failed: ${pr.url}` };
+    if (!onMain) return { action: "skip", reason: `${what} is waiting, but this release isn't cut from main, so merging wouldn't reach it` };
+    if (checks === "failed") return { action: "skip", reason: `${what}: CI failed on it: ${pr.url}` };
+    if (checks !== "passed") return { action: "skip", reason: `${what}: CI hasn't finished on it yet: ${pr.url}` };
+    return { action: "merge", reason: `merging ${what}` };
+  }
+  if (behind) return { action: "run", reason: "upstream has a newer libmpv and no update PR is open — starting the Update libmpv workflow" };
+  return { action: "none", reason: "libmpv is current" };
+}

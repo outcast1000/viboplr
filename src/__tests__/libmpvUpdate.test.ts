@@ -4,7 +4,7 @@
 // link that will be deleted — the failure that broke the v1.0.94 Windows build.
 import { describe, it, expect } from "vitest";
 // @ts-expect-error — plain .mjs dev script, no type declarations
-import { UPSTREAMS, archiveProblems, lockEntryFor, missingFiles, mirrorUrl, parseClientApiVersion, pickAsset, prBody, sameCommit } from "../../scripts/lib/libmpvUpdate.mjs";
+import { REQUIRED_CHECKS, UPSTREAMS, archiveProblems, libmpvAction, lockEntryFor, missingFiles, mirrorUrl, parseClientApiVersion, pickAsset, prBody, requiredChecksState, sameCommit } from "../../scripts/lib/libmpvUpdate.mjs";
 
 const win = UPSTREAMS["windows-x86_64"];
 const mac = UPSTREAMS["macos-aarch64"];
@@ -114,5 +114,66 @@ describe("the new pin", () => {
     expect(body).toContain("https://github.com/mpv-player/mpv/compare/3f1b23abd0...c152964208");
     expect(body).toContain("| 2.5 |");
     expect(body).toMatch(/Before merging/);
+  });
+});
+
+// What `npm run bump` does about a libmpv update, with nobody asked. A merge
+// puts a new playback engine in front of every user of the release, so it must
+// happen only for a PR whose engine tests passed (not a draft) AND whose CI
+// passed, and only when the release is cut from main.
+describe("libmpvAction", () => {
+  const pr = { number: 7, title: "Update libmpv (macos-aarch64)", url: "https://github.com/o/r/pull/7", isDraft: false };
+
+  it("merges a non-draft PR whose required checks passed, on main", () => {
+    expect(libmpvAction({ pr, checks: "passed", behind: false, onMain: true }).action).toBe("merge");
+  });
+
+  it("never merges a draft — its engine tests failed", () => {
+    const a = libmpvAction({ pr: { ...pr, isDraft: true }, checks: "passed", behind: false, onMain: true });
+    expect(a.action).toBe("skip");
+    expect(a.reason).toMatch(/draft/);
+  });
+
+  it("never merges while CI is pending or after it failed", () => {
+    expect(libmpvAction({ pr, checks: "pending", behind: false, onMain: true }).action).toBe("skip");
+    expect(libmpvAction({ pr, checks: "failed", behind: false, onMain: true }).action).toBe("skip");
+    expect(libmpvAction({ pr, checks: null, behind: false, onMain: true }).action).toBe("skip");
+  });
+
+  it("never merges off main, where it wouldn't reach this release", () => {
+    expect(libmpvAction({ pr, checks: "passed", behind: false, onMain: false }).action).toBe("skip");
+  });
+
+  it("starts the workflow when upstream is newer and no PR is open, and does nothing when current", () => {
+    expect(libmpvAction({ pr: null, checks: null, behind: true, onMain: true }).action).toBe("run");
+    expect(libmpvAction({ pr: null, checks: null, behind: false, onMain: true }).action).toBe("none");
+  });
+});
+
+describe("requiredChecksState", () => {
+  const ok = (name: string) => ({ name, status: "COMPLETED", conclusion: "SUCCESS" });
+
+  it("passes only when every required check succeeded", () => {
+    expect(requiredChecksState(REQUIRED_CHECKS.map(ok))).toBe("passed");
+  });
+
+  it("is pending when a required check never reported — CI started but not there yet", () => {
+    expect(requiredChecksState([ok("typecheck"), ok("test-ts")])).toBe("pending");
+    expect(requiredChecksState([])).toBe("pending");
+    expect(requiredChecksState(undefined)).toBe("pending");
+  });
+
+  it("is pending while one is still running", () => {
+    const rollup = [ok("typecheck"), ok("test-ts"), { name: "rust-check-and-test", status: "IN_PROGRESS", conclusion: "" }];
+    expect(requiredChecksState(rollup)).toBe("pending");
+  });
+
+  it("fails when a required check failed, even if other checks are still running", () => {
+    const rollup = [{ name: "typecheck", status: "COMPLETED", conclusion: "FAILURE" }, { name: "test-ts", status: "QUEUED", conclusion: "" }];
+    expect(requiredChecksState(rollup)).toBe("failed");
+  });
+
+  it("ignores checks the ruleset doesn't require", () => {
+    expect(requiredChecksState([...REQUIRED_CHECKS.map(ok), { name: "lint-extra", status: "COMPLETED", conclusion: "FAILURE" }])).toBe("passed");
   });
 });

@@ -6,6 +6,8 @@
 // counter when the current version is a beta (0.9.151-beta.1 -> 0.9.151-beta.2).
 //
 // Full release orchestrator:
+//   0. Merges a waiting libmpv update PR once its tests + CI passed (no prompt), or
+//      starts the update workflow when upstream is newer and no PR is open
 //   1. Runs CI checks (typecheck, Rust tests, TS tests) — aborts on failure
 //   2. Bumps version in package.json, Cargo.toml, tauri.conf.json
 //   3. Updates static version badge + download URLs across docs/ pages
@@ -31,6 +33,8 @@ import { generateChangelog } from "./lib/changelog.mjs";
 import { nextVersion } from "./lib/version.mjs";
 import { renderFeaturesHtml } from "./lib/features.mjs";
 import { locStep } from "./lib/locRepo.mjs";
+// MIRROR_REPO is this repo: the libmpv workflow runs, mirrors and opens its PR here.
+import { MIRROR_REPO, libmpvAction, requiredChecksState } from "./lib/libmpvUpdate.mjs";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const args = process.argv.slice(2);
@@ -63,7 +67,91 @@ if (isBeta) {
   console.log(`BETA release ${version}: site updates (badge, download URLs, changelog, features) will be SKIPPED.\n`);
 }
 
+// ---------------------------------------------------------------------------
+// Step 0 — A libmpv update waiting?
+//
+// The Update libmpv workflow re-pins, tests on real macOS + Windows runners,
+// opens a PR and starts CI on it; it never merges. This step takes it, with no
+// question asked (owner decision, 2026-10-23): a PR that is not a draft and has
+// passed main's required checks is merged, pulled and vendored, so Step 1 tests
+// the libmpv this release ships; anything else is reported and the release goes
+// on without it. A newer upstream build with no PR starts the workflow. Before
+// Step 1 on purpose. Fatal only when a merge it started fails half-way.
+// ---------------------------------------------------------------------------
 
+libmpvStep();
+
+function libmpvStep() {
+  const gh = (cmd) => execSync(`gh ${cmd}`, { cwd: root, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }).trim();
+  const errText = (e) => (e.stderr || e.stdout || e.message).toString().trim();
+
+  console.log("Checking for a libmpv update...\n");
+  let pr = null;
+  let checks = null;
+  try {
+    const open = JSON.parse(gh(`pr list --repo ${MIRROR_REPO} --head bot/libmpv-update --state open --json number,title,url,isDraft`));
+    pr = open[0] ?? null;
+    if (pr) {
+      const view = JSON.parse(gh(`pr view ${pr.number} --repo ${MIRROR_REPO} --json statusCheckRollup`));
+      checks = requiredChecksState(view.statusCheckRollup);
+    }
+  } catch (e) {
+    console.error(`⚠ Couldn't read the libmpv update PR (is gh signed in?) — skipping this step:\n${errText(e)}\n`);
+    return;
+  }
+  let behind = false;
+  if (!pr) {
+    try {
+      execSync("node scripts/update-libmpv.mjs --check", { cwd: root, encoding: "utf8", stdio: "pipe" });
+    } catch (e) {
+      if (e.status === 3) behind = true;
+      else console.error(`⚠ libmpv check reported a problem (release continues):\n${errText(e)}`);
+    }
+  }
+
+  const onMain = git("rev-parse --abbrev-ref HEAD") === "main";
+  const { action, reason } = libmpvAction({ pr, checks, behind, onMain });
+  switch (action) {
+    case "none":
+      console.log(`✓ ${reason}\n`);
+      return;
+    case "skip":
+      console.log(`⚠ ${reason}\n  Releasing without it.\n`);
+      return;
+    case "run":
+      console.log(`${reason}...`);
+      try {
+        gh(`workflow run update-libmpv.yml --repo ${MIRROR_REPO}`);
+        console.log("  Started — its PR is taken by the next bump once CI passes on it.\n");
+      } catch (e) {
+        console.error(`⚠ Couldn't start the workflow (release continues): ${errText(e)}\n`);
+      }
+      return;
+    case "merge":
+      console.log(`${reason}...`);
+      // Once the merge lands, main has the new pin whether or not this release
+      // goes on, so every failure from here stops the release instead of shipping
+      // on a half-applied state.
+      try {
+        gh(`pr merge ${pr.number} --repo ${MIRROR_REPO} --merge`);
+        console.log("  Pulling main...");
+        git("pull --ff-only origin main");
+      } catch (e) {
+        console.error(`\n✗ ${errText(e)}`);
+        console.error("  If the merge went through, pull main yourself (git pull origin main) and re-run bump.");
+        process.exit(1);
+      }
+      console.log("  Vendoring the new libmpv...");
+      try {
+        execSync("node scripts/fetch-libmpv.mjs", { cwd: root, stdio: "inherit" });
+      } catch {
+        console.error("\n✗ fetch-libmpv failed with the new pin (output above) — not releasing on it.");
+        process.exit(1);
+      }
+      console.log(`✓ libmpv update #${pr.number} merged — this release ships it, and the checks below test it\n`);
+      return;
+  }
+}
 
 // ---------------------------------------------------------------------------
 // Step 1 — Run CI checks

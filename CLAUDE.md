@@ -15,7 +15,7 @@ node scripts/sync-bundled-plugins.mjs lastfm  # Re-pin the bundled Last.fm plugi
 cd src-tauri && cargo test --lib     # All lib tests incl. native engine (engine compiled into every build)
 node scripts/package-engine-component.mjs  # Package the downloadable libmpv engine component + update its lock
 node scripts/publish-engine-components.mjs # Publish those zips (never overwrites a published name) + pin what was published
-node scripts/update-libmpv.mjs             # Newer upstream libmpv builds? (--write --mirror re-pins; weekly via .github/workflows/update-libmpv.yml, which opens a PR)
+node scripts/update-libmpv.mjs             # Newer upstream libmpv builds? (--check = hashes only, no download, exit 3 = newer; --write --mirror re-pins; weekly via .github/workflows/update-libmpv.yml, which opens a PR and starts CI on it but never merges — `npm run bump` Step 0 merges it with no prompt once it isn't a draft and main's required checks passed, else releases without it; upstream ahead with no PR starts the workflow)
 npx tsc --noEmit                     # TypeScript type-check
 npm run lint                         # ESLint (gates on errors; see .claude/rules/conventions.md > Enforcement)
 npm run lint:fix                     # ESLint with autofix

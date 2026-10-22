@@ -5,7 +5,8 @@
 // pins on real macOS and Windows runners and opens a pull request — merging
 // stays a person's call (see the lock file's comment).
 //
-//   node scripts/update-libmpv.mjs                    # report only: what's newer?
+//   node scripts/update-libmpv.mjs --check            # is anything newer? hashes only, no download; exit 3 = yes (bump.mjs)
+//   node scripts/update-libmpv.mjs                    # report only: what's newer, and does it check out?
 //   node scripts/update-libmpv.mjs --write --mirror   # mirror + re-pin (needs `gh` auth)
 //   node scripts/update-libmpv.mjs --summary pr.md    # also write the PR body
 //   node scripts/update-libmpv.mjs --platform windows-x86_64
@@ -44,8 +45,23 @@ const write = flag("--write");
 const mirror = flag("--mirror");
 const summaryPath = option("--summary");
 const onlyPlatform = option("--platform");
+const checkOnly = flag("--check");
+if (checkOnly && (write || mirror || summaryPath)) {
+  console.error("--check only compares commit hashes; it can't be combined with --write, --mirror or --summary");
+  process.exit(2);
+}
 
-const token = process.env.GITHUB_TOKEN || process.env.GH_TOKEN || "";
+// Unauthenticated api.github.com is 60 requests/h per IP, which a shared NAT
+// spends for everyone behind it — so locally borrow the gh CLI's token.
+function ghToken() {
+  try {
+    return execFileSync("gh", ["auth", "token"], { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] }).trim();
+  } catch {
+    return ""; // No gh, or not signed in: fall back to unauthenticated requests.
+  }
+}
+
+const token = process.env.GITHUB_TOKEN || process.env.GH_TOKEN || ghToken();
 
 async function github(pathname) {
   const res = await fetch(`https://api.github.com${pathname}`, {
@@ -109,6 +125,10 @@ try {
       continue;
     }
     console.log(`${platform}: newer build ${asset.tag} — mpv ${current?.mpvGitHash ?? "none"} → ${asset.gitHash}`);
+    if (checkOnly) {
+      changes.push({ platform, tag: asset.tag });
+      continue;
+    }
 
     const file = path.join(work, asset.name);
     await download(asset.url, file);
@@ -160,3 +180,7 @@ if (process.env.GITHUB_OUTPUT) {
   );
 }
 if (!changes.length) console.log("nothing to update");
+else if (checkOnly) {
+  console.log("run the Update libmpv workflow to test and re-pin it: gh workflow run update-libmpv.yml");
+  process.exitCode = 3; // "newer build exists" — what bump.mjs reads; 1 stays "the check itself failed"
+}

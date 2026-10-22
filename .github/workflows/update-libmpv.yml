@@ -142,6 +142,7 @@ jobs:
     permissions:
       contents: read
       pull-requests: write
+      actions: write # gh workflow run ci.yml
     steps:
       - uses: actions/checkout@v5
 
@@ -166,13 +167,30 @@ jobs:
             echo
             echo "Run log: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
             echo
-            echo "_Opened by a workflow token, so the CI workflow doesn't start on its own — run it from the Actions tab (\"CI\", this branch) if you want it before merging._"
+            echo "_Opened by a workflow token, which doesn't trigger CI by itself, so this workflow starts CI on the branch. \`npm run bump\` merges this PR on its own once it isn't a draft and CI has passed._"
           } > body.md
           TITLE="Update libmpv (${{ needs.check.outputs.platforms }})"
+          PASSED=true
+          if [ "$TESTS" != success ] || [ "$COMPONENT" != success ]; then PASSED=false; fi
           if gh pr view "$BRANCH" --json state --jq .state 2>/dev/null | grep -q OPEN; then
             gh pr edit "$BRANCH" --title "$TITLE" --body-file body.md
+            # bump.mjs merges any non-draft PR whose CI passed, so the draft flag
+            # must follow THIS run: a PR that passed once and failed now goes back
+            # to draft, and one that failed before and passes now leaves it.
+            # Not `|| true`: a failed re-draft would let bump merge a failed update.
+            IS_DRAFT=$(gh pr view "$BRANCH" --json isDraft --jq .isDraft)
+            if [ "$PASSED" = true ] && [ "$IS_DRAFT" = true ]; then gh pr ready "$BRANCH"; fi
+            if [ "$PASSED" != true ] && [ "$IS_DRAFT" != true ]; then gh pr ready --undo "$BRANCH"; fi
           else
             DRAFT=""
-            if [ "$TESTS" != success ] || [ "$COMPONENT" != success ]; then DRAFT="--draft"; fi
+            if [ "$PASSED" != true ]; then DRAFT="--draft"; fi
             gh pr create --base main --head "$BRANCH" --title "$TITLE" --body-file body.md $DRAFT
           fi
+
+      # main's ruleset requires typecheck / rust-check-and-test / test-ts, and a
+      # PR opened by GITHUB_TOKEN doesn't trigger CI — so start it here. Its runs
+      # attach to the branch's head commit, which is what the PR's checks read.
+      - name: Start CI on the branch
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh workflow run ci.yml --ref "$BRANCH"
