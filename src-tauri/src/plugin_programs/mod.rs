@@ -842,14 +842,16 @@ mod tests {
         let app = tempfile::tempdir().unwrap();
         let bin = store_root(app.path(), "p").join("bin");
         std::fs::create_dir_all(&bin).unwrap();
-        std::fs::copy("/bin/sleep", bin.join("sleeper")).unwrap();
+        // Named `sleep`: on Ubuntu 26.04 /bin/sleep is uutils' multicall
+        // coreutils, which picks the program from argv[0] and refuses any other name.
+        std::fs::copy("/bin/sleep", bin.join("sleep")).unwrap();
         // macOS kills a copied platform binary on launch (SIGKILL); an ad-hoc
         // signature makes the copy an ordinary program again.
         #[cfg(target_os = "macos")]
         {
             let signed = std::process::Command::new("codesign")
                 .args(["-f", "-s", "-"])
-                .arg(bin.join("sleeper"))
+                .arg(bin.join("sleep"))
                 .status()
                 .map(|s| s.success())
                 .unwrap_or(false);
@@ -858,9 +860,9 @@ mod tests {
                 return;
             }
         }
-        approve(app.path(), "p", &["bin", "sleeper"]);
+        approve(app.path(), "p", &["bin", "sleep"]);
         let spec = StartSpec {
-            path: Some(segs(&["bin", "sleeper"])),
+            path: Some(segs(&["bin", "sleep"])),
             dependency: None,
             args: vec!["30".into()],
             env: Default::default(),
@@ -912,12 +914,14 @@ mod tests {
         let bin = crate::dependencies::managed_bin_dir().unwrap();
         let folder = bin.join(tool);
         std::fs::create_dir_all(&folder).unwrap();
-        std::fs::copy("/bin/sleep", folder.join(tool)).unwrap();
+        // The entry is `sleep`, not the tool's name: see the multicall note in
+        // test_start_is_single_instance_and_stop_stops_it.
+        std::fs::copy("/bin/sleep", folder.join("sleep")).unwrap();
         #[cfg(target_os = "macos")]
         {
             let signed = std::process::Command::new("codesign")
                 .args(["-f", "-s", "-"])
-                .arg(folder.join(tool))
+                .arg(folder.join("sleep"))
                 .status()
                 .map(|s| s.success())
                 .unwrap_or(false);
@@ -928,7 +932,7 @@ mod tests {
         }
         let mut entry = crate::dependency_registry::fixture_entry("slskd");
         entry["name"] = serde_json::json!(tool);
-        entry["definition"]["managed"]["entry"] = serde_json::json!(tool);
+        entry["definition"]["managed"]["entry"] = serde_json::json!("sleep");
         entry["definition"]["managed"]["repo"] = serde_json::json!(repo);
         // "lastfm" is on the bundle allow-list, so its definition counts as signed.
         let dir = plugins.join("lastfm");
