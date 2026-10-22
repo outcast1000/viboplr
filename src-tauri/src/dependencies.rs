@@ -480,9 +480,16 @@ pub fn version_lt(installed: &str, latest: &str) -> bool {
 }
 
 /// Latest-version lookups are cached for 24h; failures are cached too so a
-/// flaky network can't hammer github.com. See `latest_version` for why the
+/// flaky network can't hammer github.com, but only for 15 minutes — the
+/// background check runs once a day, so a failure kept as long as an answer
+/// hid every tool update until the next day. See `latest_version` for why the
 /// lookup is a redirect probe and not the (per-IP rate-limited) GitHub API.
 const LATEST_VERSION_TTL: Duration = Duration::from_secs(24 * 60 * 60);
+const LATEST_FAILURE_TTL: Duration = Duration::from_secs(15 * 60);
+
+fn latest_entry_fresh(age: Duration, found: bool) -> bool {
+    age < if found { LATEST_VERSION_TTL } else { LATEST_FAILURE_TTL }
+}
 
 pub struct DepCache {
     entries: Mutex<HashMap<String, DepStatus>>,
@@ -528,7 +535,7 @@ impl DepCache {
             .lock()
             .unwrap()
             .get(name)
-            .filter(|(at, _)| at.elapsed() < LATEST_VERSION_TTL)
+            .filter(|(at, v)| latest_entry_fresh(at.elapsed(), v.is_some()))
             .map(|(_, v)| v.clone())
     }
 
@@ -1506,7 +1513,8 @@ pub fn install_managed(
 /// once every entry made it; `..`, roots and links skipped; size caps). The
 /// release is unpacked beside the old copy first and swapped in only once it
 /// holds `entry`, so a release that dropped or renamed it leaves the working
-/// copy alone.
+/// copy alone. The swap moves the old copy aside rather than deleting it
+/// first (`swap_into_place`), so a failure part-way leaves it working.
 fn install_folder(bin_dir: &Path, name: &str, entry: &str, archive: &Path, data: &[u8]) -> Result<(), String> {
     std::fs::write(archive, data).map_err(|e| format!("Write error: {}", e))?;
     // Dot-named, so `unused_managed` never lists it.
@@ -1526,19 +1534,71 @@ fn install_folder(bin_dir: &Path, name: &str, entry: &str, archive: &Path, data:
             std::fs::set_permissions(&program, std::fs::Permissions::from_mode(mode | 0o755))
                 .map_err(|e| format!("chmod error: {}", e))?;
         }
-        let dest = bin_dir.join(name);
-        if dest.is_file() {
-            // A one-file copy from an older definition of the same name.
-            std::fs::remove_file(&dest).map_err(|e| format!("Install error (is {} running?): {}", name, e))?;
-        } else if dest.is_dir() {
-            std::fs::remove_dir_all(&dest).map_err(|e| format!("Install error (is {} running?): {}", name, e))?;
-        }
-        std::fs::rename(&staged, &dest).map_err(|e| format!("Install error (is {} running?): {}", name, e))
+        swap_into_place(bin_dir, name, &staged, rename_path)
+            .map_err(|e| format!("Install error (is {} running?): {}", name, e))
     })();
     if result.is_err() {
         let _ = std::fs::remove_dir_all(&staged);
     }
     result
+}
+
+fn rename_path(from: &Path, to: &Path) -> std::io::Result<()> {
+    std::fs::rename(from, to)
+}
+
+/// Put `staged` at `{bin}/{name}` without ever deleting the working copy before
+/// the new one is in: the old copy (a folder, or a one-file copy from an older
+/// definition of the same name) is renamed aside to a dot-named
+/// `.{name}.old-{pid}` (never listed by `unused_managed`), `staged` renamed in,
+/// and only then the old copy deleted. If the second rename fails the old copy
+/// is renamed back. On Windows a folder holding a running program can't be
+/// renamed, so a copy in use elsewhere fails the first rename and nothing
+/// moves. Asides a killed install left behind are swept first. `rename` is a
+/// parameter so a test can make the second rename fail.
+fn swap_into_place(
+    bin_dir: &Path,
+    name: &str,
+    staged: &Path,
+    rename: impl Fn(&Path, &Path) -> std::io::Result<()>,
+) -> std::io::Result<()> {
+    let aside_prefix = format!(".{}.old-", name);
+    if let Ok(entries) = std::fs::read_dir(bin_dir) {
+        for entry in entries.flatten() {
+            if entry.file_name().to_string_lossy().starts_with(&aside_prefix) {
+                let _ = remove_any(&entry.path());
+            }
+        }
+    }
+    let dest = bin_dir.join(name);
+    let aside = bin_dir.join(format!("{}{}", aside_prefix, std::process::id()));
+    let had_old = dest.symlink_metadata().is_ok();
+    if had_old {
+        rename(&dest, &aside)?;
+    }
+    if let Err(e) = rename(staged, &dest) {
+        if had_old {
+            if let Err(back) = rename(&aside, &dest) {
+                log::error!("Couldn't put the old {} back after a failed update: {}", name, back);
+            }
+        }
+        return Err(e);
+    }
+    if had_old {
+        if let Err(e) = remove_any(&aside) {
+            // Swept on the next install.
+            log::warn!("Couldn't remove the replaced {}: {}", name, e);
+        }
+    }
+    Ok(())
+}
+
+fn remove_any(path: &Path) -> std::io::Result<()> {
+    if path.is_dir() {
+        std::fs::remove_dir_all(path)
+    } else {
+        std::fs::remove_file(path)
+    }
 }
 
 /// Remove the app-managed copy of a dependency. After this, PATH resolution
@@ -2027,6 +2087,15 @@ mod tests {
     }
 
     #[test]
+    fn test_a_failed_latest_lookup_expires_long_before_an_answer() {
+        let hour = Duration::from_secs(60 * 60);
+        assert!(latest_entry_fresh(hour, true), "an answer is kept for the day");
+        assert!(!latest_entry_fresh(hour, false), "a failure is retried within the hour");
+        assert!(latest_entry_fresh(Duration::from_secs(60), false), "but not hammered");
+        assert!(!latest_entry_fresh(25 * hour, true));
+    }
+
+    #[test]
     fn test_managed_binary_path_none_without_init() {
         // MANAGED_BIN_DIR may be set by another test via set_managed_bin_dir,
         // but a binary named like this will never exist in it.
@@ -2250,5 +2319,48 @@ mod tests {
             .filter(|n| n != "slskd")
             .collect();
         assert!(leftovers.is_empty(), "nothing staged is left behind: {leftovers:?}");
+    }
+
+    #[test]
+    fn test_a_swap_that_fails_part_way_puts_the_old_copy_back() {
+        let bin = tempfile::tempdir().unwrap();
+        let dest = bin.path().join("slskd");
+        std::fs::create_dir(&dest).unwrap();
+        std::fs::write(dest.join("slskd"), b"v1").unwrap();
+        let staged = bin.path().join(".slskd.staged-1");
+        std::fs::create_dir(&staged).unwrap();
+        std::fs::write(staged.join("slskd"), b"v2").unwrap();
+        // The old copy moves aside, then moving the new one in fails.
+        let fail_staged = |from: &Path, to: &Path| {
+            if from == staged.as_path() {
+                Err(std::io::Error::other("locked"))
+            } else {
+                std::fs::rename(from, to)
+            }
+        };
+        assert!(swap_into_place(bin.path(), "slskd", &staged, fail_staged).is_err());
+        assert_eq!(std::fs::read(dest.join("slskd")).unwrap(), b"v1", "the old copy still runs");
+        let asides: Vec<_> = std::fs::read_dir(bin.path()).unwrap().flatten()
+            .map(|e| e.file_name().to_string_lossy().into_owned())
+            .filter(|n| n.starts_with(".slskd.old-"))
+            .collect();
+        assert!(asides.is_empty(), "the aside was renamed back: {asides:?}");
+    }
+
+    #[test]
+    fn test_a_swap_replaces_a_one_file_copy_and_sweeps_old_asides() {
+        let bin = tempfile::tempdir().unwrap();
+        std::fs::write(bin.path().join("slskd"), b"one-file").unwrap();
+        std::fs::create_dir(bin.path().join(".slskd.old-99999")).unwrap();
+        let staged = bin.path().join(".slskd.staged-1");
+        std::fs::create_dir(&staged).unwrap();
+        std::fs::write(staged.join("slskd"), b"v2").unwrap();
+        swap_into_place(bin.path(), "slskd", &staged, rename_path).unwrap();
+        assert_eq!(std::fs::read(bin.path().join("slskd/slskd")).unwrap(), b"v2");
+        let rest: Vec<_> = std::fs::read_dir(bin.path()).unwrap().flatten()
+            .map(|e| e.file_name().to_string_lossy().into_owned())
+            .filter(|n| n != "slskd")
+            .collect();
+        assert!(rest.is_empty(), "the replaced copy and a stale aside are gone: {rest:?}");
     }
 }

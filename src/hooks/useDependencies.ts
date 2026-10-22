@@ -138,6 +138,17 @@ export interface DependencyService {
 
 const FIRST_UPDATE_CHECK_MS = 30_000;
 const UPDATE_CHECK_INTERVAL_MS = 24 * 60 * 60 * 1000;
+// A check that couldn't learn some managed tool's latest version tries again
+// this soon instead of a day later (the backend keeps a failure 15 minutes).
+const UPDATE_CHECK_RETRY_MS = 60 * 60 * 1000;
+
+/** Why the last install of a tool didn't fully work, until it next succeeds.
+ *  `restart`: the new copy is installed but a service didn't start again on it —
+ *  installing again won't help, so no surface offers "Try again" for it. */
+export interface DepInstallError {
+  stage: "install" | "restart";
+  message: string;
+}
 
 interface DepModalState {
   dep: DependencyInfo;
@@ -215,6 +226,9 @@ export function useDependencies(pluginStates: PluginState[]) {
   const [updates, setUpdates] = useState<DepUpdateInfo[]>([]);
   const [modalState, setModalState] = useState<DepModalState | null>(null);
   const [installing, setInstalling] = useState<Record<string, InstallProgress>>({});
+  // Read by both the update notice and the Tools row, so a failure from either
+  // surface shows in both.
+  const [installErrors, setInstallErrors] = useState<Record<string, DepInstallError>>({});
   const [registry, setRegistry] = useState<DependencyRegistry>(EMPTY_REGISTRY);
   const [consentRequest, setConsentRequest] = useState<DefinitionConsentRequest | null>(null);
   const [unverifiedRequest, setUnverifiedRequest] = useState<UnverifiedInstallRequest | null>(null);
@@ -274,11 +288,23 @@ export function useDependencies(pluginStates: PluginState[]) {
   // updates — the update notice announces them and nothing installs until the
   // user clicks. Backend lookups are TTL-cached, so a repeat is cheap.
   useEffect(() => {
+    let cancelled = false;
     let timer = window.setTimeout(function tick() {
-      checkUpdatesRef.current().catch(console.error);
-      timer = window.setTimeout(tick, UPDATE_CHECK_INTERVAL_MS);
+      checkUpdatesRef.current()
+        .catch((e): DepUpdateInfo[] => {
+          console.error("Failed to check tool updates:", e);
+          return [];
+        })
+        .then((results) => {
+          if (cancelled) return;
+          const unanswered = results.some((u) => u.origin === "managed" && !u.latest);
+          timer = window.setTimeout(tick, unanswered ? UPDATE_CHECK_RETRY_MS : UPDATE_CHECK_INTERVAL_MS);
+        });
     }, FIRST_UPDATE_CHECK_MS);
-    return () => window.clearTimeout(timer);
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+    };
   }, []);
 
   const getPluginDeps = useCallback((): PluginDepDeclaration[] => {
@@ -407,6 +433,16 @@ export function useDependencies(pluginStates: PluginState[]) {
       }
       return next;
     });
+    // "Installed, but X didn't start again" stops being true once the plugin
+    // starts it again itself.
+    const runningAgain = entries.filter(([, list]) => list.length > 0 && list.every((s) => s.running)).map(([n]) => n);
+    setInstallErrors((prev) => {
+      const cleared = runningAgain.filter((n) => prev[n]?.stage === "restart");
+      if (cleared.length === 0) return prev;
+      const next = { ...prev };
+      for (const n of cleared) delete next[n];
+      return next;
+    });
   }, []);
 
   // Latest-vs-installed for all managed deps (network, 24h TTL-cached backend-side).
@@ -415,6 +451,17 @@ export function useDependencies(pluginStates: PluginState[]) {
     try {
       const results = ((await invoke("dependency_check_updates", { force })) as DepUpdateInfo[] | null) ?? [];
       setUpdates(results);
+      // An install failure is about an update; once that update is gone (it
+      // landed some other way) there is nothing left to retry.
+      setInstallErrors((prev) => {
+        const stale = Object.keys(prev).filter(
+          (n) => prev[n].stage === "install" && !results.some((u) => u.name === n && u.outdated),
+        );
+        if (stale.length === 0) return prev;
+        const next = { ...prev };
+        for (const n of stale) delete next[n];
+        return next;
+      });
       await refreshServices(results.filter((u) => u.origin === "managed").map((u) => u.name));
       return results;
     } catch (e) {
@@ -484,7 +531,9 @@ export function useDependencies(pluginStates: PluginState[]) {
   }, [checkAll]);
 
   // Install (or update — same backend path) the app-managed copy of a
-  // dependency. Returns the installed version, or null on failure.
+  // dependency. Returns the installed version, null when the user declined the
+  // unverified-download confirmation, and throws when the install failed. Either
+  // outcome is also recorded in `installErrors`.
   const installDep = useCallback(
     async (name: string): Promise<string | null> => {
       // A download nothing can check is confirmed every time, update included.
@@ -493,6 +542,16 @@ export function useDependencies(pluginStates: PluginState[]) {
       const dep = depsRef.current.find((d) => d.name === name);
       const update = updatesRef.current.find((u) => u.name === name);
       const unverified = dep ? !dep.verified : update?.verified === false;
+      const recordError = (error: DepInstallError | null) =>
+        setInstallErrors((prev) => {
+          if (!error && !(name in prev)) return prev;
+          const next = { ...prev };
+          if (error) next[name] = error;
+          else delete next[name];
+          return next;
+        });
+      // A new attempt: the last one's failure stops describing anything.
+      recordError(null);
       if (unverified) {
         const ok = await new Promise<boolean>((resolve) => {
           unverifiedAnswerRef.current = resolve;
@@ -504,14 +563,21 @@ export function useDependencies(pluginStates: PluginState[]) {
       }
       setInstalling((prev) => ({ ...prev, [name]: { downloaded: 0, total: null } }));
       try {
-        const version = (await invoke("dependency_install", { name, confirmedUnverified: unverified })) as string;
+        const { version, restartErrors } = (await invoke("dependency_install", {
+          name,
+          confirmedUnverified: unverified,
+        })) as { version: string; restartErrors: string[] };
         checkedRef.current.delete(name);
         await checkDep(name);
         setUpdates((prev) => prev.filter((u) => u.name !== name));
         await refreshServices([name]);
+        recordError(restartErrors.length > 0
+          ? { stage: "restart", message: `${name} ${version} is installed, but ${restartErrors.join("; ")}` }
+          : null);
         return version;
       } catch (e) {
         console.error("Failed to install dependency:", e);
+        recordError({ stage: "install", message: e instanceof Error ? e.message : String(e) });
         throw e;
       } finally {
         setInstalling((prev) => {
@@ -611,6 +677,7 @@ export function useDependencies(pluginStates: PluginState[]) {
     updates,
     services,
     installing,
+    installErrors,
     registry,
     pluginNames,
     missingDefinitions,

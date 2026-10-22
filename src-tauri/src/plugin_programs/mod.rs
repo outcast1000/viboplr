@@ -258,9 +258,16 @@ impl Drop for UpdateGuard {
     }
 }
 
-pub fn begin_update(name: &str) -> UpdateGuard {
-    UPDATING.lock().unwrap_or_else(|e| e.into_inner()).push(name.to_string());
-    UpdateGuard(name.to_string())
+/// Refused while another install of `name` holds it: two installs of one tool
+/// share its download and staging paths, and each would stop and restart its
+/// services.
+pub fn begin_update(name: &str) -> Result<UpdateGuard, String> {
+    let mut updating = UPDATING.lock().unwrap_or_else(|e| e.into_inner());
+    if updating.iter().any(|n| n == name) {
+        return Err(format!("{name} is already being updated"));
+    }
+    updating.push(name.to_string());
+    Ok(UpdateGuard(name.to_string()))
 }
 
 fn is_updating(name: &str) -> bool {
@@ -936,6 +943,20 @@ mod tests {
             vec![crate::dependency_registry::PluginRoot { dir: plugins.to_path_buf(), builtin: true, single: false }],
         );
         true
+    }
+
+    #[test]
+    fn test_a_second_install_of_the_same_tool_is_refused_until_the_first_ends() {
+        let first = begin_update("test-tool-concurrent").unwrap();
+        let err = begin_update("test-tool-concurrent").err().unwrap();
+        assert!(err.contains("already being updated"), "{err}");
+        let other = begin_update("test-tool-other").unwrap();
+        assert!(is_updating("test-tool-concurrent") && is_updating("test-tool-other"));
+        drop(first);
+        drop(other);
+        assert!(!is_updating("test-tool-concurrent"));
+        let again = begin_update("test-tool-concurrent");
+        assert!(again.is_ok(), "the name is free again once the first install ends");
     }
 
     #[cfg(unix)]

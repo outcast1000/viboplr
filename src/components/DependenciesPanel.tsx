@@ -3,6 +3,7 @@ import type {
   DependencyInfo,
   DependencyRegistry,
   DependencyService,
+  DepInstallError,
   DepUpdateInfo,
   InstallProgress,
   UndefinedTool,
@@ -22,6 +23,8 @@ export interface DependenciesApi {
   checkAll: (forceRefresh?: boolean) => Promise<unknown>;
   checkUpdates: (force?: boolean) => Promise<unknown>;
   installDep: (name: string) => Promise<string | null>;
+  /** The last install failure per tool, shared with the update notice. */
+  installErrors?: Record<string, DepInstallError>;
   uninstallManaged: (name: string) => Promise<void>;
   registry: DependencyRegistry;
   /** Plugin id → name, for "Provided by". */
@@ -44,7 +47,10 @@ export function dependencyAttentionCount(
   registry?: Pick<DependencyRegistry, "pendingConsent">,
   missingDefinitions: UndefinedTool[] = [],
 ): number {
-  const outdated = updates.filter((u) => u.outdated).length;
+  // A copy installed outside Vibo is the package manager's to update: its row
+  // shows the upgrade command, but it never asks for attention (a Homebrew
+  // yt-dlp is always "behind" the nightly channel Vibo follows).
+  const outdated = updates.filter((u) => u.outdated && u.origin !== "system").length;
   const missingRequired = deps.filter(
     (d) => d.status !== "installed" && [...d.internalConsumers, ...d.pluginConsumers].some((c) => c.required),
   ).length;
@@ -94,8 +100,9 @@ export function DependenciesPanel({
   const [copiedCmd, setCopiedCmd] = useState<string | null>(null);
   // Name of the dep whose inline "let Vibo manage" confirm is open.
   const [takeoverConfirm, setTakeoverConfirm] = useState<string | null>(null);
-  // Why the last install / update / removal of a row failed, until the next
-  // attempt on it — "stop it there first", "didn't start again: …".
+  // Why the last removal of a row failed, until the next attempt on it — "stop
+  // it there first". Install failures live in `dependencies.installErrors`, so
+  // the update notice shows the same one.
   const [rowErrors, setRowErrors] = useState<Record<string, string>>({});
   const setRowError = (name: string, error: unknown) =>
     setRowErrors((prev) => {
@@ -136,8 +143,8 @@ export function DependenciesPanel({
     try {
       await dependencies.installDep(name);
     } catch (e) {
+      // Recorded in `installErrors` by the hook.
       console.error("Failed to install dependency:", e);
-      setRowError(name, e);
     } finally {
       setActioning(null);
     }
@@ -322,9 +329,9 @@ export function DependenciesPanel({
                     {dep.origin === "system" ? " (installed outside Vibo — update via your package manager)" : ""}
                   </span>
                 )}
-                {rowErrors[dep.name] && (
+                {(rowErrors[dep.name] ?? dependencies.installErrors?.[dep.name]) && (
                   <span className="dep-row-error" role="alert" style={{ fontSize: "var(--fs-xs)", color: "var(--error)", whiteSpace: "pre-wrap" }}>
-                    {rowErrors[dep.name]}
+                    {rowErrors[dep.name] ?? dependencies.installErrors?.[dep.name]?.message}
                   </span>
                 )}
                 {dep.origin === "managed" &&

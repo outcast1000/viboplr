@@ -1895,25 +1895,35 @@ function App() {
     toolUpdates,
     dismissed: updateNoticeDismissed,
   }), [updater.updateState.available, extensionsHook.updates, toolUpdates, updateNoticeDismissed]);
-  // A tool update started from the banner that failed: kept until the next
-  // attempt (a toast would be gone before anyone read it).
-  const [toolUpdateFailure, setToolUpdateFailure] = useState<string | null>(null);
+  // The extension batch itself throwing (its per-extension failures show in its
+  // own result modal): kept until the next attempt, and shown only while the
+  // notice still announces extensions. Tool failures live in
+  // `dependencies.installErrors`, which the Tools tab reads too.
+  const [extensionsUpdateFailure, setExtensionsUpdateFailure] = useState<string | null>(null);
   const [noticeBusy, setNoticeBusy] = useState(false);
   const handleUpdateNoticeUpdate = useCallback(async () => {
     if (!updateNotice) return;
     setNoticeBusy(true);
-    setToolUpdateFailure(null);
+    setExtensionsUpdateFailure(null);
     const failed: string[] = [];
     let extensionsFailed = false;
+    // The user said no to an unverified download: not a failure, but the rest
+    // of "Update all" (the app's relaunch above all) must not go ahead on it.
+    let declined = false;
     try {
       for (const part of updateAllOrder(updateNotice)) {
+        if (declined) break;
         if (part === "tools") {
           for (const item of updateNotice.items.filter((i) => i.kind === "tools")) {
             try {
-              await dependencies.installDep(item.name);
+              if ((await dependencies.installDep(item.name)) === null) {
+                declined = true;
+                break;
+              }
             } catch (e) {
+              // Recorded per tool in `dependencies.installErrors`.
               console.error(`Failed to update ${item.name}:`, e);
-              failed.push(`${item.name}: ${e instanceof Error ? e.message : String(e)}`);
+              failed.push(item.name);
             }
           }
         } else if (part === "extensions") {
@@ -1922,7 +1932,8 @@ function App() {
             if ((await extensionsHook.updateAll()).length > 0) extensionsFailed = true;
           } catch (e) {
             console.error("Failed to update extensions:", e);
-            failed.push(`extensions: ${e instanceof Error ? e.message : String(e)}`);
+            failed.push("extensions");
+            setExtensionsUpdateFailure(`Couldn't update extensions: ${e instanceof Error ? e.message : String(e)}`);
           }
         } else if (failed.length === 0 && !extensionsFailed) {
           // Last: the app relaunches when it's done — so not after a failure,
@@ -1934,9 +1945,22 @@ function App() {
       console.error("Failed to install updates:", e);
     } finally {
       setNoticeBusy(false);
-      if (failed.length > 0) setToolUpdateFailure(`Couldn't update ${failed.join("; ")}`);
     }
   }, [updateNotice, dependencies, extensionsHook, updater]);
+  // What the banner says went wrong: only about parts it is announcing now, so
+  // a failure can't outlive its update and ride along on the next notice.
+  const updateNoticeFailure = useMemo((): string | null => {
+    if (!updateNotice) return null;
+    const tools = updateNotice.items
+      .filter((i) => i.kind === "tools")
+      .flatMap((i) => {
+        const error = dependencies.installErrors[i.name];
+        return error?.stage === "install" ? [`${i.name}: ${error.message}`] : [];
+      });
+    if (tools.length > 0) return `Couldn't update ${tools.join("; ")}`;
+    if (extensionsUpdateFailure && updateNotice.parts.includes("extensions")) return extensionsUpdateFailure;
+    return null;
+  }, [updateNotice, dependencies.installErrors, extensionsUpdateFailure]);
   // Height of the update strip, so the Now Playing video theater (absolute over
   // the whole `.main`) starts below it instead of covering its buttons.
   const [updateNoticeHeight, setUpdateNoticeHeight] = useState(0);
@@ -6101,7 +6125,7 @@ function App() {
               // a release this banner can't be announcing (it has one, so the
               // check succeeded at some point) — that stays in Settings.
               failure={
-                toolUpdateFailure ??
+                updateNoticeFailure ??
                 (updateNotice.parts.includes("app") && updater.updateState.error?.stage === "install"
                   ? updater.updateState.error.message
                   : null)

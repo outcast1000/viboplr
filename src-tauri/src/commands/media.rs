@@ -354,22 +354,32 @@ pub async fn check_dependencies(
 /// first (SIGTERM, then a kill after the grace) and started again afterwards
 /// with the arguments its plugin registered — after a failed install too, so an
 /// update attempt never leaves it stopped. A start a plugin asks for in between
-/// is refused (`plugin_programs::begin_update`); if one copy won't stop, nothing
-/// installs and the ones already stopped start again. A copy running from another profile
+/// is refused (`plugin_programs::begin_update`), and so is a second install of
+/// the same tool while one runs; if one copy won't stop, nothing installs and
+/// the ones already stopped start again. A copy running from another profile
 /// isn't seen (the bin dir is shared): on Windows the swap then fails with "is
 /// it running?"; on macOS that copy keeps its open files until it restarts.
+///
+/// A service that doesn't start again after a successful install is not an
+/// install failure: the new copy is in place, so it comes back in
+/// `restartErrors` beside the version instead of as an `Err` (which would have
+/// the caller offer the same install again).
 #[tauri::command]
 pub async fn dependency_install(
     app: tauri::AppHandle,
     state: State<'_, AppState>,
     name: String,
     confirmed_unverified: Option<bool>,
-) -> Result<String, String> {
+) -> Result<DependencyInstallOutcome, String> {
     let cache = Arc::clone(&state.dep_cache);
     let app_dir = state.app_dir.clone();
     run_blocking(move || -> Result<_, String> {
+        // The guard first, then the list: a start arriving after the guard is
+        // refused, and one already past its check holds the store lock until
+        // its pid is stamped, so waiting for that lock puts it in the list.
+        let updating = crate::plugin_programs::begin_update(&name)?;
+        drop(crate::plugin_programs::approved::store_lock());
         let running = crate::plugin_programs::running_for_dependency(&app_dir, &name);
-        let updating = crate::plugin_programs::begin_update(&name);
         let mut stopped = Vec::new();
         let mut stop_error = None;
         for reg in &running {
@@ -422,12 +432,17 @@ pub async fn dependency_install(
             serde_json::json!({ "name": name, "version": version }),
         );
         log::info!("Installed managed {} {}", name, version);
-        if !restart_errors.is_empty() {
-            return Err(format!("{} {} is installed, but {}", name, version, restart_errors.join("; ")));
-        }
-        Ok(version)
+        Ok(DependencyInstallOutcome { version, restart_errors })
     })
     .await
+}
+
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DependencyInstallOutcome {
+    version: String,
+    /// Services that didn't start again on the new copy, one line each.
+    restart_errors: Vec<String>,
 }
 
 /// How long a service gets to shut down cleanly before an update kills it.
