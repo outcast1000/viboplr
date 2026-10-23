@@ -50,15 +50,18 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: node scripts/update-libmpv.mjs --write --mirror --summary libmpv-update.md
 
+      # Through the API, not `git push`: GitHub signs a commit it creates for
+      # GITHUB_TOKEN, and main's ruleset holds an unsigned ("unattributed") one
+      # for an approval nobody gives — the PR could never merge itself.
+      # --force: the branch is rebuilt from main every run.
       - name: Push the update branch
         if: steps.update.outputs.changed == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git checkout -B "$BRANCH"
-          git add scripts/libmpv.lock.json
-          git commit -m "build(libmpv): update pinned libmpv (${{ steps.update.outputs.platforms }})"
-          git push --force origin "$BRANCH"
+          node scripts/commit-via-api.mjs --branch "$BRANCH" --parent "$(git rev-parse HEAD)" --force \
+            --message "build(libmpv): update pinned libmpv (${{ steps.update.outputs.platforms }})" \
+            scripts/libmpv.lock.json
 
       - if: steps.update.outputs.changed == 'true'
         uses: actions/upload-artifact@v4
@@ -128,14 +131,15 @@ jobs:
           node scripts/package-engine-component.mjs
           node scripts/publish-engine-components.mjs
 
+      # Signed through the API for the same reason as the check job's commit.
       - name: Commit the component pins
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add src-tauri/engine-component.lock.json
-          if git diff --cached --quiet; then exit 0; fi
-          git commit -m "build(engine): re-pin the downloadable engine component"
-          git push origin "$BRANCH"
+          if git diff --quiet -- src-tauri/engine-component.lock.json; then exit 0; fi
+          node scripts/commit-via-api.mjs --branch "$BRANCH" --parent "$(git rev-parse HEAD)" \
+            --message "build(engine): re-pin the downloadable engine component" \
+            src-tauri/engine-component.lock.json
 
   pull-request:
     needs: [check, engine-test, engine-component]
