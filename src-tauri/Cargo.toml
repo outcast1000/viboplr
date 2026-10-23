@@ -86,13 +86,16 @@ security-framework = { version = "3.7", default-features = false }
 mslnk = "0.1"
 # Browse-window mute (browse_window.rs `mute_webview`): ICoreWebView2_8::SetIsMuted
 # needs the WebView2 bindings + the `Interface` trait for the QI cast. Both are
-# already in the graph through tauri-runtime-wry; pinned to the same minors.
-webview2-com = "0.38"
-windows-core = "0.61"
+# already in the graph through tauri-runtime-wry; pinned to the same minors —
+# bump them with every Tauri upgrade that moves wry's webview2-com, or the
+# `Interface` trait comes from a different windows-core than the controller
+# `with_webview` hands back and the Windows build fails (`no method cast`).
+webview2-com = "0.39"
+windows-core = "0.62"
 # Bit-perfect mode on Windows (mpv_engine/output.rs): the default render
 # endpoint, its WASAPI id + friendly name, state, exclusive-mode formats and
 # hardware volume — COM interfaces (IMMDevice, IAudioClient,
-# IAudioEndpointVolume). Already in the graph through tauri; same minor.
+# IAudioEndpointVolume). Already in the graph through tauri-plugin-opener; same minor.
 windows = { version = "0.61", features = [
     "Win32_Foundation",
     "Win32_Media_Audio",
