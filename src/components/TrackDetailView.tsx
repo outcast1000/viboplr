@@ -266,8 +266,6 @@ export function TrackDetailView({
     }),
   });
 
-  const eyebrow = track.album_title ? `Track · ${track.album_title}` : "Track";
-
   const heroMeta: Array<string | { label: string; onClick: () => void }> = [];
   if (track.artist_name) {
     heroMeta.push({ label: track.artist_name, onClick: () => actions.navigateToArtist(track.artist_id ?? 0, track.artist_name!) });
@@ -351,7 +349,7 @@ export function TrackDetailView({
           )
         }
         artShape="square"
-        eyebrow={eyebrow}
+        eyebrow="Track"
         title={track.title}
         liked={track.liked}
         onToggleLike={onToggleLike}
