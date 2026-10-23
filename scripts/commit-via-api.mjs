@@ -7,8 +7,10 @@
 //
 // Why: a commit GitHub creates for a GITHUB_TOKEN is signed by GitHub, so it is
 // a *verified* commit by github-actions[bot]. One pushed with `git` carries no
-// signature — "unattributed" to main's ruleset, which then wants an approval
-// nobody gives, so the bot's own PR could never merge (#140).
+// signature, and main's ruleset has "extra approval for unattributed changes"
+// on. That was suspected of blocking #140's merge and turned out not to be the
+// cause (its CI run was waiting for approval); signed commits are kept so the
+// rule can't be the next thing to bite.
 //
 // Each file is committed with its current working-tree contents on top of
 // <parent>'s tree. --force moves the branch even when that isn't a
@@ -68,7 +70,7 @@ const created = api("POST", "git/commits", { message, tree, parents: [parent] })
 const commit = created.sha;
 const { verified, reason } = created.verification ?? {};
 if (verified) console.error(`commit ${commit} is verified`);
-else console.error(`::warning::commit ${commit} is NOT verified (${reason}) — main's ruleset will hold the PR for an approval`);
+else console.error(`::warning::commit ${commit} is NOT verified (${reason}) — main's ruleset may hold the PR for an approval`);
 
 try {
   api("PATCH", `git/refs/heads/${branch}`, { sha: commit, force });
