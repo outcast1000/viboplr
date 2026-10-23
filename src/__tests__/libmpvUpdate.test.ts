@@ -175,7 +175,7 @@ describe("requiredChecksState", () => {
 
   it("reads REST check runs, which spell status and conclusion in lower case", () => {
     const rest = (name: string, status: string, conclusion: string | null) => ({ name, status, conclusion });
-    expect(requiredChecksState(REQUIRED_CHECKS.map((n) => rest(n, "completed", "success")))).toBe("passed");
+    expect(requiredChecksState(REQUIRED_CHECKS.map((n: string) => rest(n, "completed", "success")))).toBe("passed");
     expect(requiredChecksState([rest("typecheck", "in_progress", null), rest("rust-check-and-test", "completed", "success"), rest("test-ts", "completed", "success")])).toBe("pending");
     expect(requiredChecksState([rest("typecheck", "completed", "failure"), rest("rust-check-and-test", "completed", "success"), rest("test-ts", "completed", "success")])).toBe("failed");
   });
