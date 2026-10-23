@@ -3189,8 +3189,9 @@ mod tests {
         }
         eprintln!("[meter-test] {} readings in 1.5s: {readings:?}", readings.len());
         // ~11 Hz measured (mpv's filter bursts, see the probe below); well above
-        // the 2 Hz the loop's 0.5s wait would give.
-        assert!(readings.len() >= 10, "only {} readings in 1.5s", readings.len());
+        // the 2 Hz the loop's 0.5s wait would give. The floor is 4 Hz, not the
+        // measured rate: a contended CI runner (macos-latest) delivered 8.
+        assert!(readings.len() >= 6, "only {} readings in 1.5s", readings.len());
         assert!(readings.last() > readings.first(), "the sweep rises: {readings:?}");
         engine.stop().expect("stop");
     }
@@ -3412,7 +3413,10 @@ mod tests {
         wait_for(&rx, "engine-ended", Duration::from_secs(15));
         let s = engine.wave_snapshot("trk:b").expect("the successor has a capture");
         let heard = s.coverage * LEVELS.len() as f64;
-        assert!(heard >= LEVELS.len() as f64 - 0.2, "crossfade={crossfade}: {s:?}");
+        // Half a second of slack: a contended CI runner (macos-latest) captured
+        // 3.72s of 4. A successor that isn't captured scores ~0, and
+        // `assert_levels` still checks every second's level.
+        assert!(heard >= LEVELS.len() as f64 - 0.5, "crossfade={crossfade}: {s:?}");
         assert_levels(&s, &[0, 1, 2, 3]);
     }
 
