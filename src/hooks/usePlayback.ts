@@ -16,6 +16,7 @@ import {
   shouldAutoSkipFailure,
   MAX_CONSECUTIVE_AUTO_SKIPS,
   ENGINE_UNAVAILABLE_ERROR,
+  AUDIO_OUTPUT_PLAYBACK_ERROR,
   VIDEO_UNAVAILABLE_ERROR,
   UNPLAYABLE_SOURCE_ERROR,
   type PlayIntent,
@@ -39,7 +40,7 @@ import { updatePlaybackBuffer, clearPlaybackBuffer } from "../playback/bufferSto
 import { setPlaybackLevel, clearPlaybackLevel } from "../playback/levelStore";
 import { subscribe, combineUnlisten } from "../utils/tauriEvents";
 import { setPlaybackPosition, getPlaybackPosition } from "../playback/positionStore";
-import { noteNativeFailure, clearNativeRetries, streamLadderStep } from "../playback/playbackRetry";
+import { noteNativeFailure, clearNativeRetries, streamLadderStep, fallBackFromFailedSource } from "../playback/playbackRetry";
 import type { EqClipProtection, EqMode } from "../eqPresets";
 import { useAssignRef } from "./useLatestRef";
 import { CHAIN_EXHAUSTED_MESSAGE, type TrackFailureStage } from "../playback/trackFailures";
@@ -793,6 +794,17 @@ export function usePlayback(
           // Replay the same track at the same position with a freshly resolved
           // source. `noteNativeFailure` above had to run BEFORE this replay:
           // handlePlay resolves synchronously from here.
+          pendingSeekRef.current = nativeLastPositionRef.current;
+          handlePlayRef.current(track, "auto");
+          return;
+        }
+        // Out of retries for this source: play the track from the next entry
+        // in its resolver chain (the Library copy under its current path, then
+        // the plugin resolvers) before calling it a failure. Not for an audio
+        // device that won't open — no other source fixes that.
+        const deviceFailure = engineErrorMessage(payload.message) === AUDIO_OUTPUT_PLAYBACK_ERROR;
+        if (!deviceFailure && fallBackFromFailedSource(track.key)) {
+          logPlayback(`Engine error key=${track.key} — falling back to the next source in the chain`);
           pendingSeekRef.current = nativeLastPositionRef.current;
           handlePlayRef.current(track, "auto");
           return;

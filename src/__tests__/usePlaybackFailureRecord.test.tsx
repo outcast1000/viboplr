@@ -27,6 +27,7 @@ vi.mock("../playback/nativeEngine", () => ({
 
 import { usePlayback, type PlaybackOutcomeHandlers } from "../hooks/usePlayback";
 import { CHAIN_EXHAUSTED_MESSAGE } from "../playback/trackFailures";
+import { clearAllNativeRetries, noteResolvedEntry, failedEntryCount } from "../playback/playbackRetry";
 
 const song: QueueTrack = {
   key: "q:1", path: "file:///music/song.flac", title: "Song", artist_name: "Artist",
@@ -128,6 +129,31 @@ describe("usePlayback → per-entry failure record", () => {
       vi.mocked(invoke).mockReset();
       vi.mocked(invoke).mockResolvedValue(true);
     }
+  });
+
+  it("plays the next source in the chain before calling a failure", async () => {
+    // A two-entry chain: each resolve answers from the first entry not yet
+    // failed, as useStreamResolution does.
+    clearAllNativeRetries();
+    const resolve = vi.fn(async (t: QueueTrack) => {
+      noteResolvedEntry(t.key, failedEntryCount(t.key), 2);
+      return resolved;
+    });
+    const { result, outcome } = mount(resolve);
+    await act(async () => { await result.current.handlePlay(song); });
+
+    // The track's own source fails: no failure yet, the track is played again.
+    await act(async () => {
+      emit("engine-error", { trackKey: "q:1", code: "decode", message: "loading failed (-13)" });
+      await new Promise((r) => setTimeout(r, 0));
+    });
+    expect(resolve).toHaveBeenCalledTimes(2);
+    expect(outcome.failed).not.toHaveBeenCalled();
+
+    // The fallback fails too and nothing is left: now it's a failure.
+    emit("engine-error", { trackKey: "q:1", code: "decode", message: "loading failed (-13)" });
+    expect(outcome.failed).toHaveBeenCalledTimes(1);
+    clearAllNativeRetries();
   });
 
   it("files a missing engine as an engine failure, not a rejected source", async () => {

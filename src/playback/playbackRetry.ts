@@ -27,6 +27,12 @@
 const stale = new Set<string>();
 /** Track key → how many native attempts have already failed. */
 const attempts = new Map<string, number>();
+/** Track key → which resolver-chain entry its last resolve played from, and
+ *  how long that chain was. */
+const winners = new Map<string, { index: number; length: number }>();
+/** Track key → how many chain entries its next resolve skips: the ones whose
+ *  source already failed to play. */
+const skips = new Map<string, number>();
 
 /** Record a failed native attempt. Returns the new attempt count (1 = the first
  *  failure), which is also how far down the stream ladder the next pick goes. */
@@ -61,14 +67,43 @@ export function streamLadderStep(key: string): number {
   return Math.max(0, (attempts.get(key) ?? 0) - 1);
 }
 
+/** Record which chain entry a resolve played from (of how many). */
+export function noteResolvedEntry(key: string, index: number, length: number): void {
+  winners.set(key, { index, length });
+}
+
+/** How many chain entries the next resolve of this track skips. */
+export function failedEntryCount(key: string): number {
+  return skips.get(key) ?? 0;
+}
+
+/** The engine gave up on the source the last resolve found. If the chain has
+ *  entries after it, the next resolve starts there — the playback fallback for
+ *  a source that resolves fine but can't be played (a Subsonic id gone after a
+ *  server rescan, a dead link) — and that source gets its own retries. False
+ *  when there is nothing left to fall back to. */
+export function fallBackFromFailedSource(key: string): boolean {
+  const winner = winners.get(key);
+  if (!winner || winner.index + 1 >= winner.length) return false;
+  skips.set(key, winner.index + 1);
+  winners.delete(key);
+  attempts.delete(key);
+  stale.add(key);
+  return true;
+}
+
 /** Forget a track's retry state — it is starting over, not continuing. */
 export function clearNativeRetries(key: string): void {
   stale.delete(key);
   attempts.delete(key);
+  winners.delete(key);
+  skips.delete(key);
 }
 
 /** Test seam. */
 export function clearAllNativeRetries(): void {
   stale.clear();
   attempts.clear();
+  winners.clear();
+  skips.clear();
 }

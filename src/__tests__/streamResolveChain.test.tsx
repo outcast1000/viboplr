@@ -18,6 +18,7 @@ vi.mock("@tauri-apps/api/core", () => ({
 }));
 
 import { useStreamResolution } from "../hooks/useStreamResolution";
+import { fallBackFromFailedSource, clearAllNativeRetries } from "../playback/playbackRetry";
 import { createLibraryStreamResolver } from "../streamResolvers";
 import type { QueueTrack, ResolvedTrackSource } from "../types";
 import type { StreamCandidate } from "../types/plugin";
@@ -163,6 +164,27 @@ describe("chain order: the track's own source, then a library copy of it", () =>
 
     expect(out.src).toBe(SUBSONIC_STREAM_URL);
     expect(out.engineSource).toEqual({ kind: "http", url: SUBSONIC_STREAM_URL });
+  });
+
+  it("after the engine gave up on the track's own source, plays the next entry instead", async () => {
+    // A source that resolves fine but can't be played — a Subsonic id gone
+    // after a server rescan — never failed the chain, so a replay re-picked it.
+    // Falling back makes the next resolve start after it: here the library's
+    // network copy under its current path.
+    clearAllNativeRetries();
+    const { resolve, resolveStreamByUri } = mountChain({
+      libraryMatches: [{ path: SUBSONIC_COPY_PATH, format: "mp3" }],
+    });
+    const first = await resolve();
+    expect(first.engineSource).toEqual({ kind: "file", path: "D:/Torrents/Vitalogy/05. Nothingman.mp3" });
+
+    expect(fallBackFromFailedSource(QBT_TRACK.key)).toBe(true);
+    const second = await resolve();
+    expect(resolveStreamByUri).toHaveBeenCalledTimes(1);
+    expect(second.src).toBe(SUBSONIC_STREAM_URL);
+    // The library copy was the last entry: nothing further to fall back to.
+    expect(fallBackFromFailedSource(QBT_TRACK.key)).toBe(false);
+    clearAllNativeRetries();
   });
 
   it("fails rather than handing back a dead path when no copy is playable", async () => {

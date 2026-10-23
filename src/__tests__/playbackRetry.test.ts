@@ -5,6 +5,9 @@ import {
   streamLadderStep,
   clearNativeRetries,
   clearAllNativeRetries,
+  noteResolvedEntry,
+  fallBackFromFailedSource,
+  failedEntryCount,
 } from "../playback/playbackRetry";
 
 describe("playbackRetry", () => {
@@ -59,5 +62,32 @@ describe("playbackRetry", () => {
     noteNativeFailure("ext:1");
     consumeResolveStale("ext:1");
     expect(streamLadderStep("ext:1")).toBe(1);
+  });
+
+  describe("falling back past a source that failed to play", () => {
+    it("skips the failed entry, re-resolves, and gives the next source its own retries", () => {
+      noteResolvedEntry("q:1", 0, 3);
+      noteNativeFailure("q:1");
+      noteNativeFailure("q:1");
+      noteNativeFailure("q:1");
+      expect(fallBackFromFailedSource("q:1")).toBe(true);
+      expect(failedEntryCount("q:1")).toBe(1);
+      expect(consumeResolveStale("q:1")).toBe(true);
+      expect(streamLadderStep("q:1")).toBe(0);
+    });
+
+    it("has nothing to fall back to after the last entry, or before any resolve", () => {
+      noteResolvedEntry("q:1", 2, 3);
+      expect(fallBackFromFailedSource("q:1")).toBe(false);
+      expect(fallBackFromFailedSource("q:2")).toBe(false);
+      expect(failedEntryCount("q:1")).toBe(0);
+    });
+
+    it("starts from the track's own source again when it is played afresh", () => {
+      noteResolvedEntry("q:1", 0, 3);
+      fallBackFromFailedSource("q:1");
+      clearNativeRetries("q:1");
+      expect(failedEntryCount("q:1")).toBe(0);
+    });
   });
 });

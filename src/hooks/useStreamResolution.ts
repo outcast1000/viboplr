@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect, useCallback } from "react";
 import { invoke, convertFileSrc } from "@tauri-apps/api/core";
-import { consumeResolveStale, streamLadderStep } from "../playback/playbackRetry";
+import { consumeResolveStale, streamLadderStep, failedEntryCount, noteResolvedEntry } from "../playback/playbackRetry";
 import type { QueueTrack, ResolvedTrackSource, ResolvedSource, EngineSource } from "../types";
 import { parseUrlScheme, classifyEffectiveSource, nativeResolverName, type EffectiveSource } from "../queueEntry";
 import { isVideoTrack, videoContainerFromPath } from "../utils";
@@ -631,7 +631,11 @@ export function useStreamResolution({
       let lastThrown: unknown = null;
       const failures: ChainFailure[] = [];
       const attempts: ResolverAttempt[] = [];
-      for (const entry of chain) {
+      // Entries whose source already resolved but failed to play this track
+      // (playbackRetry.fallBackFromFailedSource) are skipped.
+      const skip = failedEntryCount(track.key);
+      for (const [index, entry] of chain.entries()) {
+        if (index < skip) continue;
         if (!preload && resolveGenerationRef.current !== generation) return { src: "" };
         if (lastError || chain.length > 1) {
           setResolvingStatus({ key: track.key, error: lastError, trying: entry.name });
@@ -640,6 +644,7 @@ export function useStreamResolution({
           const { src, engineSource } = await entry.resolve();
           if (!preload && resolveGenerationRef.current !== generation) return { src: "" };
           setResolvingStatus(null);
+          noteResolvedEntry(track.key, index, chain.length);
           attempts.push({ name: entry.name, outcome: "found" });
           attemptsByKeyRef.current.set(track.key, attempts);
           // Resolved — a "no source" note is now wrong. A playback-stage note
