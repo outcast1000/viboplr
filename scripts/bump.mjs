@@ -8,6 +8,7 @@
 // Full release orchestrator:
 //   0. Merges a waiting libmpv update PR once its tests + CI passed (no prompt), or
 //      starts the update workflow when upstream is newer and no PR is open
+//      (0b. offers to re-vendor libmpv when the vendored copy isn't the pinned one)
 //   1. Runs CI checks (typecheck, Rust tests, TS tests) — aborts on failure
 //   2. Bumps version in package.json, Cargo.toml, tauri.conf.json
 //   3. Updates static version badge + download URLs across docs/ pages
@@ -34,7 +35,8 @@ import { nextVersion } from "./lib/version.mjs";
 import { renderFeaturesHtml } from "./lib/features.mjs";
 import { locStep } from "./lib/locRepo.mjs";
 // MIRROR_REPO is this repo: the libmpv workflow runs, mirrors and opens its PR here.
-import { MIRROR_REPO, libmpvAction, requiredChecksState } from "./lib/libmpvUpdate.mjs";
+import { MIRROR_REPO, checkRunsArgs, hostPlatformKey, libmpvAction, requiredChecksState, vendorState } from "./lib/libmpvUpdate.mjs";
+import { createInterface } from "readline/promises";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const args = process.argv.slice(2);
@@ -71,15 +73,55 @@ if (isBeta) {
 // Step 0 — A libmpv update waiting?
 //
 // The Update libmpv workflow re-pins, tests on real macOS + Windows runners,
-// opens a PR and starts CI on it; it never merges. This step takes it, with no
-// question asked (owner decision, 2026-10-23): a PR that is not a draft and has
-// passed main's required checks is merged, pulled and vendored, so Step 1 tests
-// the libmpv this release ships; anything else is reported and the release goes
-// on without it. A newer upstream build with no PR starts the workflow. Before
-// Step 1 on purpose. Fatal only when a merge it started fails half-way.
+// opens a PR, starts CI on it and merges it once that passes. This step is the
+// fallback for a PR that run left open (CI hadn't reported, or a failure was
+// fixed since), taken with no question asked (owner decision, 2026-10-23): a
+// PR that is not a draft and has passed main's required checks is merged,
+// pulled and vendored, so Step 1 tests the libmpv this release ships; anything
+// else is reported and the release goes on without it. A newer upstream build
+// with no PR starts the workflow. Before Step 1 on purpose. Fatal only when a
+// merge it started fails half-way.
+//
+// Then (0b) the vendored copy is checked against the lock. The workflow merges
+// on its own now, so a pull can move the pin while the gitignored vendor dir
+// keeps the old build — and Step 1's engine tests would test that instead.
+// Offered, not forced: it is a download. With no terminal to ask on, it says
+// so and goes on (the release build vendors from the lock on CI regardless).
 // ---------------------------------------------------------------------------
 
 libmpvStep();
+await vendorStep();
+
+async function vendorStep() {
+  const platform = hostPlatformKey();
+  const lock = JSON.parse(readFileSync(resolve(root, "scripts/libmpv.lock.json"), "utf8"));
+  const stampPath = resolve(root, "src-tauri/vendor/libmpv", platform, ".stamp");
+  const state = vendorState(lock.platforms?.[platform], existsSync(stampPath) ? readFileSync(stampPath, "utf8") : null);
+  if (state === "current" || state === "unpinned") return;
+
+  const what = state === "missing"
+    ? `No libmpv is vendored for ${platform}`
+    : `The vendored libmpv (${platform}) isn't the one scripts/libmpv.lock.json pins`;
+  console.log(`⚠ ${what} — Step 1's engine tests would ${state === "missing" ? "skip" : "test the old build"}.`);
+  if (!process.stdin.isTTY) {
+    console.log("  Run `node scripts/fetch-libmpv.mjs` to vendor it. Going on without it.\n");
+    return;
+  }
+  const rl = createInterface({ input: process.stdin, output: process.stdout });
+  const answer = (await rl.question("  Vendor it now (node scripts/fetch-libmpv.mjs)? [Y/n] ")).trim().toLowerCase();
+  rl.close();
+  if (answer && answer !== "y" && answer !== "yes") {
+    console.log("  Skipped — going on with what is vendored.\n");
+    return;
+  }
+  try {
+    execSync("node scripts/fetch-libmpv.mjs", { cwd: root, stdio: "inherit" });
+  } catch {
+    console.error("\n✗ fetch-libmpv failed (output above) — not releasing on a half-vendored libmpv.");
+    process.exit(1);
+  }
+  console.log("✓ libmpv vendored from the lock\n");
+}
 
 function libmpvStep() {
   const gh = (cmd) => execSync(`gh ${cmd}`, { cwd: root, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }).trim();
@@ -89,11 +131,10 @@ function libmpvStep() {
   let pr = null;
   let checks = null;
   try {
-    const open = JSON.parse(gh(`pr list --repo ${MIRROR_REPO} --head bot/libmpv-update --state open --json number,title,url,isDraft`));
+    const open = JSON.parse(gh(`pr list --repo ${MIRROR_REPO} --head bot/libmpv-update --state open --json number,title,url,isDraft,headRefOid`));
     pr = open[0] ?? null;
     if (pr) {
-      const view = JSON.parse(gh(`pr view ${pr.number} --repo ${MIRROR_REPO} --json statusCheckRollup`));
-      checks = requiredChecksState(view.statusCheckRollup);
+      checks = requiredChecksState(JSON.parse(gh(checkRunsArgs(MIRROR_REPO, pr.headRefOid))));
     }
   } catch (e) {
     console.error(`⚠ Couldn't read the libmpv update PR (is gh signed in?) — skipping this step:\n${errText(e)}\n`);

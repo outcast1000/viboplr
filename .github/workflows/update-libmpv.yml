@@ -2,9 +2,11 @@ name: Update libmpv
 
 # Weekly: is there a newer libmpv build than the pinned one? If so, mirror it,
 # re-pin it, prove it loads and plays on real macOS and Windows runners,
-# repackage the downloadable engine component, and open (or refresh) a pull
-# request. Merging stays a person's call: the tests can't catch a subtle
-# playback regression, which is why scripts/libmpv.lock.json is pinned at all.
+# repackage the downloadable engine component, open (or refresh) a pull request,
+# run CI on it and merge it once that passes — so the new pin is on main the
+# same day. The engine tests prove libmpv loads and plays, not that playback has
+# no subtle regression; the release that ships it is where that gets tried
+# (`npm run bump` Step 0 still merges a PR this run left open).
 #
 # Everything is re-derived from main each run, so a PR left open is simply
 # refreshed — never stacked — and re-running is safe (mirroring checks bytes,
@@ -139,10 +141,13 @@ jobs:
     needs: [check, engine-test, engine-component]
     if: always() && needs.check.outputs.changed == 'true'
     runs-on: ubuntu-latest
+    timeout-minutes: 45
     permissions:
-      contents: read
+      contents: write # gh pr merge
       pull-requests: write
       actions: write # gh workflow run ci.yml
+      checks: read # the PR's check rollup
+      statuses: read
     steps:
       - uses: actions/checkout@v5
 
@@ -167,7 +172,7 @@ jobs:
             echo
             echo "Run log: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
             echo
-            echo "_Opened by a workflow token, which doesn't trigger CI by itself, so this workflow starts CI on the branch. \`npm run bump\` merges this PR on its own once it isn't a draft and CI has passed._"
+            echo "_Opened by a workflow token, which doesn't trigger CI by itself, so this workflow starts CI on the branch and merges this PR once it passes. If it stays open (a draft, or CI failed), \`npm run bump\` merges it once it isn't a draft and CI has passed._"
           } > body.md
           TITLE="Update libmpv (${{ needs.check.outputs.platforms }})"
           PASSED=true
@@ -191,6 +196,47 @@ jobs:
       # PR opened by GITHUB_TOKEN doesn't trigger CI — so start it here. Its runs
       # attach to the branch's head commit, which is what the PR's checks read.
       - name: Start CI on the branch
+        id: ci
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh workflow run ci.yml --ref "$BRANCH"
+        run: |
+          echo "sha=$(git ls-remote origin "refs/heads/$BRANCH" | cut -f1)" >> "$GITHUB_OUTPUT"
+          echo "since=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$GITHUB_OUTPUT"
+          gh workflow run ci.yml --ref "$BRANCH"
+
+      # Only a run whose own tests and component publish passed is merged — a
+      # draft never is. The verdict is bump's own (requiredChecksState), so both
+      # merge paths agree on what "CI passed" means, and the merge is pinned to
+      # the commit CI tested: a push to the branch in between refuses it.
+      - name: Wait for CI, then merge
+        if: needs.engine-test.result == 'success' && needs.engine-component.result == 'success'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SHA: ${{ steps.ci.outputs.sha }}
+          SINCE: ${{ steps.ci.outputs.since }}
+        run: |
+          RUN=""
+          for _ in $(seq 1 20); do
+            RUN=$(gh run list --workflow ci.yml --branch "$BRANCH" --event workflow_dispatch \
+              --json databaseId,headSha,createdAt \
+              --jq "[.[] | select(.headSha == \"$SHA\" and .createdAt >= \"$SINCE\")][0].databaseId // empty")
+            [ -n "$RUN" ] && break
+            sleep 15
+          done
+          if [ -z "$RUN" ]; then
+            echo "::warning::CI run for $SHA never appeared — leaving the PR for npm run bump"
+            exit 0
+          fi
+          gh run watch "$RUN" --interval 30 > /dev/null || true
+          # The head commit's check runs over REST, never statusCheckRollup
+          # (empty for every PR here — see checkRunsArgs).
+          STATE=$(gh api "repos/${{ github.repository }}/commits/$SHA/check-runs?per_page=100" --jq .check_runs \
+            | node --input-type=module -e '
+                import { requiredChecksState } from "./scripts/lib/libmpvUpdate.mjs";
+                let s = ""; for await (const c of process.stdin) s += c;
+                console.log(requiredChecksState(JSON.parse(s)));')
+          if [ "$STATE" != passed ]; then
+            echo "::warning::CI on the branch is $STATE — leaving the PR open"
+            exit 0
+          fi
+          gh pr merge "$BRANCH" --merge --match-head-commit "$SHA"

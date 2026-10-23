@@ -4,7 +4,7 @@
 // link that will be deleted — the failure that broke the v1.0.94 Windows build.
 import { describe, it, expect } from "vitest";
 // @ts-expect-error — plain .mjs dev script, no type declarations
-import { REQUIRED_CHECKS, UPSTREAMS, archiveProblems, libmpvAction, lockEntryFor, missingFiles, mirrorUrl, parseClientApiVersion, pickAsset, prBody, requiredChecksState, sameCommit } from "../../scripts/lib/libmpvUpdate.mjs";
+import { REQUIRED_CHECKS, UPSTREAMS, archiveProblems, hostPlatformKey, libmpvAction, lockEntryFor, missingFiles, mirrorUrl, parseClientApiVersion, pickAsset, prBody, requiredChecksState, sameCommit, vendorState } from "../../scripts/lib/libmpvUpdate.mjs";
 
 const win = UPSTREAMS["windows-x86_64"];
 const mac = UPSTREAMS["macos-aarch64"];
@@ -113,7 +113,7 @@ describe("the new pin", () => {
     expect(body).toContain("`3f1b23abd0` | `c152964208`");
     expect(body).toContain("https://github.com/mpv-player/mpv/compare/3f1b23abd0...c152964208");
     expect(body).toContain("| 2.5 |");
-    expect(body).toMatch(/Before merging/);
+    expect(body).toMatch(/Before releasing/);
   });
 });
 
@@ -173,7 +173,43 @@ describe("requiredChecksState", () => {
     expect(requiredChecksState(rollup)).toBe("failed");
   });
 
+  it("reads REST check runs, which spell status and conclusion in lower case", () => {
+    const rest = (name: string, status: string, conclusion: string | null) => ({ name, status, conclusion });
+    expect(requiredChecksState(REQUIRED_CHECKS.map((n) => rest(n, "completed", "success")))).toBe("passed");
+    expect(requiredChecksState([rest("typecheck", "in_progress", null), rest("rust-check-and-test", "completed", "success"), rest("test-ts", "completed", "success")])).toBe("pending");
+    expect(requiredChecksState([rest("typecheck", "completed", "failure"), rest("rust-check-and-test", "completed", "success"), rest("test-ts", "completed", "success")])).toBe("failed");
+  });
+
   it("ignores checks the ruleset doesn't require", () => {
     expect(requiredChecksState([...REQUIRED_CHECKS.map(ok), { name: "lint-extra", status: "COMPLETED", conclusion: "FAILURE" }])).toBe("passed");
+  });
+});
+
+describe("hostPlatformKey", () => {
+  it("names platforms the way the vendor dir and the lock do", () => {
+    expect(hostPlatformKey("darwin", "arm64")).toBe("macos-aarch64");
+    expect(hostPlatformKey("win32", "x64")).toBe("windows-x86_64");
+    expect(hostPlatformKey("linux", "x64")).toBe("linux-x86_64");
+  });
+});
+
+describe("vendorState", () => {
+  const entry = { sha256: "abc123" };
+
+  it("is current when the stamp is the pinned archive's hash", () => {
+    expect(vendorState(entry, "abc123\n")).toBe("current");
+  });
+
+  it("is stale when a pull moved the pin past what is vendored", () => {
+    expect(vendorState(entry, "0ld0ld\n")).toBe("stale");
+  });
+
+  it("is missing when nothing was ever vendored", () => {
+    expect(vendorState(entry, null)).toBe("missing");
+  });
+
+  it("is unpinned on a platform the lock doesn't cover", () => {
+    expect(vendorState(undefined, null)).toBe("unpinned");
+    expect(vendorState(undefined, "abc123")).toBe("unpinned");
   });
 });

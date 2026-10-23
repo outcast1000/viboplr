@@ -133,7 +133,7 @@ export function prBody(changes) {
   }
   lines.push(
     "",
-    "**Before merging:** the engine tests below prove libmpv loads and plays, not that playback has no subtle regression. Play a few local and streamed tracks, and a video, on each changed platform.",
+    "**Before releasing:** the engine tests below prove libmpv loads and plays, not that playback has no subtle regression. This PR merges itself once CI passes, so play a few local and streamed tracks, and a video, on each changed platform before the next release ships it.",
   );
   return lines.join("\n");
 }
@@ -146,20 +146,33 @@ export function prBody(changes) {
 export const REQUIRED_CHECKS = ["typecheck", "rust-check-and-test", "test-ts"];
 
 /**
- * How the required checks stand on a PR, from `gh pr view --json statusCheckRollup`.
- * "passed" only when every required check has a successful run; a missing one
- * is "pending" (CI was started but hasn't reported), a non-success conclusion
- * is "failed".
+ * The `gh` arguments that list the check runs on a PR's head commit (REST,
+ * `.check_runs`). Not `gh pr view --json statusCheckRollup`: GraphQL returned
+ * an empty rollup for every PR in this repo, #140 included, while REST listed
+ * its three successful checks — so the rollup made a passed PR read "pending"
+ * forever and nothing ever merged it.
  */
-export function requiredChecksState(rollup, required = REQUIRED_CHECKS) {
+export function checkRunsArgs(repo, sha) {
+  return `api repos/${repo}/commits/${sha}/check-runs?per_page=100 --jq .check_runs`;
+}
+
+/**
+ * How the required checks stand on a PR, from its head commit's check runs
+ * (`checkRunsArgs`). "passed" only when every required check has a successful
+ * run; a missing one is "pending" (CI was started but hasn't reported), a
+ * non-success conclusion is "failed". REST spells status/conclusion in lower
+ * case and GraphQL in upper; both are read.
+ */
+export function requiredChecksState(runs, required = REQUIRED_CHECKS) {
+  const up = (v) => (v == null ? v : String(v).toUpperCase());
   let pending = false;
   for (const name of required) {
-    const runs = (rollup ?? []).filter((c) => c.name === name);
-    if (!runs.length || runs.some((c) => c.status && c.status !== "COMPLETED")) {
+    const named = (runs ?? []).filter((c) => c.name === name);
+    if (!named.length || named.some((c) => c.status && up(c.status) !== "COMPLETED")) {
       pending = true;
       continue;
     }
-    if (!runs.some((c) => c.conclusion === "SUCCESS")) return "failed";
+    if (!named.some((c) => up(c.conclusion) === "SUCCESS")) return "failed";
   }
   return pending ? "pending" : "passed";
 }
@@ -186,4 +199,28 @@ export function libmpvAction({ pr, checks, behind, onMain }) {
   }
   if (behind) return { action: "run", reason: "upstream has a newer libmpv and no update PR is open — starting the Update libmpv workflow" };
   return { action: "none", reason: "libmpv is current" };
+}
+
+/** The `<os>-<arch>` key of the vendor dir and the lock (fetch-libmpv.mjs's hostPlatform). */
+export function hostPlatformKey(platform = process.platform, arch = process.arch) {
+  const os = platform === "darwin" ? "macos" : platform === "win32" ? "windows" : platform;
+  const cpu = arch === "arm64" ? "aarch64" : arch === "x64" ? "x86_64" : arch;
+  return `${os}-${cpu}`;
+}
+
+/**
+ * Does the vendored libmpv match the lock? `stamp` is the text of the vendor
+ * dir's `.stamp` (the pinned archive's sha256, written by fetch-libmpv.mjs), or
+ * null when there is none. Nothing in the build reads the lock, so after a pull
+ * that moved the pin, dev runs, tests and a local `tauri build` keep loading the
+ * old copy until someone re-vendors.
+ *   current  — the vendored archive is the pinned one
+ *   stale    — vendored, but not what the lock pins
+ *   missing  — nothing vendored
+ *   unpinned — the lock has no entry for this platform (nothing to fetch)
+ */
+export function vendorState(lockEntry, stamp) {
+  if (!lockEntry?.sha256) return "unpinned";
+  if (stamp == null) return "missing";
+  return stamp.trim() === lockEntry.sha256 ? "current" : "stale";
 }
