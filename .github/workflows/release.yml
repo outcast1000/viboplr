@@ -14,12 +14,19 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  ci-and-release:
+  # Fast and apt-free on purpose: it only names the tag and opens the release
+  # as a DRAFT, so the platform builds start within a minute of the push. The
+  # Linux tests used to run here in front of the builds, and when the Ubuntu
+  # mirror stalled (2026-10-23: 35 min, then 40+) both builds waited on a
+  # package download they don't need.
+  prepare:
     permissions:
       contents: write
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     outputs:
       tag: ${{ steps.get-tag.outputs.tag }}
+      release-id: ${{ steps.create-release.outputs.id }}
     steps:
       - uses: actions/checkout@v5
         with:
@@ -28,30 +35,6 @@ jobs:
       - uses: actions/setup-node@v5
         with:
           node-version: 22
-          cache: npm
-
-      - name: Install system dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf libxdo-dev
-
-      - uses: dtolnay/rust-toolchain@stable
-
-      - uses: Swatinem/rust-cache@v2
-        with:
-          workspaces: src-tauri
-
-      - run: npm install
-
-      - name: TypeScript typecheck
-        run: npx tsc --noEmit
-
-      - name: Cargo test
-        working-directory: src-tauri
-        run: cargo test --locked
-
-      - name: TypeScript tests
-        run: npm test
 
       - name: Get tag
         id: get-tag
@@ -74,7 +57,13 @@ jobs:
             echo "Initial release." > /tmp/release-body.md
           fi
 
-      - name: Create release
+      # A DRAFT is invisible to every update path — stable resolves
+      # releases/latest and the beta channel skips drafts — so nothing reaches a
+      # user until `publish` flips it, after the tests AND both builds passed.
+      # On a re-run the release already exists (still a draft, or published if
+      # the earlier run got that far) and is reused either way.
+      - name: Create draft release
+        id: create-release
         if: steps.get-tag.outputs.tag != ''
         shell: bash
         run: |
@@ -87,16 +76,57 @@ jobs:
           gh release create "$TAG" \
             --title "Vibo $TAG" \
             --notes-file /tmp/release-body.md \
-            --draft=false \
+            --draft \
             --prerelease=$PRERELEASE \
             || echo "Release already exists"
+          # A draft can't be fetched by tag, only found in the list.
+          ID=$(gh api "repos/$GITHUB_REPOSITORY/releases" --paginate \
+            --jq ".[] | select(.tag_name == \"$TAG\") | .id" | head -n1)
+          if [ -z "$ID" ]; then echo "::error::No release found for $TAG"; exit 1; fi
+          echo "id=$ID" >> "$GITHUB_OUTPUT"
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
+  # Runs alongside the builds instead of in front of them. It still gates the
+  # release: `publish` needs it, so a failing test leaves the release a draft.
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install system dependencies
+        timeout-minutes: 20
+        run: scripts/ci-install-linux-deps.sh
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+
+      - run: npm install
+
+      - name: TypeScript typecheck
+        run: npx tsc --noEmit
+
+      - name: Cargo test
+        working-directory: src-tauri
+        run: cargo test --locked
+
+      - name: TypeScript tests
+        run: npm test
+
   build:
-    needs: ci-and-release
+    needs: prepare
     permissions:
       contents: write
+    timeout-minutes: 60
     strategy:
       fail-fast: false
       # Single build per platform. The native engine is compiled into every
@@ -148,18 +178,45 @@ jobs:
           # without it CI builds bake no key and telemetry is a silent no-op.
           APTABASE_APP_KEY: ${{ secrets.APTABASE_APP_KEY }}
         with:
-          tagName: ${{ needs.ci-and-release.outputs.tag }}
-          releaseName: 'Vibo ${{ needs.ci-and-release.outputs.tag }}'
+          tagName: ${{ needs.prepare.outputs.tag }}
+          releaseName: 'Vibo ${{ needs.prepare.outputs.tag }}'
           releaseBody: ''
-          releaseDraft: false
+          # Upload into prepare's draft. tauri-action finds a draft by tag in
+          # the release list, and with tagName set it rewrites the draft's
+          # `untagged-…` asset URLs in latest.json to /download/<tag>/, so the
+          # updater manifest stays valid once `publish` flips the draft.
+          releaseDraft: true
           # Keep in sync with the create-release step: hyphenated tags = prerelease.
-          prerelease: ${{ contains(needs.ci-and-release.outputs.tag, '-') }}
+          prerelease: ${{ contains(needs.prepare.outputs.tag, '-') }}
           includeUpdaterJson: true
           args: ${{ matrix.args }}
 
+  # The only step that makes a release visible. Needing `test` and `build`
+  # means a failed test or a failed platform build leaves it a draft — beta.7
+  # went out macOS-only because the release was public before either build ran.
+  publish:
+    needs: [prepare, test, build]
+    if: needs.prepare.outputs.tag != ''
+    permissions:
+      contents: write
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Publish the draft
+        shell: bash
+        run: |
+          TAG="${{ needs.prepare.outputs.tag }}"
+          # Prereleases can't be "latest"; a stable release becomes it.
+          LATEST=true
+          if [[ "$TAG" == *-* ]]; then LATEST=false; fi
+          gh api -X PATCH "repos/$GITHUB_REPOSITORY/releases/${{ needs.prepare.outputs.release-id }}" \
+            -F draft=false -f make_latest=$LATEST --jq '.html_url'
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
   deploy-site:
-    # Publish viboplr.com only after BOTH platform builds uploaded their
-    # installers. pages.yml deliberately skips the release commit's push event
+    # Publish viboplr.com only once the release is public — i.e. after BOTH
+    # platform builds uploaded their installers and the tests passed. pages.yml deliberately skips the release commit's push event
     # (see the `if` there), so this dispatch is what deploys a release's site
     # update — the site never advertises assets that don't exist. Dispatching
     # pages.yml (rather than inlining the deploy steps here) keeps a single
@@ -168,8 +225,8 @@ jobs:
     # which it may not.
     # Betas skip this: bump.mjs makes no site changes for hyphenated versions,
     # so there is nothing to deploy.
-    needs: [ci-and-release, build]
-    if: needs.ci-and-release.outputs.tag != '' && !contains(needs.ci-and-release.outputs.tag, '-')
+    needs: [prepare, publish]
+    if: needs.prepare.outputs.tag != '' && !contains(needs.prepare.outputs.tag, '-')
     permissions:
       actions: write
     runs-on: ubuntu-latest
