@@ -51,6 +51,34 @@ jobs:
         working-directory: src-tauri
         run: cargo test --locked
 
+  # The Linux job never compiles the `#[cfg(windows)]` code (WebView2 mute,
+  # WASAPI bit-perfect, the wid video layer), and `npm run bump` checks on
+  # macOS — so without this a Windows-only break first shows up in the release
+  # build, after the tag is out (v1.0.112-beta.7: a Tauri upgrade moved
+  # webview2-com and left our pin behind). `--all-targets` covers the
+  # Windows-gated tests too.
+  rust-check-windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm install
+
+      - name: Cargo check
+        working-directory: src-tauri
+        run: cargo check --locked --all-targets
+
   test-ts:
     runs-on: ubuntu-latest
     steps:
