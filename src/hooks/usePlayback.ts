@@ -798,7 +798,7 @@ export function usePlayback(
           return;
         }
         setPlaying(false);
-        surfacePlaybackFailureRef.current(engineErrorMessage(payload.message), track, lastPlaySrcRef.current, "playback", {
+        surfacePlaybackFailureRef.current(engineErrorMessage(payload.message, track.path), track, lastPlaySrcRef.current, "playback", {
           engineError: payload.message,
           tries: failures,
         });

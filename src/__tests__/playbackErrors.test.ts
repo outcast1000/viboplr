@@ -7,6 +7,7 @@ import {
   UNREACHABLE_PLAYBACK_ERROR,
   FILE_NOT_FOUND_PLAYBACK_ERROR,
   FORMAT_PLAYBACK_ERROR,
+  SUBSONIC_FORMAT_PLAYBACK_ERROR,
   LOAD_PLAYBACK_ERROR,
   AUDIO_OUTPUT_PLAYBACK_ERROR,
   isFormatPlaybackError,
@@ -19,6 +20,14 @@ describe("engineErrorMessage", () => {
   it("names a file mpv can't demux as a format failure", () => {
     expect(engineErrorMessage("unrecognized file format (-17)")).toBe(FORMAT_PLAYBACK_ERROR);
     expect(engineErrorMessage("no audio or video data played")).toBe(FORMAT_PLAYBACK_ERROR);
+  });
+
+  it("names both likely causes for a Subsonic stream (a server error body reads as a bad format)", () => {
+    expect(engineErrorMessage("unrecognized file format (-17)", "subsonic://music.example.com/abc"))
+      .toBe(SUBSONIC_FORMAT_PLAYBACK_ERROR);
+    expect(engineErrorMessage("unrecognized file format (-17)", "file:///music/a.flac")).toBe(FORMAT_PLAYBACK_ERROR);
+    expect(engineErrorMessage("loading failed (-13)", "subsonic://music.example.com/abc")).toBe(LOAD_PLAYBACK_ERROR);
+    expect(isFormatPlaybackError(SUBSONIC_FORMAT_PLAYBACK_ERROR)).toBe(true);
   });
 
   it("names a load failure as one — the describe* probes then find the real cause", () => {

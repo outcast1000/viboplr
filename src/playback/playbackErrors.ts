@@ -17,6 +17,11 @@ export const UNREACHABLE_PLAYBACK_ERROR =
 export const FILE_NOT_FOUND_PLAYBACK_ERROR =
   "File not found — it may have been moved or deleted";
 export const FORMAT_PLAYBACK_ERROR = "This file’s format can’t be played";
+// A Subsonic server answers a failed stream with a JSON error body, which mpv
+// also reports as an unrecognized format — most often the song's id is gone
+// because the server rescanned and gave its songs new ids.
+export const SUBSONIC_FORMAT_PLAYBACK_ERROR =
+  "The server sent no playable audio — the track may no longer be on the server (resync the collection), or its format can’t be played";
 export const LOAD_PLAYBACK_ERROR = "The track couldn’t be opened";
 export const AUDIO_OUTPUT_PLAYBACK_ERROR = "Couldn’t open the audio output device";
 // libmpv could not be loaded on this machine, so nothing can play. Settings →
@@ -28,11 +33,12 @@ export const VIDEO_UNAVAILABLE_ERROR = "Video playback isn’t available on this
 // — the engine has no way to open it.
 export const UNPLAYABLE_SOURCE_ERROR = "This track’s source can’t be played";
 
-/** A user-facing sentence for the engine's own error text. */
-export function engineErrorMessage(message: string | null | undefined): string {
+/** A user-facing sentence for the engine's own error text. `path` is the
+ *  track's own URI (a Subsonic format failure gets its own sentence). */
+export function engineErrorMessage(message: string | null | undefined, path?: string | null): string {
   const text = (message ?? "").toLowerCase();
   if (text.includes("unrecognized file format") || text.includes("no audio or video data")) {
-    return FORMAT_PLAYBACK_ERROR;
+    return path?.startsWith("subsonic://") ? SUBSONIC_FORMAT_PLAYBACK_ERROR : FORMAT_PLAYBACK_ERROR;
   }
   if (text.includes("audio output")) return AUDIO_OUTPUT_PLAYBACK_ERROR;
   if (text.includes("loading failed")) return LOAD_PLAYBACK_ERROR;
@@ -43,7 +49,7 @@ export function engineErrorMessage(message: string | null | undefined): string {
 // `playback_error` telemetry reports as `reason`. Keyed off the resolved
 // message: network/missing-file causes resolve to their own messages first.
 export function isFormatPlaybackError(error: string | null | undefined): boolean {
-  return error === FORMAT_PLAYBACK_ERROR;
+  return error === FORMAT_PLAYBACK_ERROR || error === SUBSONIC_FORMAT_PLAYBACK_ERROR;
 }
 
 // Pick the user-facing message for a remote track's failure: the network probe
