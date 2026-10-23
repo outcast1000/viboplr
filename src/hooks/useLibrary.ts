@@ -3,6 +3,7 @@ import { invoke } from "@tauri-apps/api/core";
 import type { Artist, Album, Tag, Track, TrackSelection, Collection, CollectionStats, View, ViewMode, SortField, SortDir, ColumnConfig, TrackColumnId } from "../types";
 import { usePersistMirror } from "./usePersistedSetting";
 import { normalizeForMatch } from "../utils/normalize";
+import { scrollIntoNearestScroller } from "../utils/lyrics";
 import { librarySelection } from "../queueEntry";
 
 const ALL_COLUMN_IDS: TrackColumnId[] = ["like", "num", "title", "artist", "album", "year", "quality", "duration", "popularity", "size", "collection", "added", "modified", "path"];
@@ -313,8 +314,11 @@ export function useLibrary(restoredRef: React.RefObject<boolean>, onBeforeNaviga
       requestAnimationFrame(() => {
         // Nothing renders `data-track-id`, so the selector that used to lead
         // here always missed and this nth-child fallback was doing all the work.
-        const el = document.querySelector(`.track-row:nth-child(${idx + 1})`);
-        el?.scrollIntoView({ block: "center", behavior: "smooth" });
+        // Not `scrollIntoView({ block: "center" })`: it scrolls every ancestor,
+        // including the `overflow: hidden` root, so a row near the end of the
+        // list pushed the whole window up under the caption bar.
+        const el = document.querySelector<HTMLElement>(`.track-row:nth-child(${idx + 1})`);
+        if (el) scrollIntoNearestScroller(el);
       });
     }
   }, [sortedTracks]);

@@ -197,6 +197,20 @@ export function scrollLineToCenter(container: HTMLElement, line: HTMLElement): v
   });
 }
 
+/** `scrollLineToCenter` for callers that don't hold the container: centre
+ *  `el` in its nearest ancestor that actually scrolls (`auto` / `scroll`),
+ *  never in an `overflow: hidden` one. Which box scrolls varies by page — the
+ *  Library's track list scrolls itself, an album page's scrolls the page. */
+export function scrollIntoNearestScroller(el: HTMLElement): void {
+  for (let p = el.parentElement; p; p = p.parentElement) {
+    const { overflowY } = getComputedStyle(p);
+    if (overflowY === "auto" || overflowY === "scroll") {
+      scrollLineToCenter(p, el);
+      return;
+    }
+  }
+}
+
 /** Deterministic [0,1) ratio from a string (FNV-1a). Lets a "random" line pick
  *  stay stable for a given track instead of flickering on every render/cycle. */
 export function hashStringToRatio(s: string): number {

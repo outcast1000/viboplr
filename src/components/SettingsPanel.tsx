@@ -17,6 +17,7 @@ import { bitPerfectBlockers, isBitPerfect } from "../utils/bitPerfect";
 import { trashLabel } from "../utils";
 import { SECTION_TABS, type SettingsTab } from "../utils/settingsSections";
 import { LINKS } from "../constants/links";
+import { scrollLineToCenter } from "../utils/lyrics";
 import { ZOOM_PRESET_OPTIONS } from "../utils/zoom";
 import { RADIO_ARTIST_SHARE_CHOICES, RADIO_TASTE_CHOICES, type RadioOptions, type RadioTaste } from "../utils/radioOptions";
 import type { AutoContinueWeights } from "../hooks/useAutoContinue";
@@ -1582,6 +1583,7 @@ export function SettingsPanel({
   // Deep link from another surface: select the tab that owns the section, then
   // (on the next run, once that tab has rendered) scroll it into view and clear
   // the request so reopening Settings lands at the top as usual.
+  const bodyRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
     if (!scrollToId) return;
     const tab = SECTION_TABS[scrollToId] ?? "general";
@@ -1589,7 +1591,13 @@ export function SettingsPanel({
       setSettingsTab(tab);
       return;
     }
-    document.getElementById(scrollToId)?.scrollIntoView({ block: "center" });
+    // Scroll the settings body only. `scrollIntoView` walks every scrollable
+    // ancestor, and `html` / `body` / `#root` are `overflow: hidden` boxes —
+    // still scroll containers — so a section near the end of the body shoved
+    // the whole document up and cut the caption bar in half until the window
+    // was resized (an assistant failure's "Open AI control" did exactly this).
+    const section = document.getElementById(scrollToId);
+    if (section && bodyRef.current) scrollLineToCenter(bodyRef.current, section);
     onScrolledToId?.();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [scrollToId, settingsTab]);
@@ -1685,7 +1693,7 @@ export function SettingsPanel({
         ))}
       </div>
 
-      <div className="settings-content-body">
+      <div className="settings-content-body" ref={bodyRef}>
             {settingsTab === "general" && (
               <>
                 <div className="settings-group" id="app-update">
