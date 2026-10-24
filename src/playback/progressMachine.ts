@@ -4,6 +4,7 @@
 // handler. Pure — unit-tested.
 
 import type { QueueTrack } from "../types";
+import { isLocalBytesUri } from "../queueEntry";
 
 export interface ProgressInputs {
   /** Effective playback position (secs). */
@@ -57,7 +58,7 @@ const NO_ACTIONS: ProgressActions = {
 /** A next track without a directly playable URL goes through the plugin
  * stream-resolver chain, which can be slow (e.g. yt-dlp) — start earlier. */
 export function needsStreamResolve(next: QueueTrack | null): boolean {
-  return !!next && (!next.path || (!next.path.startsWith("file://") && !next.path.startsWith("http")));
+  return !!next && !isLocalBytesUri(next.path) && !next.path?.startsWith("http");
 }
 
 export function preloadLeadTime(next: QueueTrack | null): number {

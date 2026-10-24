@@ -495,7 +495,6 @@ window.__TAURI_INTERNALS__.invoke = async function (cmd, args) {
     }
     case 'get_active_download_providers':
       return [];
-    case 'cleanup_temp_mixtapes':
     case 'fetch_album_image':
     case 'fetch_artist_image':
     case 'get_local_lyrics': // no local files in the browser — "no local lyrics"

@@ -5,6 +5,8 @@ import {
   pluginTrackToQueueTrack,
   parseUrlScheme,
   isLocalTrack,
+  isLocalBytesUri,
+  localTrackSource,
   effectiveLocalPath,
   isNetworkSharePath,
 } from "../queueEntry";
@@ -164,10 +166,64 @@ describe("trackToQueueEntry", () => {
   });
 });
 
+describe("isLocalBytesUri", () => {
+  it("is true for a file and a mixtape entry, false for anything that needs the network", () => {
+    expect(isLocalBytesUri("file:///m/a.mp3")).toBe(true);
+    expect(isLocalBytesUri("mixtape://10+20@/m/a.mixtape")).toBe(true);
+    expect(isLocalBytesUri("https://x/a.mp3")).toBe(false);
+    expect(isLocalBytesUri("subsonic://1/42")).toBe(false);
+    expect(isLocalBytesUri(null)).toBe(false);
+  });
+  it("leaves isLocalTrack meaning a file of its own", () => {
+    expect(isLocalTrack({ path: "mixtape://10+20@/m/a.mixtape" })).toBe(false);
+  });
+});
+
+describe("localTrackSource", () => {
+  const asset = (p: string) => `asset://${p}`;
+  it("maps a file to the engine path and the webview asset url", () => {
+    expect(localTrackSource("file:///m/a.mp3", asset)).toEqual({
+      src: "asset:///m/a.mp3",
+      engineSource: { kind: "file", path: "/m/a.mp3" },
+    });
+  });
+  it("maps a mixtape entry to an engine slice, keeping its own uri as src", () => {
+    const url = "mixtape://10+20@/m/a.mixtape";
+    expect(localTrackSource(url, asset)).toEqual({
+      src: url,
+      engineSource: { kind: "slice", path: "/m/a.mixtape", offset: 10, length: 20 },
+    });
+  });
+  it("is null for a remote or plugin uri", () => {
+    expect(localTrackSource("https://x/a.mp3", asset)).toBeNull();
+    expect(localTrackSource("youtube://abc", asset)).toBeNull();
+  });
+});
+
 describe("parseUrlScheme", () => {
   it("parses file:// scheme", () => {
     const result = parseUrlScheme("file:///music/song.mp3");
     expect(result).toEqual({ scheme: "file", path: "/music/song.mp3" });
+  });
+
+  it("parses a mixtape:// entry into the archive path and its byte range", () => {
+    // The range ends at the first `@`; a path with `@`, `-`, `+` and
+    // non-ASCII in it must come back whole.
+    const path = "C:\\Users\\Alex\\Desktop\\Γκούλαγκ -Στην αυλή @ των+θεαμάτων.mixtape";
+    expect(parseUrlScheme(`mixtape://1234+5678@${path}`)).toEqual({
+      scheme: "mixtape",
+      path,
+      offset: 1234,
+      length: 5678,
+    });
+  });
+
+  it("does not take a malformed mixtape:// for an entry", () => {
+    expect(parseUrlScheme("mixtape://abc@/x.mixtape")).toEqual({
+      scheme: "plugin",
+      protocol: "mixtape",
+      id: "abc@/x.mixtape",
+    });
   });
 
   it("parses tidal:// as plugin scheme", () => {

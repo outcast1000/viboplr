@@ -2312,6 +2312,127 @@ mod tests {
     }
 
     #[test]
+    fn test_mixtape_tracks_play_in_place_through_slice() {
+        // A `.mixtape` track is played straight out of the archive via mpv's
+        // `slice://`. The path deliberately carries what could trip the URL:
+        // non-ASCII, spaces, `-` and `@` (the slice range ends at the first
+        // `@`, everything after it is the inner path).
+        let dir = tempfile::tempdir().unwrap();
+        let folder = dir.path().join("Γκούλαγκ @ θέαμα");
+        std::fs::create_dir_all(&folder).unwrap();
+        let wav_a = folder.join("a.wav");
+        let wav_b = folder.join("b.wav");
+        write_wav(&wav_a, 0.6);
+        write_wav(&wav_b, 0.4);
+        let source = |title: &str, path: &std::path::Path| crate::mixtape::MixtapeTrackSource {
+            title: title.into(),
+            artist: "Γκούλαγκ".into(),
+            album: None,
+            duration_secs: None,
+            audio_path: path.to_string_lossy().to_string(),
+            thumb_path: None,
+        };
+        let mixtape = folder.join("Γκούλαγκ -Στην αυλή των θεαμάτων.mixtape");
+        let manifest = crate::mixtape::build_manifest(
+            "Στην αυλή".into(),
+            crate::models::MixtapeType::Custom,
+            Default::default(),
+            None,
+            vec![],
+        );
+        crate::mixtape::build_mixtape(
+            &mixtape,
+            None,
+            &[source("Α", &wav_a), source("Β", &wav_b)],
+            manifest,
+            false,
+            &std::sync::atomic::AtomicBool::new(false),
+            |_, _, _, _| {},
+        )
+        .unwrap();
+        let opened = crate::mixtape::open_for_play(&mixtape, &dir.path().join("art")).unwrap();
+        let target = |i: usize| {
+            let uri = opened.tracks[i].path.as_deref().unwrap();
+            let (offset, length, path) = crate::mixtape::parse_entry_uri(uri).unwrap();
+            crate::commands::slice_target(path, offset, length)
+        };
+
+        let (sink, rx) = collect_events();
+        let Some(engine) = try_test_engine(sink) else { return };
+        engine.play(&target(0), None, "trk:a", None, 1.0, false, false).expect("play");
+        engine.preload(&target(1), None, "trk:b", false).expect("preload");
+
+        let mut duration_a = None;
+        let mut promoted = false;
+        let deadline = Instant::now() + Duration::from_secs(10);
+        loop {
+            let remaining = deadline
+                .checked_duration_since(Instant::now())
+                .expect("timed out waiting for engine-ended");
+            let (name, payload) = rx.recv_timeout(remaining).expect("timed out waiting for engine-ended");
+            assert_ne!(name, "engine-error", "a mixtape slice failed to play: {payload}");
+            match name.as_str() {
+                "engine-duration" if payload["trackKey"] == "trk:a" => {
+                    duration_a = payload["durationSecs"].as_f64();
+                }
+                "engine-track-changed" => {
+                    assert_eq!(payload["trackKey"], "trk:b");
+                    assert_eq!(payload["reason"], "gapless");
+                    promoted = true;
+                }
+                "engine-ended" => {
+                    assert_eq!(payload["trackKey"], "trk:b");
+                    break;
+                }
+                _ => {}
+            }
+        }
+        assert!(promoted, "the second slice must follow gaplessly");
+        let duration_a = duration_a.expect("a duration for the first slice");
+        assert!((duration_a - 0.6).abs() < 0.05, "first slice read as {duration_a}s");
+    }
+
+    /// Real-file check of in-place mixtape playback (decode + seek), against a
+    /// `.mixtape` of your own:
+    /// `VIBOPLR_MIXTAPE=<path> cargo test --lib probe_mixtape_slice -- --ignored --nocapture`
+    /// Plays the first track silently (`ao=null`), seeks to 30s and checks the
+    /// position lands there.
+    #[test]
+    #[ignore]
+    fn probe_mixtape_slice() {
+        let Ok(path) = std::env::var("VIBOPLR_MIXTAPE") else {
+            eprintln!("[engine-test] SKIPPED — set VIBOPLR_MIXTAPE");
+            return;
+        };
+        let dir = tempfile::tempdir().unwrap();
+        let opened = crate::mixtape::open_for_play(std::path::Path::new(&path), dir.path()).unwrap();
+        let uri = opened.tracks[0].path.as_deref().unwrap();
+        let (offset, length, inner) = crate::mixtape::parse_entry_uri(uri).expect("played in place");
+        let target = crate::commands::slice_target(inner, offset, length);
+
+        let (sink, rx) = collect_events();
+        let Some(engine) = try_test_engine(sink) else { return };
+        engine.play(&target, None, "trk:mix", None, 1.0, false, false).expect("play");
+        let duration = wait_for(&rx, "engine-duration", Duration::from_secs(10));
+        eprintln!("[probe] {} → duration {}", opened.manifest.tracks[0].title, duration["durationSecs"]);
+        engine.seek(30.0).expect("seek");
+        let deadline = Instant::now() + Duration::from_secs(10);
+        loop {
+            let (name, payload) = rx
+                .recv_timeout(deadline.checked_duration_since(Instant::now()).expect("no position after the seek"))
+                .expect("no position after the seek");
+            assert_ne!(name, "engine-error", "{payload}");
+            if name == "engine-position" {
+                let pos = payload["positionSecs"].as_f64().unwrap_or(0.0);
+                if (30.0..32.0).contains(&pos) {
+                    eprintln!("[probe] seeked to {pos}");
+                    break;
+                }
+            }
+        }
+    }
+
+    #[test]
     fn test_arm_during_a_running_fade_survives_that_fades_cleanup() {
         // A track shorter than the preload lead arms its successor moments
         // after its own crossfade started. The fade thread's completion used to

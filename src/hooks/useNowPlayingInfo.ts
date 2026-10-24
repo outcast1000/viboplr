@@ -220,6 +220,7 @@ export function formatSource(path: string | null | undefined): string | null {
   const parsed = parseUrlScheme(path);
   if (parsed.scheme === "file") return "Local";
   if (parsed.scheme === "subsonic") return "Subsonic";
+  if (parsed.scheme === "mixtape") return "Mixtape";
   if (parsed.scheme === "external") return "External";
   const proto = parsed.protocol;
   if (proto === "http" || proto === "https") return "Web";

@@ -36,6 +36,8 @@ describe("needsStreamResolve", () => {
     expect(needsStreamResolve(makeTrack())).toBe(false);
     expect(needsStreamResolve(makeTrack({ path: "https://example.com/a.mp3" }))).toBe(false);
     expect(needsStreamResolve(makeTrack({ path: "http://example.com/a.mp3" }))).toBe(false);
+    // A track played from a .mixtape is bytes on this disk too.
+    expect(needsStreamResolve(makeTrack({ path: "mixtape://10+20@/m/a.mixtape" }))).toBe(false);
   });
   it("is true for path-less and plugin-scheme tracks", () => {
     expect(needsStreamResolve(makeTrack({ path: null }))).toBe(true);

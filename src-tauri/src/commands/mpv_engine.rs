@@ -29,29 +29,45 @@ pub enum EngineSource {
         #[serde(default)]
         headers: Option<HashMap<String, String>>,
     },
+    /// A byte range of a local file, played in place: a track stored inside a
+    /// `.mixtape` (see `mixtape::ENTRY_SCHEME`).
+    Slice {
+        path: String,
+        offset: u64,
+        length: u64,
+    },
 }
 
 impl EngineSource {
-    fn as_mpv_target(&self) -> &str {
+    fn as_mpv_target(&self) -> std::borrow::Cow<'_, str> {
         match self {
-            EngineSource::File { path } => path,
-            EngineSource::Http { url, .. } => url,
+            EngineSource::File { path } => path.into(),
+            EngineSource::Http { url, .. } => url.into(),
+            EngineSource::Slice { path, offset, length } => slice_target(path, *offset, *length).into(),
         }
     }
 
     fn audio_url(&self) -> Option<&str> {
         match self {
             EngineSource::Http { audio_url, .. } => audio_url.as_deref(),
-            EngineSource::File { .. } => None,
+            EngineSource::File { .. } | EngineSource::Slice { .. } => None,
         }
     }
 
     fn headers(&self) -> Option<&HashMap<String, String>> {
         match self {
             EngineSource::Http { headers, .. } => headers.as_ref(),
-            EngineSource::File { .. } => None,
+            EngineSource::File { .. } | EngineSource::Slice { .. } => None,
         }
     }
+}
+
+/// mpv's `slice://<start>-<end>@<inner>` reads bytes `start..end` of `inner`
+/// (end exclusive) as if they were the whole file, seekable. `inner` is taken
+/// verbatim after the first `@`, so any path — `@`, `-` and non-ASCII
+/// included — passes through unescaped.
+pub(crate) fn slice_target(path: &str, offset: u64, length: u64) -> String {
+    format!("slice://{}-{}@{}", offset, offset + length, path)
 }
 
 #[tauri::command]
@@ -112,7 +128,7 @@ pub fn engine_play(
     video: bool,
 ) -> Result<(), String> {
     let engine = state.mpv_engine.ensure(&app)?;
-    engine.play_with_headers(source.as_mpv_target(), source.audio_url(), source.headers(), &track_key, seek_secs, volume, muted, video)
+    engine.play_with_headers(&source.as_mpv_target(), source.audio_url(), source.headers(), &track_key, seek_secs, volume, muted, video)
 }
 
 #[tauri::command]
@@ -215,7 +231,7 @@ pub fn engine_preload(
     crossfade: bool,
 ) -> Result<(), String> {
     match state.mpv_engine.get() {
-        Some(engine) => engine.preload(source.as_mpv_target(), source.headers(), &track_key, crossfade),
+        Some(engine) => engine.preload(&source.as_mpv_target(), source.headers(), &track_key, crossfade),
         None => Err("mpv engine is not running".into()),
     }
 }

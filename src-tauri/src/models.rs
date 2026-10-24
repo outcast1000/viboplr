@@ -613,7 +613,6 @@ pub enum MixtapeImportMode {
     PlaylistAndFiles,
     PlaylistOnly,
     FilesOnly,
-    JustPlay,
 }
 
 /// The shared "bundle" manifest: one schema for mixtape (`.mixtape` ZIP), the

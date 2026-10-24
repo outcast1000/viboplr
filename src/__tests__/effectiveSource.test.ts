@@ -13,6 +13,10 @@ describe("classifyEffectiveSource", () => {
     expect(classifyEffectiveSource("/music/a.flac", owner)).toEqual({ kind: "local" });
   });
 
+  it("classifies a mixtape:// entry as local — its bytes are on this disk", () => {
+    expect(classifyEffectiveSource("mixtape://10+20@/music/a.mixtape", owner)).toEqual({ kind: "local" });
+  });
+
   it("classifies subsonic:// as subsonic and keeps the uri", () => {
     expect(classifyEffectiveSource("subsonic://2/track-9", owner)).toEqual({
       kind: "subsonic",

@@ -325,7 +325,7 @@ macro_rules! invoke_handler {
             commands::import_mixtape,
             commands::take_pending_mixtape_open,
             commands::cancel_mixtape_operation,
-            commands::cleanup_temp_mixtapes,
+            commands::open_mixtape_for_play,
             commands::main_playlist_write,
             commands::main_playlist_read,
             commands::main_playlist_clear,
@@ -1065,6 +1065,12 @@ pub fn run() {
             {
                 let dir = app_data_dir.clone();
                 std::thread::spawn(move || roadie_cleanup::run_once(&dir));
+            }
+            // Earlier runs' mixtape art. It skips this run's own folder, so a
+            // mixtape this launch was opened to play can't race it.
+            {
+                let temp_dir = app_dir.join("temp");
+                std::thread::spawn(move || mixtape::sweep_play_leftovers(&temp_dir));
             }
 
             // Export the OS trust store (yt-dlp + mpv, see trust_store.rs) in

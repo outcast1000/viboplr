@@ -7,6 +7,7 @@ import { subscribe, combineUnlisten } from "../utils/tauriEvents";
 import { useState, useEffect, useCallback } from "react";
 import { formatDuration, formatFileSize } from "../utils";
 import { MIXTAPE_FORMAT_LADDER, MIXTAPE_FORMAT_DEFAULT } from "../utils/mixtapeFormatLadder";
+import { isLocalBytesUri } from "../queueEntry";
 import "./Mixtape.css";
 
 export interface ExportTrack {
@@ -47,7 +48,7 @@ interface MixtapeExportProgress {
  *  through a provider. */
 function trackStatus(t: ExportTrack): "local" | "downloadable" | "unavailable" {
   if (!t.path) return "unavailable";
-  if (t.path.startsWith("file://")) return "local";
+  if (isLocalBytesUri(t.path)) return "local";
   if (t.path.startsWith("subsonic://") || t.path.startsWith("http://") || t.path.startsWith("https://")) return "downloadable";
   return "unavailable";
 }

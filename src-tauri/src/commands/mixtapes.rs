@@ -218,6 +218,24 @@ pub fn export_mixtape_full(
                         None
                     }
                 }
+                Some(path) if path.starts_with(crate::mixtape::ENTRY_SCHEME) => {
+                    // A track played from a .mixtape: its bytes are on this
+                    // disk, inside that archive — copy them out and pack them.
+                    let _ = app.emit("mixtape-export-progress", crate::models::MixtapeExportProgress {
+                        current_track: (i + 1) as u32,
+                        total_tracks: total as u32,
+                        phase: "packing".to_string(),
+                        track_title: track.title.clone(),
+                    });
+                    match crate::mixtape::extract_entry(path, &temp_dir, &format!("{:03}", i)) {
+                        Ok(p) => Some(p),
+                        Err(e) => {
+                            log::error!("[mixtape-export] couldn't read \"{}\" from its mixtape: {}", track.title, e);
+                            skip_reason = Some("file missing");
+                            None
+                        }
+                    }
+                }
                 Some(path) if path.starts_with("subsonic://") => {
                     match resolve_subsonic_download_target(&db, path, Some(&format)) {
                         Ok(target) => {
@@ -338,6 +356,54 @@ pub fn take_pending_mixtape_open(
     pending: State<'_, crate::mixtape::PendingMixtapeOpen>,
 ) -> Option<String> {
     pending.0.lock().ok()?.take()
+}
+
+/// Open a `.mixtape` to play it now. The audio is played in place
+/// (`mixtape::ENTRY_SCHEME`), so this only reads the archive's index and copies
+/// the images out — fast enough to answer the caller directly, which is what
+/// keeps "play this mixtape" from depending on an event someone has to be
+/// listening for.
+#[tauri::command]
+pub async fn open_mixtape_for_play(
+    path: String,
+    state: State<'_, AppState>,
+) -> Result<serde_json::Value, String> {
+    let art_dir = crate::mixtape::play_art_dir(&state.app_dir.join("temp"));
+    run_blocking(move || {
+        let mixtape = crate::mixtape::open_for_play(std::path::Path::new(&path), &art_dir)?;
+        let tracks: Vec<serde_json::Value> = mixtape
+            .manifest
+            .tracks
+            .iter()
+            .zip(&mixtape.tracks)
+            .map(|(t, playable)| {
+                // The path is the archive's now, so the entry's own extension
+                // has to ride along — it's what tells a video from a song.
+                let format = t.format.clone().or_else(|| {
+                    t.file.as_deref()
+                        .and_then(|f| std::path::Path::new(f).extension())
+                        .map(|e| e.to_string_lossy().to_lowercase())
+                });
+                serde_json::json!({
+                    "format": format,
+                    "title": t.title,
+                    "artist_name": t.artist,
+                    "album_artist_name": t.album_artist,
+                    "album_title": t.album,
+                    "duration_secs": t.duration_secs,
+                    "path": playable.path,
+                    "image_url": playable.thumb_path,
+                })
+            })
+            .collect();
+        Ok::<_, String>(serde_json::json!({
+            "tracks": tracks,
+            "coverPath": mixtape.cover_path,
+            "title": mixtape.manifest.title,
+            "metadata": mixtape.manifest.metadata,
+        }))
+    })
+    .await
 }
 
 #[tauri::command]
@@ -570,66 +636,6 @@ pub fn import_mixtape(
                     "mode": "FilesOnly", "trackCount": track_count,
                 }));
             }
-
-            crate::models::MixtapeImportMode::JustPlay => {
-                // Extract to temp directory for immediate playback
-                let playback_dir = app_dir.join("temp").join("mixtape_playback");
-                let _ = std::fs::remove_dir_all(&playback_dir);
-                let _ = std::fs::create_dir_all(&playback_dir);
-
-                let extract_opts = crate::mixtape::ExtractOptions { audio: true, images: true };
-
-                let manifest = match crate::mixtape::extract_mixtape(
-                    mixtape_path, &playback_dir, &extract_opts, &cancel,
-                    |current, total, title| {
-                        let _ = app.emit("mixtape-import-progress", crate::models::MixtapeImportProgress {
-                            current_track: current, total_tracks: total,
-                            track_title: title.to_string(),
-                        });
-                    },
-                ) {
-                    Ok(m) => m,
-                    Err(e) => {
-                        let _ = app.emit("mixtape-import-error", serde_json::json!({ "message": e }));
-                        return;
-                    }
-                };
-
-                let track_paths: Vec<serde_json::Value> = manifest.tracks.iter().map(|t| {
-                    let thumb_path = t.thumb.as_ref()
-                        .map(|th| playback_dir.join(th))
-                        .filter(|p| p.exists())
-                        .map(|p| p.to_string_lossy().to_string());
-                    serde_json::json!({
-                        "title": t.title,
-                        "artist_name": t.artist,
-                        "album_title": t.album,
-                        "duration_secs": t.duration_secs,
-                        "path": t.file.as_ref().map(|f| format!("file://{}", playback_dir.join(f).to_string_lossy())).unwrap_or_default(),
-                        "image_url": thumb_path,
-                    })
-                }).collect();
-
-                let track_count = manifest.tracks.len() as u32;
-
-                let cover_path = playback_dir.join("cover.jpg");
-                let cover_value = if cover_path.exists() {
-                    serde_json::Value::String(cover_path.to_string_lossy().to_string())
-                } else {
-                    serde_json::Value::Null
-                };
-
-                let _ = app.emit("mixtape-just-play", serde_json::json!({
-                    "tracks": track_paths,
-                    "coverPath": cover_value,
-                    "title": manifest.title,
-                    "metadata": manifest.metadata,
-                }));
-
-                let _ = app.emit("mixtape-import-complete", serde_json::json!({
-                    "mode": "JustPlay", "trackCount": track_count,
-                }));
-            }
         }
     });
 
@@ -639,15 +645,5 @@ pub fn import_mixtape(
 #[tauri::command]
 pub fn cancel_mixtape_operation(state: State<'_, AppState>) -> Result<(), String> {
     state.mixtape_cancel.store(true, Ordering::Relaxed);
-    Ok(())
-}
-
-#[tauri::command]
-pub fn cleanup_temp_mixtapes(state: State<'_, AppState>) -> Result<(), String> {
-    let temp_mixtape_dir = state.app_dir.join("temp").join("mixtape_playback");
-    if temp_mixtape_dir.exists() {
-        std::fs::remove_dir_all(&temp_mixtape_dir)
-            .map_err(|e| format!("Cleanup failed: {}", e))?;
-    }
     Ok(())
 }

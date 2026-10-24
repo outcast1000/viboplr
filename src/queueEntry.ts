@@ -1,4 +1,4 @@
-import type { Track, QueueTrack, TrackSelection } from "./types";
+import type { Track, QueueTrack, TrackSelection, EngineSource } from "./types";
 import type { PluginTrack, TrackRowItem } from "./types/plugin";
 
 export interface QueueEntry {
@@ -22,6 +22,9 @@ export type ParsedUrl =
   | { scheme: "file"; path: string }
   | { scheme: "plugin"; protocol: string; id: string }
   | { scheme: "subsonic"; url: string; id: string }
+  // A track inside a `.mixtape`, read in place: bytes offset..offset+length of
+  // the archive at `path`. Minted by the backend (`mixtape::entry_uri`).
+  | { scheme: "mixtape"; path: string; offset: number; length: number }
   | { scheme: "external" };
 
 let queueKeyCounter = 1;
@@ -159,6 +162,37 @@ export function isLocalTrack(track: { path?: string | null }): boolean {
 }
 
 /**
+ * True when a URI's bytes are on this disk: a `file://` path, or a track inside
+ * a `.mixtape` played in place (`mixtape://`). The question for "does this need
+ * the network / a stream resolver / a download?" — not for "is this a file of
+ * its own?", which is `isLocalTrack` (delete, show-in-folder and tag writes
+ * need a real file, and a mixtape entry is a byte range of someone's archive).
+ */
+export function isLocalBytesUri(uri: string | null | undefined): boolean {
+  return !!uri && (uri.startsWith("file://") || uri.startsWith("mixtape://"));
+}
+
+/**
+ * What the engine (and the webview) open for a local-bytes URI, or null for any
+ * other. The single place a local scheme maps to an `EngineSource`, so every
+ * resolver handles a new one alike. `toAssetUrl` is Tauri's `convertFileSrc`.
+ */
+export function localTrackSource(
+  url: string,
+  toAssetUrl: (path: string) => string,
+): { src: string; engineSource: EngineSource } | null {
+  const parsed = parseUrlScheme(url);
+  if (parsed.scheme === "file") return { src: toAssetUrl(parsed.path), engineSource: { kind: "file", path: parsed.path } };
+  if (parsed.scheme === "mixtape") {
+    // `src` stays the entry's own URI: nothing in the webview can read a byte
+    // range of the archive, and only the engine needs to.
+    const { path, offset, length } = parsed;
+    return { src: url, engineSource: { kind: "slice", path, offset, length } };
+  }
+  return null;
+}
+
+/**
  * The real file on disk behind a track, or null when there isn't one.
  *
  * `isLocalTrack` only looks at the track's own scheme, which is the wrong
@@ -227,8 +261,8 @@ export function trackToQueueEntry(track: Track | QueueTrack): QueueEntry {
  */
 export function trackToQueueTrack(track: Track): QueueTrack {
   // The `?? null` / `?? 0` defaults are load-bearing: some callers hand in a
-  // sparse `Track` (the mixtape "Just Play" event serializes only
-  // title/artist/album/duration/path/image_url), and QueueTrack's contract is
+  // sparse `Track` (`open_mixtape_for_play` sends only title/artists/album/
+  // duration/format/path/image_url), and QueueTrack's contract is
   // `null`/`0`, never `undefined` — consumers do strict `=== 0` checks and
   // `nextTriState` arithmetic on `liked`.
   return {
@@ -328,8 +362,13 @@ export function queueEntryToQueueTrack(entry: QueueEntry): QueueTrack {
  * Supported schemes:
  * - file:// → { scheme: "file", path: string }
  * - subsonic:// → { scheme: "subsonic", url: string, id: string }
+ * - mixtape://<offset>+<length>@<path> → { scheme: "mixtape", path, offset, length }
  * - {protocol}:// → { scheme: "plugin", protocol, id: string }
  */
+// The range ends at the first `@`; everything after it is the archive's path,
+// whatever characters it holds.
+const MIXTAPE_ENTRY = /^mixtape:\/\/(\d+)\+(\d+)@(.+)$/s;
+
 export function parseUrlScheme(url: string): ParsedUrl {
   if (url.startsWith("file://")) {
     return { scheme: "file", path: url.substring(7) };
@@ -344,6 +383,11 @@ export function parseUrlScheme(url: string): ParsedUrl {
 
   if (url.startsWith("external://")) {
     return { scheme: "external" };
+  }
+
+  const mixtape = MIXTAPE_ENTRY.exec(url);
+  if (mixtape) {
+    return { scheme: "mixtape", offset: Number(mixtape[1]), length: Number(mixtape[2]), path: mixtape[3] };
   }
 
   if (url.includes("://")) {
@@ -375,6 +419,7 @@ export function nativeResolverName(
   const parsed = parseUrlScheme(url);
   if (parsed.scheme === "file") return "Local";
   if (parsed.scheme === "subsonic") return "Subsonic";
+  if (parsed.scheme === "mixtape") return "Mixtape";
   if (parsed.scheme === "plugin") {
     return (
       pluginDisplayName?.(parsed.protocol) ||
@@ -421,7 +466,8 @@ export function classifyEffectiveSource(
   uri: string,
   getSchemeOwner: (scheme: string) => string | null,
 ): EffectiveSource {
-  if (!uri.includes("://") || uri.startsWith("file://")) return { kind: "local" };
+  // A mixtape track is bytes in a file on this disk: nothing to download.
+  if (!uri.includes("://") || isLocalBytesUri(uri)) return { kind: "local" };
   if (uri.startsWith("http://") || uri.startsWith("https://")) return { kind: "direct-url", uri };
   if (uri.startsWith("subsonic://")) return { kind: "subsonic", uri };
   const scheme = uri.substring(0, uri.indexOf("://"));

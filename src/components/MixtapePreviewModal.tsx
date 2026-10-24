@@ -4,7 +4,7 @@ import { track as trackTelemetry } from "../telemetry";
 import { open } from "@tauri-apps/plugin-dialog";
 import { subscribe, combineUnlisten } from "../utils/tauriEvents";
 import { useState, useEffect, useCallback } from "react";
-import type { MixtapePreview, MixtapeImportProgress, Track } from "../types";
+import type { MixtapePreview, MixtapeImportProgress, OpenedMixtape, Track } from "../types";
 import { formatDuration, formatFileSize } from "../utils";
 import playlistDefault from "../assets/playlist-default.png";
 import "./Mixtape.css";
@@ -84,25 +84,32 @@ export function MixtapePreviewModal({
       setProgress(null);
     });
 
-    const stopJustPlay = subscribe<{ tracks: Track[]; coverPath?: string }>("mixtape-just-play", (event) => {
-      if (onQueueTracks && preview) {
-        const meta = preview.manifest.metadata && Object.keys(preview.manifest.metadata).length > 0
-          ? preview.manifest.metadata as Record<string, string>
-          : null;
-        onQueueTracks(event.payload.tracks, {
-          name: preview.manifest.title,
-          imagePath: event.payload.coverPath || preview.cover_temp_path,
-          metadata: meta,
-        });
-      }
-      onClose();
-    });
+    return combineUnlisten(stopProgress, stopComplete, stopError);
+  }, [onClose]);
 
-    return combineUnlisten(stopProgress, stopComplete, stopError, stopJustPlay);
-  }, [onClose, onQueueTracks, preview]);
+  // Play: the backend answers with the tracks (played in place from the
+  // archive), so there is no completion event to wait for.
+  const handlePlay = useCallback(async () => {
+    try {
+      setError(null);
+      setImporting(true);
+      trackTelemetry("playlist_loaded", { format: "mixtape", mode: "just_play" });
+      const opened = await invoke<OpenedMixtape>("open_mixtape_for_play", { path: mixtapePath });
+      onQueueTracks?.(opened.tracks, {
+        name: opened.title,
+        imagePath: opened.coverPath ?? preview?.cover_temp_path ?? null,
+        metadata: opened.metadata,
+      });
+      onClose();
+    } catch (err) {
+      console.error("Failed to play mixtape:", err);
+      setError(err instanceof Error ? err.message : String(err));
+      setImporting(false);
+    }
+  }, [mixtapePath, onClose, onQueueTracks, preview]);
 
   const handleImport = useCallback(
-    async (mode: "playlist_and_files" | "playlist_only" | "files_only" | "just_play") => {
+    async (mode: "playlist_and_files" | "playlist_only" | "files_only") => {
       try {
         setError(null);
 
@@ -266,7 +273,7 @@ export function MixtapePreviewModal({
               <div className="mixtape-preview-actions">
                 <button
                   className="mixtape-action-btn primary"
-                  onClick={() => handleImport("just_play")}
+                  onClick={handlePlay}
                 >
                   ▶ Play
                 </button>

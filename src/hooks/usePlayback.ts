@@ -3,7 +3,7 @@ import { invoke } from "@tauri-apps/api/core";
 import type { QueueTrack, ResolvedTrackSource, EngineSource } from "../types";
 import type { ScrobbleOutcome } from "../utils/scrobblers";
 import { isVideoTrack, shouldScrobble } from "../utils";
-import { parseUrlScheme, isLocalTrack } from "../queueEntry";
+import { parseUrlScheme } from "../queueEntry";
 import { store } from "../store";
 import { driveProgressMachine } from "../playback/progressMachine";
 import {
@@ -1228,9 +1228,10 @@ export function usePlayback(
     setFailedTrack(track);
     setPlaying(false);
     if (!track) return;
-    if (isLocalTrack(track)) {
-      const parsed = parseUrlScheme(track.path!);
-      if (parsed.scheme !== "file") return;
+    // A mixtape track is a local file too — the archive — so it gets the same
+    // "is it still there?" check rather than the network probe.
+    const parsed = track.path ? parseUrlScheme(track.path) : null;
+    if (parsed && (parsed.scheme === "file" || parsed.scheme === "mixtape")) {
       invoke<boolean>("file_exists", { path: parsed.path })
         .then((exists) => {
           const refined = describeLocalPlaybackFailure(base, exists);

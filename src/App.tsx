@@ -13,13 +13,13 @@ import "./base.css";
 import "./design-system.css";
 import "./App.css";
 
-import type { Track, QueueTrack, View, ViewMode, ColumnConfig, SortField, SortDir, Collection, ResolvedTrackSource, Album, Artist, Tag, TrackSelection } from "./types";
+import type { Track, QueueTrack, View, ViewMode, ColumnConfig, SortField, SortDir, Collection, ResolvedTrackSource, Album, Artist, Tag, TrackSelection, OpenedMixtape } from "./types";
 import { isVideoTrack, parseSubsonicUrl, trashLabel } from "./utils";
 import { parseLrc, syncedLyricsFitMedia, lyricOffsetKey, clampLyricOffset, coerceLyricOffsets } from "./utils/lyrics";
 
 import { store, RETIRED_STORE_KEYS } from "./store";
 import { readPersistedSettings } from "./startup/readPersistedSettings";
-import { parseUrlScheme, trackToQueueTrack, nextQueueKey, isLocalTrack, effectiveLocalPath, pluginTrackToQueueTrack, trackRowToQueueTrack, trackSelection, queueTrackSelection, isPlayingSelection } from "./queueEntry";
+import { parseUrlScheme, localTrackSource, trackToQueueTrack, nextQueueKey, isLocalTrack, effectiveLocalPath, pluginTrackToQueueTrack, trackRowToQueueTrack, trackSelection, queueTrackSelection, isPlayingSelection } from "./queueEntry";
 import { partitionTrackIds, buildDeleteConfirmPayload } from "./utils/deleteTracks";
 import { fetchLikeStates, applyLikeState, applyLikeStates, trackLikeId } from "./utils/likeReconcile";
 import { resolveLibraryIds } from "./utils/resolveLibraryIds";
@@ -527,15 +527,16 @@ function App() {
   const resolveTrackSrcRef = useRef<(track: QueueTrack, opts?: { preload?: boolean }) => Promise<ResolvedTrackSource>>(async (track) => {
     const url = track.path;
     if (!url) throw new Error("Track has no URL");
+    const local = localTrackSource(url, convertFileSrc);
+    if (local) return local;
     const parsed = parseUrlScheme(url);
-    if (parsed.scheme === "file") return { src: convertFileSrc(parsed.path), engineSource: { kind: "file", path: parsed.path } };
     if (parsed.scheme === "plugin") {
       const { url: resolved } = await resolveStreamByUriRef.current(parsed.protocol, parsed.id, null);
       if (resolved.startsWith("file://")) return { src: convertFileSrc(resolved.substring(7)), engineSource: { kind: "file", path: resolved.substring(7) } };
       if (!resolved.startsWith("http")) throw new Error(`Unplayable stream URL from the ${parsed.protocol} plugin`);
       return { src: resolved, engineSource: { kind: "http", url: resolved } };
     }
-    if (parsed.scheme === "external") throw new Error("Cannot play external track directly — requires stream resolver");
+    if (parsed.scheme !== "subsonic") throw new Error("Cannot play external track directly — requires stream resolver");
     const streamUrl = await invoke<string>("resolve_subsonic_location", { location: parsed.url });
     return { src: streamUrl, engineSource: { kind: "http", url: streamUrl } };
   });
@@ -3435,6 +3436,45 @@ function App() {
     return stopDeepLink;
   }, [plugins.forwardDeepLink, openQuizRef, runAppLinkRef, runProbeCommandRef]);
 
+  const handleMixtapeQueueTracks = useCallback((tracks: Track[], context: { name: string; imagePath?: string | null; metadata?: Record<string, string> | null }) => {
+    // Via the canonical conversion, not a hand-rolled literal: this one had
+    // drifted, dropping `album_artist_name` (so a compilation's art/navigation
+    // resolved off the performer) and, once it existed, `libraryId`. The key
+    // guard it used to carry is gone too — `trackToQueueTrack` now mints its
+    // own key, so a mixtape row arriving without one is no longer a case.
+    const queueTracks: QueueTrack[] = tracks.map(trackToQueueTrack);
+    queueHook.playTracks(queueTracks, 0, contextFromMixtapeMetadata(context.name, context.imagePath ?? null, context.metadata ?? null));
+  }, [queueHook.playTracks]);
+  const handleMixtapeQueueTracksRef = useLatestRef(handleMixtapeQueueTracks);
+
+  // Play a .mixtape now. The backend answers with the tracks themselves — the
+  // audio is played in place, nothing is unpacked — so the play doesn't hang on
+  // an event someone has to be listening for at the right moment (it used to:
+  // a launch-time mixtape's "just play" event could land while this
+  // component's listener was being re-registered, and nothing played).
+  const mixtapePreviewPathRef = useLatestRef(mixtapePreviewPath);
+  // A mixtape dropped before the saved queue is applied waits here, or the
+  // restore would replace the queue it started.
+  const pendingDroppedMixtapeRef = useRef<string | null>(null);
+  const playMixtapeFile = useCallback((path: string) => {
+    // The preview modal owns the choice while it's open; replacing the queue
+    // behind it would play something the user hasn't picked yet.
+    if (mixtapePreviewPathRef.current) return;
+    trackTelemetry("playlist_loaded", { format: "mixtape" });
+    invoke<OpenedMixtape>("open_mixtape_for_play", { path })
+      .then((mixtape) => {
+        handleMixtapeQueueTracksRef.current(mixtape.tracks, {
+          name: mixtape.title || "Mixtape",
+          imagePath: mixtape.coverPath,
+          metadata: mixtape.metadata,
+        });
+      })
+      .catch((err) => {
+        console.error("Failed to play mixtape:", err);
+        notify(`Couldn't play the mixtape: ${err}`, { kind: "error" });
+      });
+  }, [handleMixtapeQueueTracksRef, mixtapePreviewPathRef, notify]);
+
   // A .mixtape the OS asked us to open (Explorer double-click / Finder / a
   // second launch). The backend stash is the single consumption point
   // (pull-once), the `mixtape-file-opened` event only a nudge — a cold launch
@@ -3443,40 +3483,18 @@ function App() {
   const consumePendingMixtapeOpen = useCallback(() => {
     invoke<string | null>("take_pending_mixtape_open")
       .then((path) => {
-        if (!path) return;
-        trackTelemetry("playlist_loaded", { format: "mixtape" });
-        return invoke("import_mixtape", { path, mode: "just_play", destDir: null });
+        if (path) playMixtapeFile(path);
       })
-      .catch(err => console.error("Failed to play mixtape:", err));
-  }, []);
+      .catch(err => console.error("Failed to take the pending mixtape:", err));
+  }, [playMixtapeFile]);
 
   // Listen for mixtape file opened events (from file association / CLI) — play immediately
   useEffect(() => {
-    const stopMixtapeOpen = subscribe<string>("mixtape-file-opened", () => {
+    return subscribe<string>("mixtape-file-opened", () => {
       if (!restoreAppliedRef.current) return; // stash consumed after restore applies
       consumePendingMixtapeOpen();
     });
-
-    const stopJustPlay = subscribe<{ tracks: Track[]; coverPath?: string | null; title?: string; metadata?: Record<string, string> | null }>("mixtape-just-play", (event) => {
-      if (mixtapePreviewPath) return;
-      const { tracks, coverPath, title, metadata } = event.payload;
-      const queueTracks: QueueTrack[] = tracks.map(t => ({
-        key: nextQueueKey(),
-        path: t.path ?? null,
-        title: t.title,
-        artist_name: t.artist_name ?? null,
-        album_title: t.album_title ?? null,
-        duration_secs: t.duration_secs ?? null,
-        format: t.format ?? null,
-        image_url: t.image_url,
-        liked: 0,
-      }));
-      const name = title || "Mixtape";
-      queueHook.playTracks(queueTracks, 0, contextFromMixtapeMetadata(name, coverPath ?? null, metadata ?? null));
-    });
-
-    return combineUnlisten(stopMixtapeOpen, stopJustPlay);
-  }, [mixtapePreviewPath, queueHook.playTracks, consumePendingMixtapeOpen]);
+  }, [consumePendingMixtapeOpen]);
 
   // Handle drag-and-drop of .mixtape files onto the window — play immediately
   useEffect(() => {
@@ -3484,28 +3502,15 @@ function App() {
       if (event.payload.type === "drop") {
         const paths: string[] = event.payload.paths;
         const mixtapePath = paths.find(p => p.endsWith(".mixtape"));
-        if (mixtapePath) {
-          trackTelemetry("playlist_loaded", { format: "mixtape" });
-          invoke("import_mixtape", { path: mixtapePath, mode: "just_play", destDir: null })
-            .catch(err => console.error("Failed to play mixtape:", err));
-        }
+        if (!mixtapePath) return;
+        if (restoreAppliedRef.current) playMixtapeFile(mixtapePath);
+        else pendingDroppedMixtapeRef.current = mixtapePath;
       }
     });
     return () => {
       unlisten.then(f => f());
     };
-  }, []);
-
-  // Clean up temporary mixtape files on app startup (deferred so it doesn't
-  // contend with the initial paint or other startup IPCs).
-  useEffect(() => {
-    const t = setTimeout(() => {
-      // Fire-and-forget: startup housekeeping of temp files — a failed sweep
-      // just leaves them for the next launch, with no user-visible effect.
-      invoke("cleanup_temp_mixtapes").catch(() => {}); // eslint-disable-line no-restricted-syntax
-    }, 3000);
-    return () => clearTimeout(t);
-  }, []);
+  }, [playMixtapeFile]);
 
   // Restore persisted state on mount
   useEffect(() => {
@@ -3863,13 +3868,17 @@ function App() {
     // default. Consume any switch request stashed during startup.
     restoreAppliedRef.current = true;
     consumePendingProfileSwitch();
-    // Same reasoning for a mixtape the app was launched to open.
+    // Same reasoning for a mixtape the app was launched to open, or one
+    // dropped on the window before now.
     consumePendingMixtapeOpen();
+    const dropped = pendingDroppedMixtapeRef.current;
+    pendingDroppedMixtapeRef.current = null;
+    if (dropped) playMixtapeFile(dropped);
     // ...and for a play/open link that launched the app.
     for (const link of pendingAppLinksRef.current.splice(0)) {
       runAppLinkRef.current(link).catch((e) => console.error("Failed to follow a viboplr link:", e));
     }
-  }, [appRestoring, consumePendingProfileSwitch, consumePendingMixtapeOpen, runAppLinkRef]);
+  }, [appRestoring, consumePendingProfileSwitch, consumePendingMixtapeOpen, playMixtapeFile, runAppLinkRef]);
 
   // One-shot Collections-view hint: after the ALBUMARTIST update, local
   // libraries scanned before it keep per-track-artist album forks until a Full
@@ -5545,17 +5554,6 @@ function App() {
     setMixtapeExportDefaultMetadata(metadata ?? null);
     setMixtapeExportDefaultType("custom");
   }, []);
-
-  // Queue handler for mixtape "Just Play" mode — replaces the queue with mixtape tracks
-  const handleMixtapeQueueTracks = useCallback((tracks: Track[], context: { name: string; imagePath?: string | null; metadata?: Record<string, string> | null }) => {
-    // Via the canonical conversion, not a hand-rolled literal: this one had
-    // drifted, dropping `album_artist_name` (so a compilation's art/navigation
-    // resolved off the performer) and, once it existed, `libraryId`. The key
-    // guard it used to carry is gone too — `trackToQueueTrack` now mints its
-    // own key, so a mixtape row arriving without one is no longer a case.
-    const queueTracks: QueueTrack[] = tracks.map(trackToQueueTrack);
-    queueHook.playTracks(queueTracks, 0, contextFromMixtapeMetadata(context.name, context.imagePath ?? null, context.metadata ?? null));
-  }, [queueHook.playTracks]);
 
   // Bridge for keyboard shortcuts
   useAssignRef(handleToggleLikeRef, likeActions.handleToggleLike);

@@ -112,11 +112,13 @@ export interface QueueTrack {
   file_size?: number | null;
 }
 
-// What the engine opens for a resolved track: a raw filesystem path or an
-// http(s) URL (not a webview asset URL). `null`/absent means the resolver found
+// What the engine opens for a resolved track: a raw filesystem path, a byte
+// range of one (a track inside a `.mixtape`, played in place), or an http(s)
+// URL (not a webview asset URL). `null`/absent means the resolver found
 // nothing the engine can open, and the play fails with that message.
 export type EngineSource =
   | { kind: "file"; path: string }
+  | { kind: "slice"; path: string; offset: number; length: number }
   // `audioUrl` (http video only): a separate audio stream the native mpv engine
   // attaches to the video via `audio-file`, so hi-res sources that split
   // video-only + audio-only (e.g. YouTube ≥720p) play merged. Absent for
@@ -306,6 +308,16 @@ export interface MixtapePreview {
   cover_temp_path: string | null;
   file_size: number;
   total_duration_secs: number;
+}
+
+/** `open_mixtape_for_play`'s answer: a `.mixtape` ready to play in place (its
+ *  tracks' paths are `mixtape://` entries, see `parseUrlScheme`). The tracks
+ *  are sparse — no ids, only what the manifest carries. */
+export interface OpenedMixtape {
+  title: string;
+  coverPath: string | null;
+  metadata: Record<string, string> | null;
+  tracks: Track[];
 }
 
 export interface MixtapeImportProgress {

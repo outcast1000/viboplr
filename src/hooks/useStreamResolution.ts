@@ -2,7 +2,7 @@ import { useState, useRef, useEffect, useCallback } from "react";
 import { invoke, convertFileSrc } from "@tauri-apps/api/core";
 import { consumeResolveStale, streamLadderStep, failedEntryCount, noteResolvedEntry } from "../playback/playbackRetry";
 import type { QueueTrack, ResolvedTrackSource, ResolvedSource, EngineSource } from "../types";
-import { parseUrlScheme, classifyEffectiveSource, nativeResolverName, type EffectiveSource } from "../queueEntry";
+import { parseUrlScheme, localTrackSource, classifyEffectiveSource, nativeResolverName, type EffectiveSource } from "../queueEntry";
 import { isVideoTrack, videoContainerFromPath } from "../utils";
 import { selectStream, selectedNeedsClassifying } from "../playback/selectStream";
 import type { StreamCandidate } from "../types/plugin";
@@ -338,10 +338,9 @@ export function useStreamResolution({
       if (url.startsWith("http://") || url.startsWith("https://")) {
         return Promise.resolve({ src: url, engineSource: httpEngineSource(url, headers) });
       }
+      const local = localTrackSource(url, convertFileSrc);
+      if (local) return Promise.resolve(local);
       const parsed = parseUrlScheme(url);
-      if (parsed.scheme === "file") {
-        return Promise.resolve({ src: convertFileSrc(parsed.path), engineSource: { kind: "file", path: parsed.path } });
-      }
       if (parsed.scheme === "plugin") {
         // When the engine renders this as video it can attach a separate audio
         // stream, so hint the resolver to offer split candidates and let

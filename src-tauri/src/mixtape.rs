@@ -290,19 +290,7 @@ pub fn read_mixtape(path: &Path, temp_dir: &Path) -> Result<MixtapePreview, Stri
         .len();
     let mut archive =
         ZipArchive::new(file).map_err(|e| format!("Failed to read ZIP archive: {}", e))?;
-
-    // Read and parse manifest
-    let manifest = {
-        let mut manifest_file = archive
-            .by_name("manifest.json")
-            .map_err(|_| "manifest.json not found in mixtape".to_string())?;
-        let mut manifest_str = String::new();
-        manifest_file
-            .read_to_string(&mut manifest_str)
-            .map_err(|e| format!("Failed to read manifest: {}", e))?;
-        serde_json::from_str::<BundleManifest>(&manifest_str)
-            .map_err(|e| format!("Failed to parse manifest: {}", e))?
-    };
+    let manifest = read_manifest(&mut archive)?;
 
     if manifest.version != 1 {
         return Err(format!("Unsupported mixtape version: {}", manifest.version));
@@ -360,19 +348,7 @@ where
     let file = File::open(path).map_err(|e| format!("Failed to open mixtape: {}", e))?;
     let mut archive =
         ZipArchive::new(file).map_err(|e| format!("Failed to read ZIP archive: {}", e))?;
-
-    // Read manifest
-    let manifest = {
-        let mut manifest_file = archive
-            .by_name("manifest.json")
-            .map_err(|_| "manifest.json not found".to_string())?;
-        let mut manifest_str = String::new();
-        manifest_file
-            .read_to_string(&mut manifest_str)
-            .map_err(|e| format!("Failed to read manifest: {}", e))?;
-        serde_json::from_str::<BundleManifest>(&manifest_str)
-            .map_err(|e| format!("Failed to parse manifest: {}", e))?
-    };
+    let manifest = read_manifest(&mut archive)?;
 
     std::fs::create_dir_all(dest_dir)
         .map_err(|e| format!("Failed to create destination directory: {}", e))?;
@@ -435,6 +411,213 @@ where
     }
 
     Ok(manifest)
+}
+
+/// The scheme of a track played straight out of a `.mixtape`:
+/// `mixtape://<offset>+<length>@<absolute path of the .mixtape>`. Mixtapes
+/// store their audio uncompressed, so each track is one contiguous byte range
+/// of the archive and the engine reads it in place (mpv's `slice://`) — no
+/// copy on disk. The frontend parses it in `queueEntry.ts` `parseUrlScheme`.
+pub const ENTRY_SCHEME: &str = "mixtape://";
+
+pub fn entry_uri(mixtape: &Path, offset: u64, length: u64) -> String {
+    format!("{ENTRY_SCHEME}{offset}+{length}@{}", mixtape.to_string_lossy())
+}
+
+/// `entry_uri`'s inverse: `(offset, length, path of the .mixtape)`. The range
+/// ends at the first `@`; everything after it is the path, whatever it holds.
+pub fn parse_entry_uri(uri: &str) -> Option<(u64, u64, &str)> {
+    let (range, path) = uri.strip_prefix(ENTRY_SCHEME)?.split_once('@')?;
+    let (offset, length) = range.split_once('+')?;
+    Some((offset.parse().ok()?, length.parse().ok()?, path))
+}
+
+/// Copy a `mixtape://` track's bytes out to `dir/<stem>.<ext>`, the extension
+/// taken from the archive entry the range belongs to — so exporting a queue
+/// played from a mixtape packs its audio like any local file.
+pub fn extract_entry(uri: &str, dir: &Path, stem: &str) -> Result<String, String> {
+    use std::io::{Seek, SeekFrom};
+    let (offset, length, path) =
+        parse_entry_uri(uri).ok_or_else(|| format!("Not a mixtape track: {}", uri))?;
+    let file = File::open(path).map_err(|e| format!("Failed to open mixtape: {}", e))?;
+    let mut archive =
+        ZipArchive::new(file).map_err(|e| format!("Failed to read ZIP archive: {}", e))?;
+    let mut ext = None;
+    for i in 0..archive.len() {
+        let entry = archive.by_index_raw(i).map_err(|e| e.to_string())?;
+        if entry.data_start() == Some(offset) {
+            ext = Path::new(entry.name())
+                .extension()
+                .and_then(|e| e.to_str())
+                .map(str::to_string);
+            break;
+        }
+    }
+    let ext = ext.ok_or("The track is no longer in the mixtape")?;
+    let dest = dir.join(format!("{}.{}", stem, ext));
+    let mut src = File::open(path).map_err(|e| format!("Failed to open mixtape: {}", e))?;
+    src.seek(SeekFrom::Start(offset)).map_err(|e| e.to_string())?;
+    let mut out = File::create(&dest).map_err(|e| e.to_string())?;
+    let copied = std::io::copy(&mut src.take(length), &mut out).map_err(|e| e.to_string())?;
+    if copied != length {
+        return Err("The mixtape is shorter than its track".to_string());
+    }
+    Ok(dest.to_string_lossy().to_string())
+}
+
+/// A `.mixtape` opened for playback in place.
+pub struct PlayableMixtape {
+    pub manifest: BundleManifest,
+    /// One per manifest track, same order.
+    pub tracks: Vec<PlayableTrack>,
+    /// The cover, copied out to the art folder.
+    pub cover_path: Option<String>,
+}
+
+pub struct PlayableTrack {
+    /// `mixtape://…` for a stored entry; `file://…` for one written
+    /// compressed (another tool's archive), which had to be unpacked.
+    pub path: Option<String>,
+    pub thumb_path: Option<String>,
+}
+
+/// Open a `.mixtape` to play it without unpacking the audio. Only the images
+/// (and an audio entry stored compressed, which can't be read in place) are
+/// written, into `art_dir` — the queue copies the images into its own folder,
+/// so they need to outlive nothing but this play.
+pub fn open_for_play(path: &Path, art_dir: &Path) -> Result<PlayableMixtape, String> {
+    let file = File::open(path).map_err(|e| format!("Failed to open mixtape: {}", e))?;
+    let mut archive =
+        ZipArchive::new(file).map_err(|e| format!("Failed to read ZIP archive: {}", e))?;
+    let manifest = read_manifest(&mut archive)?;
+    if manifest.version != 1 {
+        return Err(format!("Unsupported mixtape version: {}", manifest.version));
+    }
+    std::fs::create_dir_all(art_dir)
+        .map_err(|e| format!("Failed to create mixtape art folder: {}", e))?;
+
+    let cover_path = manifest
+        .cover
+        .as_ref()
+        .and_then(|name| copy_entry_out(&mut archive, name, art_dir));
+    let mut tracks = Vec::with_capacity(manifest.tracks.len());
+    for track in &manifest.tracks {
+        // One broken entry (missing from the zip, or deflated under an unsafe
+        // name) costs that track its audio, not the whole mixtape — it is
+        // left metadata-only, for the stream resolvers to find.
+        let path = track.file.as_ref().and_then(|name| {
+            playable_entry(&mut archive, path, name, art_dir)
+                .map_err(|e| log::warn!("Mixtape: {}", e))
+                .ok()
+        });
+        let thumb_path = track
+            .thumb
+            .as_ref()
+            .and_then(|name| copy_entry_out(&mut archive, name, art_dir));
+        tracks.push(PlayableTrack { path, thumb_path });
+    }
+    Ok(PlayableMixtape { manifest, tracks, cover_path })
+}
+
+fn read_manifest(archive: &mut ZipArchive<File>) -> Result<BundleManifest, String> {
+    let mut manifest_file = archive
+        .by_name("manifest.json")
+        .map_err(|_| "manifest.json not found in mixtape".to_string())?;
+    let mut manifest_str = String::new();
+    manifest_file
+        .read_to_string(&mut manifest_str)
+        .map_err(|e| format!("Failed to read manifest: {}", e))?;
+    serde_json::from_str::<BundleManifest>(&manifest_str)
+        .map_err(|e| format!("Failed to parse manifest: {}", e))
+}
+
+fn playable_entry(
+    archive: &mut ZipArchive<File>,
+    mixtape: &Path,
+    name: &str,
+    art_dir: &Path,
+) -> Result<String, String> {
+    {
+        let entry = archive
+            .by_name(name)
+            .map_err(|_| format!("Track file not found: {}", name))?;
+        if entry.compression() == zip::CompressionMethod::Stored && !entry.encrypted() {
+            if let Some(start) = entry.data_start() {
+                return Ok(entry_uri(mixtape, start, entry.compressed_size()));
+            }
+        }
+    }
+    let dest = copy_entry_out(archive, name, art_dir)
+        .ok_or_else(|| format!("Failed to unpack track: {}", name))?;
+    Ok(format!("file://{}", dest))
+}
+
+/// Copy one entry into `dir` under its own in-archive path, which must stay
+/// inside `dir` (a third-party archive may name `../…`). Best-effort: the
+/// failure is logged and the caller goes without.
+fn copy_entry_out(archive: &mut ZipArchive<File>, name: &str, dir: &Path) -> Option<String> {
+    let result = (|| -> Result<String, String> {
+        let mut entry = archive.by_name(name).map_err(|e| e.to_string())?;
+        let rel = entry.enclosed_name().ok_or("unsafe path in archive")?;
+        let dest = dir.join(rel);
+        if let Some(parent) = dest.parent() {
+            std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
+        }
+        let mut out = File::create(&dest).map_err(|e| e.to_string())?;
+        std::io::copy(&mut entry, &mut out).map_err(|e| e.to_string())?;
+        Ok(dest.to_string_lossy().to_string())
+    })();
+    result
+        .map_err(|e| log::warn!("Mixtape: couldn't copy out {}: {}", name, e))
+        .ok()
+}
+
+/// Where this run puts the images of the mixtapes it plays:
+/// `temp/mixtape_play/<run>/<n>/`, a fresh folder per play. Per run so the
+/// startup sweep can clear earlier runs' folders without touching one in use;
+/// per play so opening a second mixtape never overwrites the first one's
+/// files while its queue still points at them.
+pub fn play_art_dir(temp_dir: &Path) -> std::path::PathBuf {
+    use std::sync::atomic::AtomicU32;
+    static NEXT: AtomicU32 = AtomicU32::new(0);
+    temp_dir
+        .join(PLAY_ART_DIR)
+        .join(run_id())
+        .join(NEXT.fetch_add(1, Ordering::Relaxed).to_string())
+}
+
+const PLAY_ART_DIR: &str = "mixtape_play";
+
+fn run_id() -> &'static str {
+    static RUN: std::sync::OnceLock<String> = std::sync::OnceLock::new();
+    RUN.get_or_init(|| {
+        let nanos = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_nanos())
+            .unwrap_or(0);
+        format!("{}-{}", std::process::id(), nanos)
+    })
+}
+
+/// Startup sweep: earlier runs' mixtape art folders, plus `mixtape_playback`,
+/// where mixtapes used to be unpacked whole before they were played in place.
+/// Leaves this run's folder alone, so it can run concurrently with a play.
+pub fn sweep_play_leftovers(temp_dir: &Path) {
+    let legacy = temp_dir.join("mixtape_playback");
+    if legacy.exists() {
+        if let Err(e) = std::fs::remove_dir_all(&legacy) {
+            log::warn!("Mixtape: couldn't remove {}: {}", legacy.display(), e);
+        }
+    }
+    let Ok(entries) = std::fs::read_dir(temp_dir.join(PLAY_ART_DIR)) else { return };
+    for entry in entries.flatten() {
+        if entry.file_name().to_string_lossy() == run_id() {
+            continue;
+        }
+        if let Err(e) = std::fs::remove_dir_all(entry.path()) {
+            log::warn!("Mixtape: couldn't remove {}: {}", entry.path().display(), e);
+        }
+    }
 }
 
 /// A `.mixtape` the OS asked us to open (Explorer double-click, "Open with",
@@ -735,5 +918,155 @@ mod tests {
         let result = build_mixtape(&dest, Some(cover_path.as_path()), &sources, manifest, false, &cancel, |_, _, _, _| {});
         assert!(result.is_err());
         assert!(!dest.exists());
+    }
+
+    #[test]
+    fn test_open_for_play_points_at_the_audio_bytes_inside_the_archive() {
+        let tmp = tempfile::tempdir().unwrap();
+        let mixtape_path = create_test_mixtape(tmp.path());
+        let art = tmp.path().join("art");
+
+        let opened = open_for_play(&mixtape_path, &art).unwrap();
+
+        assert_eq!(opened.tracks.len(), 1);
+        let uri = opened.tracks[0].path.as_deref().unwrap();
+        let (offset, length, path) = parse_entry_uri(uri).expect("mixtape:// uri");
+        assert_eq!(path, mixtape_path.to_string_lossy());
+        let bytes = std::fs::read(&mixtape_path).unwrap();
+        assert_eq!(
+            &bytes[offset as usize..(offset + length) as usize],
+            b"fake mp3 data for testing",
+            "the range must be exactly the stored track"
+        );
+        // No audio is written anywhere; only the images are copied out.
+        let thumb = opened.tracks[0].thumb_path.as_deref().unwrap();
+        assert!(Path::new(thumb).starts_with(&art) && Path::new(thumb).exists());
+        let cover = opened.cover_path.as_deref().unwrap();
+        assert!(Path::new(cover).starts_with(&art) && Path::new(cover).exists());
+        assert!(!art.join("tracks").exists());
+    }
+
+    #[test]
+    fn test_open_for_play_unpacks_a_track_stored_compressed() {
+        // Another tool may deflate its entries; such a track can't be read in
+        // place, so it is unpacked into the art folder instead. An entry whose
+        // name climbs out of the folder is skipped, not written.
+        let tmp = tempfile::tempdir().unwrap();
+        let mixtape_path = tmp.path().join("deflated.mixtape");
+        let manifest = build_manifest(
+            "Deflated".into(),
+            MixtapeType::Custom,
+            HashMap::new(),
+            None,
+            vec![BundleTrack {
+                title: "Song".into(),
+                artist: "Artist".into(),
+                album_artist: None,
+                album: None,
+                duration_secs: None,
+                file: Some("tracks/01-song.mp3".into()),
+                thumb: Some("../escape.jpg".into()),
+                format: None,
+                image_url: None,
+                file_size: None,
+            }],
+        );
+        {
+            let mut zip = ZipWriter::new(File::create(&mixtape_path).unwrap());
+            let deflated = SimpleFileOptions::default().compression_method(zip::CompressionMethod::Deflated);
+            zip.start_file("manifest.json", deflated).unwrap();
+            zip.write_all(serde_json::to_string(&manifest).unwrap().as_bytes()).unwrap();
+            zip.start_file("tracks/01-song.mp3", deflated).unwrap();
+            zip.write_all(&[7u8; 4096]).unwrap();
+            zip.start_file("../escape.jpg", deflated).unwrap();
+            zip.write_all(b"jpg").unwrap();
+            zip.finish().unwrap();
+        }
+        let art = tmp.path().join("play").join("art");
+
+        let opened = open_for_play(&mixtape_path, &art).unwrap();
+
+        let path = opened.tracks[0].path.as_deref().unwrap();
+        let file = path.strip_prefix("file://").expect("an unpacked file");
+        assert!(Path::new(file).starts_with(&art));
+        assert_eq!(std::fs::read(file).unwrap(), vec![7u8; 4096]);
+        assert_eq!(opened.tracks[0].thumb_path, None);
+        assert!(!tmp.path().join("play").join("escape.jpg").exists());
+    }
+
+    #[test]
+    fn test_open_for_play_keeps_the_rest_when_one_track_is_missing() {
+        // A manifest naming a file the zip doesn't hold leaves that track
+        // metadata-only; the other tracks still play in place.
+        let tmp = tempfile::tempdir().unwrap();
+        let mixtape_path = tmp.path().join("gap.mixtape");
+        let track = |title: &str, file: &str| BundleTrack {
+            title: title.into(),
+            artist: "Artist".into(),
+            album_artist: None,
+            album: None,
+            duration_secs: None,
+            file: Some(file.into()),
+            thumb: None,
+            format: None,
+            image_url: None,
+            file_size: None,
+        };
+        let manifest = build_manifest(
+            "Gap".into(),
+            MixtapeType::Custom,
+            HashMap::new(),
+            None,
+            vec![track("Gone", "tracks/01-gone.mp3"), track("Here", "tracks/02-here.mp3")],
+        );
+        {
+            let mut zip = ZipWriter::new(File::create(&mixtape_path).unwrap());
+            let stored = SimpleFileOptions::default().compression_method(zip::CompressionMethod::Stored);
+            zip.start_file("manifest.json", stored).unwrap();
+            zip.write_all(serde_json::to_string(&manifest).unwrap().as_bytes()).unwrap();
+            zip.start_file("tracks/02-here.mp3", stored).unwrap();
+            zip.write_all(b"here").unwrap();
+            zip.finish().unwrap();
+        }
+
+        let opened = open_for_play(&mixtape_path, &tmp.path().join("art")).unwrap();
+
+        assert_eq!(opened.tracks.len(), 2);
+        assert_eq!(opened.tracks[0].path, None);
+        assert!(opened.tracks[1].path.as_deref().unwrap().starts_with(ENTRY_SCHEME));
+    }
+
+    #[test]
+    fn test_extract_entry_copies_the_track_out_with_its_extension() {
+        let tmp = tempfile::tempdir().unwrap();
+        let mixtape_path = create_test_mixtape(tmp.path());
+        let opened = open_for_play(&mixtape_path, &tmp.path().join("art")).unwrap();
+        let uri = opened.tracks[0].path.as_deref().unwrap();
+        let out = tmp.path().join("export");
+        std::fs::create_dir_all(&out).unwrap();
+
+        let extracted = extract_entry(uri, &out, "000").unwrap();
+
+        assert_eq!(Path::new(&extracted), out.join("000.mp3"));
+        assert_eq!(std::fs::read(&extracted).unwrap(), b"fake mp3 data for testing");
+        assert!(extract_entry("mixtape://1+2@/nowhere.mixtape", &out, "001").is_err());
+    }
+
+    #[test]
+    fn test_play_art_dir_is_new_per_play_and_survives_the_sweep() {
+        let tmp = tempfile::tempdir().unwrap();
+        let temp_dir = tmp.path();
+        let first = play_art_dir(temp_dir);
+        let second = play_art_dir(temp_dir);
+        assert_ne!(first, second);
+        std::fs::create_dir_all(&first).unwrap();
+        std::fs::create_dir_all(temp_dir.join(PLAY_ART_DIR).join("1234-5678")).unwrap();
+        std::fs::create_dir_all(temp_dir.join("mixtape_playback").join("tracks")).unwrap();
+
+        sweep_play_leftovers(temp_dir);
+
+        assert!(first.exists(), "this run's folder must survive");
+        assert!(!temp_dir.join(PLAY_ART_DIR).join("1234-5678").exists());
+        assert!(!temp_dir.join("mixtape_playback").exists());
     }
 }
