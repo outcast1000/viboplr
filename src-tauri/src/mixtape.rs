@@ -22,9 +22,23 @@ pub fn track_archive_path(position: usize, title: &str, source_path: &str) -> St
 }
 
 /// Generate the in-archive filename for a track thumbnail.
-/// Format: `thumbs/{zero-padded position}.jpg`
-pub fn thumb_archive_path(position: usize) -> String {
-    format!("thumbs/{:02}.jpg", position + 1)
+/// Format: `thumbs/{zero-padded position}.{ext}` — `jpg` unless the image had
+/// to be packed as-is (see `archive_image`).
+pub fn thumb_archive_path(position: usize, ext: &str) -> String {
+    format!("thumbs/{:02}.{}", position + 1, ext)
+}
+
+/// The file name an extracted cover is written under: `cover.<ext>`, the
+/// extension taken from the manifest's own cover entry when it names an image
+/// format, else `jpg` (what every mixtape before webp/gif covers carried).
+pub fn cover_file_name(manifest_cover: &str) -> String {
+    let ext = Path::new(manifest_cover)
+        .extension()
+        .and_then(|e| e.to_str())
+        .map(|e| e.to_ascii_lowercase())
+        .filter(|e| matches!(e.as_str(), "jpg" | "jpeg" | "png" | "webp" | "gif"))
+        .unwrap_or_else(|| "jpg".to_string());
+    format!("cover.{}", ext)
 }
 
 /// Build a BundleManifest from export options and resolved track data.
@@ -78,6 +92,116 @@ fn resize_image_to_jpeg(path: &Path, max_dimension: u32) -> Result<Vec<u8>, Stri
     Ok(jpeg_bytes)
 }
 
+/// An image ready to go into a mixtape: `(bytes, extension)`. Resized to a JPEG
+/// when the `image` crate can decode it (jpeg/png); a webp or gif — formats the
+/// picker and the image cache accept but the build has no decoder for — is
+/// packed as-is under its own extension rather than adding decoders for them.
+/// Anything else is an error, which every caller treats as "leave it out".
+fn archive_image(path: &Path, max_dimension: u32) -> Result<(Vec<u8>, &'static str), String> {
+    match resize_image_to_jpeg(path, max_dimension) {
+        Ok(bytes) => Ok((bytes, "jpg")),
+        Err(decode_err) => {
+            let bytes = std::fs::read(path).map_err(|e| format!("Failed to read image: {}", e))?;
+            match crate::commands::sniff_image_ext(&bytes) {
+                Some(ext @ ("webp" | "gif")) => Ok((bytes, ext)),
+                _ => Err(decode_err),
+            }
+        }
+    }
+}
+
+/// Write the cover into the archive, if there is one and it can be read. A
+/// cover that can't is logged and left out — the mixtape is still worth
+/// having without it. Returns the in-archive name for the manifest.
+fn write_cover<W: IoWrite + std::io::Seek>(
+    zip: &mut ZipWriter<W>,
+    cover_path: Option<&Path>,
+    options: SimpleFileOptions,
+) -> Result<Option<String>, String> {
+    let Some(cp) = cover_path else { return Ok(None) };
+    let (bytes, ext) = match archive_image(cp, 800) {
+        Ok(image) => image,
+        Err(e) => {
+            log::warn!("Mixtape: leaving out the cover {}: {}", cp.display(), e);
+            return Ok(None);
+        }
+    };
+    let name = format!("cover.{}", ext);
+    zip.start_file(&name, options)
+        .map_err(|e| format!("Failed to start {}: {}", name, e))?;
+    zip.write_all(&bytes)
+        .map_err(|e| format!("Failed to write {}: {}", name, e))?;
+    Ok(Some(name))
+}
+
+/// Write the thumbnails that can be read; one that can't is logged and that
+/// track goes without. Returns the in-archive name per position.
+fn write_thumbs<W: IoWrite + std::io::Seek>(
+    zip: &mut ZipWriter<W>,
+    thumb_paths: &[Option<&str>],
+    options: SimpleFileOptions,
+) -> Result<Vec<Option<String>>, String> {
+    let mut names = Vec::with_capacity(thumb_paths.len());
+    for (i, thumb) in thumb_paths.iter().enumerate() {
+        let Some(tp) = thumb else {
+            names.push(None);
+            continue;
+        };
+        let (bytes, ext) = match archive_image(Path::new(tp), 150) {
+            Ok(image) => image,
+            Err(e) => {
+                log::warn!("Mixtape: leaving out the thumbnail {}: {}", tp, e);
+                names.push(None);
+                continue;
+            }
+        };
+        let name = thumb_archive_path(i, ext);
+        zip.start_file(&name, options)
+            .map_err(|e| format!("Failed to start {}: {}", name, e))?;
+        zip.write_all(&bytes)
+            .map_err(|e| format!("Failed to write thumb: {}", e))?;
+        names.push(Some(name));
+    }
+    Ok(names)
+}
+
+/// Write a mixtape to `<dest>.mixtape.tmp` and move it into place. `body`
+/// writes every entry but the manifest and returns it. On any failure (or a
+/// cancel) the partial `.tmp` is removed rather than left beside the user's
+/// file.
+fn write_mixtape_file<F>(dest_path: &Path, body: F) -> Result<u64, String>
+where
+    F: FnOnce(&mut ZipWriter<BufWriter<File>>, SimpleFileOptions) -> Result<BundleManifest, String>,
+{
+    let temp_path = dest_path.with_extension("mixtape.tmp");
+    let file = File::create(&temp_path).map_err(|e| format!("Failed to create mixtape file: {}", e))?;
+    let result = (|| -> Result<u64, String> {
+        let mut zip = ZipWriter::new(BufWriter::new(file));
+        let options = SimpleFileOptions::default().compression_method(zip::CompressionMethod::Stored);
+        let manifest = body(&mut zip, options)?;
+        let manifest_json = serde_json::to_string_pretty(&manifest)
+            .map_err(|e| format!("Failed to serialize manifest: {}", e))?;
+        zip.start_file("manifest.json", options)
+            .map_err(|e| format!("Failed to start manifest.json: {}", e))?;
+        zip.write_all(manifest_json.as_bytes())
+            .map_err(|e| format!("Failed to write manifest: {}", e))?;
+        let final_zip = zip.finish().map_err(|e| format!("Failed to finalize ZIP: {}", e))?;
+        let size = final_zip
+            .into_inner()
+            .map_err(|e| format!("Failed to flush ZIP: {}", e))?
+            .metadata()
+            .map_err(|e| format!("Failed to read metadata: {}", e))?
+            .len();
+        std::fs::rename(&temp_path, dest_path)
+            .map_err(|e| format!("Failed to finalize mixtape file: {}", e))?;
+        Ok(size)
+    })();
+    if result.is_err() {
+        let _ = std::fs::remove_file(&temp_path);
+    }
+    result
+}
+
 /// Source data for a single track to be included in a mixtape.
 pub struct MixtapeTrackSource {
     pub title: String,
@@ -103,117 +227,67 @@ pub fn build_mixtape<F>(
 where
     F: FnMut(u32, u32, &str, u32),
 {
-    let temp_path = dest_path.with_extension("mixtape.tmp");
-    let file = File::create(&temp_path).map_err(|e| format!("Failed to create mixtape file: {}", e))?;
-    let mut zip = ZipWriter::new(BufWriter::new(file));
-    let options = SimpleFileOptions::default().compression_method(zip::CompressionMethod::Stored);
+    write_mixtape_file(dest_path, |zip, options| {
+        manifest.cover = write_cover(zip, cover_path, options)?;
 
-    // Write cover.jpg if provided
-    if let Some(cp) = cover_path {
-        let cover_bytes = resize_image_to_jpeg(cp, 800)?;
-        zip.start_file("cover.jpg", options)
-            .map_err(|e| format!("Failed to start cover.jpg: {}", e))?;
-        zip.write_all(&cover_bytes)
-            .map_err(|e| format!("Failed to write cover.jpg: {}", e))?;
-        manifest.cover = Some("cover.jpg".to_string());
-    } else {
-        manifest.cover = None;
-    }
+        // Build track entries for manifest
+        let mut track_entries = Vec::new();
 
-    // Build track entries for manifest
-    let mut track_entries = Vec::new();
-
-    // Write audio files
-    let total_tracks = track_sources.len() as u32;
-    for (i, source) in track_sources.iter().enumerate() {
-        if cancel.load(Ordering::Relaxed) {
-            drop(zip);
-            let _ = std::fs::remove_file(&temp_path);
-            return Err("Mixtape creation cancelled".to_string());
-        }
-
-        let archive_path = track_archive_path(i, &source.title, &source.audio_path);
-        on_progress(i as u32 + 1, total_tracks, &source.title, 0);
-
-        let audio_file = File::open(&source.audio_path)
-            .map_err(|e| format!("Failed to open audio file: {}", e))?;
-        let mut reader = BufReader::new(audio_file);
-
-        zip.start_file(&archive_path, options)
-            .map_err(|e| format!("Failed to start {}: {}", archive_path, e))?;
-
-        let mut buffer = vec![0u8; 65536]; // 64KB buffer
-        loop {
-            let bytes_read = reader
-                .read(&mut buffer)
-                .map_err(|e| format!("Failed to read audio: {}", e))?;
-            if bytes_read == 0 {
-                break;
-            }
-            zip.write_all(&buffer[..bytes_read])
-                .map_err(|e| format!("Failed to write audio: {}", e))?;
-        }
-
-        // Create track entry with thumb path if thumbnails are included
-        let thumb = if include_thumbs && source.thumb_path.is_some() {
-            Some(thumb_archive_path(i))
-        } else {
-            None
-        };
-
-        track_entries.push(BundleTrack {
-            title: source.title.clone(),
-            artist: source.artist.clone(),
-            album_artist: None,
-            album: source.album.clone(),
-            duration_secs: source.duration_secs,
-            file: Some(archive_path),
-            thumb,
-            format: None,
-            image_url: None,
-            file_size: None,
-        });
-    }
-
-    // Write thumbnails if requested
-    if include_thumbs {
+        // Write audio files
+        let total_tracks = track_sources.len() as u32;
         for (i, source) in track_sources.iter().enumerate() {
-            if let Some(ref thumb_path) = source.thumb_path {
-                let thumb_bytes = resize_image_to_jpeg(Path::new(thumb_path), 150)?;
-                let archive_path = thumb_archive_path(i);
-                zip.start_file(&archive_path, options)
-                    .map_err(|e| format!("Failed to start {}: {}", archive_path, e))?;
-                zip.write_all(&thumb_bytes)
-                    .map_err(|e| format!("Failed to write thumb: {}", e))?;
+            if cancel.load(Ordering::Relaxed) {
+                return Err("Mixtape creation cancelled".to_string());
+            }
+
+            let archive_path = track_archive_path(i, &source.title, &source.audio_path);
+            on_progress(i as u32 + 1, total_tracks, &source.title, 0);
+
+            let audio_file = File::open(&source.audio_path)
+                .map_err(|e| format!("Failed to open audio file: {}", e))?;
+            let mut reader = BufReader::new(audio_file);
+
+            zip.start_file(&archive_path, options)
+                .map_err(|e| format!("Failed to start {}: {}", archive_path, e))?;
+
+            let mut buffer = vec![0u8; 65536]; // 64KB buffer
+            loop {
+                let bytes_read = reader
+                    .read(&mut buffer)
+                    .map_err(|e| format!("Failed to read audio: {}", e))?;
+                if bytes_read == 0 {
+                    break;
+                }
+                zip.write_all(&buffer[..bytes_read])
+                    .map_err(|e| format!("Failed to write audio: {}", e))?;
+            }
+
+            track_entries.push(BundleTrack {
+                title: source.title.clone(),
+                artist: source.artist.clone(),
+                album_artist: None,
+                album: source.album.clone(),
+                duration_secs: source.duration_secs,
+                file: Some(archive_path),
+                thumb: None,
+                format: None,
+                image_url: None,
+                file_size: None,
+            });
+        }
+
+        // A track's thumb is named in the manifest only once it was written.
+        if include_thumbs {
+            let paths: Vec<Option<&str>> =
+                track_sources.iter().map(|s| s.thumb_path.as_deref()).collect();
+            for (entry, name) in track_entries.iter_mut().zip(write_thumbs(zip, &paths, options)?) {
+                entry.thumb = name;
             }
         }
-    }
 
-    // Update manifest with track entries
-    manifest.tracks = track_entries;
-
-    // Write manifest.json
-    let manifest_json = serde_json::to_string_pretty(&manifest)
-        .map_err(|e| format!("Failed to serialize manifest: {}", e))?;
-    zip.start_file("manifest.json", options)
-        .map_err(|e| format!("Failed to start manifest.json: {}", e))?;
-    zip.write_all(manifest_json.as_bytes())
-        .map_err(|e| format!("Failed to write manifest: {}", e))?;
-
-    let final_zip = zip.finish().map_err(|e| format!("Failed to finalize ZIP: {}", e))?;
-    let size = final_zip
-        .into_inner()
-        .map_err(|e| format!("Failed to flush ZIP: {}", e))?
-        .metadata()
-        .map_err(|e| format!("Failed to read metadata: {}", e))?
-        .len();
-
-    std::fs::rename(&temp_path, dest_path).map_err(|e| {
-        let _ = std::fs::remove_file(&temp_path);
-        format!("Failed to finalize mixtape file: {}", e)
-    })?;
-
-    Ok(size)
+        manifest.tracks = track_entries;
+        Ok(manifest)
+    })
 }
 
 /// Build a playlist-only .mixtape ZIP (manifest + cover + optional thumbnails, no audio files).
@@ -224,59 +298,20 @@ pub fn build_playlist_mixtape(
     thumb_paths: &[Option<String>],
     include_thumbs: bool,
 ) -> Result<u64, String> {
-    let temp_path = dest_path.with_extension("mixtape.tmp");
-    let file = File::create(&temp_path)
-        .map_err(|e| format!("Failed to create mixtape file: {}", e))?;
-    let mut zip = ZipWriter::new(BufWriter::new(file));
-    let options = SimpleFileOptions::default()
-        .compression_method(zip::CompressionMethod::Stored);
-
-    if let Some(cp) = cover_path {
-        let cover_bytes = resize_image_to_jpeg(cp, 800)?;
-        zip.start_file("cover.jpg", options)
-            .map_err(|e| format!("Failed to start cover.jpg: {}", e))?;
-        zip.write_all(&cover_bytes)
-            .map_err(|e| format!("Failed to write cover.jpg: {}", e))?;
-        manifest.cover = Some("cover.jpg".to_string());
-    }
-
-    if include_thumbs {
-        for (i, thumb) in thumb_paths.iter().enumerate() {
-            if let Some(ref tp) = thumb {
-                if let Ok(thumb_bytes) = resize_image_to_jpeg(Path::new(tp), 150) {
-                    let archive_path = thumb_archive_path(i);
-                    if zip.start_file(&archive_path, options).is_ok() {
-                        let _ = zip.write_all(&thumb_bytes);
-                    }
-                    if let Some(track) = manifest.tracks.get_mut(i) {
-                        track.thumb = Some(archive_path);
-                    }
+    write_mixtape_file(dest_path, |zip, options| {
+        if let Some(name) = write_cover(zip, cover_path, options)? {
+            manifest.cover = Some(name);
+        }
+        if include_thumbs {
+            let paths: Vec<Option<&str>> = thumb_paths.iter().map(|t| t.as_deref()).collect();
+            for (i, name) in write_thumbs(zip, &paths, options)?.into_iter().enumerate() {
+                if let (Some(name), Some(track)) = (name, manifest.tracks.get_mut(i)) {
+                    track.thumb = Some(name);
                 }
             }
         }
-    }
-
-    let manifest_json = serde_json::to_string_pretty(&manifest)
-        .map_err(|e| format!("Failed to serialize manifest: {}", e))?;
-    zip.start_file("manifest.json", options)
-        .map_err(|e| format!("Failed to start manifest.json: {}", e))?;
-    zip.write_all(manifest_json.as_bytes())
-        .map_err(|e| format!("Failed to write manifest: {}", e))?;
-
-    let final_zip = zip.finish()
-        .map_err(|e| format!("Failed to finalize ZIP: {}", e))?;
-    let size = final_zip.into_inner()
-        .map_err(|e| format!("Failed to flush ZIP: {}", e))?
-        .metadata()
-        .map_err(|e| format!("Failed to read metadata: {}", e))?
-        .len();
-
-    std::fs::rename(&temp_path, dest_path).map_err(|e| {
-        let _ = std::fs::remove_file(&temp_path);
-        format!("Failed to finalize mixtape file: {}", e)
-    })?;
-
-    Ok(size)
+        Ok(manifest)
+    })
 }
 
 /// Read and preview a .mixtape archive without extracting it.
@@ -299,7 +334,7 @@ pub fn read_mixtape(path: &Path, temp_dir: &Path) -> Result<MixtapePreview, Stri
     // Extract cover to temp directory if present
     let cover_temp_path = if let Some(ref cover_name) = manifest.cover {
         if let Ok(mut cover_file) = archive.by_name(cover_name) {
-            let cover_dest = temp_dir.join("mixtape-cover.jpg");
+            let cover_dest = temp_dir.join(format!("mixtape-{}", cover_file_name(cover_name)));
             let mut cover_out = File::create(&cover_dest)
                 .map_err(|e| format!("Failed to create temp cover file: {}", e))?;
             std::io::copy(&mut cover_file, &mut cover_out)
@@ -359,7 +394,7 @@ where
     if options.images {
         if let Some(ref cover_name) = manifest.cover {
             if let Ok(mut cover_file) = archive.by_name(cover_name) {
-                let cover_dest = dest_dir.join("cover.jpg");
+                let cover_dest = dest_dir.join(cover_file_name(cover_name));
                 let mut cover_out = File::create(&cover_dest)
                     .map_err(|e| format!("Failed to create cover file: {}", e))?;
                 std::io::copy(&mut cover_file, &mut cover_out)
@@ -376,13 +411,18 @@ where
 
         on_progress(i as u32 + 1, total_items, &track.title);
 
-        // Extract audio
+        // Extract audio. The name comes from the archive, which may be
+        // anyone's: `enclosed_name` refuses `../…` and absolute names, so
+        // nothing is written outside `dest_dir`.
         if options.audio {
             if let Some(ref file) = track.file {
             let mut track_file = archive
                 .by_name(file)
                 .map_err(|_| format!("Track file not found: {}", file))?;
-            let track_dest = dest_dir.join(file);
+            let rel = track_file
+                .enclosed_name()
+                .ok_or_else(|| format!("Unsafe track path in mixtape: {}", file))?;
+            let track_dest = dest_dir.join(rel);
             if let Some(parent) = track_dest.parent() {
                 std::fs::create_dir_all(parent)
                     .map_err(|e| format!("Failed to create tracks directory: {}", e))?;
@@ -398,7 +438,11 @@ where
         if options.images {
             if let Some(ref thumb) = track.thumb {
                 if let Ok(mut thumb_file) = archive.by_name(thumb) {
-                    let thumb_dest = dest_dir.join(thumb);
+                    let Some(rel) = thumb_file.enclosed_name() else {
+                        log::warn!("Mixtape: skipping unsafe thumbnail path {}", thumb);
+                        continue;
+                    };
+                    let thumb_dest = dest_dir.join(rel);
                     if let Some(parent) = thumb_dest.parent() {
                         let _ = std::fs::create_dir_all(parent);
                     }
@@ -707,8 +751,8 @@ mod tests {
 
     #[test]
     fn test_thumb_archive_path() {
-        assert_eq!(thumb_archive_path(0), "thumbs/01.jpg");
-        assert_eq!(thumb_archive_path(11), "thumbs/12.jpg");
+        assert_eq!(thumb_archive_path(0, "jpg"), "thumbs/01.jpg");
+        assert_eq!(thumb_archive_path(11, "webp"), "thumbs/12.webp");
     }
 
     #[test]
@@ -992,6 +1036,142 @@ mod tests {
         assert_eq!(std::fs::read(file).unwrap(), vec![7u8; 4096]);
         assert_eq!(opened.tracks[0].thumb_path, None);
         assert!(!tmp.path().join("play").join("escape.jpg").exists());
+    }
+
+    #[test]
+    fn test_build_mixtape_packs_webp_as_is_and_skips_unreadable_images() {
+        // The build has no webp/gif decoder, but the picker and the image
+        // cache both hand those over: they are packed as they are. An image
+        // nothing can read costs that image, never the export.
+        let tmp = tempfile::tempdir().unwrap();
+        let audio = tmp.path().join("song.mp3");
+        std::fs::write(&audio, b"audio").unwrap();
+        let webp = tmp.path().join("cover.webp");
+        let mut webp_bytes = b"RIFF\x10\x00\x00\x00WEBPVP8 ".to_vec();
+        webp_bytes.extend_from_slice(&[0u8; 8]);
+        std::fs::write(&webp, &webp_bytes).unwrap();
+        let junk = tmp.path().join("junk.jpg");
+        std::fs::write(&junk, b"not an image").unwrap();
+        let source = |title: &str, thumb: &Path| MixtapeTrackSource {
+            title: title.into(),
+            artist: "Artist".into(),
+            album: None,
+            duration_secs: None,
+            audio_path: audio.to_string_lossy().to_string(),
+            thumb_path: Some(thumb.to_string_lossy().to_string()),
+        };
+        let dest = tmp.path().join("out.mixtape");
+        let manifest = build_manifest("Webp".into(), MixtapeType::Custom, HashMap::new(), None, vec![]);
+        let cancel = AtomicBool::new(false);
+
+        build_mixtape(
+            &dest, Some(webp.as_path()), &[source("One", &webp), source("Two", &junk)],
+            manifest, true, &cancel, |_, _, _, _| {},
+        )
+        .unwrap();
+
+        let mut archive = ZipArchive::new(File::open(&dest).unwrap()).unwrap();
+        let parsed = read_manifest(&mut archive).unwrap();
+        assert_eq!(parsed.cover.as_deref(), Some("cover.webp"));
+        assert_eq!(parsed.tracks[0].thumb.as_deref(), Some("thumbs/01.webp"));
+        assert_eq!(parsed.tracks[1].thumb, None, "an unreadable thumb is left out of the manifest too");
+        let mut cover = Vec::new();
+        archive.by_name("cover.webp").unwrap().read_to_end(&mut cover).unwrap();
+        assert_eq!(cover, webp_bytes);
+        assert!(archive.by_name("thumbs/02.jpg").is_err());
+
+        // Extracting names the cover after its entry.
+        let out = tmp.path().join("extracted");
+        extract_mixtape(&dest, &out, &ExtractOptions { audio: false, images: true }, &cancel, |_, _, _| {}).unwrap();
+        assert!(out.join("cover.webp").exists());
+    }
+
+    #[test]
+    fn test_a_failed_build_leaves_no_tmp_file() {
+        let tmp = tempfile::tempdir().unwrap();
+        let dest = tmp.path().join("out.mixtape");
+        let manifest = build_manifest("X".into(), MixtapeType::Custom, HashMap::new(), None, vec![]);
+        let missing = MixtapeTrackSource {
+            title: "Gone".into(),
+            artist: "A".into(),
+            album: None,
+            duration_secs: None,
+            audio_path: tmp.path().join("gone.mp3").to_string_lossy().to_string(),
+            thumb_path: None,
+        };
+        let cancel = AtomicBool::new(false);
+
+        assert!(build_mixtape(&dest, None, &[missing], manifest, false, &cancel, |_, _, _, _| {}).is_err());
+
+        assert!(!dest.exists());
+        assert!(!dest.with_extension("mixtape.tmp").exists());
+    }
+
+    #[test]
+    fn test_cover_file_name_follows_the_entry() {
+        assert_eq!(cover_file_name("cover.jpg"), "cover.jpg");
+        assert_eq!(cover_file_name("cover.WEBP"), "cover.webp");
+        assert_eq!(cover_file_name("art/front.gif"), "cover.gif");
+        assert_eq!(cover_file_name("../../evil.sh"), "cover.jpg");
+        assert_eq!(cover_file_name("cover"), "cover.jpg");
+    }
+
+    #[test]
+    fn test_extract_mixtape_never_writes_outside_the_destination() {
+        // A mixtape from anywhere may name `../…` entries in its manifest and
+        // zip alike. An unsafe track fails the extract; an unsafe thumbnail is
+        // skipped; neither is written outside `dest_dir`.
+        let tmp = tempfile::tempdir().unwrap();
+        let hostile = |name: &str, file: &str, thumb: &str| {
+            let path = tmp.path().join(name);
+            let manifest = build_manifest(
+                "Hostile".into(),
+                MixtapeType::Custom,
+                HashMap::new(),
+                None,
+                vec![BundleTrack {
+                    title: "Song".into(),
+                    artist: "Artist".into(),
+                    album_artist: None,
+                    album: None,
+                    duration_secs: None,
+                    file: Some(file.into()),
+                    thumb: Some(thumb.into()),
+                    format: None,
+                    image_url: None,
+                    file_size: None,
+                }],
+            );
+            let mut zip = ZipWriter::new(File::create(&path).unwrap());
+            let stored = SimpleFileOptions::default().compression_method(zip::CompressionMethod::Stored);
+            zip.start_file("manifest.json", stored).unwrap();
+            zip.write_all(serde_json::to_string(&manifest).unwrap().as_bytes()).unwrap();
+            zip.start_file(file, stored).unwrap();
+            zip.write_all(b"audio").unwrap();
+            zip.start_file(thumb, stored).unwrap();
+            zip.write_all(b"jpg").unwrap();
+            zip.finish().unwrap();
+            path
+        };
+        let dest = tmp.path().join("a").join("b").join("dest");
+        let opts = ExtractOptions { audio: true, images: true };
+        let cancel = AtomicBool::new(false);
+
+        let bad_track = hostile("t.mixtape", "../../escaped-track.mp3", "thumbs/01.jpg");
+        // The hostile name really is in the zip, so the refusal below is the
+        // guard's, not a "not found".
+        let mut raw = ZipArchive::new(File::open(&bad_track).unwrap()).unwrap();
+        assert!(raw.by_name("../../escaped-track.mp3").is_ok());
+        let err = extract_mixtape(&bad_track, &dest, &opts, &cancel, |_, _, _| {}).unwrap_err();
+        assert!(err.contains("Unsafe track path"), "{err}");
+        assert!(!tmp.path().join("a").join("escaped-track.mp3").exists());
+
+        let bad_thumb = hostile("p.mixtape", "tracks/01-song.mp3", "../../escaped-thumb.jpg");
+        let mut raw = ZipArchive::new(File::open(&bad_thumb).unwrap()).unwrap();
+        assert!(raw.by_name("../../escaped-thumb.jpg").is_ok());
+        extract_mixtape(&bad_thumb, &dest, &opts, &cancel, |_, _, _| {}).unwrap();
+        assert!(dest.join("tracks/01-song.mp3").exists());
+        assert!(!tmp.path().join("a").join("escaped-thumb.jpg").exists());
     }
 
     #[test]

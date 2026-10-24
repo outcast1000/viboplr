@@ -11,6 +11,7 @@ import { nextIndex, prevIndex, randomizeOrder } from "../queueNav";
 import { sameSong } from "./useLikeActions";
 
 import { useAssignRef } from "./useLatestRef";
+import { isMixtapePath } from "./useFileDrop";
 export interface PlaylistContext {
   name: string;
   imagePath?: string | null;
@@ -780,7 +781,7 @@ export function useQueue(
       multiple: false,
     });
     if (!filePath) return;
-    if (typeof filePath === "string" && filePath.endsWith(".mixtape")) {
+    if (typeof filePath === "string" && isMixtapePath(filePath)) {
       onOpenMixtape?.(filePath);
       return;
     }

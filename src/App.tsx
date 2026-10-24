@@ -77,7 +77,7 @@ import ProfileSwitchOverlay from "./components/ProfileSwitchOverlay";
 import { Toasts } from "./components/Toasts";
 import { useLibrary, DEFAULT_TRACK_COLUMNS } from "./hooks/useLibrary";
 import { useEventListeners, type ResyncProgress } from "./hooks/useEventListeners";
-import { useFileDrop } from "./hooks/useFileDrop";
+import { useFileDrop, isMixtapePath } from "./hooks/useFileDrop";
 import { useImageCache } from "./hooks/useImageCache";
 import { useAutoContinue } from "./hooks/useAutoContinue";
 import { usePasteImage } from "./hooks/usePasteImage";
@@ -3501,7 +3501,7 @@ function App() {
     const unlisten = getCurrentWindow().onDragDropEvent((event) => {
       if (event.payload.type === "drop") {
         const paths: string[] = event.payload.paths;
-        const mixtapePath = paths.find(p => p.endsWith(".mixtape"));
+        const mixtapePath = paths.find(isMixtapePath);
         if (!mixtapePath) return;
         if (restoreAppliedRef.current) playMixtapeFile(mixtapePath);
         else pendingDroppedMixtapeRef.current = mixtapePath;

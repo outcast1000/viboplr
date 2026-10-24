@@ -506,12 +506,16 @@ pub fn import_mixtape(
                     return;
                 }
 
-                // Save cover as playlist image
-                let cover_path = extract_dir.join("cover.jpg");
-                if cover_path.exists() {
+                // Save cover as playlist image (`extract_mixtape` names it
+                // after the archive's own cover entry: jpg, or a webp/gif
+                // packed as-is).
+                let cover_name = manifest.cover.as_deref().map(crate::mixtape::cover_file_name);
+                let cover_path = cover_name.as_deref().map(|n| extract_dir.join(n));
+                if let Some(cover_path) = cover_path.filter(|p| p.exists()) {
                     let img_dir = app_dir.join("playlist_images");
                     let _ = std::fs::create_dir_all(&img_dir);
-                    let dest_img = img_dir.join(format!("{}.jpg", playlist_id));
+                    let ext = cover_path.extension().and_then(|e| e.to_str()).unwrap_or("jpg");
+                    let dest_img = img_dir.join(format!("{}.{}", playlist_id, ext));
                     if std::fs::copy(&cover_path, &dest_img).is_ok() {
                         let abs = dest_img.to_string_lossy().to_string();
                         let _ = db.update_playlist_image(playlist_id, &abs);
@@ -589,7 +593,8 @@ pub fn import_mixtape(
                     if cover_temp.exists() {
                         let img_dir = app_dir.join("playlist_images");
                         let _ = std::fs::create_dir_all(&img_dir);
-                        let dest_img = img_dir.join(format!("{}.jpg", playlist_id));
+                        let ext = cover_temp.extension().and_then(|e| e.to_str()).unwrap_or("jpg");
+                        let dest_img = img_dir.join(format!("{}.{}", playlist_id, ext));
                         if std::fs::copy(cover_temp, &dest_img).is_ok() {
                             let abs = dest_img.to_string_lossy().to_string();
                             let _ = db.update_playlist_image(playlist_id, &abs);

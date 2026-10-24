@@ -8,6 +8,13 @@ import { nextQueueKey } from "../queueEntry";
 
 import { useAssignRef } from "./useLatestRef";
 import type { Notify } from "./useToasts";
+
+/** A `.mixtape` is not media for the queue: App plays it on the same drop
+ * (`playMixtapeFile`), so this hook leaves it alone. */
+export function isMixtapePath(path: string): boolean {
+  return /\.mixtape$/i.test(path);
+}
+
 /** One media file resolved from an OS file-manager drop (see the Rust
  * `resolve_dropped_paths` command / `DroppedTrack`). */
 interface DroppedTrack {
@@ -108,7 +115,11 @@ export function useFileDrop(deps: UseFileDropDeps) {
       subscribe(TauriEvent.DRAG_LEAVE, () => setIsDragging(false), target),
       subscribe<{ paths: string[] }>(TauriEvent.DRAG_DROP, (e) => {
         setIsDragging(false);
-        if (e.payload.paths.length > 0) void handleDrop(e.payload.paths);
+        // A dropped mixtape is App's to play; without this filter the same drop
+        // also reached `resolve_dropped_paths`, found no media in it and raised
+        // "No playable media found" over the mixtape that was starting.
+        const paths = e.payload.paths.filter((p) => !isMixtapePath(p));
+        if (paths.length > 0) void handleDrop(paths);
       }, target),
     );
   }, []);

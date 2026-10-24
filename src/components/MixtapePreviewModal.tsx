@@ -78,8 +78,10 @@ export function MixtapePreviewModal({
       onClose();
     });
 
-    const stopError = subscribe<string>("mixtape-import-error", (event) => {
-      setError(event.payload);
+    // The backend sends `{ message }`; rendering the object itself throws.
+    const stopError = subscribe<{ message: string } | string>("mixtape-import-error", (event) => {
+      const payload = event.payload;
+      setError(typeof payload === "string" ? payload : payload?.message ?? "Import failed");
       setImporting(false);
       setProgress(null);
     });
