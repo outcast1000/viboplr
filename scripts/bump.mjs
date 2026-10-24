@@ -579,7 +579,22 @@ if (!isBeta && currentBranch !== "main") {
   console.error(`  Use a hyphenated version (e.g. ${version}-beta.1) for a branch beta.`);
   process.exit(1);
 }
-const pushCmd = `git push origin ${currentBranch} --tags`;
+// Push to the branch's upstream on origin when it has one. A worktree branch
+// that tracks origin/main (worktree-1 does) must land its release commit on
+// main: pushing it by its own name created — and once a stale copy existed,
+// was rejected by — a remote branch nobody uses (v1.0.112-beta.10).
+function originUpstreamBranch() {
+  try {
+    const upstream = git("rev-parse --abbrev-ref --symbolic-full-name @{u} 2>/dev/null");
+    return upstream.startsWith("origin/") ? upstream.slice("origin/".length) : null;
+  } catch {
+    return null; // no upstream configured
+  }
+}
+const pushTarget = originUpstreamBranch() ?? currentBranch;
+const pushCmd = pushTarget === currentBranch
+  ? `git push origin ${currentBranch} --tags`
+  : `git push origin HEAD:${pushTarget} --tags`;
 
 if (autocommit) {
   console.log("\nCommitting and tagging...\n");
