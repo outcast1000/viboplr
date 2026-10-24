@@ -731,26 +731,33 @@ pub fn get_track_audio_properties(
     })
 }
 
+/// `async` + `spawn_blocking` like `read_file_tags`: a non-async command runs
+/// inline on the main thread, and the now-playing source panel asks this on
+/// every local track change. A lofty parse on a busy disk (a library rescan of
+/// the same drive) froze the whole window for ~30s on the first video played.
 #[tauri::command]
-pub fn get_audio_properties_by_path(
+pub async fn get_audio_properties_by_path(
     path: String,
 ) -> Result<AudioProperties, String> {
-    let bare_path = path.strip_prefix("file://").unwrap_or(&path);
+    run_blocking(move || -> Result<AudioProperties, String> {
+        let bare_path = path.strip_prefix("file://").unwrap_or(&path);
 
-    use lofty::prelude::*;
+        use lofty::prelude::*;
 
-    let tagged_file = crate::tag_writer::read_tagged_file(bare_path)
-        .map_err(|e| format!("Failed to read file: {}", e))?;
+        let tagged_file = crate::tag_writer::read_tagged_file(bare_path)
+            .map_err(|e| format!("Failed to read file: {}", e))?;
 
-    let props = tagged_file.properties();
+        let props = tagged_file.properties();
 
-    Ok(AudioProperties {
-        sample_rate: props.sample_rate(),
-        bit_depth: props.bit_depth(),
-        channels: props.channels(),
-        bitrate: props.overall_bitrate(),
-        duration_secs: Some(props.duration().as_secs_f64()).filter(|d| *d > 0.0),
+        Ok(AudioProperties {
+            sample_rate: props.sample_rate(),
+            bit_depth: props.bit_depth(),
+            channels: props.channels(),
+            bitrate: props.overall_bitrate(),
+            duration_secs: Some(props.duration().as_secs_f64()).filter(|d| *d > 0.0),
+        })
     })
+    .await
 }
 
 /// Local lyrics for a track (issue #131): embedded tag lyrics, a sidecar
