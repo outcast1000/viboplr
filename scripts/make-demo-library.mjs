@@ -57,7 +57,9 @@ function ffmpeg(args) {
 
 function trackMeta(t) {
   return {
-    title: t.title, artist: t.artist, album_artist: t.artist, album: t.album,
+    // An empty value makes ffmpeg drop the tag, which a retag (`-c copy`
+    // keeps the input's tags) needs to undo an album artist set in the app.
+    title: t.title, artist: t.artist, album_artist: t.albumArtist ?? "", album: t.album,
     date: String(t.year), track: `${t.trackNumber}/${t.trackTotal}`, genre: t.tags[0],
   };
 }
@@ -85,7 +87,10 @@ function tagsCurrent(t, path) {
   if (r.status !== 0) return false;
   const tags = Object.fromEntries(Object.entries(JSON.parse(r.stdout).format?.tags ?? {}).map(([k, v]) => [k.toLowerCase(), v]));
   const want = trackMeta(t);
-  return ["title", "artist", "album", "genre"].every((k) => tags[k] === want[k]);
+  // album_artist too: the shorts' Bulk Edit take writes one into the
+  // compilation, and the next run must put the mis-tagged state back.
+  return ["title", "artist", "album", "genre"].every((k) => tags[k] === want[k])
+    && (tags.album_artist ?? "") === want.album_artist;
 }
 
 async function retag(t, path) {
@@ -119,10 +124,11 @@ async function main() {
   // Folder art for the invented album only: real albums get theirs from the
   // app's image providers, like any user's library.
   for (const album of ALBUMS.filter((a) => a.art)) {
-    const first = tracks.find((t) => t.artist === album.artist && t.album === album.title);
+    const first = tracks.find((t) => t.album === album.title && (album.compilation || t.artist === album.artist));
     if (!first) continue;
+    // A compilation's folder is not an artist's, so it gets no portrait.
     const portrait = join(opts.out, first.dir.split("/")[0], "artist.png");
-    if (opts.force || !existsSync(portrait)) writeFileSync(portrait, encodePng(paint("portrait", `artist|${album.artist}`)));
+    if (!album.compilation && (opts.force || !existsSync(portrait))) writeFileSync(portrait, encodePng(paint("portrait", `artist|${album.artist}`)));
     const cover = join(opts.out, first.dir, "cover.png");
     if (opts.force || !existsSync(cover)) writeFileSync(cover, encodePng(paint("auto", `album|${album.artist}|${album.title}`)));
   }

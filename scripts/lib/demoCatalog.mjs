@@ -29,12 +29,48 @@ const FICTION = [
   },
 ];
 
-/** Every album of the library: `{ artist, title, year, tags, mood, bpm,
- *  format?, art?, tracks: [{ title, durationSecs }] }`. */
-export const ALBUMS = [...DEMO_ALBUMS, ...FICTION];
+/** A compilation tagged the way a careless rip is: one album title, a
+ *  different ARTIST per track and **no ALBUMARTIST** — so the app files it as
+ *  one album per performer. It is what the collectors' "fix a hundred tracks
+ *  at once" short repairs on camera (Bulk Edit → Album artist), and the shorts
+ *  runner regenerates it before each take (`make-demo-library` rewrites the
+ *  tags, ALBUMARTIST removed). Its tracks are real songs from the albums above
+ *  (names only, like the rest), with their real lengths; the title is
+ *  invented, so its cover is procedural folder art, shared by every fork —
+ *  which is what makes the split read as one album broken apart. */
+const COMPILATION_TRACKS = [
+  ["Massive Attack", "Teardrop"], ["Radiohead", "Let Down"], ["Daft Punk", "Instant Crush"],
+  // Not the showcase's detail/radio track ("Dreams"): a by-name lookup for
+  // that one must land on the Rumours copy.
+  ["Tame Impala", "Let It Happen"], ["Fleetwood Mac", "Go Your Own Way"], ["SZA", "Kill Bill"],
+  ["The Strokes", "Someday"], ["Dua Lipa", "Levitating"], ["Alvvays", "Pharmacist"],
+  ["Pink Floyd", "Time"], ["Arcade Fire", "Crown of Love"], ["U2", "With or Without You"],
+];
 
-/** Artist names, in album order. */
-export const ARTISTS = [...new Set(ALBUMS.map((a) => a.artist))];
+function songLength(artist, title) {
+  for (const album of DEMO_ALBUMS) {
+    if (album.artist !== artist) continue;
+    const track = album.tracks.find((t) => t.title === title);
+    if (track) return track.durationSecs;
+  }
+  throw new Error(`compilation track not in the catalogue: ${artist} — ${title}`);
+}
+
+const COMPILATIONS = [
+  {
+    artist: "Various Artists", title: "Late Night Drive", year: 2024, tags: ["Pop"], mood: "minor", bpm: 96,
+    art: true, compilation: true,
+    tracks: COMPILATION_TRACKS.map(([artist, title]) => ({ artist, title, durationSecs: songLength(artist, title) })),
+  },
+];
+
+/** Every album of the library: `{ artist, title, year, tags, mood, bpm,
+ *  format?, art?, compilation?, tracks: [{ title, durationSecs, artist? }] }`.
+ *  A compilation's `artist` is only its folder; each track names its own. */
+export const ALBUMS = [...DEMO_ALBUMS, ...FICTION, ...COMPILATIONS];
+
+/** Artist names, in album order (compilations have no artist of their own). */
+export const ARTISTS = [...new Set(ALBUMS.filter((a) => !a.compilation).map((a) => a.artist))];
 
 /** Original lyrics, written for this library. Timestamps in seconds. The
  *  capture's lyrics scene seeks to ~50s, so the middle lines carry the shot. */
@@ -94,6 +130,8 @@ export const SHOWCASE = {
   // (its station is Rock): a track already in the queue confuses the
   // capture's play-it-then-undo step.
   lossless: { artist: "Miles Davis", title: "So What" },
+  // The mis-tagged compilation the collectors' short fixes (see COMPILATIONS).
+  compilation: { title: "Late Night Drive", albumArtist: "Various Artists" },
   searchQuery: "love",
   // History: a recent obsession, and favourites not played for months.
   obsession: "Random Access Memories",
@@ -111,9 +149,12 @@ export function catalogTracks() {
     album.tracks.forEach((track, i) => {
       const r = rng(`${album.artist}|${album.title}|${track.title}`);
       const ext = album.format === "flac" ? "flac" : "mp3";
-      const lyrics = LYRICS.find((l) => l.artist === album.artist && l.title === track.title) ?? null;
+      const artist = track.artist ?? album.artist;
+      const lyrics = LYRICS.find((l) => l.artist === artist && l.title === track.title) ?? null;
       out.push({
-        artist: album.artist, album: album.title, year: album.year, title: track.title,
+        artist, album: album.title, year: album.year, title: track.title,
+        // ALBUMARTIST to write; null = none (a compilation's messy state).
+        albumArtist: album.compilation ? null : album.artist,
         trackNumber: i + 1, trackTotal: album.tracks.length, tags: album.tags,
         mood: album.mood, bpm: album.bpm, format: ext, art: Boolean(album.art),
         durationSecs: track.durationSecs ?? (lyrics ? 168 + Math.round(r() * 40) : 150 + Math.round(r() * 170)),

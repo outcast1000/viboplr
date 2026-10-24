@@ -20,7 +20,10 @@
 // Two step kinds exist only in the runner: `seekFromEnd: n` (seek to n seconds
 // before the current track's end) and `playTemp: id` (insert a library track
 // after the current one and jump to it; the runner removes it and returns to
-// the original track once the scene is done).
+// the original track once the scene is done). `click: target`, `type: {target,
+// text, replace?, charMs?}` and `key: "Mod+K"` are the control API's generic
+// input (`POST /v1/ui/input`, the "Click and type" permission); the runner is
+// `captureRunner.mjs`.
 
 /** Where each scene's media goes on the site, for the end-of-run report. */
 /** The mini player's layouts and width presets, smallest first (the app's own

@@ -15,7 +15,7 @@ import {
 // @ts-expect-error — plain .mjs dev script, no type declarations
 import { encodePng, paint } from "../../scripts/lib/demoArt.mjs";
 
-type T = { artist: string; album: string; title: string; durationSecs: number; dir: string; file: string; lyrics: unknown; art: boolean };
+type T = { artist: string; albumArtist: string | null; album: string; title: string; durationSecs: number; dir: string; file: string; lyrics: unknown; art: boolean };
 const tracks: T[] = catalogTracks();
 const has = (artist: string, title: string) => tracks.some((t) => t.artist === artist && t.title === title);
 
@@ -27,14 +27,32 @@ describe("demo catalogue", () => {
     expect(canonicalName("Une Année Sans Lumière")).toBe("une annee sans lumiere");
   });
 
-  it("puts lyrics and folder art only on the invented album", () => {
+  it("puts lyrics and folder art only on the invented albums", () => {
     // Real songs' lyrics are copyrighted; real covers come from the app's
-    // own image providers.
+    // own image providers. The invented titles are Glass Harbour's album and
+    // the compilation.
     for (const t of tracks) {
       if (t.lyrics) expect(t.artist).toBe(SHOWCASE.lyrics.artist);
-      if (t.art) expect(t.artist).toBe(SHOWCASE.lyrics.artist);
+      if (t.art) expect(t.artist === SHOWCASE.lyrics.artist || t.album === SHOWCASE.compilation.title).toBe(true);
     }
     expect(tracks.filter((t) => t.art).length).toBeGreaterThan(0);
+  });
+
+  it("ships the compilation mis-tagged: one title, many performers, no album artist", () => {
+    const comp = tracks.filter((t) => t.album === SHOWCASE.compilation.title);
+    expect(comp.length).toBeGreaterThanOrEqual(10);
+    expect(new Set(comp.map((t) => t.artist)).size).toBe(comp.length);
+    for (const t of comp) {
+      expect(t.albumArtist).toBeNull();
+      expect(ARTISTS).toContain(t.artist);
+      expect(t.dir.startsWith(`${SHOWCASE.compilation.albumArtist}/`)).toBe(true);
+    }
+    // Every other album files under its own artist.
+    expect(tracks.filter((t) => t.album !== SHOWCASE.compilation.title).every((t) => t.albumArtist === t.artist)).toBe(true);
+    expect(ARTISTS).not.toContain(SHOWCASE.compilation.albumArtist);
+    // The showcase's by-name lookups must not land on a compilation copy.
+    expect(comp.some((t) => t.title === SHOWCASE.detailTrack.title && t.artist === SHOWCASE.detailTrack.artist)).toBe(false);
+    expect(comp.some((t) => t.title === SHOWCASE.radioSeed.title && t.artist === SHOWCASE.radioSeed.artist)).toBe(false);
   });
 
   it("has unique files and a showcase that points at real tracks", () => {
