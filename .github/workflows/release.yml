@@ -73,16 +73,29 @@ jobs:
           # skips prereleases, so branch/test builds can never reach real users.
           PRERELEASE=false
           if [[ "$TAG" == *-* ]]; then PRERELEASE=true; fi
-          gh release create "$TAG" \
-            --title "Vibo $TAG" \
-            --notes-file /tmp/release-body.md \
-            --draft \
-            --prerelease=$PRERELEASE \
-            || echo "Release already exists"
+          # Reuse before creating: GitHub allows any number of DRAFTS per tag,
+          # so creating on a re-run doesn't fail, it makes a second draft — and
+          # beta.9's re-run split its assets across two (macOS in one, Windows
+          # in the other). A published release for the tag wins over a draft.
           # A draft can't be fetched by tag, only found in the list.
           ID=$(gh api "repos/$GITHUB_REPOSITORY/releases" --paginate \
-            --jq ".[] | select(.tag_name == \"$TAG\") | .id" | head -n1)
-          if [ -z "$ID" ]; then echo "::error::No release found for $TAG"; exit 1; fi
+            --jq ".[] | select(.tag_name == \"$TAG\") | \"\(.draft) \(.id)\"" \
+            | sort | head -n1 | cut -d' ' -f2)
+          if [ -n "$ID" ]; then
+            echo "Reusing release $ID for $TAG"
+          else
+            # Create through the API so the response carries the id: looking a
+            # just-made draft up in the list raced the list's catch-up (beta.9's
+            # first run: "No release found" a second after creating it).
+            ID=$(gh api -X POST "repos/$GITHUB_REPOSITORY/releases" \
+              -f tag_name="$TAG" \
+              -f name="Vibo $TAG" \
+              -F body=@/tmp/release-body.md \
+              -F draft=true \
+              -F prerelease=$PRERELEASE \
+              --jq '.id')
+            echo "Created draft release $ID"
+          fi
           echo "id=$ID" >> "$GITHUB_OUTPUT"
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -181,10 +194,13 @@ jobs:
           tagName: ${{ needs.prepare.outputs.tag }}
           releaseName: 'Vibo ${{ needs.prepare.outputs.tag }}'
           releaseBody: ''
-          # Upload into prepare's draft. tauri-action finds a draft by tag in
-          # the release list, and with tagName set it rewrites the draft's
-          # `untagged-…` asset URLs in latest.json to /download/<tag>/, so the
-          # updater manifest stays valid once `publish` flips the draft.
+          # Upload into exactly prepare's release. With releaseId set,
+          # tauri-action skips its own by-tag lookup — which, with two drafts
+          # for one tag, let the two platforms pick different ones. tagName
+          # still matters: it rewrites the draft's `untagged-…` asset URLs in
+          # latest.json to /download/<tag>/, so the updater manifest stays
+          # valid once `publish` flips the draft.
+          releaseId: ${{ needs.prepare.outputs.release-id }}
           releaseDraft: true
           # Keep in sync with the create-release step: hyphenated tags = prerelease.
           prerelease: ${{ contains(needs.prepare.outputs.tag, '-') }}
