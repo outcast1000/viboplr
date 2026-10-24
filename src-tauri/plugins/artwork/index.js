@@ -39,21 +39,55 @@ function activate(api) {
   // filtering proxies block from a non-browser client, and archive.org serves
   // an HTML page instead of the image to it.
   var CLIENT_HEADERS = { "User-Agent": "Vibo" };
+  // The image worker resolves one entity at a time, so a source that never
+  // answers would hold up every image queued behind it.
+  var FETCH_TIMEOUT_MS = 20000;
+  // Each failure carries a `kind` — the status panel counts failures by it
+  // (see FAILURE_KINDS) — set here, where the cause is known, rather than
+  // guessed later from the message.
+  function failure(kind, message) {
+    var e = new Error(message);
+    e.kind = kind;
+    return e;
+  }
+  function httpFailureKind(status) {
+    if (status === 429) return "rate_limited";
+    if (status === 401 || status === 403 || status === 451) return "blocked";
+    if (status >= 500) return "server";
+    return "http";
+  }
   async function getJson(url) {
-    var resp = await api.network.fetch(url, { headers: CLIENT_HEADERS });
+    var resp;
+    try {
+      resp = await api.network.fetch(url, { headers: CLIENT_HEADERS, timeoutMs: FETCH_TIMEOUT_MS });
+    } catch (e) {
+      var text = errorText(e);
+      throw failure(/timed out|timeout/i.test(text) ? "timeout" : "network", text);
+    }
     if (resp.status === 404) return null;
-    if (resp.status < 200 || resp.status >= 300) throw new Error("HTTP " + resp.status + " from " + hostOf(url));
+    if (resp.status < 200 || resp.status >= 300) {
+      throw failure(httpFailureKind(resp.status), "HTTP " + resp.status + " from " + hostOf(url));
+    }
     var data;
     try {
       data = await resp.json();
     } catch (e) {
-      throw new Error(hostOf(url) + " answered with something that isn't JSON");
+      throw failure("bad_answer", hostOf(url) + " answered with something that isn't JSON");
     }
-    // Deezer reports quota and service errors inside a 200.
+    // Deezer reports quota and service errors inside a 200; code 4 is its
+    // "Quota limit exceeded".
     if (data && data.error && typeof data.error === "object") {
-      throw new Error(hostOf(url) + ": " + (data.error.message || data.error.type || "error"));
+      throw failure(data.error.code === 4 ? "rate_limited" : "server",
+        hostOf(url) + ": " + (data.error.message || data.error.type || "error"));
     }
     return data;
+  }
+  // A hit the source returned but we threw away (the wrong artist, a fuzzy
+  // MusicBrainz match). Still "not found" to the host, so the chain moves on;
+  // `rejected` is for the status panel only and is stripped before the answer
+  // leaves the plugin.
+  function rejected(reason, got) {
+    return { status: "not_found", rejected: { reason: reason, got: got == null ? null : String(got) } };
   }
   function hostOf(url) {
     var m = /^https?:\/\/([^/]+)/.exec(url);
@@ -67,6 +101,7 @@ function activate(api) {
     handlers[provider + ":" + entity] = handler;
     api.imageProviders.onFetch(entity, function (name, artistName) {
       return Promise.resolve(track(provider, entity, name, artistName, false)).then(function (result) {
+        if (result && result.rejected) return { status: "not_found" };
         if (result && result.status === "ok" && result.url && !result.headers) {
           return Object.assign({}, result, { headers: CLIENT_HEADERS });
         }
@@ -88,7 +123,7 @@ function activate(api) {
     if (!artist || !artist.strArtistThumb) return { status: "not_found" };
     // Guard against a wrong first result by confirming the returned artist name
     // matches the query (normalized), so the chain can continue on a mismatch.
-    if (!nameMatches(name, artist.strArtist)) return { status: "not_found" };
+    if (!nameMatches(name, artist.strArtist)) return rejected("name", artist.strArtist);
     return { status: "ok", url: artist.strArtistThumb };
   });
 
@@ -115,7 +150,7 @@ function activate(api) {
     // Deezer searches blindly with limit=1, so a wrong-but-popular artist can be
     // returned (e.g. "Girls" -> Spice Girls). Reject mismatches so the chain
     // continues to another provider instead of caching a wrong image.
-    if (!nameMatches(name, hit.name)) return { status: "not_found" };
+    if (!nameMatches(name, hit.name)) return rejected("name", hit.name);
     return { status: "ok", url: hit.picture_xl };
   });
 
@@ -131,7 +166,7 @@ function activate(api) {
     // varies across reissues ("4" -> "4 (Expanded Edition)"), so matching the
     // title strictly would reject correct deluxe/remastered covers.
     var hitArtist = hit.artist && hit.artist.name;
-    if (artistName && !nameMatches(artistName, hitArtist)) return { status: "not_found" };
+    if (artistName && !nameMatches(artistName, hitArtist)) return rejected("artist", hitArtist);
     return { status: "ok", url: hit.cover_xl };
   });
 
@@ -150,7 +185,7 @@ function activate(api) {
     // (e.g. "Women" by Women -> a Chris Crack album), but the title legitimately
     // varies across reissues ("Homogenic" -> "Homogenic Live"), so matching the
     // title strictly would reject correct deluxe/live/remastered covers.
-    if (artistName && !nameMatches(artistName, result.artistName)) return { status: "not_found" };
+    if (artistName && !nameMatches(artistName, result.artistName)) return rejected("artist", result.artistName);
     return { status: "ok", url: result.artworkUrl100.replace("100x100", "600x600") };
   });
 
@@ -189,11 +224,11 @@ function activate(api) {
     if (!artists || artists.length === 0) return { status: "not_found" };
 
     var artist = artists[0];
-    if (!artist.score || artist.score < 80) return { status: "not_found" };
+    if (!artist.score || artist.score < 80) return rejected("score", artist.name);
     // The score gate still lets fuzzy matches through (e.g. "Bush" -> Kate Bush,
     // "Wolf Alice" -> Alice Cooper). Require a normalized name match so the chain
     // continues instead of fetching a confidently-wrong image.
-    if (!nameMatches(name, artist.name)) return { status: "not_found" };
+    if (!nameMatches(name, artist.name)) return rejected("name", artist.name);
 
     var mbid = artist.id;
     if (!mbid) return { status: "not_found" };
@@ -234,7 +269,7 @@ function activate(api) {
     if (!groups || groups.length === 0) return { status: "not_found" };
 
     var group = groups[0];
-    if (!group.score || group.score < 80) return { status: "not_found" };
+    if (!group.score || group.score < 80) return rejected("score", group.title);
 
     var mbid = group.id;
     if (!mbid) return { status: "not_found" };
@@ -250,8 +285,9 @@ function activate(api) {
 
   // ── Status panel: what works, what fails ────────────────────────────
   //
-  // Counts every answer each source gives (found / nothing found / failed)
-  // with the last failure's reason, keeps the latest lookups, and can test
+  // Counts every answer each source gives (found / nothing found / rejected —
+  // a hit thrown away by the name or score gate / failed, by kind of failure)
+  // with the last rejection and failure, keeps the latest lookups, and can test
   // every source against a well-known artist and album on demand — the test
   // is what tells "the network blocks Deezer" apart from "Deezer has no photo
   // of this obscure band". Kept in plugin storage so it survives a restart.
@@ -269,8 +305,48 @@ function activate(api) {
   var PANEL = "artwork-status";
   var STORAGE_KEY = "status";
   var RECENT_MAX = 25;
+  // In display order. `kind` is set where the failure is thrown (getJson);
+  // anything else a handler throws is "other".
+  var FAILURE_KINDS = [
+    { id: "rate_limited", label: "rate limited" },
+    { id: "blocked", label: "blocked" },
+    { id: "server", label: "server error" },
+    { id: "http", label: "other HTTP error" },
+    { id: "timeout", label: "timed out" },
+    { id: "network", label: "network error" },
+    { id: "bad_answer", label: "unreadable answer" },
+    { id: "other", label: "other" },
+  ];
+  var REJECT_REASONS = {
+    name: "name didn't match",
+    artist: "artist didn't match",
+    score: "MusicBrainz score under 80",
+  };
 
-  var status = { since: Date.now(), counts: {}, recent: [] };
+  function emptyStatus() {
+    return { since: Date.now(), counts: {}, recent: [] };
+  }
+  // Every field a count carries; a count saved by an older version lacks the
+  // newer ones, so reading goes through here and they read as zero.
+  function emptyCount() {
+    return { ok: 0, notFound: 0, rejected: 0, error: 0, failures: {}, rejections: {}, last: null, lastError: null, lastRejected: null };
+  }
+  function countFor(key) {
+    var c = status.counts[key];
+    if (!c) return (status.counts[key] = emptyCount());
+    var blank = emptyCount();
+    Object.keys(blank).forEach(function (k) {
+      if (c[k] === undefined) c[k] = blank[k];
+    });
+    return c;
+  }
+  function addTallies(into, from) {
+    Object.keys(from || {}).forEach(function (k) {
+      into[k] = (into[k] || 0) + (from[k] || 0);
+    });
+  }
+
+  var status = emptyStatus();
   var testState = { running: false, at: null, results: {} };
 
   function sourceName(id) {
@@ -299,11 +375,13 @@ function activate(api) {
     try {
       var result = await handlers[provider + ":" + entity](name, artistName);
       outcome = { status: result && result.status === "ok" ? "ok" : result && result.status === "error" ? "error" : "not_found",
-                  message: result && result.message, url: result && result.status === "ok" && !result.headers ? result.url : null };
+                  message: result && result.message, url: result && result.status === "ok" && !result.headers ? result.url : null,
+                  kind: result && result.status === "error" ? "other" : null,
+                  rejected: (result && result.rejected) || null };
       record(provider, entity, name, artistName, outcome, Date.now() - started, isTest);
       return result;
     } catch (e) {
-      outcome = { status: "error", message: errorText(e), url: null };
+      outcome = { status: "error", message: errorText(e), url: null, kind: (e && e.kind) || "other", rejected: null };
       record(provider, entity, name, artistName, outcome, Date.now() - started, isTest);
       api.log("warn", sourceName(provider) + " " + entity + " lookup for " + describeItem(entity, name, artistName) + " failed: " + outcome.message);
       throw e;
@@ -313,16 +391,27 @@ function activate(api) {
   function record(provider, entity, name, artistName, outcome, ms, isTest) {
     var key = provider + ":" + entity;
     var entry = { provider: provider, entity: entity, name: name, artistName: artistName || null,
-                  status: outcome.status, message: outcome.message || null, url: outcome.url, ms: ms, at: Date.now(), test: !!isTest };
+                  status: outcome.status, message: outcome.message || null, url: outcome.url, ms: ms, at: Date.now(), test: !!isTest,
+                  kind: outcome.kind || null, rejected: outcome.rejected || null };
     if (isTest) {
       testState.results[key] = entry;
     } else {
-      var c = status.counts[key] || (status.counts[key] = { ok: 0, notFound: 0, error: 0, last: null, lastError: null });
-      if (outcome.status === "ok") c.ok++;
-      else if (outcome.status === "error") c.error++;
-      else c.notFound++;
+      var c = countFor(key);
+      if (outcome.status === "ok") {
+        c.ok++;
+      } else if (outcome.status === "error") {
+        c.error++;
+        c.failures[entry.kind] = (c.failures[entry.kind] || 0) + 1;
+        c.lastError = entry;
+      } else if (entry.rejected) {
+        // Kept apart from notFound, which stays "the source had nothing".
+        c.rejected++;
+        c.rejections[entry.rejected.reason] = (c.rejections[entry.rejected.reason] || 0) + 1;
+        c.lastRejected = entry;
+      } else {
+        c.notFound++;
+      }
       c.last = entry;
-      if (outcome.status === "error") c.lastError = entry;
       status.recent.unshift(entry);
       if (status.recent.length > RECENT_MAX) status.recent.length = RECENT_MAX;
       schedulePersist();
@@ -372,7 +461,11 @@ function activate(api) {
         : "nothing for " + describeItem(entity, TEST_ITEMS[entity].name, TEST_ITEMS[entity].artistName)));
     }
     if (c) {
-      parts.push(c.ok + " found · " + c.notFound + " nothing · " + c.error + " failed");
+      var failed = c.error + " failed";
+      var byKind = failureBreakdown(c.failures);
+      if (byKind) failed += " (" + byKind + ")";
+      parts.push(c.ok + " found · " + c.notFound + " nothing · " + (c.rejected || 0) + " rejected · " + failed);
+      if (c.lastRejected) parts.push("last rejected " + clock(c.lastRejected.at) + ": " + describeRejection(c.lastRejected));
       if (c.lastError) parts.push("last failure " + clock(c.lastError.at) + ": " + c.lastError.message);
     } else if (!t) {
       parts.push("No lookups yet");
@@ -383,14 +476,30 @@ function activate(api) {
     return row;
   }
 
+  function failureBreakdown(failures) {
+    return FAILURE_KINDS
+      .filter(function (k) { return failures && failures[k.id] > 0; })
+      .map(function (k) { return failures[k.id] + " " + k.label; })
+      .join(", ");
+  }
+  function describeRejection(entry) {
+    var r = entry.rejected;
+    var asked = describeItem(entry.entity, entry.name, entry.artistName);
+    return asked + (r.got ? " → “" + r.got + "”" : "") + " (" + (REJECT_REASONS[r.reason] || r.reason) + ")";
+  }
+
   function recentRow(entry, i) {
-    var outcome = entry.status === "ok" ? "found" : entry.status === "error" ? "failed — " + entry.message : "nothing found";
+    var outcome = entry.status === "ok" ? "found"
+      : entry.status === "error" ? "failed — " + entry.message
+      : entry.rejected ? "rejected — " + (entry.rejected.got ? "got “" + entry.rejected.got + "”, " : "") + (REJECT_REASONS[entry.rejected.reason] || entry.rejected.reason)
+      : "nothing found";
     var row = {
       id: "recent-" + i + "-" + entry.at,
       title: sourceName(entry.provider) + " · " + describeItem(entry.entity, entry.name, entry.artistName),
       subtitle: outcome + " · " + entry.ms + " ms · " + clock(entry.at),
       badge: entry.status === "ok" ? { label: "Found", variant: "success" }
         : entry.status === "error" ? { label: "Failed", variant: "error" }
+        : entry.rejected ? { label: "Rejected", variant: "warning" }
         : { label: "Nothing", variant: "muted" },
     };
     if (entry.url) row.imageUrl = entry.url;
@@ -453,7 +562,7 @@ function activate(api) {
     runTests();
   });
   api.ui.onAction("artwork-reset", function () {
-    status = { since: Date.now(), counts: {}, recent: [] };
+    status = emptyStatus();
     testState.results = {};
     testState.at = null;
     schedulePersist();
@@ -467,13 +576,17 @@ function activate(api) {
     // image worker starts asking as soon as the plugin is up): merge, don't
     // overwrite.
     Object.keys(saved.counts).forEach(function (key) {
-      var s = saved.counts[key];
-      var c = status.counts[key];
-      if (!c) { status.counts[key] = s; return; }
+      var s = saved.counts[key] || {};
+      var c = countFor(key);
       c.ok += s.ok || 0;
       c.notFound += s.notFound || 0;
+      c.rejected += s.rejected || 0;
       c.error += s.error || 0;
+      addTallies(c.failures, s.failures);
+      addTallies(c.rejections, s.rejections);
+      if (!c.last) c.last = s.last || null;
       if (!c.lastError) c.lastError = s.lastError || null;
+      if (!c.lastRejected) c.lastRejected = s.lastRejected || null;
     });
     status.since = Math.min(status.since, saved.since || status.since);
     status.recent = status.recent.concat(Array.isArray(saved.recent) ? saved.recent : []).slice(0, RECENT_MAX);
@@ -505,6 +618,38 @@ function activate(api) {
             imageUrl: hasRealImage(url) ? url : null,
           };
         }).filter(function (c) { return c.imageUrl; }),
+      };
+    });
+
+    // The status panel's numbers, for a model asked "why is this cover
+    // missing / which source is failing". Same counts, since the last reset.
+    api.assistant.onTool("source_stats", async function () {
+      function entryOut(e) {
+        if (!e) return null;
+        return { at: new Date(e.at).toISOString(), item: e.name, artist: e.artistName,
+                 message: e.message, kind: e.kind, got: e.rejected ? e.rejected.got : null,
+                 reason: e.rejected ? e.rejected.reason : null };
+      }
+      var sources = [];
+      SOURCES.forEach(function (s) {
+        s.entities.forEach(function (entity) {
+          var key = s.id + ":" + entity;
+          var c = status.counts[key] ? countFor(key) : emptyCount();
+          var t = testState.results[key];
+          sources.push({
+            source: s.id, name: s.name, entity: entity,
+            found: c.ok, nothing: c.notFound,
+            rejected: { total: c.rejected, byReason: c.rejections, last: entryOut(c.lastRejected) },
+            failed: { total: c.error, byKind: c.failures, last: entryOut(c.lastError) },
+            lastTest: t ? { at: new Date(t.at).toISOString(), status: t.status, ms: t.ms, message: t.message } : null,
+          });
+        });
+      });
+      return {
+        since: new Date(status.since).toISOString(),
+        rejectReasons: REJECT_REASONS,
+        failureKinds: FAILURE_KINDS.map(function (k) { return k.id; }),
+        sources: sources,
       };
     });
 

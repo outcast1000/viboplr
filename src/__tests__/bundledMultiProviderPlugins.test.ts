@@ -15,6 +15,13 @@ const PLUGINS_DIR = join(__dirname, "../../src-tauri/plugins");
 
 type Handler = (...args: unknown[]) => Promise<unknown>;
 type Row = { id: string; title: string; subtitle?: string; badge?: { label: string; variant?: string } };
+type SourceStats = {
+  source: string;
+  entity: string;
+  nothing: number;
+  rejected: { total: number; byReason: Record<string, number>; last: { got: string | null } | null };
+  failed: { total: number; byKind: Record<string, number> };
+};
 type ViewNode = { type: string; items?: Row[]; children?: ViewNode[] };
 
 function load(id: string, fetch: (url: string) => Promise<unknown>) {
@@ -24,6 +31,7 @@ function load(id: string, fetch: (url: string) => Promise<unknown>) {
   const images: string[] = [];
   const info: string[] = [];
   const tools: string[] = [];
+  const toolHandlers = new Map<string, Handler>();
   const actions = new Map<string, () => void>();
   const views = new Map<string, ViewNode>();
   const logs: string[] = [];
@@ -40,7 +48,7 @@ function load(id: string, fetch: (url: string) => Promise<unknown>) {
         handlers.set(handlerKey(typeId, opts?.provider), h);
       },
     },
-    assistant: { onTool: (name: string) => { tools.push(name); } },
+    assistant: { onTool: (name: string, h: Handler) => { tools.push(name); toolHandlers.set(name, h); } },
     network: { fetch },
     ui: {
       setViewData: (viewId: string, data: ViewNode) => { views.set(viewId, data); },
@@ -52,7 +60,7 @@ function load(id: string, fetch: (url: string) => Promise<unknown>) {
   const factory = new Function("api", "window", "globalThis", "self", "document", code);
   const exports = factory(api, globalThis, globalThis, globalThis, undefined) as { activate: (a: unknown) => void };
   exports.activate(api);
-  return { manifest, images, info, tools, handlers, actions, views, logs };
+  return { manifest, images, info, tools, toolHandlers, handlers, actions, views, logs };
 }
 
 const noNetwork = () => Promise.reject(new Error("no network in tests"));
@@ -106,6 +114,41 @@ describe("status panels", () => {
     expect(deezer.subtitle).toContain("HTTP 403 from api.deezer.com");
     expect(rows.find((r) => r.id === "audiodb:artist")!.badge?.label).toBe("Working");
     expect(p.logs.some((l) => l.includes("Deezer") && l.includes("HTTP 403"))).toBe(true);
+  });
+
+  it("Artwork counts a hit thrown away by the name gate as rejected, not nothing, and hides it from the host", async () => {
+    const p = load("artwork", () =>
+      Promise.resolve({ status: 200, json: () => Promise.resolve({ data: [{ name: "Spice Girls", picture_xl: "https://e-cdns-images.dzcdn.net/images/artist/abc123/1000x1000.jpg" }] }) }),
+    );
+    const answer = await p.handlers.get(handlerKey("artist", "deezer"))!("Girls");
+    expect(answer).toEqual({ status: "not_found" });
+    await vi.advanceTimersByTimeAsync(1100);
+
+    const deezer = sourceRows(p.views.get("artwork-status")).find((r) => r.id === "deezer:artist")!;
+    expect(deezer.subtitle).toContain("0 nothing · 1 rejected");
+    expect(deezer.subtitle).toContain("“Spice Girls”");
+    const stats = (await p.toolHandlers.get("source_stats")!({})) as { sources: SourceStats[] };
+    const row = stats.sources.find((s) => s.source === "deezer" && s.entity === "artist")!;
+    expect(row.nothing).toBe(0);
+    expect(row.rejected).toMatchObject({ total: 1, byReason: { name: 1 }, last: { got: "Spice Girls" } });
+  });
+
+  it("Artwork counts failures by kind", async () => {
+    const p = load("artwork", (url) =>
+      url.includes("deezer")
+        ? Promise.resolve({ status: 429, json: () => Promise.resolve({}) })
+        : Promise.reject(new Error("error sending request: operation timed out")),
+    );
+    await expect(p.handlers.get(handlerKey("artist", "deezer"))!("Björk")).rejects.toThrow("HTTP 429");
+    await expect(p.handlers.get(handlerKey("album", "itunes"))!("Homogenic", "Björk")).rejects.toThrow("timed out");
+    await vi.advanceTimersByTimeAsync(1100);
+
+    const rows = sourceRows(p.views.get("artwork-status"));
+    expect(rows.find((r) => r.id === "deezer:artist")!.subtitle).toContain("1 failed (1 rate limited)");
+    expect(rows.find((r) => r.id === "itunes:album")!.subtitle).toContain("1 failed (1 timed out)");
+    const stats = (await p.toolHandlers.get("source_stats")!({})) as { sources: SourceStats[] };
+    expect(stats.sources.find((s) => s.source === "deezer" && s.entity === "artist")!.failed).toMatchObject({ total: 1, byKind: { rate_limited: 1 } });
+    expect(stats.sources.find((s) => s.source === "itunes")!.failed).toMatchObject({ total: 1, byKind: { timeout: 1 } });
   });
 
   it("Lyrics turns a failure into an error answer the chain moves past, and reports it", async () => {
