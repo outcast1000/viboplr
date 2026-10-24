@@ -32,6 +32,10 @@ export interface InfoEntity {
    *  core local-lyrics provider. Not part of the entity key — a purely
    *  advisory extra that plugin handlers may ignore. */
   path?: string;
+  /** Track length in seconds (tracks only), when known. Advisory like `path`:
+   *  not part of the entity key, absent for most callers — a provider that
+   *  can match on length (LRCLIB) uses it, everyone else ignores it. */
+  durationSecs?: number;
 }
 
 /** Result returned by plugin onFetch handlers */

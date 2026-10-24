@@ -171,9 +171,157 @@ describe("status panels", () => {
     });
     p.actions.get("lyrics-test")!();
     await vi.runAllTimersAsync();
-    expect(asked).toHaveLength(2);
+    // LRCLIB's exact lookup misses, so it also searches; then Lyrics.ovh.
+    expect(asked).toHaveLength(3);
     expect(asked.every((u) => u.includes("Radiohead"))).toBe(true);
     const rows = sourceRows(p.views.get("lyrics-status"));
     expect(rows.map((r) => r.badge?.label)).toEqual(["No match", "No match"]);
+  });
+});
+
+describe("LRCLIB lookup", () => {
+  beforeEach(() => { vi.useFakeTimers(); });
+  afterEach(() => { vi.useRealTimers(); });
+
+  type Row = { trackName: string; artistName: string; duration?: number; syncedLyrics?: string | null; plainLyrics?: string | null; instrumental?: boolean };
+  const ok = (body: unknown) => Promise.resolve({ status: 200, json: () => Promise.resolve(body) });
+  const notFound = () => Promise.resolve({ status: 404, json: () => Promise.resolve({}) });
+
+  /** Exact `get` answers `exact` (null = 404); `search` answers `rows` ("error" = HTTP 500). */
+  function lrclib(exact: Row | null, rows: Row[] | "error") {
+    const asked: string[] = [];
+    const p = load("lyrics", (url) => {
+      asked.push(url);
+      if (url.includes("/api/get")) return exact ? ok(exact) : notFound();
+      if (url.includes("/api/search")) {
+        return rows === "error" ? Promise.resolve({ status: 500, json: () => Promise.resolve({}) }) : ok(rows);
+      }
+      return notFound();
+    });
+    const fetch = (entity: Record<string, unknown>) =>
+      p.handlers.get(handlerKey("lyrics", "lrclib"))!({ kind: "track", id: 0, ...entity }) as Promise<{ status: string; value?: { text: string; kind: string } }>;
+    return { p, asked, fetch };
+  }
+
+  it("sends the song's length, to a tenth of a second, when it is known", async () => {
+    const { asked, fetch } = lrclib({ trackName: "Song", artistName: "Band", syncedLyrics: "[00:01.00] hi" }, []);
+    const answer = await fetch({ name: "Song", artistName: "Band", durationSecs: 241.6 });
+    expect(asked[0]).toContain("&duration=241.6");
+    expect(answer).toEqual({ status: "ok", value: expect.objectContaining({ kind: "synced" }) });
+    expect(asked).toHaveLength(1);
+  });
+
+  it("sends no length when it isn't known", async () => {
+    const { asked, fetch } = lrclib({ trackName: "Song", artistName: "Band", plainLyrics: "words" }, []);
+    await fetch({ name: "Song", artistName: "Band" });
+    expect(asked[0]).not.toContain("duration=");
+  });
+
+  it("hands the host only status and value", async () => {
+    const { fetch } = lrclib(null, [{ trackName: "Song", artistName: "Band", duration: 200, plainLyrics: "words" }]);
+    const answer = await fetch({ name: "Song", artistName: "Band", durationSecs: 200 });
+    expect(Object.keys(answer).sort()).toEqual(["status", "value"]);
+  });
+
+  it("falls back to a search and takes the same song within the length window, synced first", async () => {
+    const { asked, fetch } = lrclib(null, [
+      { trackName: "Song (Remastered 2011)", artistName: "Band", duration: 201, plainLyrics: "plain" },
+      { trackName: "Song", artistName: "Band", duration: 199, syncedLyrics: "[00:01.00] synced" },
+      { trackName: "Song", artistName: "Band", duration: 260, syncedLyrics: "[00:01.00] long cut" },
+    ]);
+    const answer = await fetch({ name: "Song", artistName: "Band", durationSecs: 200 });
+    expect(asked[1]).toContain("/api/search?track_name=Song&artist_name=Band");
+    expect(answer.value).toMatchObject({ kind: "synced", text: "[00:01.00] synced" });
+  });
+
+  it("refuses a search row with a different title, another artist or the wrong length", async () => {
+    const { fetch } = lrclib(null, [
+      { trackName: "Song Two", artistName: "Band", duration: 200, syncedLyrics: "x" },
+      { trackName: "Song", artistName: "Other Band Entirely", duration: 200, syncedLyrics: "x" },
+      { trackName: "Song", artistName: "Band", duration: 230, syncedLyrics: "x" },
+      { trackName: "Song", artistName: "Band", duration: 200, instrumental: true },
+    ]);
+    expect(await fetch({ name: "Song", artistName: "Band", durationSecs: 200 })).toEqual({ status: "not_found" });
+  });
+
+  it("searches for the title without its decorations", async () => {
+    const { asked, fetch } = lrclib(null, [{ trackName: "Song", artistName: "Band", duration: 200, syncedLyrics: "x" }]);
+    const answer = await fetch({ name: "Song (Remastered 2011) - Single Version", artistName: "Band", durationSecs: 200 });
+    expect(asked[0]).toContain("track_name=Song%20(Remastered%202011)%20-%20Single%20Version");
+    expect(asked[1]).toContain("/api/search?track_name=Song&artist_name=Band");
+    expect(answer.status).toBe("ok");
+  });
+
+  it("accepts our artist inside a collaboration credit", async () => {
+    const { fetch } = lrclib(null, [{ trackName: "Song", artistName: "Band & Guest", duration: 200, plainLyrics: "words" }]);
+    expect((await fetch({ name: "Song", artistName: "Band", durationSecs: 200 })).status).toBe("ok");
+  });
+
+  it("matches across accents, case and decorations", async () => {
+    const { fetch } = lrclib(null, [{ trackName: "jóga", artistName: "Björk", duration: 305, plainLyrics: "words" }]);
+    const answer = await fetch({ name: "Joga (Live) - 2002 Remaster", artistName: "BJORK", durationSecs: 304 });
+    expect(answer.status).toBe("ok");
+  });
+
+  it("doesn't search after an exact hit flagged instrumental", async () => {
+    const { asked, fetch } = lrclib({ trackName: "Song", artistName: "Band", instrumental: true }, [
+      { trackName: "Song", artistName: "Band", duration: 200, syncedLyrics: "x" },
+    ]);
+    expect(await fetch({ name: "Song", artistName: "Band", durationSecs: 200 })).toEqual({ status: "not_found" });
+    expect(asked).toHaveLength(1);
+  });
+
+  it("searches when the exact hit has no lyrics and isn't instrumental", async () => {
+    // LRCLIB's get returns the oldest matching row, which may have no lyrics.
+    const { asked, fetch } = lrclib({ trackName: "Song", artistName: "Band", syncedLyrics: null, plainLyrics: null }, [
+      { trackName: "Song", artistName: "Band", duration: 200, syncedLyrics: "[00:01.00] found" },
+    ]);
+    const answer = await fetch({ name: "Song", artistName: "Band", durationSecs: 200 });
+    expect(asked).toHaveLength(2);
+    expect(answer.value).toMatchObject({ kind: "synced", text: "[00:01.00] found" });
+  });
+
+  it("without a known length, takes only the words of a search hit", async () => {
+    const { fetch } = lrclib(null, [{ trackName: "Song (Live)", artistName: "Band", duration: 260, syncedLyrics: "[00:01.00] a", plainLyrics: "a" }]);
+    expect((await fetch({ name: "Song", artistName: "Band" })).value).toMatchObject({ kind: "plain", text: "a" });
+  });
+
+  it("without a known length, strips the timing off a synced-only search hit", async () => {
+    const { fetch } = lrclib(null, [{ trackName: "Song", artistName: "Band", duration: 200, syncedLyrics: "[00:01.00] one\n[00:02.50][00:09.00] two\n", plainLyrics: null }]);
+    const answer = await fetch({ name: "Song", artistName: "Band" });
+    expect(answer.value).toMatchObject({ kind: "plain" });
+    expect(answer.value!.text.trim()).toBe("one\ntwo");
+  });
+
+  it("prefers the row carrying our title as written over a closer length", async () => {
+    const { fetch } = lrclib(null, [
+      { trackName: "Song", artistName: "Band", duration: 200, syncedLyrics: "[00:01.00] studio" },
+      { trackName: "Song (Live)", artistName: "Band", duration: 201.5, syncedLyrics: "[00:01.00] live" },
+    ]);
+    expect((await fetch({ name: "Song (Live)", artistName: "Band", durationSecs: 200 })).value).toMatchObject({ text: "[00:01.00] live" });
+  });
+
+  it("counts a failed search as a search, and says the search failed", async () => {
+    const { p, fetch } = lrclib(null, "error");
+    const answer = await fetch({ name: "Song", artistName: "Band", durationSecs: 200 });
+    expect(answer.status).toBe("error");
+    await vi.runAllTimersAsync();
+    const view = p.views.get("lyrics-status");
+    expect(sourceRows(view).find((r) => r.id === "lrclib")!.subtitle).toContain("1 searched after no exact match, 0 found that way");
+    const recent = view?.children?.find((n) => n.type === "section")?.children?.[0]?.items ?? [];
+    expect(recent[0].subtitle).toContain("search failed — HTTP 500 from lrclib.net");
+  });
+
+  it("counts lookups with a length, searches, and finds by search on the status panel", async () => {
+    const { p, fetch } = lrclib(null, [{ trackName: "Song", artistName: "Band", duration: 200, syncedLyrics: "x" }]);
+    await fetch({ name: "Song", artistName: "Band", durationSecs: 200 });
+    await fetch({ name: "Missing", artistName: "Band" });
+    await vi.runAllTimersAsync();
+    const view = p.views.get("lyrics-status");
+    const lrclibRow = sourceRows(view).find((r) => r.id === "lrclib")!;
+    expect(lrclibRow.subtitle).toContain("1 of 2 with the song's length");
+    expect(lrclibRow.subtitle).toContain("2 searched after no exact match, 1 found that way");
+    const recent = view?.children?.find((n) => n.type === "section")?.children?.[0]?.items ?? [];
+    expect(recent.some((r) => r.subtitle?.includes("via search, as “Song” – Band"))).toBe(true);
   });
 });

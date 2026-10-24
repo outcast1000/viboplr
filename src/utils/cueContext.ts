@@ -278,7 +278,7 @@ export async function gatherCueContext(opts: GatherOpts): Promise<CueContext> {
   const albumArtistName = track.album_artist_name ?? artistName;
 
   const songBase = { kind: "track" as const, name: title, artistName: artistName ?? undefined, albumTitle: albumTitle ?? undefined };
-  const songEntity: InfoEntity = { ...songBase, id: await resolveInfoEntityId(songBase), path: track.path ?? undefined };
+  const songEntity: InfoEntity = { ...songBase, id: await resolveInfoEntityId(songBase), path: track.path ?? undefined, durationSecs: track.duration_secs ?? undefined };
   const artistEntity: InfoEntity | null = artistName
     ? { kind: "artist", name: artistName, id: await resolveInfoEntityId({ kind: "artist", name: artistName }) }
     : null;

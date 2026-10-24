@@ -47,8 +47,9 @@ export function useLyrics({ track, enabled = true, invokeInfoFetch, pluginNames 
       // isn't a library row can't be found by the metadata lookup, but its
       // own file can still be probed for embedded/sidecar lyrics.
       path: track.path ?? undefined,
+      durationSecs: track.duration_secs ?? undefined,
     };
-  }, [enabled, track?.title, track?.artist_name, track?.album_title, track?.path]);
+  }, [enabled, track?.title, track?.artist_name, track?.album_title, track?.path, track?.duration_secs]);
 
   const { sections } = useInformationTypes({
     entity,
