@@ -2125,3 +2125,43 @@
   color: var(--text-secondary);
   font-size: var(--fs-sm);
 }
+
+/* Control-API cursor (utils/uiCursor.ts): where the assistant — or a capture
+   script — is clicking. Synthetic input has no pointer of its own. Above
+   modals (2000) and toasts; never takes the pointer. The glide duration is set
+   inline per move (the caller's moveMs), hence no duration token here. */
+.ui-cursor {
+  position: fixed;
+  left: 0;
+  top: 0;
+  z-index: 10001;
+  pointer-events: none;
+  opacity: 0;
+  transition-property: transform, opacity;
+  transition-timing-function: var(--ease-out-quart);
+  will-change: transform;
+}
+.ui-cursor--shown { opacity: 1; }
+.ui-cursor svg { display: block; position: relative; }
+.ui-cursor-arrow {
+  fill: var(--text-primary);
+  stroke: var(--bg-primary);
+  stroke-width: 1.5;
+  stroke-linejoin: round;
+}
+.ui-cursor-ripple {
+  position: absolute;
+  left: -14px;
+  top: -14px;
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  border: 2px solid var(--accent);
+  opacity: 0;
+  transform: scale(0.3);
+}
+.ui-cursor-ripple--on { animation: ui-cursor-ripple var(--dur-slower) var(--ease-out-quart) 1; }
+@keyframes ui-cursor-ripple {
+  0% { opacity: 0.9; transform: scale(0.3); }
+  100% { opacity: 0; transform: scale(1.4); }
+}

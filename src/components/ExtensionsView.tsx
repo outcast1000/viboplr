@@ -1242,7 +1242,10 @@ export default function ExtensionsView(props: ExtensionsViewProps) {
   };
 
   return (
-    <div className="extensions-view" style={style}>
+    // Protected from the control API's generic input (uiInput.ts): installing
+    // or enabling an extension grants it everything the app can do, so only
+    // the user's own click may do it.
+    <div className="extensions-view" style={style} data-ui-input-protected="">
       <div className="ext-topbar">
         <input
           className="ds-search"

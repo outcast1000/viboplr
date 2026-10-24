@@ -474,6 +474,13 @@ pub(crate) fn build_router(state: ServerState) -> Router {
         .route("/v1/ui", get(|s| handle_bridge_get(s, "ui.get")))
         .route("/v1/ui/navigate", post(|s, b| handle_bridge_body(s, "ui.navigate", json!({}), b)))
         .route("/v1/ui/action", post(|s, b| handle_bridge_body(s, "ui.action", json!({}), b)))
+        // Generic input — click / type / key on any element — is NOT one of
+        // the harmless verbs above: through it the assistant can do whatever a
+        // person can do by clicking, so it needs the "Click and type" scope.
+        // `query` only reports where elements are (a read, no scope). See
+        // `handle_ui_input` and `src/utils/uiInput.ts`.
+        .route("/v1/ui/query", post(|s, b| handle_bridge_body(s, "ui.query", json!({}), b)))
+        .route("/v1/ui/input", post(handle_ui_input))
         // GET serves the cached entity image's bytes; POST (bridged) asks the
         // image worker to resolve one through the provider chain.
         .route("/v1/images/{kind}", get(handle_image).post(handle_image_fetch))
@@ -1667,6 +1674,63 @@ async fn handle_plugin_deep_link(
     handle_extension_bridge(state, path, "plugins.deepLink", body).await
 }
 
+// --- Generic UI input (scope-gated) ---
+
+/// Click, type or press a key in the app's own window. Scope-gated here; the
+/// webview additionally refuses targets inside the AI control settings, the
+/// Extensions view and the consent dialogs, so the switch can't grant itself
+/// more. Nothing downstream of a synthetic click logs (a Save in Bulk Edit
+/// goes through the UI, not a write route), so each applied input is the
+/// change log's entry. Slow bridge: the cursor glides to the target and
+/// typing is paced per character.
+async fn handle_ui_input(state: AxumState<ServerState>, body: Bytes) -> Response {
+    if let Err(resp) = check_scope(&state.0, Scope::UiInput) {
+        return resp;
+    }
+    let payload = match parse_body(json!({}), &body) {
+        Ok(payload) => payload,
+        Err(e) => return error_response(StatusCode::BAD_REQUEST, e),
+    };
+    let summary = ui_input_summary(&payload);
+    let timeout = state.0.bridge_timeout.saturating_mul(3);
+    match bridge_value(&state.0, "ui.input", payload, timeout).await {
+        Ok(result) => {
+            assistant_write::log_change("ui.input", &summary, &[]);
+            axum::Json(result).into_response()
+        }
+        Err(resp) => resp,
+    }
+}
+
+/// One line for the change log: the input kind, its target and (cut short)
+/// what was typed or pressed. The body is the caller's, so it is rebuilt from
+/// known fields rather than echoed.
+fn ui_input_summary(payload: &Value) -> String {
+    let short = |s: &str| -> String {
+        let cut: String = s.chars().take(80).collect();
+        if s.chars().count() > 80 { format!("{}…", cut) } else { cut }
+    };
+    let kind = payload["kind"].as_str().unwrap_or("?");
+    let target = &payload["target"];
+    let mut parts = vec![short(kind)];
+    if let Some(id) = target["testId"].as_str() {
+        parts.push(format!("testId={}", short(id)));
+    }
+    if let Some(role) = target["role"].as_str() {
+        parts.push(format!("role={}", short(role)));
+    }
+    if let Some(name) = target["name"].as_str() {
+        parts.push(format!("\"{}\"", short(name)));
+    }
+    if let Some(text) = payload["text"].as_str() {
+        parts.push(format!("text=\"{}\"", short(text)));
+    }
+    if let Some(keys) = payload["keys"].as_str() {
+        parts.push(format!("keys={}", short(keys)));
+    }
+    parts.join(" ")
+}
+
 /// Whether the roster (`assistant.tools` — `{ plugins: [{ pluginId, tools:
 /// [{ name, readOnly }] }] }`) lists this tool, and if so whether it is
 /// declared read-only. `None` = not listed.
@@ -2667,7 +2731,7 @@ mod tests {
     async fn test_plugin_action_routes_are_403_without_the_scope() {
         let dir = tempfile::tempdir().unwrap();
         // Every other scope on: none of them stands in for Plugin actions.
-        grant_scopes(dir.path(), WriteScopes { modify_tags: true, manage_files: true, downloads: true, plugin_actions: false, delete_tracks: false });
+        grant_scopes(dir.path(), WriteScopes { modify_tags: true, manage_files: true, downloads: true, plugin_actions: false, delete_tracks: false, ui_input: true });
         let router = build_router(test_state_in(noop_emit(), dir.path().to_path_buf()));
         for (path, body) in [
             ("/v1/actions/invoke", r#"{"actionId":"watch","kind":"track","title":"a"}"#),
@@ -2678,6 +2742,58 @@ mod tests {
             let json = body_json(res).await;
             assert!(json["error"].as_str().unwrap().contains("Plugin actions"));
         }
+    }
+
+    /// Generic input is gated on its own scope — every other one on doesn't
+    /// unlock it — while `ui.query` (positions only) stays open.
+    #[tokio::test]
+    async fn test_ui_input_is_403_without_its_scope_and_query_is_not() {
+        let dir = tempfile::tempdir().unwrap();
+        grant_scopes(dir.path(), WriteScopes { modify_tags: true, manage_files: true, downloads: true, plugin_actions: true, delete_tracks: true, ui_input: false });
+        let seen = Arc::new(Mutex::new(Vec::new()));
+        let router = build_router(assistant_state(dir.path().to_path_buf(), Arc::clone(&seen)));
+        let res = router
+            .clone()
+            .oneshot(request_json("POST", "/v1/ui/input", TEST_TOKEN, r#"{"kind":"click","target":{"name":"Save"}}"#))
+            .await
+            .unwrap();
+        assert_eq!(res.status(), StatusCode::FORBIDDEN);
+        let json = body_json(res).await;
+        assert!(json["error"].as_str().unwrap().contains("Click and type"));
+        let res = router
+            .oneshot(request_json("POST", "/v1/ui/query", TEST_TOKEN, r#"{"target":{"name":"Save"}}"#))
+            .await
+            .unwrap();
+        assert_eq!(res.status(), StatusCode::OK);
+        let seen = seen.lock().unwrap();
+        assert!(seen.iter().any(|v| v == "ui.query"));
+        assert!(!seen.iter().any(|v| v == "ui.input"), "a refused input must never reach the webview");
+    }
+
+    #[tokio::test]
+    async fn test_ui_input_with_its_scope_reaches_the_webview() {
+        let dir = tempfile::tempdir().unwrap();
+        grant_scopes(dir.path(), WriteScopes { ui_input: true, ..Default::default() });
+        let seen = Arc::new(Mutex::new(Vec::new()));
+        let router = build_router(assistant_state(dir.path().to_path_buf(), Arc::clone(&seen)));
+        let res = router
+            .oneshot(request_json("POST", "/v1/ui/input", TEST_TOKEN, r#"{"kind":"key","keys":"Escape"}"#))
+            .await
+            .unwrap();
+        assert_eq!(res.status(), StatusCode::OK);
+        assert!(seen.lock().unwrap().iter().any(|v| v == "ui.input"));
+    }
+
+    #[test]
+    fn test_ui_input_summary_names_the_target_and_cuts_long_text() {
+        let long = "x".repeat(200);
+        let summary = ui_input_summary(&json!({
+            "kind": "type", "target": { "role": "field", "name": "Album artist" }, "text": long,
+        }));
+        assert!(summary.starts_with("type role=field \"Album artist\" text=\""));
+        assert!(summary.ends_with("…\""));
+        assert!(summary.contains(&"x".repeat(80)), "typed text keeps its first 80 characters");
+        assert!(!summary.contains(&"x".repeat(81)), "and no more");
     }
 
     /// A state whose webview answers `assistant.tools` with a fixed roster and

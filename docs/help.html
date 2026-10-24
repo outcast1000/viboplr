@@ -413,13 +413,15 @@
     <div class="container">
       <div class="docs-body reveal">
         <h2>Assistant permissions</h2>
-        <p class="docs-lead">Four switches that let a connected AI assistant change things &mdash; not just read and play. All off by default, each one scoped, everything logged.</p>
-        <p>With <strong>Settings &rarr; AI control</strong> on, the same card shows four permission rows. They gate what an assistant may <em>write</em>; searching, playback, queue and playlist edits, database tags and likes never need them.</p>
+        <p class="docs-lead">Switches that let a connected AI assistant change things &mdash; not just read and play. All off by default, each one scoped, everything logged.</p>
+        <p>With <strong>Settings &rarr; AI control</strong> on, the same card shows the permission rows. They gate what an assistant may <em>write</em>; searching, playback, queue and playlist edits, database tags and likes never need them.</p>
         <ul class="docs-list">
           <li><strong>Modify tags in files</strong> &mdash; write tag and metadata edits (genre tags, artist, album, album artist, year) into the audio files themselves, through the same bulk-edit path the app's own modal uses. Database-only tag edits are always allowed and never touch files.</li>
           <li><strong>Manage files</strong> &mdash; create lyrics files (<code>.lrc</code>/<code>.txt</code>) and <code>cover.jpg</code> next to your music, and move or rename files inside a collection. Moves are <strong>two-step by design</strong>: the assistant first gets back an exact from&nbsp;&rarr;&nbsp;to plan (nothing touched), shows it to you, and only a second call carrying that plan's fingerprint applies it &mdash; if anything on disk changed in between, the plan is rejected. Moved tracks keep their identity: tags, likes, playlists and history all follow the file.</li>
           <li><strong>Download tracks</strong> &mdash; save music into a local collection folder. Two shapes: a track's <em>own</em> source (your Subsonic/Navidrome server, or a direct web URL) downloaded as itself, or a plugin-sourced track (e.g. YouTube via the yt-dlp plugin) downloaded through the plugin that owns it. The assistant can never have the app pick a source on its behalf &mdash; it must name what to download and from where.</li>
           <li><strong>Plugin actions</strong> &mdash; let the assistant make a plugin <em>act</em>: run one of its menu actions, send it a deep link, or call a plugin tool that changes something (for example start a Soulseek download). Plugin tools that only read &mdash; listing your Spotify playlists, reading a playlist's tracks, a lyrics search &mdash; work without it. Each plugin declares which of its tools only read; one that declares nothing is treated as one that changes things.</li>
+          <li><strong>Delete tracks</strong> &mdash; move local library tracks to the trash, through the app's own delete. The assistant must first show you the exact list, then send it back unchanged to apply it. Network-share files (no trash, no undo) and server tracks are refused.</li>
+          <li><strong>Click and type</strong> &mdash; let the assistant click buttons, type into fields and press keys in Vibo's window, with a visible cursor so you can watch. That reaches anything you could do by clicking &mdash; saving a bulk edit or confirming a delete included &mdash; whatever the other switches say, so turn it on only when you want the assistant to operate the app for you. It can never touch the AI control settings, the Extensions view, or a dialog that asks for your consent (installs, permissions, programs).</li>
         </ul>
         <p>Guardrails that hold no matter which switches are on:</p>
         <ul class="docs-list">
@@ -427,7 +429,8 @@
           <li><strong>Nothing is silently overwritten.</strong> Moves and downloads refuse existing files outright; replacing a lyrics or cover file requires an explicit overwrite, and the old file goes to the trash.</li>
           <li><strong>Every change is logged.</strong> With <strong>Settings &rarr; Debug &rarr; Enable logging</strong> on, each applied write is recorded in the app log as an &ldquo;Assistant change&rdquo; line, which rides along in problem reports.</li>
           <li><strong>Switches apply instantly and fail closed.</strong> Flip one off and the very next request is refused; a missing or unreadable permissions file means <em>no</em>.</li>
-          <li><strong>Deletion stays impossible.</strong> There is no assistant verb that deletes a track, a playlist, or a file.</li>
+          <li><strong>Nothing is deleted for good.</strong> Deleting tracks (its own switch) moves them to the trash; there is no assistant verb that deletes a playlist or an extension.</li>
+          <li><strong>Consent stays yours.</strong> Installing an extension, granting a plugin permission or running a program is always answered by your own click in the app &mdash; no switch lets the assistant answer for you.</li>
         </ul>
       </div>
     </div>

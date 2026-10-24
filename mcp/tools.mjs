@@ -1162,6 +1162,36 @@ export const TOOLS = [
       action === "get" ? ctx.request("GET", "/v1/ui") : ctx.request("POST", "/v1/ui/action", { action, ...rest }),
   },
   {
+    name: "ui_input",
+    readOnly: false,
+    readOnlyWhen: { action: ["query"] },
+    categories: ["app"],
+    description:
+      "Click, type and press keys in Vibo's window like a person, with a visible cursor — for what no other tool does. Prefer the dedicated tools (navigate, ui_control, play_tracks, edit_track_tags …): they survive UI changes, and this one acts on whatever is on screen. Targets are named the way the user sees them: {name, role?} by accessible name (button text, field label; exact, case-insensitive), role one of button, field, checkbox, link, tab, option (default any), or {testId}; index picks one of several matches. action=query lists matching elements with their on-screen rect (viewport CSS px; × devicePixelRatio = pixels) and needs no permission — query a role with no name to see what is there. action=click / type {text, replace?, charMs?} / key {keys: chord like \"Mod+K\", \"Escape\", \"Shift+Tab\"; Mod = Cmd on macOS, Ctrl elsewhere} need the \"Click and type\" switch, which covers anything a click can do — act only on the user's own ask. Refused: Settings → AI control, the Extensions view and consent dialogs (installs, permissions, programs) — those stay the user's. key reaches in-app handlers only (Enter does not press a focused button — click it). Native menus (right-click, ⋯) are not in the page and can't be clicked. Returns the element acted on and the UI state after.",
+    inputSchema: obj(
+      {
+        action: en(["query", "click", "type", "key"], "What to do"),
+        target: obj({
+          name: str("Accessible name: button text, field label, aria-label"),
+          role: en(["any", "button", "field", "checkbox", "link", "tab", "option"], "Element kind (default any)"),
+          testId: str("data-testid, for elements with no name"),
+          index: num("Which of several matches (0-based)"),
+        }),
+        text: str("type: the text to enter"),
+        replace: bool("type: clear the field first"),
+        charMs: num("type: ms per character (default 40, max 200)"),
+        moveMs: num("click/type: cursor glide in ms (default 400, 0 = instant)"),
+        keys: str('key: the chord, e.g. "Mod+K", "Escape", "Enter"'),
+        limit: num("query: most matches to return (default 20)"),
+      },
+      ["action"],
+    ),
+    run: ({ action, limit, ...rest }, ctx) =>
+      action === "query"
+        ? ctx.request("POST", "/v1/ui/query", { target: rest.target, limit })
+        : ctx.request("POST", "/v1/ui/input", { kind: action, ...rest }),
+  },
+  {
     name: "logs",
     readOnly: false,
     readOnlyWhen: { action: ["tail", "frontend"] },

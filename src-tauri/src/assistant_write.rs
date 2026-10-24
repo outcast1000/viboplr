@@ -16,6 +16,12 @@
 //! - `delete_tracks`  — move local library tracks to the trash (planned
 //!   first, applied only with the plan's hash; network-share files, which
 //!   have no trash, are refused)
+//! - `ui_input`       — click, type and press keys in the app's own window
+//!   (`POST /v1/ui/input`). In practice a superset of the others: anything a
+//!   person can do by clicking — Save in Bulk Edit, a delete confirmation —
+//!   is reachable through it. The AI control settings, the Extensions view
+//!   and the consent dialogs (installs, permissions, programs) refuse it, so
+//!   it can never grant itself more; see `src/utils/uiInput.ts`.
 //!
 //! Scopes live in `assistant-permissions.json` in the profile dir, owned and
 //! read by **Rust** (never the frontend store): the HTTP handlers re-read the
@@ -44,6 +50,7 @@ pub struct WriteScopes {
     pub downloads: bool,
     pub plugin_actions: bool,
     pub delete_tracks: bool,
+    pub ui_input: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -53,6 +60,7 @@ pub enum Scope {
     Downloads,
     PluginActions,
     DeleteTracks,
+    UiInput,
 }
 
 impl Scope {
@@ -65,6 +73,7 @@ impl Scope {
             Scope::Downloads => "Downloads",
             Scope::PluginActions => "Plugin actions",
             Scope::DeleteTracks => "Delete tracks",
+            Scope::UiInput => "Click and type",
         }
     }
 }
@@ -77,6 +86,7 @@ impl WriteScopes {
             Scope::Downloads => self.downloads,
             Scope::PluginActions => self.plugin_actions,
             Scope::DeleteTracks => self.delete_tracks,
+            Scope::UiInput => self.ui_input,
         }
     }
 }
@@ -1167,6 +1177,21 @@ mod tests {
         assert!(!scopes.allows(Scope::ManageFiles));
         assert!(!scopes.allows(Scope::Downloads));
         assert!(!scopes.allows(Scope::PluginActions));
+        assert!(!scopes.allows(Scope::UiInput));
+    }
+
+    #[test]
+    fn test_scopes_file_without_ui_input_reads_it_as_off() {
+        // Every scope that existed before it on: none of them grants it.
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(
+            dir.path().join(SCOPES_FILE),
+            r#"{"modifyTags":true,"manageFiles":true,"downloads":true,"pluginActions":true,"deleteTracks":true}"#,
+        )
+        .unwrap();
+        let scopes = load_scopes(dir.path());
+        assert!(scopes.allows(Scope::DeleteTracks));
+        assert!(!scopes.allows(Scope::UiInput));
     }
 
     #[test]
@@ -1193,7 +1218,7 @@ mod tests {
     #[test]
     fn test_scopes_roundtrip() {
         let dir = tempfile::tempdir().unwrap();
-        let scopes = WriteScopes { modify_tags: true, manage_files: false, downloads: true, plugin_actions: true, delete_tracks: false };
+        let scopes = WriteScopes { modify_tags: true, manage_files: false, downloads: true, plugin_actions: true, delete_tracks: false, ui_input: true };
         save_scopes(dir.path(), &scopes).unwrap();
         let loaded = load_scopes(dir.path());
         assert_eq!(loaded, scopes);
@@ -1201,6 +1226,7 @@ mod tests {
         assert!(!loaded.allows(Scope::ManageFiles));
         assert!(loaded.allows(Scope::Downloads));
         assert!(loaded.allows(Scope::PluginActions));
+        assert!(loaded.allows(Scope::UiInput));
     }
 
     #[test]

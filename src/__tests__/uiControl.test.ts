@@ -1,6 +1,14 @@
 import { describe, expect, it } from "vitest";
 import {
+  DEFAULT_MOVE_MS,
+  INPUT_PROTECTED_MODALS,
   MAX_REDACT_RULES,
+  MAX_TYPE_TEXT,
+  inputBlockedByModals,
+  parseKeyCombo,
+  parseUiInput,
+  parseUiQuery,
+  parseUiTarget,
   buildUiState,
   parseMiniSizes,
   parseNavigateTarget,
@@ -204,5 +212,50 @@ describe("buildUiContext", () => {
     expect(Object.isFrozen(ctx)).toBe(true);
     expect(Object.isFrozen(ctx.entity)).toBe(true);
     expect(Object.isFrozen(ctx.window)).toBe(true);
+  });
+});
+
+describe("generic input parsing (ui.input / ui.query)", () => {
+  it("parses a click by name, defaulting role and glide", () => {
+    expect(parseUiInput({ kind: "click", target: { name: " Save Changes " } }, true)).toEqual({
+      kind: "click", target: { role: "any", name: "Save Changes" }, moveMs: DEFAULT_MOVE_MS,
+    });
+  });
+
+  it("needs a name or testId to act, but a query may list a role", () => {
+    expect(() => parseUiInput({ kind: "click", target: { role: "button" } }, true)).toThrow(/name or a testId/);
+    expect(parseUiQuery({ target: { role: "button" } })).toEqual({ target: { role: "button" }, limit: 20 });
+    expect(parseUiQuery({})).toEqual({ target: { role: "any" }, limit: 20 });
+  });
+
+  it("refuses unknown roles and kinds", () => {
+    expect(() => parseUiTarget({ name: "x", role: "slider" }, true)).toThrow(/target.role/);
+    expect(() => parseUiInput({ kind: "drag" }, true)).toThrow(/kind must be one of/);
+  });
+
+  it("holds typing inside the bridge's budget", () => {
+    const ok = parseUiInput({ kind: "type", target: { name: "Album artist" }, text: "Various Artists", replace: true }, true);
+    expect(ok).toMatchObject({ kind: "type", text: "Various Artists", replace: true, charMs: 40 });
+    expect(() => parseUiInput({ kind: "type", target: { name: "a" }, text: "x".repeat(MAX_TYPE_TEXT + 1), charMs: 0 }, true))
+      .toThrow(/at most/);
+    expect(() => parseUiInput({ kind: "type", target: { name: "a" }, text: "x".repeat(400), charMs: 100 }, true))
+      .toThrow(/would take over/);
+  });
+
+  it("maps Mod to Cmd on macOS and Ctrl elsewhere", () => {
+    expect(parseKeyCombo("Mod+K", true)).toEqual({ key: "k", code: "KeyK", meta: true, ctrl: false, alt: false, shift: false });
+    expect(parseKeyCombo("Mod+K", false)).toMatchObject({ meta: false, ctrl: true });
+    expect(parseKeyCombo("esc", true)).toMatchObject({ key: "Escape", code: "Escape" });
+    expect(parseKeyCombo("Shift+a", true)).toMatchObject({ key: "A", shift: true, code: "KeyA" });
+    expect(parseKeyCombo("Space", true)).toMatchObject({ key: " ", code: "Space" });
+    expect(parseKeyCombo("Mod++", true)).toMatchObject({ key: "+", meta: true });
+    expect(() => parseKeyCombo("Hyper+K", true)).toThrow(/unknown modifier/);
+    expect(() => parseKeyCombo("Banana", true)).toThrow(/unknown key/);
+  });
+
+  it("blocks all input while a consent dialog is open", () => {
+    expect(inputBlockedByModals(["bulk-edit", "search"])).toBeNull();
+    expect(inputBlockedByModals(["bulk-edit", "extension-install"])).toMatch(/extension-install/);
+    for (const m of INPUT_PROTECTED_MODALS) expect(inputBlockedByModals([m])).not.toBeNull();
   });
 });

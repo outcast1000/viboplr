@@ -457,6 +457,21 @@ describe("MCP server over stdio", () => {
     expect(JSON.parse(act!.body!)).toEqual({ action: "eqPanel", open: true });
   });
 
+  it("routes ui_input: query to the open read, the rest to the gated input route", async () => {
+    await rpc.request("tools/call", { name: "ui_input", arguments: { action: "query", target: { role: "button" }, limit: 5 } });
+    const query = api.seen.find((r) => r.method === "POST" && r.url === "/v1/ui/query");
+    expect(JSON.parse(query!.body!)).toEqual({ target: { role: "button" }, limit: 5 });
+
+    await rpc.request("tools/call", {
+      name: "ui_input",
+      arguments: { action: "type", target: { name: "Album artist", role: "field" }, text: "Various Artists", replace: true },
+    });
+    const input = api.seen.find((r) => r.method === "POST" && r.url === "/v1/ui/input");
+    expect(JSON.parse(input!.body!)).toEqual({
+      kind: "type", target: { name: "Album artist", role: "field" }, text: "Various Artists", replace: true,
+    });
+  });
+
   it("posts query_library SQL with params and surfaces the refusal for blocked tables", async () => {
     const res = await rpc.request("tools/call", {
       name: "query_library",

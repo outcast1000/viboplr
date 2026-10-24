@@ -287,6 +287,7 @@ export default function BulkEditModal({ tracks, artistOptions, albumOptions, tag
             <FieldRow label="Title" dirty={dirtyTitle} onRevert={() => { setTitle(tracks[0].title); setDirtyTitle(false); }}>
               <input
                 className="ds-input"
+                aria-label="Title"
                 type="text"
                 value={title}
                 onChange={(e) => { setTitle(e.target.value); setDirtyTitle(true); }}
@@ -299,6 +300,7 @@ export default function BulkEditModal({ tracks, artistOptions, albumOptions, tag
             <FieldRow label="Track #" dirty={dirtyTrackNumber} cleared={clearedTrackNumber} onClear={() => { setTrackNumber(""); setDirtyTrackNumber(true); }} onRevert={() => { setTrackNumber(tracks[0].track_number != null ? String(tracks[0].track_number) : ""); setDirtyTrackNumber(false); }}>
               <input
                 className="ds-input"
+                aria-label="Track #"
                 type="number"
                 value={trackNumber}
                 placeholder={clearedTrackNumber ? "Will be cleared" : undefined}
@@ -316,6 +318,7 @@ export default function BulkEditModal({ tracks, artistOptions, albumOptions, tag
           <AutocompleteInput
             value={artist}
             onChange={(v) => { setArtist(v); setDirtyArtist(true); }}
+            ariaLabel="Artist"
             suggestions={artistOptions}
             placeholder={clearedArtist ? "Will be cleared" : shared.artistPlaceholder}
           />
@@ -328,6 +331,7 @@ export default function BulkEditModal({ tracks, artistOptions, albumOptions, tag
           <AutocompleteInput
             value={albumArtist}
             onChange={(v) => { setAlbumArtist(v); setDirtyAlbumArtist(true); }}
+            ariaLabel="Album artist"
             suggestions={artistOptions}
             placeholder={clearedAlbumArtist ? "Will follow each track's artist" : shared.albumArtistPlaceholder}
           />
@@ -337,6 +341,7 @@ export default function BulkEditModal({ tracks, artistOptions, albumOptions, tag
           <AutocompleteInput
             value={album}
             onChange={(v) => { setAlbum(v); setDirtyAlbum(true); }}
+            ariaLabel="Album"
             suggestions={albumOptions}
             placeholder={clearedAlbum ? "Will be cleared" : shared.albumPlaceholder}
           />
@@ -345,6 +350,7 @@ export default function BulkEditModal({ tracks, artistOptions, albumOptions, tag
         <FieldRow label="Year" dirty={dirtyYear} cleared={clearedYear} onClear={() => { setYear(""); setDirtyYear(true); }} onRevert={() => { setYear(shared.year); setDirtyYear(false); }}>
           <input
             className="ds-input"
+            aria-label="Year"
             type="number"
             value={year}
             placeholder={clearedYear ? "Will be cleared" : shared.yearPlaceholder}

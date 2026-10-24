@@ -36,7 +36,9 @@ export function AssistantActivityLog({ activity }: { activity: AssistantActivity
   const rows = filterLog(entries, filter);
 
   return (
-    <div className="settings-group" id="assistant-activity">
+    // Protected from the control API's generic input, like the AI control
+    // section above it: the pause switch is the user's.
+    <div className="settings-group" id="assistant-activity" data-ui-input-protected="">
       <div className="settings-group-title">Assistant activity</div>
       <div className="settings-card">
         <div className="settings-row">

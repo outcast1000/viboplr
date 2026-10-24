@@ -167,6 +167,18 @@ track/file list + `planHash` and touches nothing; re-sending the same ids with
 the hash applies it. Server/plugin tracks and network-share files (no Trash,
 no undo) are refused at planning.
 
+A sixth switch, **Click and type**, covers `ui_input` click / type / key: the
+assistant operates Vibo's window like a person (accessible-name targets, a
+visible cursor), so in practice it reaches anything a click can — Save in Bulk
+Edit, a delete confirmation — whatever the other switches say. It can never
+grant itself more: the webview refuses targets in Settings → AI control, the
+Extensions view and the plugin install dialog (`data-ui-input-protected`), any
+key while focus is in one, and all input while a consent dialog (install,
+permissions, programs, the setup wizard) is open. `ui_input` action=query only
+reports where elements are and needs no switch. Each applied input is an
+`Assistant change [ui.input]` log line; a paused assistant gets 423 like any
+write.
+
 Separately from the switches, the user can **pause the assistant** (the Pause
 button on the activity pill, or Settings → AI control → Assistant activity).
 While paused, every request that changes something or hands work to a plugin —

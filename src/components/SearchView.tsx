@@ -843,6 +843,11 @@ export function SearchView({
                 key={tab.id}
                 className={`ds-tab ${activeTab === tab.id ? "active" : ""}`}
                 onClick={() => setActiveTab(tab.id)}
+                // Named by the label alone: the count badge would otherwise
+                // run into it ("Albums12") for anything reading the name.
+                role="tab"
+                aria-selected={activeTab === tab.id}
+                aria-label={tab.label}
               >
                 {tab.label}
                 {tab.count > 0 && <span className="ds-tab-badge">{tab.count}</span>}

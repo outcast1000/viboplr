@@ -126,7 +126,9 @@ export function PluginInstallModal({ flow, onCancel, onEnable, onClose, onRetry,
         : null;
 
   return (
-    <div className="ds-modal-overlay">
+    // Protected from the control API's generic input: the click here is the
+    // install consent (uiInput.ts).
+    <div className="ds-modal-overlay" data-ui-input-protected="">
       <div className="ds-modal" style={{ width: 400 }} onClick={(e) => e.stopPropagation()}>
         {flow.phase === "confirm" && (
           <>

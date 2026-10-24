@@ -752,6 +752,7 @@ interface AssistantScopes {
   downloads: boolean;
   pluginActions: boolean;
   deleteTracks: boolean;
+  uiInput: boolean;
 }
 
 const ASSISTANT_SCOPE_ROWS: Array<{ key: keyof AssistantScopes; label: string; description: string }> = [
@@ -784,6 +785,12 @@ const ASSISTANT_SCOPE_ROWS: Array<{ key: keyof AssistantScopes; label: string; d
     label: "Delete tracks",
     description:
       "Move local library tracks to the trash. The assistant must show you the exact list first and send it back unchanged to apply it. Network-share files (no trash, no undo) and server tracks are refused.",
+  },
+  {
+    key: "uiInput",
+    label: "Click and type",
+    description:
+      "Let the assistant click buttons, type into fields and press keys in Vibo's window, with a visible cursor. That covers anything you can do by clicking — saving a bulk edit or confirming a delete included, whatever the switches above say. It can't touch these AI control settings, Extensions, or any dialog that asks for your consent.",
   },
 ];
 
@@ -978,7 +985,10 @@ function ControlApiSection({
 
   const mcpProblem = mcp ? mcpSetupProblem(mcp) : null;
   return (
-    <div className="settings-group" id="control-api">
+    // data-ui-input-protected: the control API's generic input (uiInput.ts)
+    // refuses this section, or the "Click and type" switch could turn the
+    // other switches on.
+    <div className="settings-group" id="control-api" data-ui-input-protected="">
       <div className="settings-group-title">AI control</div>
       <div className="settings-card">
         <div className="settings-row">

@@ -82,6 +82,11 @@ pub fn classify(method: &str, route: &str) -> Classified {
         // UI verbs: open pages and panels, change no data.
         ("POST", "/v1/ui/navigate") => c("Open a page", Ui),
         ("POST", "/v1/ui/action") => c("Do a UI action", Ui),
+        // Where elements are on screen — a read that carries a body.
+        ("POST", "/v1/ui/query") => c("Find on screen", Read),
+        // A click or keystroke can do anything a person can (Save in Bulk
+        // Edit, confirm a delete), so it waits while paused like any write.
+        ("POST", "/v1/ui/input") => c("Click or type in the app", Write),
         ("POST", "/v1/window") | ("PUT", "/v1/window") | ("PATCH", "/v1/window") => c("Move or resize the window", Ui),
         // Outward-facing: plugins, providers, the network.
         ("POST", "/v1/actions/invoke") => c("Run a plugin action", Outward),
@@ -236,6 +241,9 @@ mod tests {
     fn test_read_posts_ui_and_outward_are_told_apart() {
         assert_eq!(classify("POST", "/v1/query").kind, Kind::Read);
         assert_eq!(classify("POST", "/v1/ui/navigate").kind, Kind::Ui);
+        assert_eq!(classify("POST", "/v1/ui/query").kind, Kind::Read);
+        // Generic input is not a harmless UI verb: it waits while paused.
+        assert_eq!(classify("POST", "/v1/ui/input").kind, Kind::Write);
         assert_eq!(classify("POST", "/v1/assistant/invoke").kind, Kind::Outward);
         assert_eq!(classify("POST", "/v1/likes").kind, Kind::Write);
     }

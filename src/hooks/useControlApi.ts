@@ -17,7 +17,8 @@ import { invoke } from "@tauri-apps/api/core";
 import { getCurrentWindow, LogicalPosition, LogicalSize } from "@tauri-apps/api/window";
 import { appErrorEntries } from "../utils/errorLog";
 import type { MiniRestingSize, MiniWidthSize } from "../utils/miniSizes";
-import { buildUiState, parseMiniSizes, parseNavigateTarget, parseUiAction, parseWindowGeometry, type NavigateTarget, type UiAction, type UiStateInput } from "../utils/uiControl";
+import { buildUiState, inputBlockedByModals, parseMiniSizes, parseNavigateTarget, parseUiAction, parseUiInput, parseUiQuery, parseWindowGeometry, type NavigateTarget, type UiAction, type UiStateInput } from "../utils/uiControl";
+import { clickTarget, pressKeys, queryTargets, typeIntoTarget, type ElementInfo } from "../utils/uiInput";
 import { resolverLogEntries } from "../utils/resolverLog";
 import { pluginLogEntries } from "../utils/pluginLog";
 import { notificationLogEntries } from "../utils/notificationLog";
@@ -1069,6 +1070,26 @@ export function useControlApi(deps: ControlApiDeps) {
         const action = parseUiAction(payload);
         await d.ui.action(action);
         return settledUiState();
+      }
+
+      // Generic input. Rust has already checked the "Click and type" scope;
+      // what is refused here is anything that would answer a consent dialog
+      // or operate a protected region (utils/uiInput.ts).
+      case "ui.query": {
+        const { target, limit } = parseUiQuery(payload);
+        return queryTargets(document, target, limit);
+      }
+
+      case "ui.input": {
+        const input = parseUiInput(payload, navigator.platform.includes("Mac"));
+        const blocked = inputBlockedByModals(d.ui.state().modals);
+        if (blocked) bad(blocked);
+        const opts = { cursor: true };
+        let element: ElementInfo | { target: string };
+        if (input.kind === "click") element = await clickTarget(document, input.target, input.moveMs, opts);
+        else if (input.kind === "type") element = await typeIntoTarget(document, input.target, input.text, input, opts);
+        else element = pressKeys(document, input.keys);
+        return { done: input.kind, element, ui: await settledUiState() };
       }
 
       // --- Logs ---

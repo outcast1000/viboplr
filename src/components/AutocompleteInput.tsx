@@ -15,6 +15,8 @@ interface AutocompleteInputProps {
   /** Extra key handling delegated from the parent (e.g. tag Backspace). */
   onKeyDownExtra?: (e: React.KeyboardEvent<HTMLInputElement>) => void;
   autoFocus?: boolean;
+  /** Accessible name, for a field whose visible label isn't a <label>. */
+  ariaLabel?: string;
 }
 
 export default function AutocompleteInput({
@@ -28,6 +30,7 @@ export default function AutocompleteInput({
   onCommit,
   onKeyDownExtra,
   autoFocus,
+  ariaLabel,
 }: AutocompleteInputProps) {
   const [open, setOpen] = useState(false);
   const [highlight, setHighlight] = useState(-1);
@@ -113,6 +116,7 @@ export default function AutocompleteInput({
         placeholder={placeholder}
         disabled={disabled}
         autoFocus={autoFocus}
+        aria-label={ariaLabel}
         onChange={(e) => { onChange(e.target.value); setOpen(true); }}
         onFocus={() => setOpen(true)}
         onBlur={() => { blurTimer.current = setTimeout(() => setOpen(false), 120); }}

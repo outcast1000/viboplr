@@ -75,7 +75,8 @@ export function AssistantActivityPill({ activity, enabled, hidden, onOpenLog }: 
   const pauseLabel = paused ? "Resume assistant" : "Pause assistant";
 
   return (
-    <div className={`aa-pill notice-tone--${tone(view)}${view.mode === "working" ? " aa-pill--working" : ""}`} role="status" aria-live="polite">
+    // The Pause/Resume button is the user's; the generic input refuses it.
+    <div data-ui-input-protected="" className={`aa-pill notice-tone--${tone(view)}${view.mode === "working" ? " aa-pill--working" : ""}`} role="status" aria-live="polite">
       <button type="button" className="aa-pill-main" title="Open Settings → AI control" onClick={onOpenLog}>
         <svg className="aa-pill-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinejoin="round" aria-hidden="true">
           <path d="M12 3l1.8 5.2L19 10l-5.2 1.8L12 17l-1.8-5.2L5 10l5.2-1.8z" />

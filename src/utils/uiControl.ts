@@ -19,6 +19,9 @@ import type { UiContext } from "./uiContext";
  * `scripts/capture-site-media.mjs` — can put the app on a given page with a
  * given panel open, which before this took scripted mouse clicks.
  *
+ * `ui.input` (generic click / type / key, further down) is the exception to
+ * all of that and is gated accordingly — see its section.
+ *
  * Every parser throws `Error` with a caller-facing message; the dispatcher
  * maps that to a 400.
  */
@@ -187,6 +190,207 @@ export function parseUiAction(payload: Record<string, unknown>): UiAction {
     default:
       throw new Error(`action must be one of: ${UI_ACTIONS.join(", ")}`);
   }
+}
+
+// --- Generic input (`ui.query` / `ui.input`) ---
+//
+// Unlike everything above, `ui.input` can do whatever a person can do by
+// clicking, so it sits behind its own assistant scope ("Click and type",
+// checked in Rust) — and the webview refuses it on the surfaces that grant
+// trust (`INPUT_PROTECTED_MODALS`, plus `data-ui-input-protected` regions:
+// Settings → AI control and the Extensions view). The DOM half — finding
+// elements, dispatching events, the cursor — is `utils/uiInput.ts`.
+
+/** What a target may be. `any` = every kind below. */
+export const UI_TARGET_ROLES = ["any", "button", "field", "checkbox", "link", "tab", "option"] as const;
+export type UiTargetRole = (typeof UI_TARGET_ROLES)[number];
+
+/** An element, named the way a person would: by role + accessible name
+ *  (aria-label, label, text), or by `data-testid` for things with no name.
+ *  `index` picks one of several equal matches (0-based, in document order). */
+export interface UiTarget {
+  testId?: string;
+  role: UiTargetRole;
+  name?: string;
+  index?: number;
+}
+
+export interface KeyCombo {
+  /** `KeyboardEvent.key` */
+  key: string;
+  /** `KeyboardEvent.code`, "" when the key has none worth naming. */
+  code: string;
+  meta: boolean;
+  ctrl: boolean;
+  alt: boolean;
+  shift: boolean;
+}
+
+export type UiInput =
+  | { kind: "click"; target: UiTarget; moveMs: number }
+  | { kind: "type"; target: UiTarget; text: string; replace: boolean; charMs: number; moveMs: number }
+  | { kind: "key"; keys: KeyCombo };
+
+export interface UiQuery {
+  target: UiTarget;
+  limit: number;
+}
+
+export const UI_INPUT_KINDS = ["click", "type", "key"] as const;
+/** Longest text one `type` may enter. */
+export const MAX_TYPE_TEXT = 500;
+/** The typing budget: `text.length × charMs` must fit in it, because the HTTP
+ *  bridge waits 30s and the cursor glide comes on top. */
+export const MAX_TYPE_DURATION_MS = 15000;
+export const DEFAULT_CHAR_MS = 40;
+export const MAX_CHAR_MS = 200;
+export const DEFAULT_MOVE_MS = 400;
+export const MAX_MOVE_MS = 2000;
+export const DEFAULT_QUERY_LIMIT = 20;
+export const MAX_QUERY_LIMIT = 100;
+
+/** Dialogs that grant trust — installs, permissions, programs, the setup
+ *  wizard (it installs plugins). While one is open, no input is delivered at
+ *  all: the user's click there is the consent, and a click the assistant
+ *  makes must never stand in for it. Names as `GET /v1/ui` reports them. */
+export const INPUT_PROTECTED_MODALS = [
+  "onboarding",
+  "extension-install",
+  "plugin-permissions",
+  "unsigned-programs",
+  "program-install",
+  "program-run",
+  "tool-install",
+  "tool-definition-consent",
+  "tool-unverified",
+] as const;
+
+/** The refusal for the open modals, or null when input may proceed. */
+export function inputBlockedByModals(modals: readonly string[]): string | null {
+  const open = modals.find((m) => (INPUT_PROTECTED_MODALS as readonly string[]).includes(m));
+  return open
+    ? `the "${open}" dialog is open — it asks the user for consent, so only the user can answer it`
+    : null;
+}
+
+function intIn(value: unknown, field: string, min: number, max: number, fallback: number): number {
+  if (value === undefined) return fallback;
+  if (!Number.isInteger(value) || (value as number) < min || (value as number) > max) {
+    throw new Error(`${field} must be an integer from ${min} to ${max}`);
+  }
+  return value as number;
+}
+
+/** Parse a target. `requireOne` (click/type) wants something to find; a
+ *  query may name only a role, to list what is on screen. */
+export function parseUiTarget(value: unknown, requireOne: boolean): UiTarget {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    throw new Error("target must be an object: { name, role? } or { testId }");
+  }
+  const t = value as Record<string, unknown>;
+  const role = t.role === undefined ? "any" : t.role;
+  if (!(UI_TARGET_ROLES as readonly unknown[]).includes(role)) {
+    throw new Error(`target.role must be one of: ${UI_TARGET_ROLES.join(", ")}`);
+  }
+  const out: UiTarget = { role: role as UiTargetRole };
+  const testId = optStr(t.testId, "target.testId");
+  const name = optStr(t.name, "target.name");
+  if (testId) out.testId = testId;
+  if (name) out.name = name;
+  if (requireOne && !testId && !name) throw new Error("target needs a name or a testId");
+  if (t.index !== undefined) out.index = intIn(t.index, "target.index", 0, 999, 0);
+  return out;
+}
+
+const NAMED_KEYS: Record<string, string> = {
+  enter: "Enter", return: "Enter", escape: "Escape", esc: "Escape", tab: "Tab",
+  backspace: "Backspace", delete: "Delete", space: " ", arrowup: "ArrowUp", up: "ArrowUp",
+  arrowdown: "ArrowDown", down: "ArrowDown", arrowleft: "ArrowLeft", left: "ArrowLeft",
+  arrowright: "ArrowRight", right: "ArrowRight", home: "Home", end: "End",
+  pageup: "PageUp", pagedown: "PageDown",
+};
+
+/** `KeyboardEvent.code` for a key: letters and digits by position, named keys
+ *  by name, punctuation left empty (no handler here reads it). */
+function keyCode(key: string): string {
+  if (/^[a-z]$/i.test(key)) return `Key${key.toUpperCase()}`;
+  if (/^[0-9]$/.test(key)) return `Digit${key}`;
+  if (key === " ") return "Space";
+  if (key.length > 1) return key;
+  return "";
+}
+
+/**
+ * Parse a chord like `"Mod+K"`, `"Shift+Tab"`, `"Escape"`. `Mod` (or
+ * `CmdOrCtrl`) is Cmd on macOS and Ctrl elsewhere, so one request works on
+ * both — the in-app shortcuts accept either.
+ */
+export function parseKeyCombo(value: unknown, isMac: boolean): KeyCombo {
+  if (typeof value !== "string" || value.trim() === "") throw new Error('keys must be a chord such as "Mod+K" or "Escape"');
+  const parts = value.split("+").map((p) => p.trim());
+  // "Mod++" means the plus key itself.
+  if (parts.length > 1 && parts[parts.length - 1] === "" && parts[parts.length - 2] === "") parts.splice(-2, 2, "+");
+  const last = parts.pop() ?? "";
+  const combo: KeyCombo = { key: "", code: "", meta: false, ctrl: false, alt: false, shift: false };
+  for (const raw of parts) {
+    switch (raw.toLowerCase()) {
+      case "mod": case "cmdorctrl":
+        if (isMac) combo.meta = true; else combo.ctrl = true;
+        break;
+      case "meta": case "cmd": case "command": combo.meta = true; break;
+      case "ctrl": case "control": combo.ctrl = true; break;
+      case "alt": case "option": case "opt": combo.alt = true; break;
+      case "shift": combo.shift = true; break;
+      default: throw new Error(`unknown modifier "${raw}" — use Mod, Cmd, Ctrl, Alt or Shift`);
+    }
+  }
+  const named = NAMED_KEYS[last.toLowerCase()];
+  if (named) combo.key = named;
+  else if (/^f([1-9]|1[0-2])$/i.test(last)) combo.key = last.toUpperCase();
+  // A letter reports lower case unless Shift is held, as a real press does —
+  // "Mod+K" must arrive as key "k", which is what the shortcut handler sees.
+  else if (/^[a-z]$/i.test(last)) combo.key = combo.shift ? last.toUpperCase() : last.toLowerCase();
+  else if ([...last].length === 1) combo.key = last;
+  else throw new Error(`unknown key "${last}"`);
+  combo.code = keyCode(combo.key);
+  return combo;
+}
+
+/** Parse a `ui.input` body. */
+export function parseUiInput(payload: Record<string, unknown>, isMac: boolean): UiInput {
+  const kind = payload.kind;
+  switch (kind) {
+    case "click":
+      return { kind, target: parseUiTarget(payload.target, true), moveMs: intIn(payload.moveMs, "moveMs", 0, MAX_MOVE_MS, DEFAULT_MOVE_MS) };
+    case "type": {
+      if (typeof payload.text !== "string") throw new Error("text must be a string");
+      const text = payload.text;
+      if ([...text].length > MAX_TYPE_TEXT) throw new Error(`text may be at most ${MAX_TYPE_TEXT} characters`);
+      const charMs = intIn(payload.charMs, "charMs", 0, MAX_CHAR_MS, DEFAULT_CHAR_MS);
+      if ([...text].length * charMs > MAX_TYPE_DURATION_MS) {
+        throw new Error(`typing would take over ${MAX_TYPE_DURATION_MS / 1000}s — lower charMs or send less text`);
+      }
+      if (payload.replace !== undefined && typeof payload.replace !== "boolean") throw new Error("replace must be a boolean");
+      return {
+        kind, target: parseUiTarget(payload.target, true), text, charMs,
+        replace: payload.replace === true,
+        moveMs: intIn(payload.moveMs, "moveMs", 0, MAX_MOVE_MS, DEFAULT_MOVE_MS),
+      };
+    }
+    case "key":
+      return { kind, keys: parseKeyCombo(payload.keys, isMac) };
+    default:
+      throw new Error(`kind must be one of: ${UI_INPUT_KINDS.join(", ")}`);
+  }
+}
+
+/** Parse a `ui.query` body: a target (role alone lists that role's named
+ *  elements on screen) and how many matches to return. */
+export function parseUiQuery(payload: Record<string, unknown>): UiQuery {
+  return {
+    target: parseUiTarget(payload.target ?? {}, false),
+    limit: intIn(payload.limit, "limit", 1, MAX_QUERY_LIMIT, DEFAULT_QUERY_LIMIT),
+  };
 }
 
 /** Most rules a showcase accepts — redaction walks every text node per rule. */
