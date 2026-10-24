@@ -3700,67 +3700,75 @@ function App() {
         }
 
         // Restore queue from main-playlist folder (replaces tauri-store queue keys)
-        try {
-          const [{ manifest, state: mpState, thumbs }, dir] = await Promise.all([
-            invoke<{ manifest: Manifest | null; state: MainPlaylistState | null; thumbs: [string, string][] }>("main_playlist_read"),
-            invoke<string>("main_playlist_dir"),
-          ]);
-          if (manifest) {
-            const tracks = tracksFromManifest(manifest);
-            const ctx = contextFromManifest(manifest, dir);
-            if (tracks.length > 0) {
-              // tracksFromManifest seeds liked: 0 (QueueTracks carry no DB id).
-              // Reconcile against the durable entity_likes store so a like set
-              // before restart survives — keyed by metadata, works for
-              // non-library tracks too. Best-effort: on failure leave neutral.
-              try {
-                const byId = await fetchLikeStates(tracks);
-                for (let i = 0; i < tracks.length; i++) {
-                  tracks[i] = applyLikeState(tracks[i], byId);
-                }
-              } catch (e) {
-                console.error("Failed to reconcile restored like states:", e);
-              }
-              // Re-resolve `libraryId` for the restored queue. The manifest
-              // deliberately does not persist it (SQLite reuses the rowids of
-              // deleted tracks, so a stale id would silently address the wrong
-              // row) — the durable identity is the file URI, so we ask the DB
-              // what each path maps to *now*. One bulk call, not one per track.
-              // Best-effort: on failure every entry keeps `libraryId` absent
-              // and its consumer falls back to a path/metadata lookup, exactly
-              // as an external track does.
-              try {
+        await timeAsync("queue.restore", async () => {
+          try {
+            const [{ manifest, state: mpState, thumbs }, dir] = await Promise.all([
+              invoke<{ manifest: Manifest | null; state: MainPlaylistState | null; thumbs: [string, string][] }>("main_playlist_read"),
+              invoke<string>("main_playlist_dir"),
+            ]);
+            if (manifest) {
+              const tracks = tracksFromManifest(manifest);
+              const ctx = contextFromManifest(manifest, dir);
+              if (tracks.length > 0) {
+                // The two lookups below are independent (each reads only the
+                // manifest's tracks), so they run together: this block sits on
+                // the path to window.show().
                 const paths = [...new Set(tracks.map(t => t.path).filter((p): p is string => !!p))];
-                const pairs = await invoke<[string, number][]>("find_track_ids_by_paths", { paths });
-                if (pairs.length > 0) {
-                  const idByPath = new Map(pairs);
+                const [likes, ids] = await Promise.allSettled([
+                  fetchLikeStates(tracks),
+                  invoke<[string, number][]>("find_track_ids_by_paths", { paths }),
+                ]);
+                // tracksFromManifest seeds liked: 0 (QueueTracks carry no DB id).
+                // Reconcile against the durable entity_likes store so a like set
+                // before restart survives — keyed by metadata, works for
+                // non-library tracks too. Best-effort: on failure leave neutral.
+                if (likes.status === "fulfilled") {
                   for (let i = 0; i < tracks.length; i++) {
-                    const id = tracks[i].path ? idByPath.get(tracks[i].path!) : undefined;
-                    if (id != null) tracks[i] = { ...tracks[i], libraryId: id };
+                    tracks[i] = applyLikeState(tracks[i], likes.value);
                   }
+                } else {
+                  console.error("Failed to reconcile restored like states:", likes.reason);
                 }
-              } catch (e) {
-                console.error("Failed to resolve restored queue library ids:", e);
+                // Re-resolve `libraryId` for the restored queue. The manifest
+                // deliberately does not persist it (SQLite reuses the rowids of
+                // deleted tracks, so a stale id would silently address the wrong
+                // row) — the durable identity is the file URI, so we ask the DB
+                // what each path maps to *now*. One bulk call, not one per track.
+                // Best-effort: on failure every entry keeps `libraryId` absent
+                // and its consumer falls back to a path/metadata lookup, exactly
+                // as an external track does.
+                if (ids.status === "fulfilled") {
+                  const pairs = ids.value;
+                  if (pairs.length > 0) {
+                    const idByPath = new Map(pairs);
+                    for (let i = 0; i < tracks.length; i++) {
+                      const id = tracks[i].path ? idByPath.get(tracks[i].path!) : undefined;
+                      if (id != null) tracks[i] = { ...tracks[i], libraryId: id };
+                    }
+                  }
+                } else {
+                  console.error("Failed to resolve restored queue library ids:", ids.reason);
+                }
+                const idx = mpState?.queueIndex != null && mpState.queueIndex >= 0 && mpState.queueIndex < tracks.length ? mpState.queueIndex : -1;
+                pendingRestoreQueueRef.current = { tracks, index: idx };
+                pendingRestoreThumbsRef.current = thumbs ?? [];
+                if (idx >= 0) {
+                  pendingRestoreTrackRef.current = tracks[idx];
+                }
               }
-              const idx = mpState?.queueIndex != null && mpState.queueIndex >= 0 && mpState.queueIndex < tracks.length ? mpState.queueIndex : -1;
-              pendingRestoreQueueRef.current = { tracks, index: idx };
-              pendingRestoreThumbsRef.current = thumbs ?? [];
-              if (idx >= 0) {
-                pendingRestoreTrackRef.current = tracks[idx];
-              }
+              if (ctx) queueHook.setPlaylistContext(ctx);
             }
-            if (ctx) queueHook.setPlaylistContext(ctx);
+            if (mpState) {
+              const raw = mpState.queueMode as string | undefined;
+              const mode = raw === "repeat-all" || raw === "repeat-one" ? raw : "normal";
+              queueHook.setQueueMode(mode);
+            }
+            // Fire-and-forget gc; not awaited so it never blocks startup.
+            invoke("main_playlist_gc").catch(e => console.error("main_playlist_gc failed:", e));
+          } catch (e) {
+            console.error("Failed to restore main playlist:", e);
           }
-          if (mpState) {
-            const raw = mpState.queueMode as string | undefined;
-            const mode = raw === "repeat-all" || raw === "repeat-one" ? raw : "normal";
-            queueHook.setQueueMode(mode);
-          }
-          // Fire-and-forget gc; not awaited so it never blocks startup.
-          invoke("main_playlist_gc").catch(e => console.error("main_playlist_gc failed:", e));
-        } catch (e) {
-          console.error("Failed to restore main playlist:", e);
-        }
+        });
         if (savedTrackViewMode && ["basic", "list", "tiles"].includes(savedTrackViewMode)) library.setTrackViewMode(savedTrackViewMode as ViewMode);
         if (savedMediaTypeFilter && ["all", "audio", "video"].includes(savedMediaTypeFilter)) library.setMediaTypeFilter(savedMediaTypeFilter as "all" | "audio" | "video");
         if (savedTrackLikedFirst) library.setTrackLikedFirst(true);

@@ -70,19 +70,26 @@ pub(crate) fn slice_target(path: &str, offset: u64, length: u64) -> String {
     format!("slice://{}-{}@{}", offset, offset + length, path)
 }
 
+/// Async, never a sync command: a sync command runs on the main thread, and
+/// this one can wait on a cold libmpv load (lib.rs starts it at setup; a probe
+/// arriving mid-load blocks on its lock) — which stalled every other IPC
+/// behind it and delayed the window by up to ~1.4s.
 #[tauri::command]
-pub fn engine_capabilities() -> serde_json::Value {
-    // Loads libmpv on first probe (load failures are not cached, so a
-    // component installed mid-session flips this on the next probe).
-    let mpv = crate::mpv_engine::libmpv_available();
-    serde_json::json!({
-        "mpv": mpv,
-        // Native video: macOS (render-API layer, validated) and Windows (wid
-        // layer, PoC — the WINVIDEO diagnostic logs stay until it's visually
-        // confirmed on real hardware).
-        "video": mpv && (cfg!(target_os = "macos") || cfg!(windows)),
-        "component": crate::mpv_engine::component::status(),
+pub async fn engine_capabilities() -> Result<serde_json::Value, String> {
+    super::run_blocking(|| {
+        // Loads libmpv on first probe (load failures are not cached, so a
+        // component installed mid-session flips this on the next probe).
+        let mpv = crate::mpv_engine::libmpv_available();
+        Ok::<_, String>(serde_json::json!({
+            "mpv": mpv,
+            // Native video: macOS (render-API layer, validated) and Windows (wid
+            // layer, PoC — the WINVIDEO diagnostic logs stay until it's visually
+            // confirmed on real hardware).
+            "video": mpv && (cfg!(target_os = "macos") || cfg!(windows)),
+            "component": crate::mpv_engine::component::status(),
+        }))
     })
+    .await
 }
 
 /// Install state of the downloadable libmpv component.

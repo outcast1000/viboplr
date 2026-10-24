@@ -400,10 +400,18 @@ pub fn libmpv() -> Result<&'static LibMpv, String> {
     if let Some(lib) = *guard {
         return Ok(lib);
     }
+    // Failures are logged here because no caller does: the capability probe
+    // only reports `mpv: false`, so a broken bundle (a missing luajit beside
+    // libmpv) or a bad component otherwise left nothing in the log at all.
     let (path, origin) = resolve_lib().ok_or_else(|| {
-        "libmpv not found — install the engine component from Settings > Playback".to_string()
+        let msg = "libmpv not found — install the engine component from Settings > Playback";
+        log::warn!("mpv-engine: {msg}");
+        msg.to_string()
     })?;
-    let lib: &'static LibMpv = Box::leak(Box::new(load_from(path, origin)?));
+    let loaded = load_from(path, origin).inspect_err(|e| {
+        log::warn!("mpv-engine: could not load libmpv ({origin}): {e}");
+    })?;
+    let lib: &'static LibMpv = Box::leak(Box::new(loaded));
     log::info!(
         "mpv-engine: loaded libmpv from {} ({})",
         lib.path.display(),

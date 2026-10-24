@@ -1059,6 +1059,17 @@ pub fn run() {
             dependencies::set_managed_bin_dir(app_data_dir.join("bin"));
             // The downloadable libmpv engine component lives beside them.
             mpv_engine::set_component_dir(app_data_dir.join("engine"));
+            // Load libmpv now, off the main thread, so the dlopen overlaps page
+            // load + React mount instead of the frontend's first capability
+            // probe. Cold (first launch after an update: 92MB of frameworks
+            // not yet in the page cache) it took 0.7-1.4s, and as a sync
+            // command it held the main thread — every IPC queued behind it,
+            // so the window showed that much later. Must follow
+            // set_component_dir: the component is one of the candidate paths.
+            // A failed load isn't cached, so the probe simply retries it.
+            std::thread::spawn(|| {
+                let _ = mpv_engine::libmpv_available();
+            });
             // Once: remove what the Roadie CLI Vibo used to manage left behind
             // (its data dir, a slskd it started, its login items). Off the
             // startup path; see roadie_cleanup.rs.
