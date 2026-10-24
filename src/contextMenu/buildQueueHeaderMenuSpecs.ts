@@ -41,16 +41,10 @@ export function buildQueueHeaderMenuSpecs(d: QueueHeaderMenuDeps): MenuItemSpec[
       items: [
         { kind: "item", text: "Save as Playlist", action: d.onSaveToPlaylists },
         { kind: "item", text: "Export as M3U", action: d.onSaveAsM3U },
+        { kind: "item", text: "Export as Mixtape…", action: d.onExportAsMixtape },
       ],
     },
-    {
-      kind: "submenu",
-      text: "Share",
-      items: [
-        { kind: "item", text: "Publish hosted source…", action: d.onPublishQueue },
-        { kind: "item", text: "Save as file (.mixtape)…", action: d.onExportAsMixtape },
-      ],
-    },
+    { kind: "item", text: "Publish hosted source…", action: d.onPublishQueue },
     { kind: "separator" },
     { kind: "item", text: "Auto-continue settings…", action: d.onOpenAutoContinueSettings },
     { kind: "separator" },

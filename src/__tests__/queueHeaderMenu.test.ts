@@ -54,19 +54,24 @@ describe("buildQueueHeaderMenuSpecs", () => {
     expect(texts(buildQueueHeaderMenuSpecs(makeDeps()))).toEqual([
       "Prefer video",
       "Load playlist…",
-      "Save", "Save as Playlist", "Export as M3U",
-      "Share", "Publish hosted source…", "Save as file (.mixtape)…",
+      "Save", "Save as Playlist", "Export as M3U", "Export as Mixtape…",
+      "Publish hosted source…",
       "Auto-continue settings…",
       "Clear queue",
     ]);
   });
 
-  it("groups save and share as submenus, not flat items", () => {
+  // Every file the queue can be written to sits under Save; publishing is the
+  // one action that puts it somewhere others can reach, so it stands alone.
+  it("groups the file exports under a Save submenu, Publish top-level", () => {
     const specs = buildQueueHeaderMenuSpecs(makeDeps());
     const save = specs.find((s) => s.kind !== "separator" && s.text === "Save");
-    const share = specs.find((s) => s.kind !== "separator" && s.text === "Share");
     expect(save?.kind).toBe("submenu");
-    expect(share?.kind).toBe("submenu");
+    expect(save?.kind === "submenu" && save.items.map((s) => s.kind !== "separator" && s.text)).toEqual([
+      "Save as Playlist", "Export as M3U", "Export as Mixtape…",
+    ]);
+    const publish = specs.find((s) => s.kind !== "separator" && s.text === "Publish hosted source…");
+    expect(publish?.kind).toBe("item");
   });
 
   // "Clear queue" is the only route to clearing the queue, and it lives
@@ -82,7 +87,7 @@ describe("buildQueueHeaderMenuSpecs", () => {
     ["Save as Playlist", "onSaveToPlaylists"],
     ["Export as M3U", "onSaveAsM3U"],
     ["Publish hosted source…", "onPublishQueue"],
-    ["Save as file (.mixtape)…", "onExportAsMixtape"],
+    ["Export as Mixtape…", "onExportAsMixtape"],
     ["Auto-continue settings…", "onOpenAutoContinueSettings"],
     ["Prefer video", "onTogglePreferVideo"],
   ] as const)("wires %s to %s", (label, key) => {
