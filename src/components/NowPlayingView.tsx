@@ -411,6 +411,10 @@ export function NowPlayingView({
   const showAbout = aboutOpen && !!about && !clipOwnsView;
   const showLyrics = hasLyrics && !lyricsHidden && !showAbout && !clipOwnsView;
   const sideEmpty = !showLyrics && !showAbout;
+  // The clip takes the art column too: under it sits the plain artwork, not
+  // the visualizer. Unmounting the slot is what stops its frame loop — its
+  // IntersectionObserver still counts it on-screen beneath the clip.
+  const stageVisualizer = clipOwnsView ? null : visualizerSlot;
   return (
     <div
       ref={surfaceRef}
@@ -437,7 +441,9 @@ export function NowPlayingView({
                 const r = e.currentTarget.getBoundingClientRect();
                 onOpenVisualizerPicker(r.left, r.bottom);
               }}
-              title="Choose visualizer"
+              // A pick made now couldn't show until the clip ends.
+              disabled={clipOwnsView}
+              title={clipOwnsView ? "The visualizer is hidden while the clip plays" : "Choose visualizer"}
               aria-label="Choose visualizer"
             >
               {/* A record, echoing the sidebar's Now Playing disc. Deliberately
@@ -576,9 +582,9 @@ export function NowPlayingView({
         />
       )}
       <div className="np-stage">
-        <div className={"np-art-col" + (visualizerSlot ? " np-art-col--visualizer" : "")}>
-          {visualizerSlot ? (
-            visualizerSlot
+        <div className={"np-art-col" + (stageVisualizer ? " np-art-col--visualizer" : "")}>
+          {stageVisualizer ? (
+            stageVisualizer
           ) : hasArt ? (
             <Crossfade
               src={slideImageSrc}

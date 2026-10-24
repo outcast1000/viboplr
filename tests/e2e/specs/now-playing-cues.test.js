@@ -140,10 +140,13 @@ test('a clip draws over the whole view, fits its text, and owns the view until h
   // The side column steps aside while the clip plays.
   await expect(view.locator('.np-action-btn[aria-label="About this track"]')).toBeDisabled();
   await expect(view.locator('.np-lyrics-col')).toHaveCount(0);
+  // So does the visualizer: a pick couldn't show until the clip ends.
+  await expect(view.locator('.np-action-btn[aria-label="Choose visualizer"]')).toBeDisabled();
 
   await view.locator('.np-action-btn[aria-label="Hide clip"]').click();
   await expect(view.locator('.np-clip')).toHaveCount(0);
   await expect(view.locator('.np-action-btn[aria-label="About this track"]')).toBeEnabled();
+  await expect(view.locator('.np-action-btn[aria-label="Choose visualizer"]')).toBeEnabled();
   await view.locator('.np-action-btn[aria-label="Show clip"]').click();
   await expect(view.locator('.np-clip')).toHaveCount(1);
 });
