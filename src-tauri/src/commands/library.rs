@@ -836,41 +836,8 @@ pub async fn delete_tracks(
                 continue;
             }
             let fs_path = track.filesystem_path().unwrap_or(&track.path);
-            let path = std::path::Path::new(fs_path);
-            let is_video = path.extension()
-                .and_then(|e| e.to_str())
-                .map(|e| crate::scanner::VIDEO_EXTENSIONS.contains(&e.to_lowercase().as_str()))
-                .unwrap_or(false);
-            if path.exists() {
-                // A video may have an ffmpeg pass reading it right now (storyboard
-                // generation, frame extraction), and on Windows that open read handle
-                // makes the delete fail. Deleting outranks any surface's interest in
-                // those artifacts — kill the passes and wait for the handle to drop.
-                // Same for an audio file's waveform pass (see `waveform.rs`).
-                crate::waveform::abort_for_path(&track.path);
-                if is_video {
-                    crate::storyboard::abort_for_path(&track.path);
-                    crate::video_frames::abort_extraction(track.id);
-                }
-                // Windows has no Recycle Bin for network shares, so `trash::delete`
-                // can't move the file there — it fails (or would delete it without
-                // any undo). Permanently delete network-share files instead; the UI
-                // warns the user this is irreversible before reaching this command.
-                let attempt = || if crate::models::is_network_path(fs_path) {
-                    std::fs::remove_file(path).map_err(|e| e.to_string())
-                } else {
-                    trash::delete(path).map_err(|e| e.to_string())
-                };
-                let mut result = attempt();
-                // The OS can need a beat to release a just-killed ffmpeg's handle.
-                for _ in 0..2 {
-                    if result.is_ok() || !is_video {
-                        break;
-                    }
-                    std::thread::sleep(std::time::Duration::from_millis(150));
-                    result = attempt();
-                }
-                if let Err(e) = result {
+            if std::path::Path::new(fs_path).exists() {
+                if let Err(e) = remove_track_file(&track.path, fs_path, Some(track.id)) {
                     log::warn!("Failed to delete file {}: {}", track.path, e);
                     failures.push(DeleteFailure {
                         title: track.title.clone(),
@@ -908,6 +875,124 @@ pub async fn delete_tracks(
             .map(|t| t.path.clone())
             .collect();
         Ok(DeleteTracksResult { deleted_ids, deleted_paths, failures })
+    })
+    .await
+}
+
+/// Move one track file to the trash — or, on a network share, delete it for
+/// good. `uri` is the `file://` path the frontend plays (the key the waveform
+/// and storyboard passes are registered under), `fs_path` the bare one.
+/// `frames_track_id` is the library row whose frame extraction to stop, when
+/// there is one. Shared by `delete_tracks` and `trash_queue_files`.
+fn remove_track_file(uri: &str, fs_path: &str, frames_track_id: Option<i64>) -> Result<(), String> {
+    let path = std::path::Path::new(fs_path);
+    let is_video = path.extension()
+        .and_then(|e| e.to_str())
+        .map(|e| crate::scanner::VIDEO_EXTENSIONS.contains(&e.to_lowercase().as_str()))
+        .unwrap_or(false);
+    // A video may have an ffmpeg pass reading it right now (storyboard
+    // generation, frame extraction), and on Windows that open read handle
+    // makes the delete fail. Deleting outranks any surface's interest in
+    // those artifacts — kill the passes and wait for the handle to drop.
+    // Same for an audio file's waveform pass (see `waveform.rs`).
+    crate::waveform::abort_for_path(uri);
+    if is_video {
+        crate::storyboard::abort_for_path(uri);
+        if let Some(id) = frames_track_id {
+            crate::video_frames::abort_extraction(id);
+        }
+    }
+    // Windows has no Recycle Bin for network shares, so `trash::delete`
+    // can't move the file there — it fails (or would delete it without
+    // any undo). Permanently delete network-share files instead; the UI
+    // warns the user this is irreversible before reaching this command.
+    let attempt = || if crate::models::is_network_path(fs_path) {
+        std::fs::remove_file(path).map_err(|e| e.to_string())
+    } else {
+        trash::delete(path).map_err(|e| e.to_string())
+    };
+    let mut result = attempt();
+    // The OS can need a beat to release a just-killed ffmpeg's handle.
+    for _ in 0..2 {
+        if result.is_ok() || !is_video {
+            break;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(150));
+        result = attempt();
+    }
+    result
+}
+
+/// Why `trash_queue_files` won't touch `uri`, or `None` when it may.
+fn queue_file_refusal(
+    uri: &str,
+    queued: &std::collections::HashSet<String>,
+    in_library: &std::collections::HashSet<String>,
+) -> Option<&'static str> {
+    let Some(bare) = uri.strip_prefix("file://") else {
+        return Some("Only local files can be moved to the trash");
+    };
+    if !crate::scanner::is_media_file(std::path::Path::new(bare)) {
+        return Some("Not a music or video file");
+    }
+    if !queued.contains(uri) {
+        return Some("Not in the queue");
+    }
+    if in_library.contains(uri) {
+        return Some("This file is in your library — delete it from there");
+    }
+    None
+}
+
+/// Move local files that are in the queue but in no collection to the trash:
+/// the Delete for an id-less queue entry (a file dropped in from Finder, an
+/// m3u entry, a file a plugin handed over). `delete_tracks` takes library ids
+/// only, so until this existed the queue offered "Move to Trash" on such a
+/// file and then refused it.
+///
+/// Each path must be a `file://` media file named by the saved queue
+/// (`main_playlist::track_paths` — the frontend flushes the debounced queue
+/// write first) and by no track row, disabled collections included: a library
+/// file goes through `delete_tracks`, which also drops its row. The queue gate
+/// bounds accidents and casual misuse; it is not a security boundary, since
+/// `main_playlist_write` is itself callable from the webview.
+#[tauri::command]
+pub async fn trash_queue_files(
+    state: State<'_, AppState>,
+    paths: Vec<String>,
+) -> Result<DeleteTracksResult, String> {
+    let db = state.db.clone();
+    let app_dir = state.app_dir.clone();
+    run_blocking(move || -> Result<_, String> {
+        let queued: std::collections::HashSet<String> =
+            crate::main_playlist::track_paths(&app_dir).into_iter().collect();
+        let in_library = db.library_paths_among(&paths).map_err(|e| e.to_string())?;
+        let mut deleted_paths = Vec::new();
+        let mut failures = Vec::new();
+        let mut seen = std::collections::HashSet::new();
+        for uri in &paths {
+            if !seen.insert(uri.as_str()) {
+                continue;
+            }
+            let title = uri.rsplit('/').next().unwrap_or(uri).to_string();
+            if let Some(reason) = queue_file_refusal(uri, &queued, &in_library) {
+                failures.push(DeleteFailure { title, reason: reason.to_string() });
+                continue;
+            }
+            let fs_path = &uri["file://".len()..];
+            if !std::path::Path::new(fs_path).exists() {
+                failures.push(DeleteFailure { title, reason: "File not found".to_string() });
+                continue;
+            }
+            if let Err(e) = remove_track_file(uri, fs_path, None) {
+                log::warn!("Failed to delete file {}: {}", uri, e);
+                failures.push(DeleteFailure { title, reason: e });
+                continue;
+            }
+            crate::storyboard::delete_cached(&app_dir, uri);
+            deleted_paths.push(uri.clone());
+        }
+        Ok(DeleteTracksResult { deleted_ids: Vec::new(), deleted_paths, failures })
     })
     .await
 }
@@ -1021,4 +1106,29 @@ pub fn delete_tag(state: State<'_, AppState>, tag_id: i64) -> Result<(), String>
         let _ = state.db.update_fts_for_track(*tid);
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::queue_file_refusal;
+    use std::collections::HashSet;
+
+    fn set(items: &[&str]) -> HashSet<String> {
+        items.iter().map(|s| s.to_string()).collect()
+    }
+
+    /// The path delete trashes only a queued, local media file the library
+    /// doesn't own — each gate refuses on its own.
+    #[test]
+    fn test_queue_file_refusal_gates() {
+        let song = "file:///Users/me/Downloads/Song.flac";
+        let queued = set(&[song, "file:///Users/me/notes.txt", "subsonic://host/1"]);
+        let none = HashSet::new();
+
+        assert_eq!(queue_file_refusal(song, &queued, &none), None);
+        assert!(queue_file_refusal("subsonic://host/1", &queued, &none).is_some(), "remote");
+        assert!(queue_file_refusal("file:///Users/me/notes.txt", &queued, &none).is_some(), "not media");
+        assert!(queue_file_refusal("file:///Users/me/Other.mp3", &queued, &none).is_some(), "not queued");
+        assert!(queue_file_refusal(song, &queued, &set(&[song])).is_some(), "in the library");
+    }
 }

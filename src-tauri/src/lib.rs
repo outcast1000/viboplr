@@ -139,6 +139,7 @@ macro_rules! invoke_handler {
             commands::open_path_with_default_app,
             commands::open_folder,
             commands::delete_tracks,
+            commands::trash_queue_files,
             commands::bulk_update_tracks,
             commands::get_tags,
             commands::get_tag_by_id,

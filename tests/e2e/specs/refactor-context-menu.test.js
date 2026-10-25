@@ -96,6 +96,16 @@ test('local track target has Play / Open Folder / Move to Trash', async ({ page 
   expect(texts).toContain('View Details');
 });
 
+test('local track target without a library id offers no Move to Trash', async ({ page }) => {
+  // A `track` target carries no path, so with no id there is nothing the
+  // delete could act on — the item used to show and do nothing.
+  const texts = await buildSpecTexts(page, {
+    kind: 'track', isLocal: true, title: 'Song', artistName: 'Artist',
+  });
+  expect(texts).toContain('Open Containing Folder');
+  expect(texts).not.toContain('Move to Trash');
+});
+
 test('multi-tag target offers delete-N-tags', async ({ page }) => {
   const texts = await buildSpecTexts(page, { kind: 'multi-tag', tagIds: [1, 2, 3] }, {
     tags: [{ id: 1, name: 'rock' }, { id: 2, name: 'pop' }, { id: 3, name: 'jazz' }],

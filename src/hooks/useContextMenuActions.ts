@@ -39,6 +39,9 @@ interface UseContextMenuActionsDeps {
     moveToBottom: (indices: number[]) => void;
     queue: QueueTrack[];
     addToQueue: (track: QueueTrack) => void;
+    /** Drains the debounced queue write — `trash_queue_files` checks paths
+     *  against the saved queue, which may not hold a just-added entry yet. */
+    flushNow: () => Promise<void>;
   };
   playback: { currentTrack: QueueTrack | null; handleStop: () => void };
   /**
@@ -77,7 +80,9 @@ export function useContextMenuActions(deps: UseContextMenuActionsDeps) {
   useAssignRef(confirmTrashDeleteRef, confirmTrashDelete);
   const [bulkEditTracks, setBulkEditTracks] = useState<Track[] | null>(null);
 
-  const [deleteConfirm, setDeleteConfirm] = useState<{ trackIds: number[]; title: string; network?: boolean } | null>(null);
+  // `paths`: local queue files with no library row, trashed by path
+  // (`trash_queue_files`) rather than by id.
+  const [deleteConfirm, setDeleteConfirm] = useState<{ trackIds: number[]; paths?: string[]; title: string; network?: boolean } | null>(null);
   const [deleteError, setDeleteError] = useState<{ message: string; failures: { title: string; reason: string }[] } | null>(null);
   const [folderError, setFolderError] = useState<string | null>(null);
   const [pendingEnqueue, setPendingEnqueue] = useState<PendingEnqueue | null>(null);
@@ -354,9 +359,9 @@ export function useContextMenuActions(deps: UseContextMenuActionsDeps) {
     const idsOnNetwork = (ids: number[]) =>
       ids.some(id => isNetworkSharePath(library.tracks.find(t => t.id === id)?.path));
 
-    let request: { trackIds: number[]; title: string; network: boolean } | null = null;
+    let request: { trackIds: number[]; paths: string[]; title: string; network: boolean } | null = null;
     if (target.kind === "track" && target.trackId && target.isLocal) {
-      request = { trackIds: [target.trackId], title: target.title, network: idsOnNetwork([target.trackId]) };
+      request = { trackIds: [target.trackId], paths: [], title: target.title, network: idsOnNetwork([target.trackId]) };
     } else if (target.kind === "multi-track") {
       // With carried paths, delete only the local copies (matching the menu
       // item's "Move N local tracks" label) and flag network shares from those
@@ -367,6 +372,7 @@ export function useContextMenuActions(deps: UseContextMenuActionsDeps) {
       if (localIds.length > 0) {
         request = {
           trackIds: localIds,
+          paths: [],
           title: `${localIds.length} tracks`,
           network: known ? known.filter(isLocalTrack).some(t => isNetworkSharePath(t.path)) : idsOnNetwork(target.trackIds),
         };
@@ -374,29 +380,33 @@ export function useContextMenuActions(deps: UseContextMenuActionsDeps) {
     } else if (target.kind === "queue-multi") {
       const localTracks = target.indices.map(i => queueHook.queue[i]).filter(Boolean).filter(isLocalTrack);
       // Resolve a library id per local track: cached `libraryId`, else one bulk
-      // path lookup (resolveLibraryIds). This is what lets id-less queue tracks
-      // be deleted — m3u-loaded, home-shelf, plugin-sourced — not just entries
-      // that came straight from a library list.
-      const ids = (await resolveLibraryIds(localTracks)).filter((id): id is number => id != null);
-      if (ids.length > 0) {
+      // path lookup (resolveLibraryIds), so an id-less entry that IS a library
+      // file (m3u-loaded, home-shelf, plugin-sourced) goes through the library
+      // delete. A file in no collection (dropped in from Finder) is trashed by
+      // its path instead.
+      const ids = await resolveLibraryIds(localTracks);
+      const trackIds = ids.filter((id): id is number => id != null);
+      const paths = [...new Set(localTracks.filter((_, i) => ids[i] == null).map(t => t.path!))];
+      const count = trackIds.length + paths.length;
+      if (count > 0) {
         request = {
-          trackIds: ids,
-          title: localTracks.length === 1 ? localTracks[0].title : `${ids.length} tracks`,
+          trackIds,
+          paths,
+          title: localTracks.length === 1 ? localTracks[0].title : `${count} tracks`,
           network: localTracks.some(t => isNetworkSharePath(t.path)),
         };
-      } else if (localTracks.length > 0) {
-        setDeleteError({ message: `Those tracks aren't in your library, so they can't be moved to the ${trashLabel}.`, failures: [] });
       }
     } else if (target.kind === "video" && target.track && target.track.isLocal) {
       // Resolve the playing video's library id from the queue's cached
       // `libraryId`, falling back to a path lookup (an entry restored, loaded
-      // from an m3u, or handed over by a plugin carries no cached id).
+      // from an m3u, or handed over by a plugin carries no cached id). A file in
+      // no collection is trashed by its path.
       const t = target.track;
       const [id] = await resolveLibraryIds([t]);
       if (id != null) {
-        request = { trackIds: [id], title: t.title, network: isNetworkSharePath(t.path) };
-      } else {
-        setDeleteError({ message: `That track isn't in your library, so it can't be moved to the ${trashLabel}.`, failures: [] });
+        request = { trackIds: [id], paths: [], title: t.title, network: isNetworkSharePath(t.path) };
+      } else if (t.path) {
+        request = { trackIds: [], paths: [t.path], title: t.title, network: isNetworkSharePath(t.path) };
       }
     }
 
@@ -404,7 +414,7 @@ export function useContextMenuActions(deps: UseContextMenuActionsDeps) {
     // Skip the confirmation only for safe (reversible) trash deletes when the
     // user has turned it off. Permanent network-share deletes always confirm.
     if (!request.network && !confirmTrashDeleteRef.current) {
-      await performDelete(request.trackIds, request.title);
+      await performDelete(request.trackIds, request.title, { paths: request.paths });
     } else {
       setDeleteConfirm(request);
     }
@@ -412,19 +422,43 @@ export function useContextMenuActions(deps: UseContextMenuActionsDeps) {
 
   async function handleDeleteConfirm() {
     if (!deleteConfirm) return;
-    const { trackIds, title } = deleteConfirm;
+    const { trackIds, paths, title } = deleteConfirm;
     setDeleteConfirm(null);
-    await performDelete(trackIds, title);
+    await performDelete(trackIds, title, { paths });
+  }
+
+  /** Trash local queue files that no library row owns, by path. The backend
+   *  checks each path against the saved queue, so the debounced queue write is
+   *  flushed first. A failed call fails every path rather than the batch, so
+   *  the library half of a mixed selection still lands. */
+  async function trashQueueFiles(paths: string[]): Promise<DeleteTracksResult> {
+    try {
+      await queueHook.flushNow();
+      return await invoke<DeleteTracksResult>("trash_queue_files", { paths });
+    } catch (e) {
+      console.error("Failed to move queue files to trash:", e);
+      return { deletedIds: [], deletedPaths: [], failures: paths.map(p => ({ title: p.split("/").pop() ?? p, reason: String(e) })) };
+    }
   }
 
   /** The shared deletion. `headless` is the control API's caller: failures
    *  come back in the result (and a thrown invoke propagates) instead of the
-   *  on-screen error modal — the requester isn't the person at the screen. */
-  async function performDelete(trackIds: number[], title: string, opts: { headless?: boolean } = {}): Promise<DeleteTracksResult | null> {
+   *  on-screen error modal — the requester isn't the person at the screen.
+   *  `paths` are local queue files with no library row (`trashQueueFiles`);
+   *  the control API never sends any — it deletes library tracks only. */
+  async function performDelete(trackIds: number[], title: string, opts: { headless?: boolean; paths?: string[] } = {}): Promise<DeleteTracksResult | null> {
+    const paths = opts.paths ?? [];
+    const total = trackIds.length + paths.length;
     try {
-      const result: DeleteTracksResult = await invoke("delete_tracks", { trackIds });
+      const byId: DeleteTracksResult = trackIds.length > 0
+        ? await invoke("delete_tracks", { trackIds })
+        : { deletedIds: [], deletedPaths: [], failures: [] };
+      const byPath = paths.length > 0 ? await trashQueueFiles(paths) : null;
+      const result: DeleteTracksResult = byPath
+        ? { deletedIds: byId.deletedIds, deletedPaths: [...byId.deletedPaths, ...byPath.deletedPaths], failures: [...byId.failures, ...byPath.failures] }
+        : byId;
       const deletedPaths = new Set(result.deletedPaths as string[]);
-      if (result.deletedIds.length > 0) {
+      if (deletedPaths.size > 0 || result.deletedIds.length > 0) {
         // The rows vanishing is the only success feedback, so let them fade out
         // and the list close up visibly (160ms, then a slide) rather than snap.
         const settleRows = await fadeOutTrackRows(result.deletedIds);
@@ -433,8 +467,10 @@ export function useContextMenuActions(deps: UseContextMenuActionsDeps) {
         // invisible.
         try {
           const deleted = new Set(result.deletedIds);
-          library.setTracks(prev => prev.filter(t => t.id == null || !deleted.has(t.id)));
-          emitTracksDeleted(result.deletedIds);
+          if (deleted.size > 0) {
+            library.setTracks(prev => prev.filter(t => t.id == null || !deleted.has(t.id)));
+            emitTracksDeleted(result.deletedIds);
+          }
           const queueIndicesToRemove: number[] = [];
           queueHook.queue.forEach((t, i) => {
             if (t.path && deletedPaths.has(t.path)) queueIndicesToRemove.push(i);
@@ -451,17 +487,19 @@ export function useContextMenuActions(deps: UseContextMenuActionsDeps) {
               queueHook.removeMultiple(queueIndicesToRemove);
             }
           }
-          library.loadLibrary();
-          onTracksDeleted?.(result.deletedIds);
+          if (deleted.size > 0) {
+            library.loadLibrary();
+            onTracksDeleted?.(result.deletedIds);
+          }
         } finally {
           settleRows();
         }
       }
       if (opts.headless) return result;
-      if (result.failures.length === trackIds.length) {
+      if (result.failures.length === total) {
         setDeleteError({ message: `Failed to move ${title} to ${trashLabel}`, failures: result.failures });
       } else if (result.failures.length > 0) {
-        setDeleteError({ message: `${result.failures.length} of ${trackIds.length} tracks could not be moved to ${trashLabel}`, failures: result.failures });
+        setDeleteError({ message: `${result.failures.length} of ${total} tracks could not be moved to ${trashLabel}`, failures: result.failures });
       }
       return result;
     } catch (e) {

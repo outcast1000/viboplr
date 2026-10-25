@@ -177,8 +177,8 @@ export function buildContextMenuSpecs(target: ContextMenuTarget, d: ContextMenuD
       if (d.contextMenuActions.handleDeleteRequest) {
         // Any local (file://) track is deletable: the library id is resolved
         // from the path at action time (handleDeleteRequest), so id-less
-        // entries — restored, m3u-loaded, home-shelf — work too, not just
-        // entries with a cached libraryId.
+        // entries — restored, m3u-loaded, home-shelf — work too, and a file in
+        // no collection (dropped in from Finder) is trashed by its path.
         const localDeletable = selectedTracks.filter(t => isLocalTrack(t));
         if (localDeletable.length > 0) {
           specs.push({ kind: "separator" });
@@ -283,7 +283,10 @@ export function buildContextMenuSpecs(target: ContextMenuTarget, d: ContextMenuD
         const trackId = target.trackId;
         specs.push({ kind: "item", text: "View Details", action: () => d.library.handleTrackClick(librarySelection(trackId)) });
       }
-      if (d.contextMenuActions.handleDeleteRequest && (target.kind === "track" && target.isLocal || target.kind === "multi-track")) {
+      // A `track` target carries no path, so it can only be deleted by id —
+      // without one the item would do nothing (id-less queue entries are
+      // deleted from the queue's own menu, which trashes them by path).
+      if (d.contextMenuActions.handleDeleteRequest && (target.kind === "track" && target.isLocal && target.trackId || target.kind === "multi-track")) {
         if (target.kind === "track") {
           specs.push({ kind: "separator" });
           specs.push({ kind: "item", text: `Move to ${d.trashLabel}`, action: d.contextMenuActions.handleDeleteRequest });

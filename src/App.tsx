@@ -2248,6 +2248,7 @@ function App() {
       moveToBottom: queueHook.moveToBottom,
       queue: queueHook.queue,
       addToQueue: queueHook.addToQueue,
+      flushNow: queueHook.flushNow,
     },
     playback: {
       currentTrack: playback.currentTrack,
@@ -7222,7 +7223,7 @@ function App() {
       {contextMenuActions.deleteConfirm && (
         <DeleteTracksModal
           title={contextMenuActions.deleteConfirm.title}
-          trackCount={contextMenuActions.deleteConfirm.trackIds.length}
+          trackCount={contextMenuActions.deleteConfirm.trackIds.length + (contextMenuActions.deleteConfirm.paths?.length ?? 0)}
           trashLabel={trashLabel}
           network={contextMenuActions.deleteConfirm.network}
           onSuppressConfirm={() => handleConfirmTrashDeleteChange(false)}

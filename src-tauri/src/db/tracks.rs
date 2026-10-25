@@ -713,6 +713,30 @@ impl Database {
         Ok(out)
     }
 
+    /// Which of `full_paths` some track row names — in **any** collection,
+    /// disabled ones included, unlike `find_track_ids_by_paths`. This is the
+    /// "is it in the library?" refusal of `trash_queue_files`: a file in a
+    /// disabled collection resolves to no id on the frontend, and trashing it
+    /// by path would leave its row behind. Same one-scan-per-chunk shape.
+    pub fn library_paths_among(&self, full_paths: &[String]) -> SqlResult<std::collections::HashSet<String>> {
+        let conn = self.reader();
+        let mut out = std::collections::HashSet::new();
+        for chunk in full_paths.chunks(PATH_LOOKUP_CHUNK) {
+            let placeholders = std::iter::repeat_n("?", chunk.len()).collect::<Vec<_>>().join(",");
+            let sql = format!(
+                "SELECT DISTINCT {PATH_EXPR} AS uri FROM tracks t \
+                 LEFT JOIN collections co ON t.collection_id = co.id \
+                 WHERE {PATH_EXPR} IN ({placeholders})"
+            );
+            let mut stmt = conn.prepare(&sql)?;
+            let rows = stmt.query_map(rusqlite::params_from_iter(chunk), |row| row.get::<_, String>(0))?;
+            for row in rows {
+                out.insert(row?);
+            }
+        }
+        Ok(out)
+    }
+
     /// Returns the stored source format (file suffix, e.g. "mp3"/"flac") for a
     /// remote track identified by its collection and remote id (`t.path`).
     /// `None` if the track isn't found or has no recorded format.
@@ -1455,6 +1479,31 @@ mod tests {
     /// provenance lived in the key they were permanently id-less no matter what
     /// collection they belonged to. A plugin *search result* that was never
     /// ingested still resolves to nothing, which is correct — it has no row.
+    /// `trash_queue_files` refuses any file a row names, so this lookup must
+    /// see rows in a disabled collection — the ones `find_track_ids_by_paths`
+    /// (and therefore the frontend's id resolution) deliberately hides.
+    #[test]
+    fn test_library_paths_among_sees_disabled_collections() {
+        let db = Database::new_in_memory().unwrap();
+        let off = db
+            .add_collection("local", "off", Some("/off"), None, None, None, None, None)
+            .unwrap();
+        let artist = db.get_or_create_artist("Low").unwrap();
+        db.upsert_track("Words.flac", "Words", Some(artist), None, None, None, Some("flac"), None, None, Some(off.id), None)
+            .unwrap();
+        db.update_collection(off.id, "off", false, 60, false).unwrap();
+
+        let in_disabled = "file:///off/Words.flac".to_string();
+        let loose = "file:///Users/me/Downloads/Words.flac".to_string();
+        assert!(
+            db.find_track_ids_by_paths(std::slice::from_ref(&in_disabled)).unwrap().is_empty(),
+            "fixture: the id lookup hides disabled collections",
+        );
+        let got = db.library_paths_among(&[in_disabled.clone(), loose.clone()]).unwrap();
+        assert!(got.contains(&in_disabled));
+        assert!(!got.contains(&loose));
+    }
+
     #[test]
     fn test_plugin_scheme_tracks_resolve_by_path() {
         let db = Database::new_in_memory().unwrap();
