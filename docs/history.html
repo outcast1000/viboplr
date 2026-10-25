@@ -61,6 +61,101 @@
       <div class="timeline" id="timeline">
         <div class="timeline-entry reveal">
         <div class="timeline-header">
+          <span class="timeline-version">Viboplr v1.0.112</span>
+          <span class="timeline-date">October 25, 2026</span>
+        </div>
+        <div class="timeline-body">
+          <h4>Features</h4>
+          <ul>
+          <li><strong>site</strong>: tinkerers' skins short as the pipeline PoC</li>
+          <li><strong>site</strong>: YouTube Shorts from the running app (npm run short)</li>
+          <li><strong>control-api</strong>: &quot;Click and type&quot; — generic UI input for assistants</li>
+          <li><strong>lyrics</strong>: match LRCLIB by length, fall back to a guarded search</li>
+          <li><strong>artwork</strong>: count rejected matches and failures by kind</li>
+          <li><strong>now-playing</strong>: a cue clip replaces the visualizer while it plays</li>
+          <li><strong>mixtape</strong>: play a .mixtape in place instead of unpacking it</li>
+          <li><strong>dependencies</strong>: the host owns tool updates; plugins run Vibo's copy of a tool</li>
+          <li><strong>dependencies</strong>: the install dialog says &quot;needed&quot; for a plugin's optional tool</li>
+          <li><strong>dependencies</strong>: plugin Tools section, undefined tools, waiting tools in the badge</li>
+          <li><strong>dependencies</strong>: plugins define the tools they need</li>
+          <li><strong>plugins</strong>: retire the youtube and tidal-browse plugins</li>
+          <li><strong>plugins</strong>: api.system.programs — plugins install and run their own programs; Roadie removed</li>
+          <li><strong>extensions</strong>: list every not-installed plugin under a More section</li>
+          <li><strong>ui</strong>: disc / person placeholder for albums and artists without art</li>
+          <li><strong>plugins</strong>: web search as a shared service, and plugin suggestions when a lookup comes back empty</li>
+          <li><strong>search</strong>: all-terms info search, lyric snippets in Cmd+K and for assistants</li>
+          </ul>
+          <h4>Bug Fixes</h4>
+          <ul>
+          <li><strong>delete</strong>: trash local queue files that aren't in the library</li>
+          <li><strong>media</strong>: read audio properties off the main thread</li>
+          <li><strong>mixtape</strong>: safe import paths, webp/gif images, drop + import-error fixes</li>
+          <li><strong>windows</strong>: bump webview2-com/windows-core pins to Tauri 2.12's</li>
+          <li><strong>track-detail</strong>: drop the album from the hero eyebrow</li>
+          <li><strong>deps</strong>: bump h2, webpki-root-certs, quinn-proto past RustSec advisories</li>
+          <li><strong>deps</strong>: bump dev tooling past open Dependabot alerts</li>
+          <li><strong>deps</strong>: bump rustls to 0.23.46 (Dependabot #56)</li>
+          <li><strong>playback</strong>: fall back to the next source when the engine can't play one</li>
+          <li><strong>playback</strong>: name the likely cause when a Subsonic stream fails as a bad format</li>
+          <li><strong>ui</strong>: deep-link scrolls no longer shift the window under the caption bar</li>
+          <li><strong>dependencies</strong>: tool updates can't break a working copy or misreport</li>
+          <li><strong>dependencies</strong>: relaunch_app off the main thread; rqbit verified by GitHub's digest</li>
+          <li><strong>menu</strong>: stop native context menus deadlocking the app on Windows</li>
+          <li><strong>report</strong>: name the failed track and album in playback-failure reports</li>
+          <li>one implementation for cue-sheet saves and Home card plays</li>
+          <li><strong>mcp</strong>: launch_app starts the app in the server's profile</li>
+          <li><strong>mcp</strong>: let write_file_tags clear a field with a real null</li>
+          <li><strong>tags</strong>: read files whose trailing APE tag overcounts its items</li>
+          <li><strong>library</strong>: respell follow-ups — compilations, info cache, trimming</li>
+          <li><strong>library</strong>: an edit that only changes case or accents now respells the row</li>
+          <li><strong>images</strong>: don't search providers for placeholder album/artist names</li>
+          </ul>
+          <h4>Performance</h4>
+          <ul>
+          <li><strong>startup</strong>: load libmpv off the main thread so it can't hold the window</li>
+          </ul>
+          <h4>Refactoring</h4>
+          <ul>
+          <li><strong>queue</strong>: move mixtape export under Save, Publish top-level</li>
+          <li><strong>plugins</strong>: one helper for keyed plugin registrations</li>
+          <li><strong>dependencies</strong>: yt-dlp and rqbit are defined only by their plugins</li>
+          <li>use the shared helpers that existing code bypassed</li>
+          </ul>
+          <h4>Documentation</h4>
+          <ul>
+          <li><strong>libmpv</strong>: name what actually held #140 — its CI waiting for approval</li>
+          </ul>
+          <h4>Tests</h4>
+          <ul>
+          <li><strong>libmpvUpdate</strong>: type the REST check-run test's map callback</li>
+          <li><strong>mpv_engine</strong>: loosen two timing thresholds the macOS runner misses</li>
+          <li><strong>plugin_programs</strong>: name the copied sleep binary `sleep`</li>
+          </ul>
+          <h4>CI</h4>
+          <ul>
+          <li><strong>release</strong>: reuse the tag's release and pin both builds to its id</li>
+          <li><strong>release</strong>: build against a draft, test alongside, publish when all pass</li>
+          <li>cargo check on windows-latest</li>
+          </ul>
+          <h4>Build</h4>
+          <ul>
+          <li><strong>bump</strong>: push a release to the branch's origin upstream</li>
+          <li><strong>deps</strong>: upgrade Tauri to 2.12</li>
+          <li><strong>engine</strong>: re-pin the downloadable engine component</li>
+          <li><strong>libmpv</strong>: update pinned libmpv (windows-x86_64 macos-aarch64)</li>
+          <li><strong>libmpv</strong>: the update workflow commits through the API so it's verified</li>
+          <li><strong>libmpv</strong>: the update workflow merges its PR once CI passes</li>
+          <li><strong>libmpv</strong>: bump merges a passing libmpv update PR; the workflow runs CI on it</li>
+          </ul>
+        </div>
+        <div class="timeline-assets">
+            <a href="https://github.com/outcast1000/viboplr/releases/download/v1.0.112/Viboplr_1.0.112_aarch64.dmg" class="timeline-asset-link"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg> Viboplr_1.0.112_aarch64.dmg</a>
+            <a href="https://github.com/outcast1000/viboplr/releases/download/v1.0.112/Viboplr_1.0.112_x64-setup.exe" class="timeline-asset-link"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg> Viboplr_1.0.112_x64-setup.exe</a>
+        </div>
+      </div>
+      
+        <div class="timeline-entry reveal">
+        <div class="timeline-header">
           <span class="timeline-version">Viboplr v1.0.111</span>
           <span class="timeline-date">October 18, 2026</span>
         </div>
