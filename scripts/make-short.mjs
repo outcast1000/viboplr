@@ -20,12 +20,13 @@
 // scenarios doc on audio).
 //
 // Needs: macOS (Windows untested), Viboplr running on the demo profile with
-// AI control + Click and type on, ffmpeg (libx264), and Playwright's
+// AI control on (plus Click and type for a short that clicks or types —
+// `usesInput`), ffmpeg (libx264), and Playwright's
 // Chromium (`npx playwright install chromium`, already there for the e2e
 // suite) to render captions — this ffmpeg has no drawtext.
 //
 // Usage:
-//   npm run short -- --demo ~/ViboplrDemo [--only collectors-bulk-edit]
+//   npm run short -- --demo ~/ViboplrDemo [--only tinkerers-skins]
 //     [--out ~/ViboplrShorts] [--music bed.mp3] [--keep-raw] [--list]
 
 import { spawn, spawnSync } from "node:child_process";
@@ -40,7 +41,7 @@ import {
   setSystemMuted, sleep, systemMuted, windowRect,
 } from "./lib/captureRunner.mjs";
 import {
-  SHORTS, canvasFor, captionHtml, captionWindows, composeArgs, endCardHtml, frameRegion, toVideoRect,
+  SHORTS, canvasFor, captionHtml, captionWindows, composeArgs, endCardHtml, frameRegion, toVideoRect, usesInput,
 } from "./lib/shorts.mjs";
 
 const REPO = resolve(dirname(fileURLToPath(import.meta.url)), "..");
@@ -98,7 +99,7 @@ async function ensureCompilationMessy(api, opts) {
 }
 
 async function discoverFacts(api, opts) {
-  const facts = { undo: [] };
+  const facts = { undo: [], artist: opts.demo ? SHOWCASE.heroArtist : null };
   if (opts.demo) {
     const rows = await query(api,
       "SELECT t.id FROM tracks t JOIN albums al ON al.id = t.album_id WHERE al.title = ?1 ORDER BY t.track_number", [SHOWCASE.compilation.title]);
@@ -218,7 +219,7 @@ async function makeShort(api, scene, opts, screen) {
   const work = join(tmpdir(), `viboplr-short-${scene.id}`);
   mkdirSync(work, { recursive: true });
   const icon = readFileSync(join(REPO, "docs/assets/icon.svg"), "utf8");
-  const pngs = await renderPngs([...captions.map((c) => captionHtml(c.text)), endCardHtml(icon)], work);
+  const pngs = await renderPngs([...captions.map((c) => captionHtml(c.text, { top: scene.captionTop })), endCardHtml(icon)], work);
   mkdirSync(opts.out, { recursive: true });
   const out = join(opts.out, `${scene.id}.mp4`);
   run("ffmpeg", composeArgs({
@@ -248,10 +249,10 @@ async function main() {
 
   const api = makeApi(opts.profile);
   const health = await api("GET", "/health");
-  if (!health.writeScopes?.uiInput) {
+  if (scenes.some(usesInput) && !health.writeScopes?.uiInput) {
     throw new Error(`turn on Settings → AI control → "Click and type" in the ${opts.profile} profile — the shorts click and type on camera`);
   }
-  if (opts.demo) await ensureCompilationMessy(api, opts);
+  if (scenes.some((s) => s.needs?.includes("compilation"))) await ensureCompilationMessy(api, opts);
 
   const { port, token } = discovery(opts.profile);
   const redact = [
@@ -259,7 +260,8 @@ async function main() {
     { text: String(port), replacement: "•••••" },
     { text: `••••••••${String(token).slice(-4)}`, replacement: "••••••••••••" },
   ];
-  const [ui0, win0, status0] = await Promise.all([api("GET", "/ui"), api("GET", "/window"), api("GET", "/status")]);
+  const [ui0, win0, status0, ext0] = await Promise.all([api("GET", "/ui"), api("GET", "/window"), api("GET", "/status"), api("GET", "/extensions")]);
+  const skin0 = (ext0.skins ?? []).find((s) => s.active)?.id;
   const screen = screenInfo();
   let muted0 = null;
   const made = [];
@@ -282,6 +284,8 @@ async function main() {
   } finally {
     const restore = async (fn) => { try { await fn(); } catch (e) { console.error(`restore: ${e.message}`); } };
     await restore(() => api("POST", "/ui/action", { action: "showcase", on: false }));
+    if (skin0) await restore(() => api("POST", "/skins/apply", { id: skin0 }));
+    await restore(() => api("POST", "/ui/action", { action: "heroLook", look: ui0.heroLook }));
     await restore(() => api("POST", "/ui/action", { action: "queuePanel", open: !ui0.panels?.queueCollapsed }));
     await restore(() => api("POST", "/window", { width: win0.frame.width, height: win0.frame.height, x: win0.frame.x, y: win0.frame.y }));
     if (muted0 !== null) setSystemMuted(muted0);

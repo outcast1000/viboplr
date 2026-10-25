@@ -24,6 +24,9 @@ export const DEFAULT_MOVE_SECS = 0.7;
 /** The camera never crops narrower than this many source pixels: below it
  *  1080 output columns would be upscaled past what reads as sharp. */
 export const MIN_CROP_SOURCE_W = 920;
+/** Where a caption box starts (output px from the top): clear of the Shorts
+ *  player's own top chrome. */
+export const CAPTION_TOP = 250;
 /** Seconds the end card holds. */
 export const END_CARD_SECS = 2.5;
 
@@ -35,6 +38,9 @@ export const END_CARD_SECS = 2.5;
  *             { rect: [x, y, w, h], pad? } (viewport CSS px) or { full: true };
  *             absent = the camera holds
  *   caption — text shown from this beat until the next caption (or `until` ms)
+ * `captionTop` (output px, default CAPTION_TOP) moves every caption of a short
+ * — a portrait window leaves only a thin band above it, so a caption up there
+ * covers the window's own headline.
  * `setup` runs before recording, `after` once it is done (also on failure).
  * Step values may use the runner's facts ("$compilationTrackIds").
  */
@@ -43,7 +49,7 @@ export const SHORTS = [
     id: "collectors-bulk-edit",
     persona: "collectors",
     title: "Fix a hundred tracks at once",
-    needs: ["demo"],
+    needs: ["demo", "compilation"],
     seconds: 19,
     // The window size every rect below is authored for.
     window: { width: 1440, height: 900 },
@@ -117,7 +123,66 @@ export const SHORTS = [
       { type: { target: { role: "field", name: "Search your library..." }, text: "", replace: true, moveMs: 0 }, optional: true },
     ],
   },
+  {
+    // The pipeline's PoC: existing verbs only (no on-camera input), so a take
+    // proves the camera, captions and end card without Click and type.
+    // A taller-than-wide window: at 1440×900 the whole window is a strip a
+    // third of the frame high (first take), at 760×1000 it fills three
+    // quarters, and the artist page still lays out (queue panel closed).
+    // 960 high, not 1000: at y=60 a taller window runs under the Dock, which
+    // the grab then records.
+    // Skins alternate light and dark — dark-to-dark flips barely read on a
+    // phone. The hero looks get a closer camera on the photo + title.
+    id: "tinkerers-skins",
+    persona: "tinkerers",
+    title: "Make it look like yours",
+    needs: ["demo"],
+    seconds: 17,
+    window: { width: 760, height: 960 },
+    // Low, over the track list: the band above the window is ~280px, and a
+    // caption at the default top covers the artist's name.
+    captionTop: 1180,
+    setup: [
+      { action: { action: "closeModals" } },
+      { action: { action: "queuePanel", open: false } },
+      { skin: "Vibo" },
+      { navigate: { artist: "$artist" } },
+      { action: { action: "heroLook", look: "aurora-drift" } },
+      { action: { action: "scroll", to: "top" } },
+      { wait: 1500 },
+    ],
+    beats: [
+      { at: 0, focus: { full: true }, caption: "Make it look\nlike yours" },
+      { at: 2400, steps: [{ skin: "Arctic Light" }], caption: "Any color" },
+      { at: 4200, steps: [{ skin: "Ocean Blue" }] }, // not Sunset: the same magenta as Vibo on a phone
+      { at: 6000, steps: [{ skin: "Silver" }] },
+      { at: 7800, steps: [{ skin: "Forest" }] },
+      {
+        at: 9600,
+        focus: { rect: [52, 40, 460, 320], pad: 40 },
+        caption: "Any mood",
+        steps: [{ skin: "Vibo" }, { action: { action: "heroLook", look: "silent-film" } }],
+      },
+      // The most different looks: late-night and prism-bloom read the same at
+      // phone size (first take).
+      { at: 11400, steps: [{ action: { action: "heroLook", look: "broadcast" } }] },
+      { at: 13200, steps: [{ action: { action: "heroLook", look: "light-leak" } }] },
+      {
+        at: 15000,
+        focus: { full: true },
+        caption: "Or make your own skin",
+        steps: [{ skin: "Arctic Light" }, { action: { action: "heroLook", look: "aurora-drift" } }],
+      },
+    ],
+  },
 ];
+
+/** Whether a scenario clicks, types or presses keys on camera — those need
+ *  the profile's **Click and type** switch; the rest run without it. */
+export function usesInput(scene) {
+  const steps = [...(scene.setup ?? []), ...(scene.after ?? []), ...scene.beats.flatMap((b) => b.steps ?? [])];
+  return steps.some((s) => s.click || s.type || s.key);
+}
 
 const clamp = (v, lo, hi) => Math.min(Math.max(v, lo), hi);
 
@@ -270,13 +335,13 @@ const escapeHtml = (s) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace
  *  runner (a headless browser — this ffmpeg build has no drawtext, and HTML
  *  gives the site's type and gradient for free). Top safe area: the Shorts
  *  player covers the bottom quarter and the right edge with its own UI. */
-export function captionHtml(text) {
+export function captionHtml(text, { top = CAPTION_TOP } = {}) {
   const lines = text.split("\n").map((l) => `<span>${escapeHtml(l)}</span>`).join("<br>");
   return `<!doctype html><html><head><meta charset="utf-8">
 <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@600;800&display=block" rel="stylesheet">
 <style>
 html,body{margin:0;width:${SHORT_W}px;height:${SHORT_H}px;background:transparent;overflow:hidden}
-.cap{position:absolute;left:60px;right:120px;top:250px;display:flex;justify-content:center}
+.cap{position:absolute;left:60px;right:120px;top:${top}px;display:flex;justify-content:center}
 .box{font-family:Outfit,"Avenir Next","Helvetica Neue",sans-serif;font-weight:800;font-size:76px;line-height:1.12;
 color:#fff;text-align:center;padding:26px 40px;border-radius:28px;background:rgba(10,10,18,.72);
 box-shadow:0 10px 40px rgba(0,0,0,.35)}

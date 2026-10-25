@@ -13,6 +13,7 @@ import {
   frameRegion,
   piecewiseExpr,
   toVideoRect,
+  usesInput,
   // @ts-expect-error — plain .mjs dev script, no type declarations
 } from "../../scripts/lib/shorts.mjs";
 
@@ -154,6 +155,8 @@ describe("captions and the ffmpeg command", () => {
     const html = captionHtml("A <b> & B\nsecond");
     expect(html).toContain("A &lt;b&gt; &amp; B</span><br><span>second");
     expect(endCardHtml("<svg/>")).toContain("viboplr.com");
+    expect(captionHtml("x")).toContain("top:250px");
+    expect(captionHtml("x", { top: 1180 })).toContain("top:1180px");
   });
 });
 
@@ -166,6 +169,12 @@ describe("scenarios", () => {
       for (let i = 1; i < s.beats.length; i++) expect(s.beats[i].at).toBeGreaterThan(s.beats[i - 1].at);
       expect(s.beats[s.beats.length - 1].at).toBeLessThan(s.seconds * 1000);
     }
+  });
+
+  it("know which of them need Click and type", () => {
+    const byId = Object.fromEntries(SHORTS.map((s: { id: string }) => [s.id, usesInput(s)]));
+    expect(byId["collectors-bulk-edit"]).toBe(true);
+    expect(byId["tinkerers-skins"]).toBe(false);
   });
 
   it("never write version numbers into captions (they must not age)", () => {

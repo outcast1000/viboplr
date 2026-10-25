@@ -37,8 +37,55 @@ Status: draft for review (2026-10-24). Step 1 of 2: decide *what* each short sho
 - **Generic click / type / key** went into the control API behind its own switch (Settings → AI
   control → **Click and type**), available to MCP too. It refuses the AI control settings, the
   Extensions view and consent dialogs.
-- **PoC = Batch 1 #1 (collectors).** `npm run short -- --demo ~/ViboplrDemo`. The demo library now
-  carries the mis-tagged compilation *Late Night Drive* for it.
+- **PoC = Batch 1 #6 (tinkerers, `tinkerers-skins`)** since 2026-10-25: existing verbs only, so
+  the first take proves the camera, captions and end card without on-camera input.
+  `npm run short -- --demo ~/ViboplrDemo --only tinkerers-skins --keep-raw`. The collectors' short
+  (`collectors-bulk-edit`, built on the mis-tagged compilation *Late Night Drive*) stays in
+  `SHORTS` but is the dullest for viewers; its AI version is in the notes below.
+
+## AI assistant series (notes, 2026-10-25, not built yet)
+
+Owner steer: the collectors' bulk-edit short is the dullest one for viewers, and **AI control is
+the thing that spares users that work**, so the series should lead with the in-app **AI Assistant
+plugin** (`outcast1000/viboplr-llm`: chat, right-click *Ask AI about this…* / *Clean up titles…*
+/ *Find missing tracks…*, Cmd+K *Search on AI Assistant*, the track page's **Meaning** tab). This
+supersedes two things above: "AI control never opens the series" (ground rules), and #18 being
+**manual**. The chat is inside the app, so it records from the demo profile. Every caption gets
+the *plugin* chip. Parked while another PoC proves the pipeline.
+
+Candidates, lead first:
+
+1. **"100 badly tagged files. One sentence."** *Late Night Drive* again (the data and
+   `ensureCompilationMessy` already exist), with the assistant doing the fix: the album list split
+   into one album per performer → open AI Assistant → type *"Late Night Drive is one compilation,
+   make it Various Artists"* → the tool calls fold into "Used N tools" → the Approve card →
+   Approve → Albums: one album. The collectors' setup, with the assistant as the payoff.
+2. **"Something for a rainy Sunday. Nothing I played this week."** Chat → the queue panel fills
+   → playback starts. "It knows your history."
+3. **"Which songs did I love and forget?"** The answer comes back as library tracks → play one.
+4. **Right-click → *Ask AI about this album*.** The answer with the cover inline
+   (`get_entity_image`).
+5. **"What is this song about?"** The Meaning tab on a *Glass Harbour* track (invented lyrics, so
+   nothing to clear).
+6. **Cmd+K → *Search on AI Assistant*.** Type a mood, get tracks.
+
+Open decisions:
+
+- **Real model or a scripted endpoint for the take.** *Real model* (a fast one via OpenRouter,
+  recommended): honest, but the wording and the turn length vary (from a few seconds to over 30),
+  so the pipeline needs a **wait-until step** (beats are fixed-time today) and a **visible
+  fast-forward** that cuts the wait (`composeArgs` only trims the tail). *Scripted*: a tiny local
+  OpenAI-compatible fake returning a fixed tool-call sequence. The tools still run for real and
+  the timing is deterministic, but the model's words are staged.
+- **Provider and key on `perf-demo`.** The scenario must never visit the plugin's Settings (the
+  key stays off camera). #1 also needs the *Write file tags* scope, as well as AI control and the
+  plugin connected.
+- **The Approve card isn't protected from Click and type** (`PluginChat.tsx`,
+  `.plugin-chat-approval`). An outside assistant could approve the in-app assistant's changes,
+  which is the consent bypass the protected regions exist to stop, so it should get
+  `data-ui-input-protected`. After that fix the take can't click Approve itself. Suggested: the
+  runner waits for the card and the person recording clicks Approve live (the camera holds on
+  it), rather than opening with "Approve all" already set, which loses the best beat.
 
 ## Decisions needed before recording (original options, kept for reference)
 
