@@ -616,7 +616,10 @@ export function usePlayback(
         if (autoSkipStreakRef.current !== 0 && payload.positionSecs > 1) autoSkipStreakRef.current = 0;
         // Scrobble threshold check (Last.FM rules). Who records the play, per
         // media type, is Settings → Playback → Scrobbling — decided by App's onScrobble.
-        if (!scrobbledRef.current && track && shouldScrobble(payload.positionSecs, track.duration_secs)) {
+        // The engine's duration comes first: a metadata-only entry (a stream
+        // resolver's fallback, a "Not in library" row) carries no duration_secs,
+        // and with only that to go on it never crossed the threshold.
+        if (!scrobbledRef.current && track && shouldScrobble(payload.positionSecs, payload.durationSecs ?? track.duration_secs)) {
           crossScrobbleThreshold(track);
         }
 
