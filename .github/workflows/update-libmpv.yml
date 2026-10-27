@@ -3,7 +3,7 @@ name: Update libmpv
 # Weekly: is there a newer libmpv build than the pinned one? If so, mirror it,
 # re-pin it, prove it loads and plays on real macOS and Windows runners,
 # repackage the downloadable engine component, open (or refresh) a pull request,
-# run CI on it and merge it once that passes — so the new pin is on main the
+# wait for its CI and merge it once that passes — so the new pin is on main the
 # same day. The engine tests prove libmpv loads and plays, not that playback has
 # no subtle regression; the release that ships it is where that gets tried
 # (`npm run bump` Step 0 still merges a PR this run left open).
@@ -11,6 +11,16 @@ name: Update libmpv
 # Everything is re-derived from main each run, so a PR left open is simply
 # refreshed — never stacked — and re-running is safe (mirroring checks bytes,
 # the component publish never overwrites a file).
+#
+# The branch commits and the PR are made as the Vibo bot GitHub App (repo
+# variable BOT_APP_ID + secret BOT_APP_PRIVATE_KEY), never with github.token.
+# A pull_request run started by a github.token event is held at "Approve
+# workflows to run" (github-actions[bot] counts as a first-time contributor
+# under the repo's approval policy), and that held run is the one main's
+# required checks count — so every update PR sat BLOCKED until someone clicked
+# (#140, #141). An App's events start CI like a person's. The App needs
+# Contents and Pull requests read/write on this repo. Each job mints its own
+# token: they last an hour and can't be passed between jobs.
 
 on:
   schedule:
@@ -50,15 +60,28 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: node scripts/update-libmpv.mjs --write --mirror --summary libmpv-update.md
 
+      # Only when there is something to push, and only now: a week with no
+      # update never needs the App, and a token minted before the mirror step
+      # could expire (1h) before the push.
+      - name: Bot token
+        if: steps.update.outputs.changed == 'true'
+        id: app
+        uses: actions/create-github-app-token@v2
+        with:
+          app-id: ${{ vars.BOT_APP_ID }}
+          private-key: ${{ secrets.BOT_APP_PRIVATE_KEY }}
+
       # Through the API, not `git push`, so GitHub signs it (a verified commit by
-      # github-actions[bot]): main's ruleset has "extra approval for
-      # unattributed changes" on, which an unsigned bot commit may trip. It was
-      # NOT what held #140 — that was the PR's CI waiting for approval (see the
-      # merge step). --force: the branch is rebuilt from main every run.
+      # the bot App — an App token's API commit is signed, a personal token's
+      # isn't): main's ruleset has "extra approval for unattributed changes"
+      # on, which an unsigned commit may trip. The App token matters twice
+      # here: on a PR that's already open this push is the `synchronize` that
+      # starts its CI, and with github.token that run would be held.
+      # --force: the branch is rebuilt from main every run.
       - name: Push the update branch
         if: steps.update.outputs.changed == 'true'
         env:
-          GH_TOKEN: ${{ github.token }}
+          GH_TOKEN: ${{ steps.app.outputs.token }}
         run: |
           node scripts/commit-via-api.mjs --branch "$BRANCH" --parent "$(git rev-parse HEAD)" --force \
             --message "build(libmpv): update pinned libmpv (${{ steps.update.outputs.platforms }})" \
@@ -132,10 +155,19 @@ jobs:
           node scripts/package-engine-component.mjs
           node scripts/publish-engine-components.mjs
 
-      # Signed through the API for the same reason as the check job's commit.
+      # Minted right before its one use, like the check job's.
+      - name: Bot token
+        id: app
+        uses: actions/create-github-app-token@v2
+        with:
+          app-id: ${{ vars.BOT_APP_ID }}
+          private-key: ${{ secrets.BOT_APP_PRIVATE_KEY }}
+
+      # Signed through the API, as the bot App, for the same reasons as the
+      # check job's commit.
       - name: Commit the component pins
         env:
-          GH_TOKEN: ${{ github.token }}
+          GH_TOKEN: ${{ steps.app.outputs.token }}
         run: |
           if git diff --quiet -- src-tauri/engine-component.lock.json; then exit 0; fi
           node scripts/commit-via-api.mjs --branch "$BRANCH" --parent "$(git rev-parse HEAD)" \
@@ -146,11 +178,14 @@ jobs:
     needs: [check, engine-test, engine-component]
     if: always() && needs.check.outputs.changed == 'true'
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    # CI alone can run ~70 min on a crawling Ubuntu mirror (the apt step may
+    # take 45); the watch below gives up at 100 so the job ends on its own
+    # "leaving the PR open" warning rather than being killed.
+    timeout-minutes: 120
     permissions:
       contents: write # gh pr merge
       pull-requests: write
-      actions: write # gh workflow run ci.yml
+      actions: read # gh run list / watch
       checks: read # the PR's check rollup
       statuses: read
     steps:
@@ -160,9 +195,17 @@ jobs:
         with:
           name: libmpv-update-summary
 
+      - name: Bot token
+        id: app
+        uses: actions/create-github-app-token@v2
+        with:
+          app-id: ${{ vars.BOT_APP_ID }}
+          private-key: ${{ secrets.BOT_APP_PRIVATE_KEY }}
+
+      # As the bot App, so opening the PR starts its CI without an approval.
       - name: Open or refresh the pull request
         env:
-          GH_TOKEN: ${{ github.token }}
+          GH_TOKEN: ${{ steps.app.outputs.token }}
           TESTS: ${{ needs.engine-test.result }}
           COMPONENT: ${{ needs.engine-component.result }}
         run: |
@@ -177,7 +220,7 @@ jobs:
             echo
             echo "Run log: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
             echo
-            echo "_Opened by the workflow, which merges this PR once its CI passes. If its CI is waiting for approval (\"Approve workflows to run\" above), approve it — the PR's own CI run is the one main's required checks count. If it stays open (a draft, or CI failed), \`npm run bump\` merges it once it isn't a draft and CI has passed._"
+            echo "_Opened by the workflow, which merges this PR once its CI passes. If it stays open (a draft, or CI failed), \`npm run bump\` merges it once it isn't a draft and CI has passed._"
           } > body.md
           TITLE="Update libmpv (${{ needs.check.outputs.platforms }})"
           PASSED=true
@@ -197,47 +240,32 @@ jobs:
             gh pr create --base main --head "$BRANCH" --title "$TITLE" --body-file body.md $DRAFT
           fi
 
-      # main's ruleset requires typecheck / rust-check-and-test / test-ts. The PR
-      # does trigger CI (a pull_request run), but while github-actions[bot]
-      # counts as a first-time contributor (repo policy first_time_contributors)
-      # that run waits for a maintainer's approval — and it is the one the PR's
-      # required checks count; this dispatched run's green checks don't satisfy
-      # them (#140 sat BLOCKED with them until the held run was approved). This
-      # run is still what the merge step's own verdict reads. Its runs
-      # attach to the branch's head commit, which is what the PR's checks read.
-      - name: Start CI on the branch
-        id: ci
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          echo "sha=$(git ls-remote origin "refs/heads/$BRANCH" | cut -f1)" >> "$GITHUB_OUTPUT"
-          echo "since=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$GITHUB_OUTPUT"
-          gh workflow run ci.yml --ref "$BRANCH"
-
       # Only a run whose own tests and component publish passed is merged — a
-      # draft never is. The verdict is bump's own (requiredChecksState), so both
-      # merge paths agree on what "CI passed" means, and the merge is pinned to
-      # the commit CI tested: a push to the branch in between refuses it.
+      # draft never is. The CI watched is the PR's own pull_request run, the
+      # one main's ruleset counts; the bot App's push / PR open started it (see
+      # the header), so nothing is dispatched here. The verdict is bump's own
+      # (requiredChecksState), so both merge paths agree on what "CI passed"
+      # means, and the merge is pinned to the commit CI tested: a push to the
+      # branch in between refuses it.
       - name: Wait for CI, then merge
         if: needs.engine-test.result == 'success' && needs.engine-component.result == 'success'
         env:
           GH_TOKEN: ${{ github.token }}
-          SHA: ${{ steps.ci.outputs.sha }}
-          SINCE: ${{ steps.ci.outputs.since }}
         run: |
+          SHA=$(git ls-remote origin "refs/heads/$BRANCH" | cut -f1)
           RUN=""
           for _ in $(seq 1 20); do
-            RUN=$(gh run list --workflow ci.yml --branch "$BRANCH" --event workflow_dispatch \
-              --json databaseId,headSha,createdAt \
-              --jq "[.[] | select(.headSha == \"$SHA\" and .createdAt >= \"$SINCE\")][0].databaseId // empty")
+            RUN=$(gh run list --workflow ci.yml --branch "$BRANCH" --event pull_request \
+              --json databaseId,headSha \
+              --jq "[.[] | select(.headSha == \"$SHA\")][0].databaseId // empty")
             [ -n "$RUN" ] && break
             sleep 15
           done
           if [ -z "$RUN" ]; then
-            echo "::warning::CI run for $SHA never appeared — leaving the PR for npm run bump"
+            echo "::warning::No CI run started for $SHA — is the bot App installed? Leaving the PR for npm run bump"
             exit 0
           fi
-          gh run watch "$RUN" --interval 30 > /dev/null || true
+          timeout 100m gh run watch "$RUN" --interval 30 > /dev/null || true
           # The head commit's check runs over REST, never statusCheckRollup
           # (empty for every PR here — see checkRunsArgs).
           STATE=$(gh api "repos/${{ github.repository }}/commits/$SHA/check-runs?per_page=100" --jq .check_runs \

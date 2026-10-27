@@ -114,7 +114,7 @@ jobs:
           cache: npm
 
       - name: Install system dependencies
-        timeout-minutes: 20
+        timeout-minutes: 45
         run: scripts/ci-install-linux-deps.sh
 
       - uses: dtolnay/rust-toolchain@stable

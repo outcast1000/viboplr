@@ -4,6 +4,13 @@ on:
   workflow_dispatch:
   pull_request:
 
+# A newer push to the same PR supersedes the run in progress — e.g. the libmpv
+# update bot pushes the pin, then the engine-component lock minutes later, and
+# only the second commit's run is ever read.
+concurrency:
+  group: ci-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
 jobs:
   typecheck:
     runs-on: ubuntu-latest
@@ -26,7 +33,7 @@ jobs:
       - uses: actions/checkout@v5
 
       - name: Install system dependencies
-        timeout-minutes: 20
+        timeout-minutes: 45
         run: scripts/ci-install-linux-deps.sh
 
       - uses: dtolnay/rust-toolchain@stable
@@ -73,6 +80,11 @@ jobs:
           cache: npm
 
       - run: npm install
+
+      # tauri.windows.conf.json bundles libmpv-2.dll as a resource, and
+      # tauri-build fails the build script when a resource path is missing.
+      - name: Vendor libmpv
+        run: node scripts/fetch-libmpv.mjs
 
       - name: Cargo check
         working-directory: src-tauri

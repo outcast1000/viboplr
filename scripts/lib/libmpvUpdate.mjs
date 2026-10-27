@@ -139,11 +139,11 @@ export function prBody(changes) {
 }
 
 /**
- * The CI jobs main's ruleset requires before a merge ("Protect main"). The
- * update workflow starts CI on its branch so the PR can satisfy them; keep this
- * in step with the ruleset and with the job names in .github/workflows/ci.yml.
+ * The CI jobs main's ruleset requires before a merge ("Protect main"), which
+ * the update PR's own CI run must satisfy; keep this in step with the ruleset
+ * and with the job names in .github/workflows/ci.yml.
  */
-export const REQUIRED_CHECKS = ["typecheck", "rust-check-and-test", "test-ts"];
+export const REQUIRED_CHECKS = ["typecheck", "rust-check-and-test", "test-ts", "rust-check-windows"];
 
 /**
  * The `gh` arguments that list the check runs on a PR's head commit (REST,
