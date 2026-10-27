@@ -2064,18 +2064,32 @@ fn run_event_loop(
             Err(e) => {
                 // Decode/load failures surface here (EndFile with an error
                 // reason is mapped to Err by api::Mpv::wait_event).
-                let (kind, key) = {
+                let (kind, key, load_pending) = {
                     let mut st = state.lock().unwrap();
+                    let load_pending = st.expecting_start[deck];
                     if deck == st.active {
                         st.gapless_key = None;
-                        ("active", st.current_key.take())
+                        ("active", st.current_key.take(), load_pending)
                     } else {
                         // Standby arming failure — report the armed key so the
                         // frontend can blocklist and disarm it.
                         st.expecting_start[deck] = false;
-                        ("standby", st.xfade_key.take())
+                        ("standby", st.xfade_key.take(), false)
                     }
                 };
+                // Whatever mpv would play next on this deck belongs to nobody:
+                // the frontend decides what follows a failure (retry, fallback,
+                // skip). It is not always empty — a source mpv can't demux but
+                // can read as a playlist is expanded into the deck's playlist
+                // (a refused YouTube HLS stream queues every segment), and each
+                // entry then failed on its own, about twice a second. Not while
+                // one of our own loads is on its way: that is a newer play,
+                // and this error belongs to what it replaced.
+                if !load_pending {
+                    if let Err(e) = client.command("stop", &[]) {
+                        log::error!("mpv-engine: stop after a failed load failed: {e}");
+                    }
+                }
                 if let Some(key) = key {
                     sink(
                         "engine-error",
@@ -3128,6 +3142,58 @@ mod tests {
         }
         eprintln!("[probe] VERDICT: {verdict}");
         eprintln!("[probe] media_info: {:?}", engine.media_info());
+    }
+
+    /// A source mpv can't demux as media but can read as a playlist is expanded
+    /// into the deck's playlist — what happens to a YouTube HLS stream whose
+    /// first segment is refused: ffmpeg's HLS demuxer gives up, mpv's generic
+    /// playlist demuxer reads the `.m3u8` and queues every segment. Each entry
+    /// then failed on its own, one engine error after another, ~2/s until
+    /// something else was loaded (35 in one real log, all "no owning track").
+    /// The failure of the track the frontend asked for must end the deck's
+    /// playlist there.
+    #[test]
+    fn test_a_failed_track_does_not_play_on_through_an_expanded_playlist() {
+        use std::io::{BufRead, BufReader, Write};
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").expect("bind");
+        let port = listener.local_addr().unwrap().port();
+        let requests = Arc::new(Mutex::new(Vec::<String>::new()));
+        let seen = requests.clone();
+        std::thread::spawn(move || {
+            for stream in listener.incoming() {
+                let Ok(stream) = stream else { break };
+                let mut reader = BufReader::new(stream.try_clone().unwrap());
+                let mut first = String::new();
+                let _ = reader.read_line(&mut first);
+                loop {
+                    let mut line = String::new();
+                    if reader.read_line(&mut line).unwrap_or(0) == 0 || line.trim().is_empty() { break; }
+                }
+                let path = first.split_whitespace().nth(1).unwrap_or("").to_string();
+                seen.lock().unwrap().push(path.clone());
+                let mut s = stream;
+                if path == "/list.m3u" {
+                    let body: String = (0..5).map(|i| format!("http://127.0.0.1:{port}/entry{i}.m4a\n")).collect();
+                    let _ = write!(s, "HTTP/1.1 200 OK\r\nContent-Type: audio/x-mpegurl\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}", body.len());
+                } else {
+                    let _ = s.write_all(b"HTTP/1.1 403 Forbidden\r\nContent-Length: 0\r\nConnection: close\r\n\r\n");
+                }
+            }
+        });
+
+        let (sink, rx) = collect_events();
+        let Some(engine) = try_test_engine(sink) else { return };
+        engine
+            .play(&format!("http://127.0.0.1:{port}/list.m3u"), None, "trk:list", None, 0.5, false, false)
+            .expect("play accepted");
+        let err = wait_for(&rx, "engine-error", Duration::from_secs(10));
+        assert_eq!(err["trackKey"], "trk:list");
+        // Long enough for the next entries to have been tried, were they queued.
+        std::thread::sleep(Duration::from_secs(3));
+        let entries: Vec<String> = requests.lock().unwrap().iter().filter(|p| p.starts_with("/entry")).cloned().collect();
+        assert_eq!(entries, vec!["/entry0.m4a".to_string()],
+            "only the entry that failed may be requested — got {entries:?}");
+        assert_eq!(rx.try_iter().filter(|(n, _)| n == "engine-error").count(), 0, "one failure, one error");
     }
 
     /// Network-dependent — run explicitly:
