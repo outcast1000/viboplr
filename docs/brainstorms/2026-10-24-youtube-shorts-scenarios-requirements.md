@@ -1,6 +1,6 @@
 # YouTube Shorts: scenarios per persona
 
-Status: draft for review (2026-10-24). Step 1 of 2: decide *what* each short shows. Step 2
+Status: draft for review (2026-10-24; revised plan + Reddit targets 2026-10-27). Step 1 of 2: decide *what* each short shows. Step 2
 (automating the recording) comes after these are agreed.
 
 ## Ground rules for the whole series
@@ -87,6 +87,81 @@ Open decisions:
   runner waits for the card and the person recording clicks Approve live (the camera holds on
   it), rather than opening with "Approve all" already set, which loses the best beat.
 
+## Revised plan (2026-10-27): merges, cuts and where to post
+
+The 21 scenarios below plus the six AI candidates above overlap, need a person or an outside
+service, or don't work as a silent short. Proposed: about ten shorts. The batches below are kept
+for reference; this section wins where they disagree.
+
+### Merges
+
+1. **Collectors #1 + #8 + AI candidate 1 → one short.** #8 is #1's last beat (the Various Artists
+   album with each performer kept), and the AI candidate uses the same *Late Night Drive* data.
+   Two acts: "by hand: select, edit once" → "or just ask" → one album. Answers the "dullest"
+   steer without AI opening the series.
+2. **Tinkerers #6 + #16 → #6, skins only.** #16 is all hero looks, the half that already fails at
+   phone size. #6's second half becomes skins over Now Playing fullscreen; #16 is dropped.
+3. **Info lovers #5 + #19 + AI candidate 5 → "Every song has a story", all on Glass Harbour.**
+   Synced lyrics → cue cards fading in → the Meaning tab. Removes #5's empty-About caveat and
+   needs nothing cleared (the lyrics are invented). #15 (Genius, third-party text) is dropped.
+4. **Rediscoverers #4 + #13 + #14 → one short**, ending on "the music never stops". Mixes and
+   auto-continue show almost nothing on their own. A second rediscoverers short can be AI
+   candidate 3 ("Which songs did I love and forget?").
+5. **Coders #17 + AI #18 → one split screen: "a player your tools can drive".** curl first, then
+   an assistant doing the same. #18 needs a person to record, so the curl half can ship alone.
+6. **Audiophiles #3 + #12 → "Pure, or shaped".** Bit-perfect on, then off and an EQ preset.
+   #11 (gapless) is dropped: its point is audible and the export is silent.
+
+### Cuts
+
+- **Spotify (#21):** another company's brand plus a signed-in account on a public channel, needs
+  a person, and works against "music you own". Skip.
+- **Downloaders (#20):** at most one, with a clearly CC-licensed target, and not early in the
+  series (strike risk).
+- **Self-hosters #10:** it's the website, not the app. #2 stays, blocked on the demo server.
+- **Collectors #9:** later, automatable with a second synthetic FLAC + `replace_track_file`.
+
+### Buildable today
+
+Tinkerers (fix), info lovers, rediscoverers, audiophiles. Self-hosters needs the demo Navidrome;
+collectors and the AI shorts need the real-vs-scripted model decision. So the "primary audiences
+first" rule can't hold for the first release unless those two are unblocked first. The best-fit
+subreddits below belong to exactly those blocked shorts, which is a reason to unblock them early.
+
+### Where to post (Reddit)
+
+Each short goes out as a link plus a short description. No Linux subreddits: the release builds
+macOS and Windows only.
+
+| Persona | Short (after merges) | Subreddits |
+|---|---|---|
+| **Collectors** | "100 badly tagged files": edit once by hand → or just ask | r/musichoarder, r/DataHoarder, r/foobar2000, r/MusicBrainz, r/macapps, r/software |
+| **Self-hosters** | "Your server, built in" (blocked on a demo Navidrome) | r/navidrome, r/selfhosted, r/subsonic, r/homelab, r/DataHoarder |
+| **Audiophiles** | "Pure, or shaped": bit-perfect, then EQ | r/audiophile, r/headphones, r/HeadphoneAdvice, r/musichoarder, r/macapps |
+| Rediscoverers | Home → Forgotten favorites → radio → the music never stops | r/musichoarder, r/lastfm, r/truespotify, r/software, r/macapps, r/windowsapps |
+| Info lovers | Glass Harbour: synced lyrics → cue cards → Meaning tab | r/lastfm, r/MusicBrainz, r/software, r/macapps, r/LovingOpenSourceAI |
+| Tinkerers | Skins over the artist page and Now Playing fullscreen | r/tauri, r/reactjs (Showoff Saturday), r/javascript, r/web_design, r/opensource, r/foss |
+| Coders | Mini player over the editor + curl driving the app | r/rust, r/tauri, r/programming, r/commandline, r/macapps, r/SideProject |
+| AI | In-app assistant fixes tags / builds a queue; Claude over MCP | r/ClaudeAI, r/claude, r/ClaudeCode, r/mcp, r/vibecoding, r/LovingOpenSourceAI, r/LocalLLaMA (local model only) |
+| Downloaders | yt-dlp search → download (CC video) → in library; torrent and Soulseek plugins | r/youtubedl, r/qBittorrent, r/Soulseek, r/DataHoarder, r/torrents |
+| Spotify users | (cut) | r/truespotify; r/spotify bans promotion, skip |
+| **Whole project** | one overview video or the repo link | r/BestGithubRepos, r/coolgithubprojects, r/opensource, r/foss, r/SideProject, r/IMadeThis, r/alternativeto, r/macapps, r/windowsapps, r/software, r/vibecoding |
+
+Rules to check per subreddit before posting (from memory; they change):
+
+- **r/selfhosted** limits project promos to a weekly slot (has been "New Project Friday") and
+  wants the repo link, not only a video.
+- **r/audiophile, r/headphones** are hostile to self-promotion: lead with what bit-perfect does,
+  or use their weekly threads.
+- **r/rust** wants Rust to be the point: post the libmpv engine / backend angle, not skins.
+- **r/youtubedl, r/qBittorrent, r/Soulseek** are mostly support communities: pitch the plugin
+  as a front-end for their tool, and show no copyrighted target.
+- **r/LocalLLaMA** only if the assistant runs on a local model (Ollama, LM Studio).
+- **r/reactjs** showcases on Showoff Saturday only; **r/macapps** has strict post formatting.
+- **Pacing:** one account, spread over days, commenting in each sub. The same link posted many
+  times in a short span gets shadow-removed by Reddit's spam filter, and many subs apply a
+  10%-self-promotion rule to the account's history.
+
 ## Decisions needed before recording (original options, kept for reference)
 
 1. **Framing.** The capture pipeline grabs the app window, and the window *can* be portrait:
@@ -126,9 +201,8 @@ route for this yet. **manual:** needs an outside service or a real person, like 
   9 s set the album artist → 14 s the album list redraws as one album →
   18 s end card.
 - **Captions:** "Select them all" · "Edit once" · "Written to the files, not just the app".
-- **Needs:** typing into the modal fields. **new verb** (`bulkEdit` only opens the modal), or
-  seed the values and record only the before/after.
-- **Automatable:** yes, once the verb exists. Without it, two stills plus a transition.
+- **Needs:** typing into the modal fields — done with Click and type (`collectors-bulk-edit`).
+- **Automatable:** yes.
 
 ### 2. Self-hosters: "Your server, built in" (~20 s, A)
 - **Hook:** the library list with a "Navidrome" badge next to "Local". *"Local files and your
@@ -157,9 +231,7 @@ route for this yet. **manual:** needs an outside service or a real person, like 
   from it → the queue fills (queue panel open) → end card.
 - **Captions:** "A home screen that knows your library" · "Forgotten favorites" · "A station
   from any song".
-- **Needs:** start radio from the UI. **new verb** (MCP `start_radio` exists; there is no
-  `ui.action`), or call `start_radio` through the control API while recording, which already
-  works.
+- **Needs:** start radio from the UI — Click and type on the hero's **Radio** button.
 - **Automatable:** yes.
 
 ### 5. Info lovers: "Every song has a story" (~25 s, A)
