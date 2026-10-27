@@ -339,6 +339,9 @@ window.__TAURI_INTERNALS__.invoke = async function (cmd, args) {
       return null;
     case 'recent_play_gc':
       return 0;
+    // A mixtape card's cover: no mixtape fixtures, so none.
+    case 'mixtape_cover':
+      return null;
     // Home snapshot file: nothing cached, so Home fetches its shelves.
     case 'home_snapshot_read':
     case 'home_snapshot_write':

@@ -2,7 +2,7 @@ import type { QueueTrack } from "../types";
 import type { PlaylistContext } from "../hooks/useQueue";
 
 // How a captured play session is replayed (see App.tsx handleReplayLatestPlay).
-export type RecentPlaySource = "album" | "artist" | "tag" | "radio" | "playlist" | "track";
+export type RecentPlaySource = "album" | "artist" | "tag" | "radio" | "playlist" | "track" | "mixtape";
 
 // A single "Latest play" entry: a small descriptor of something that replaced
 // the queue. Albums, artists and tags replay by name from the current library
@@ -10,7 +10,9 @@ export type RecentPlaySource = "album" | "artist" | "tag" | "radio" | "playlist"
 // — radio, generated mixes, saved and plugin playlists, multi-track selections —
 // can't be rebuilt by name, so its tracks are snapshotted to a playlist-only
 // mixtape (`recent_play_write`, see src-tauri/src/recent_plays.rs) and replayed
-// from it. A lone track needs no snapshot: it carries its own QueueTrack.
+// from it. A lone track needs no snapshot: it carries its own QueueTrack. A
+// `.mixtape` the user opened needs none either: the file already holds the
+// tracks and the cover, so its session points at the file and replays it.
 export interface RecentPlaySession {
   source: RecentPlaySource;
   name: string; // display title + the name we re-resolve by
@@ -19,6 +21,9 @@ export interface RecentPlaySession {
   seedTitle?: string; // radio: seed, for the fallback when the snapshot is gone
   seedArtist?: string | null; // radio: seed artist, when known
   track?: QueueTrack | null; // fallback replay for track/playlist/unresolved sources
+  /** mixtape: the `.mixtape` file the play opened — replayed by opening it
+   *  again, and where the card's cover is read from. */
+  mixtapePath?: string;
   /** The snapshot file holding the played tracks; absent for sessions that
    *  replay by name, for sessions saved before snapshots, and when the write
    *  failed. Replay falls back as before whenever it's missing or unreadable. */
@@ -37,6 +42,9 @@ export const SNAPSHOT_TRACK_CAP = 100;
 /** Sources that replay by name from the current library, never a snapshot. */
 const REBUILT_BY_NAME: ReadonlySet<RecentPlaySource> = new Set(["album", "artist", "tag"]);
 
+/** Sources that never take a snapshot: a mixtape replays its own file. */
+const NO_SNAPSHOT: ReadonlySet<RecentPlaySource> = new Set([...REBUILT_BY_NAME, "mixtape"]);
+
 /** Whether a session should replay from its snapshot. */
 export function replaysFromSnapshot(s: Pick<RecentPlaySession, "source" | "snapshotId">): boolean {
   return !!s.snapshotId && !REBUILT_BY_NAME.has(s.source);
@@ -49,7 +57,7 @@ export function snapshotFor(
   startIndex: number,
   source: RecentPlaySource,
 ): { tracks: QueueTrack[]; startIndex: number } | null {
-  if (REBUILT_BY_NAME.has(source) || tracks.length <= 1) return null;
+  if (NO_SNAPSHOT.has(source) || tracks.length <= 1) return null;
   const start = Math.min(Math.max(startIndex, 0), tracks.length - 1);
   if (tracks.length <= SNAPSHOT_TRACK_CAP) return { tracks, startIndex: start };
   return { tracks: tracks.slice(start, start + SNAPSHOT_TRACK_CAP), startIndex: 0 };
@@ -75,7 +83,9 @@ export function droppedSnapshotIds(prev: RecentPlaySession[], next: RecentPlaySe
 
 // Dedup identity: same kind + same name (+ artist for albums/tracks). Replaying
 // the same album/artist/radio moves its tile to the front rather than stacking.
-export function sessionKey(s: Pick<RecentPlaySession, "source" | "name" | "artistName">): string {
+// A mixtape is its file, not its title: two mixtapes can share a title.
+export function sessionKey(s: Pick<RecentPlaySession, "source" | "name" | "artistName" | "mixtapePath">): string {
+  if (s.source === "mixtape" && s.mixtapePath) return `mixtape::${s.mixtapePath}`;
   return `${s.source}::${(s.name ?? "").toLowerCase()}::${(s.artistName ?? "").toLowerCase()}`;
 }
 
@@ -92,6 +102,38 @@ export function recordPlaySession(
     return filtered.slice(filtered.length - MAX_RECENT_PLAYS);
   }
   return filtered;
+}
+
+// A replayed card moves to the front and keeps the tracks it already holds.
+// Replaying is not a new play, so it takes no new snapshot — that would delete
+// the one a card on screen still names. Prefers the live entry for the card
+// (the shelf's copy may be older) and, when the replay found the snapshot
+// unreadable, forgets it so the next click doesn't try it again.
+export function bumpPlaySession(
+  prev: RecentPlaySession[],
+  replayed: RecentPlaySession,
+  now: number,
+  opts: { dropSnapshot?: boolean } = {},
+): RecentPlaySession[] {
+  const key = sessionKey(replayed);
+  const next: RecentPlaySession = { ...(prev.find((e) => sessionKey(e) === key) ?? replayed), ts: now };
+  if (opts.dropSnapshot) {
+    delete next.snapshotId;
+    delete next.startIndex;
+  }
+  return recordPlaySession(prev, next);
+}
+
+// The session for a `.mixtape` the user opened. No cover is stored: the one
+// the play extracted sits in a temp folder emptied at the next launch, so the
+// card reads it out of the file instead (`mixtape_cover`).
+export function buildMixtapeSession(
+  mixtapePath: string,
+  title: string,
+  lead: QueueTrack | null,
+  now: number,
+): RecentPlaySession {
+  return { source: "mixtape", name: title, mixtapePath, track: lead, ts: now };
 }
 
 // Strip the "Radio: " prefix the radio context adds, recovering the seed title.
@@ -144,6 +186,7 @@ export function sessionSubtitle(s: RecentPlaySession): string {
     case "tag": return "Tag";
     case "radio": return "Radio";
     case "playlist": return "Playlist";
+    case "mixtape": return "Mixtape";
     case "track": return s.artistName || "Track";
   }
 }

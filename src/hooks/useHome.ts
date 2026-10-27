@@ -358,17 +358,39 @@ export async function mixCards(
   }));
 }
 
+// A mixtape's cover as a data: URI, read out of the file by the backend. Cached
+// per file for the session: the shelf is rebuilt after every play. A failed
+// read is not cached (the file may be back next time).
+const mixtapeCoverCache = new Map<string, string | null>();
+async function readMixtapeCover(path: string): Promise<string | null> {
+  if (mixtapeCoverCache.has(path)) return mixtapeCoverCache.get(path) ?? null;
+  try {
+    const uri = await invoke<string | null>("mixtape_cover", { path });
+    mixtapeCoverCache.set(path, uri);
+    return uri;
+  } catch (e) {
+    console.error(`Failed to read the cover of ${path}:`, e);
+    return null;
+  }
+}
+
 // Cover for a "Latest play" tile, in priority order:
-//   1. the cover captured at play time (s.imagePath),
-//   2. name-based re-resolution for the entity the session names (album/artist),
-//   3. the lead track's album → artist image (the session keeps `s.track`
+//   1. a mixtape's own cover, read out of the file (s.mixtapePath),
+//   2. the cover captured at play time (s.imagePath),
+//   3. name-based re-resolution for the entity the session names (album/artist),
+//   4. the lead track's album → artist image (the session keeps `s.track`
 //      precisely so we can re-resolve imagery without snapshotting tracks).
-// `resolve` is injected (defaults to resolveCover) so this stays unit-testable.
+// `resolve` / `mixtapeCover` are injectable so this stays unit-testable.
 // Returns null → the shelf renders the first-letter placeholder.
 export async function resolveSessionCover(
   s: RecentPlaySession,
   resolve: (albumTitle: string | null | undefined, artistName: string | null | undefined) => Promise<string | null> = resolveCover,
+  mixtapeCover: (path: string) => Promise<string | null> = readMixtapeCover,
 ): Promise<string | null> {
+  if (s.mixtapePath) {
+    const c = await mixtapeCover(s.mixtapePath);
+    if (c) return c;
+  }
   if (s.imagePath) return s.imagePath;
   if (s.source === "album") {
     const c = await resolve(s.name, s.artistName);
@@ -382,6 +404,49 @@ export async function resolveSessionCover(
     if (c) return c;
   }
   return null;
+}
+
+// The Latest play cards, newest first. Shared by the full refresh and the
+// rebuild that follows every recorded play (see the `recentPlays` effect in
+// useHome).
+export async function fetchLatestPlayShelf(
+  recentPlays: RecentPlaySession[],
+  limit: number,
+  cover: (s: RecentPlaySession) => Promise<string | null> = (s) => resolveSessionCover(s),
+): Promise<HomeShelfResult> {
+  try {
+    const sorted = [...recentPlays].sort((a, b) => b.ts - a.ts).slice(0, limit);
+    const items: HomeShelfItem[] = [];
+    for (const s of sorted) {
+      // Cover chain (cache-only, within the shelf budget): mixtape's own cover
+      // → captured cover → named album/artist → lead track's album/artist.
+      const coverUrl = await cover(s);
+      items.push({
+        id: sessionKey(s),
+        name: s.name,
+        subtitle: sessionSubtitle(s),
+        coverUrl: coverUrl ?? undefined,
+        tracks: [],
+        __session: s,
+      } as unknown as HomeShelfItem);
+    }
+    return items.length > 0 ? { status: "ok", items } : { status: "empty" };
+  } catch (e) {
+    console.error("Failed to build the Latest play shelf:", e);
+    return { status: "error", message: String(e) };
+  }
+}
+
+// Put the Latest play shelf into the resolved list — replaced where it was,
+// placed by the user's order where it wasn't, dropped when `shelf` is null
+// (nothing played yet, or the shelf is hidden). Pure.
+export function withLatestPlayShelf(
+  shelves: ResolvedShelf[],
+  shelf: ResolvedShelf | null,
+  shelfOrder: string[],
+): ResolvedShelf[] {
+  const others = shelves.filter((s) => s.id !== LATEST_PLAY_SHELF_ID);
+  return shelf ? orderResolvedShelves([...others, shelf], shelfOrder) : others;
 }
 
 // Build the radio shelf from resolved stations.
@@ -531,6 +596,11 @@ export interface UseHomeOptions {
   // shelves (recently added, liked, most-played, …) pick up the new tracks — fully
   // generic, no per-shelf wiring. Debounced and gated so it never delays startup.
   libraryRevision: number;
+  // The Latest play list as App holds it (null until it's been read from the
+  // store). Its shelf follows this list live rather than the 24h refresh: a
+  // card names snapshot files that a later play may have deleted, so a cached
+  // copy of it goes stale on the first replay.
+  recentPlays: RecentPlaySession[] | null;
 }
 
 export function shelfKey(pluginId: string | undefined, shelfId: string): string {
@@ -538,7 +608,12 @@ export function shelfKey(pluginId: string | undefined, shelfId: string): string 
 }
 
 export function useHome(opts: UseHomeOptions) {
-  const { isVisible, pluginShelves, invokePluginShelf, pluginsLoaded, activePluginIds, visibility, shelfOrder, restoredRef, libraryRevision } = opts;
+  const { isVisible, pluginShelves, invokePluginShelf, pluginsLoaded, activePluginIds, visibility, shelfOrder, restoredRef, libraryRevision, recentPlays } = opts;
+  const recentPlaysRef = useRef(recentPlays);
+  useAssignRef(recentPlaysRef, recentPlays);
+  // The Latest play shelf last built from the live list (null: built, and
+  // empty or hidden; undefined: a rebuild is still out). See `refresh`.
+  const liveLatestPlayRef = useRef<ResolvedShelf | null | undefined>(undefined);
 
   // Read the latest active-plugin set inside effects without adding it to their
   // dependency arrays (the Set identity changes each render).
@@ -995,32 +1070,11 @@ export function useHome(opts: UseHomeOptions) {
           id: LATEST_PLAY_SHELF_ID,
           title: "Latest play",
           // playlist-cards = "click/play plays it"; App.tsx intercepts by shelf id
-          // and re-resolves each `__session` to a fresh play rather than the empty
-          // `tracks` we ship here (we don't snapshot the played tracks).
+          // and replays each `__session` (its snapshot, its mixtape, or by name)
+          // rather than the empty `tracks` we ship here.
           displayKind: "playlist-cards",
           limit: LATEST_PLAY_LIMIT,
-          fetch: async (limit) => {
-            try {
-              const sorted = [...recentPlays].sort((a, b) => b.ts - a.ts).slice(0, limit);
-              const items: HomeShelfItem[] = [];
-              for (const s of sorted) {
-                // Cover chain (cache-only, within the shelf budget): captured
-                // cover → named album/artist → lead track's album/artist.
-                const cover = await resolveSessionCover(s);
-                items.push({
-                  id: sessionKey(s),
-                  name: s.name,
-                  subtitle: sessionSubtitle(s),
-                  coverUrl: cover ?? undefined,
-                  tracks: [],
-                  __session: s,
-                } as unknown as HomeShelfItem);
-              }
-              return { status: "ok", items };
-            } catch (e) {
-              return { status: "error", message: String(e) };
-            }
-          },
+          fetch: (limit) => fetchLatestPlayShelf(recentPlays, limit),
         },
       ];
     },
@@ -1034,7 +1088,16 @@ export function useHome(opts: UseHomeOptions) {
     refreshedRevRef.current = libRevRef.current;
     setIsLoading(true);
     try {
-      const recentPlays = (await store.get<RecentPlaySession[]>("recentPlaySessions")) ?? [];
+      const playsAtStart = recentPlaysRef.current;
+      const recentPlays = playsAtStart
+        ?? (await store.get<RecentPlaySession[]>("recentPlaySessions")) ?? [];
+      // A play recorded while this refresh runs rebuilds the Latest play shelf
+      // on its own (the `recentPlays` effect); the copy resolved here is then
+      // older, so every shelf list this refresh puts up carries that one.
+      const keepLiveLatestPlay = (list: ResolvedShelf[]): ResolvedShelf[] =>
+        recentPlaysRef.current !== playsAtStart && liveLatestPlayRef.current !== undefined
+          ? withLatestPlayShelf(list, liveLatestPlayRef.current, shelfOrder)
+          : list;
 
       const builtIns = buildBuiltInResolvers(recentPlays);
       const pluginResolvers: ShelfResolver[] = pluginShelves.map(p => ({
@@ -1098,7 +1161,7 @@ export function useHome(opts: UseHomeOptions) {
           const next = Array.from(partial.values()).sort(
             (a, b) => (order.get(a.id) ?? 0) - (order.get(b.id) ?? 0),
           );
-          setShelves(next);
+          setShelves(keepLiveLatestPlay(next));
         } catch (e) {
           console.error(`Home shelf "${r.id}" threw:`, e);
         }
@@ -1109,9 +1172,10 @@ export function useHome(opts: UseHomeOptions) {
         // Final pass: keep only shelves that actually resolved OK this cycle, so a
         // seeded shelf that went ok -> empty/error (or was toggled off) drops in a
         // single clean step at the end rather than flickering mid-refresh.
-        const finalShelves = Array.from(partial.values())
+        let finalShelves = Array.from(partial.values())
           .filter((s) => resolvedOk.has(s.id))
           .sort((a, b) => (order.get(a.id) ?? 0) - (order.get(b.id) ?? 0));
+        finalShelves = keepLiveLatestPlay(finalShelves);
         setShelves(finalShelves);
         // Persist the snapshot so the next mount can hydrate instantly.
         const savedAt = Date.now();
@@ -1196,6 +1260,38 @@ export function useHome(opts: UseHomeOptions) {
       return next;
     });
   }, [shelfOrder]);
+
+  // Rebuild the Latest play shelf whenever the list changes — after every
+  // recorded play, and once the list is first read at startup, replacing the
+  // copy the snapshot hydrated. Only this shelf: the rest keep their 24h
+  // refresh. Waits for `hydrated` so the snapshot can't land on top of it.
+  const latestPlayGenRef = useRef(0);
+  useEffect(() => {
+    // The rebuild below is async; a refresh that resolves in the meantime must
+    // not put the shelf it computed from the previous list back up.
+    liveLatestPlayRef.current = undefined;
+    if (!hydrated || recentPlays === null) return;
+    const gen = ++latestPlayGenRef.current;
+    const visible = isShelfVisible(LATEST_PLAY_SHELF_ID, visibility);
+    (async () => {
+      const result = visible ? await fetchLatestPlayShelf(recentPlays, LATEST_PLAY_LIMIT) : null;
+      if (gen !== latestPlayGenRef.current) return;
+      const shelf: ResolvedShelf | null = result?.status === "ok"
+        ? { id: LATEST_PLAY_SHELF_ID, title: "Latest play", displayKind: "playlist-cards", items: result.items }
+        : null;
+      liveLatestPlayRef.current = shelf;
+      // Nothing played yet and nothing on screen: no state change, no write.
+      if (!shelf && !shelvesRef.current.some((s) => s.id === LATEST_PLAY_SHELF_ID)) return;
+      const next = withLatestPlayShelf(shelvesRef.current, shelf, shelfOrder);
+      setShelves(next);
+      writeHomeSnapshot<HomeSnapshot>({
+        radioStations: radioStationsRef.current,
+        shelves: next,
+        savedAt: savedAtRef.current,
+        attemptedKeys: Array.from(attemptedKeysRef.current),
+      }).catch((e) => console.error("Failed to persist the Latest play shelf:", e));
+    })();
+  }, [hydrated, recentPlays, visibility, shelfOrder]);
 
   // Refresh on mount when the cached snapshot is older than 24h (or absent), OR
   // when a visible plugin shelf has never been fetched (e.g. a plugin was just

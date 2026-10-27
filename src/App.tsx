@@ -27,7 +27,7 @@ import { subscribeTrackEvents } from "./trackEvents";
 import { track as trackTelemetry, setTelemetryEnabled as syncTelemetryEnabled, bucketCount, sourceClass } from "./telemetry";
 import { buildManifest, tracksFromManifest, contextFromManifest, contextToExportMetadata, contextFromMixtapeMetadata, playlistContextTitle, type Manifest, type MainPlaylistState } from "./mainPlaylist";
 import { collectionAlert } from "./utils/collectionAlert";
-import { buildPlaySession, recordPlaySession, snapshotFor, newSnapshotId, snapshotIdsOf, droppedSnapshotIds, replaysFromSnapshot, type RecentPlaySession } from "./utils/recentPlays";
+import { buildPlaySession, buildMixtapeSession, bumpPlaySession, recordPlaySession, sessionKey, snapshotFor, newSnapshotId, snapshotIdsOf, droppedSnapshotIds, replaysFromSnapshot, type RecentPlaySession } from "./utils/recentPlays";
 import { resolveImageUrl, resolveImageSrc, stripImageVersion } from "./utils/resolveImageUrl";
 import { resolveNowPlayingArt } from "./utils/nowPlayingArt";
 import { pickEntityImagePath } from "./utils/trackImage";
@@ -380,6 +380,19 @@ function App() {
   // "Latest play" ring buffer (things that replaced the queue). Loaded from
   // the store on mount, written on each play.
   const recentPlaysRef = useRef<RecentPlaySession[]>([]);
+  // The same list as state, for the Home shelf (null until read from the store).
+  const [recentPlays, setRecentPlays] = useState<RecentPlaySession[] | null>(null);
+  // How the next queue-replacing play is recorded, when it isn't an ordinary
+  // new play. Set right before the synchronous `playTracks` it describes and
+  // consumed by the `useQueue` onPlay callback below:
+  // - `replay`: a Latest play card being played again — it moves to the front
+  //   and keeps its snapshot (a new one would delete the file the card names);
+  // - `mixtape`: a `.mixtape` the user opened — its card points at the file.
+  const latestPlayDirectiveRef = useRef<
+    | { kind: "replay"; session: RecentPlaySession; dropSnapshot?: boolean }
+    | { kind: "mixtape"; path: string; title: string }
+    | null
+  >(null);
   // Serializes Latest play recording. A snapshot write takes a moment (it may
   // resize a cover), so without a queue a quick second play could record
   // before the first and the shelf would show them out of order.
@@ -704,6 +717,9 @@ function App() {
   const reconcileReplacedQueueLikesRef = useRef<(tracks: QueueTrack[]) => void>(() => {});
 
   const queueHook = useQueue(restoredRef, playback.handlePlay, (tracks, startIndex, context) => {
+    // Taken before the restore guard, so a directive can never outlive its play.
+    const directive = latestPlayDirectiveRef.current;
+    latestPlayDirectiveRef.current = null;
     // Record the "Latest play" session for anything that replaces the queue.
     // Guarded so the startup queue-restore doesn't masquerade as a fresh play.
     if (!restoredRef.current) return;
@@ -728,25 +744,44 @@ function App() {
       library.setSelectedTag(null);
       library.setSelectedTrack(null);
     }
-    const session = buildPlaySession(tracks, startIndex, context, Date.now());
-    if (!session) return;
-    // Record, then delete the snapshot files of sessions that just left the
-    // ring (evicted, or replaced by this newer play of the same thing).
-    const record = (s: RecentPlaySession) => {
+    // Commit a new list, then delete the snapshot files of sessions that just
+    // left the ring (evicted, or replaced by a newer play of the same thing).
+    const commit = (update: (prev: RecentPlaySession[]) => RecentPlaySession[]) => {
       const prev = recentPlaysRef.current;
-      const next = recordPlaySession(prev, s);
+      const next = update(prev);
       recentPlaysRef.current = next;
+      setRecentPlays(next);
       store.set("recentPlaySessions", next).catch((e) => console.error("Failed to persist recentPlaySessions:", e));
       const dropped = droppedSnapshotIds(prev, next);
       if (dropped.length > 0) {
         invoke("recent_play_delete", { ids: dropped }).catch((e) => console.error("Failed to delete old Latest play snapshots:", e));
       }
     };
+    const record = (s: RecentPlaySession) => commit((prev) => recordPlaySession(prev, s));
+    // Every recording goes through one chain, so plays can't land out of order.
+    // Each link catches its own failure: a rejected link would skip every later
+    // `.then`, and Latest play would silently stop recording for the session.
+    const enqueue = (step: () => void | Promise<void>) => {
+      recentPlaysChainRef.current = recentPlaysChainRef.current
+        .then(step)
+        .catch((e) => console.error("Failed to record a Latest play:", e));
+    };
+    if (directive?.kind === "replay") {
+      enqueue(() => commit((prev) => bumpPlaySession(prev, directive.session, Date.now(), { dropSnapshot: directive.dropSnapshot })));
+      return;
+    }
+    if (directive?.kind === "mixtape") {
+      const lead = tracks[startIndex] ?? tracks[0] ?? null;
+      enqueue(() => record(buildMixtapeSession(directive.path, directive.title, lead, Date.now())));
+      return;
+    }
+    const session = buildPlaySession(tracks, startIndex, context, Date.now());
+    if (!session) return;
     // Plays that can't be rebuilt by name keep their tracks in a snapshot. The
     // file is written before the session that names it is recorded, so a crash
     // in between leaves only an orphan, which the startup sweep removes.
     const snap = snapshotFor(tracks, startIndex, session.source);
-    recentPlaysChainRef.current = recentPlaysChainRef.current.then(async () => {
+    enqueue(async () => {
       if (!snap) { record(session); return; }
       const snapshotId = newSnapshotId(Date.now());
       try {
@@ -2819,11 +2854,26 @@ function App() {
   const goBackRef = useLatestRef(goBack);
   const pushStateRef = useLatestRef(pushAndScroll);
 
-  // Replay a "Latest play" tile. Re-resolves by source rather than replaying a
-  // stored track list: library entities play fresh from the current library,
-  // radio regenerates a new station, and a lone/unresolved track replays itself.
-  const handleReplayLatestPlay = useCallback(async (session: RecentPlaySession) => {
+  // Assigned once playMixtapeFile exists (it's declared further down).
+  const playMixtapeFileRef = useRef<(path: string) => void>(() => {});
+
+  // Replay a "Latest play" tile: a snapshot plays exactly what was heard, a
+  // mixtape opens its file again, library entities play fresh from the current
+  // library, and a lone/unresolved track replays itself. A replay moves the
+  // card to the front without re-recording it (`latestPlayDirectiveRef`).
+  const handleReplayLatestPlay = useCallback(async (clicked: RecentPlaySession) => {
+    // The live entry for this card wins over the shelf's copy, which may be older.
+    const session = recentPlaysRef.current.find((e) => sessionKey(e) === sessionKey(clicked)) ?? clicked;
+    const playAsReplay = (play: () => void, dropSnapshot?: boolean) => {
+      latestPlayDirectiveRef.current = { kind: "replay", session, dropSnapshot };
+      try { play(); } finally { latestPlayDirectiveRef.current = null; }
+    };
     try {
+      if (session.source === "mixtape" && session.mixtapePath) {
+        playMixtapeFileRef.current(session.mixtapePath);
+        return;
+      }
+      let snapshotFailed = false;
       // Radio, mixes, playlists and selections replay exactly what was heard,
       // from the session's snapshot. A missing or unreadable snapshot falls
       // through to the rebuild-or-lead-track paths below.
@@ -2843,11 +2893,13 @@ function App() {
             const ctx = saved || session.source === "radio"
               ? { ...(saved ?? {}), name: session.name, imagePath: session.imagePath ?? null, source: saved?.source ?? session.source }
               : null;
-            queueHook.playTracks(tracks, Math.min(session.startIndex ?? 0, tracks.length - 1), ctx);
+            playAsReplay(() => queueHook.playTracks(tracks, Math.min(session.startIndex ?? 0, tracks.length - 1), ctx));
             return;
           }
+          snapshotFailed = true;
         } catch (e) {
           console.error(`Failed to read the Latest play snapshot for "${session.name}":`, e);
+          snapshotFailed = true;
         }
       }
       if (session.source === "album") {
@@ -2870,8 +2922,10 @@ function App() {
           return;
         }
       }
-      // track / playlist / unresolved library entity → replay the captured lead track.
-      if (session.track) { queueHook.playTracks([session.track], 0); return; }
+      // track / playlist / unresolved library entity → replay the captured lead
+      // track. Still a replay of this card, not a new single-track card.
+      const lead = session.track;
+      if (lead) { playAsReplay(() => queueHook.playTracks([lead], 0), snapshotFailed); return; }
       notify(`Couldn't replay “${session.name}”.`, { kind: "error" });
     } catch (e) {
       console.error("Failed to replay latest-play session:", e);
@@ -3437,14 +3491,21 @@ function App() {
     return stopDeepLink;
   }, [plugins.forwardDeepLink, openQuizRef, runAppLinkRef, runProbeCommandRef]);
 
-  const handleMixtapeQueueTracks = useCallback((tracks: Track[], context: { name: string; imagePath?: string | null; metadata?: Record<string, string> | null }) => {
+  const handleMixtapeQueueTracks = useCallback((mixtapePath: string, tracks: Track[], context: { name: string; imagePath?: string | null; metadata?: Record<string, string> | null }) => {
     // Via the canonical conversion, not a hand-rolled literal: this one had
     // drifted, dropping `album_artist_name` (so a compilation's art/navigation
     // resolved off the performer) and, once it existed, `libraryId`. The key
     // guard it used to carry is gone too — `trackToQueueTrack` now mints its
     // own key, so a mixtape row arriving without one is no longer a case.
     const queueTracks: QueueTrack[] = tracks.map(trackToQueueTrack);
-    queueHook.playTracks(queueTracks, 0, contextFromMixtapeMetadata(context.name, context.imagePath ?? null, context.metadata ?? null));
+    // Its Latest play card points at the file — whatever source the file's
+    // metadata names (an album's export would otherwise replay by name).
+    latestPlayDirectiveRef.current = { kind: "mixtape", path: mixtapePath, title: context.name };
+    try {
+      queueHook.playTracks(queueTracks, 0, contextFromMixtapeMetadata(context.name, context.imagePath ?? null, context.metadata ?? null));
+    } finally {
+      latestPlayDirectiveRef.current = null;
+    }
   }, [queueHook.playTracks]);
   const handleMixtapeQueueTracksRef = useLatestRef(handleMixtapeQueueTracks);
 
@@ -3464,7 +3525,7 @@ function App() {
     trackTelemetry("playlist_loaded", { format: "mixtape" });
     invoke<OpenedMixtape>("open_mixtape_for_play", { path })
       .then((mixtape) => {
-        handleMixtapeQueueTracksRef.current(mixtape.tracks, {
+        handleMixtapeQueueTracksRef.current(path, mixtape.tracks, {
           name: mixtape.title || "Mixtape",
           imagePath: mixtape.coverPath,
           metadata: mixtape.metadata,
@@ -3475,6 +3536,7 @@ function App() {
         notify(`Couldn't play the mixtape: ${err}`, { kind: "error" });
       });
   }, [handleMixtapeQueueTracksRef, mixtapePreviewPathRef, notify]);
+  useAssignRef(playMixtapeFileRef, playMixtapeFile);
 
   // A .mixtape the OS asked us to open (Explorer double-click / Finder / a
   // second launch). The backend stash is the single consumption point
@@ -4057,6 +4119,7 @@ function App() {
     (async () => {
       const plays = (await store.get<RecentPlaySession[]>("recentPlaySessions")) ?? [];
       recentPlaysRef.current = plays;
+      setRecentPlays(plays);
       // Sweep snapshot files no session names: crash orphans, a reset store.
       // Plays only record after restore, which lands well after this mount-time
       // read, so the list here is the whole set still in use.
@@ -6279,6 +6342,7 @@ function App() {
             invokePluginShelf={plugins.invokeHomeShelf}
             restoredRef={restoredRef}
             libraryRevision={libraryRevision}
+            recentPlays={recentPlays}
             onShelfItemClick={handleHomeShelfItemClick}
             onShelfItemPlay={handleHomeShelfItemPlay}
             onShelfItemContextMenu={handleHomeShelfItemContextMenu}
@@ -7418,7 +7482,7 @@ function App() {
         <MixtapePreviewModal
           mixtapePath={mixtapePreviewPath}
           onClose={() => setMixtapePreviewPath(null)}
-          onQueueTracks={handleMixtapeQueueTracks}
+          onQueueTracks={(tracks, context) => handleMixtapeQueueTracks(mixtapePreviewPath, tracks, context)}
         />
       )}
       {mixtapeExportTracks && (

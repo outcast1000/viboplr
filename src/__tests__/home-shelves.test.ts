@@ -4,6 +4,9 @@ import {
   findUnattemptedBuiltInKeys,
   findMissingRenderedShelfKeys,
   resolveSessionCover,
+  fetchLatestPlayShelf,
+  withLatestPlayShelf,
+  LATEST_PLAY_SHELF_ID,
   RADIO_SHELF_ID,
   BUILTIN_SHELF_DESCRIPTORS,
   dropRetiredBuiltInShelves,
@@ -259,5 +262,65 @@ describe("resolveSessionCover", () => {
     const resolve = vi.fn(async () => null);
     const cover = await resolveSessionCover(session({ source: "playlist", name: "Mix" }), resolve);
     expect(cover).toBeNull();
+  });
+
+  it("reads a mixtape card's cover out of its file", async () => {
+    const resolve = vi.fn(async () => "/album.jpg");
+    const mixtapeCover = vi.fn(async () => "data:image/jpeg;base64,AAAA");
+    const cover = await resolveSessionCover(
+      session({ source: "mixtape", name: "Road Trip", mixtapePath: "/m/Road Trip.mixtape" }),
+      resolve,
+      mixtapeCover,
+    );
+    expect(cover).toBe("data:image/jpeg;base64,AAAA");
+    expect(mixtapeCover).toHaveBeenCalledWith("/m/Road Trip.mixtape");
+    expect(resolve).not.toHaveBeenCalled();
+  });
+
+  it("falls back to the lead track when the mixtape has no cover", async () => {
+    const resolve = vi.fn(async () => "/track-album.jpg");
+    const cover = await resolveSessionCover(
+      session({
+        source: "mixtape", name: "Road Trip", mixtapePath: "/m/x.mixtape",
+        track: { key: "q:1", path: null, title: "Song", artist_name: "Artie", album_title: "LP", duration_secs: null, format: null, liked: 0 },
+      }),
+      resolve,
+      async () => null,
+    );
+    expect(cover).toBe("/track-album.jpg");
+  });
+});
+
+describe("Latest play shelf follows the live list", () => {
+  const s = (name: string, ts: number): RecentPlaySession => ({ source: "playlist", name, ts });
+  const shelf = (id: string, items: unknown[] = []) => ({ id, title: id, displayKind: "playlist-cards" as const, items: items as never[] });
+
+  it("lists sessions newest first, each carrying its live session", async () => {
+    const result = await fetchLatestPlayShelf([s("Old", 1), s("New", 2)], 12, async () => null);
+    expect(result.status).toBe("ok");
+    if (result.status !== "ok") return;
+    expect(result.items.map((i) => (i as { name: string }).name)).toEqual(["New", "Old"]);
+    expect((result.items[0] as unknown as { __session: RecentPlaySession }).__session.name).toBe("New");
+  });
+
+  it("is empty when nothing has played", async () => {
+    expect((await fetchLatestPlayShelf([], 12, async () => null)).status).toBe("empty");
+  });
+
+  it("replaces a stale copy in place and leaves the other shelves alone", () => {
+    const order = ["builtin:radio", LATEST_PLAY_SHELF_ID, "builtin:recently-added"];
+    const before = [shelf(LATEST_PLAY_SHELF_ID, ["stale"]), shelf("builtin:recently-added", ["a"])];
+    const fresh = shelf(LATEST_PLAY_SHELF_ID, ["fresh"]);
+    const after = withLatestPlayShelf(before, fresh, order);
+    expect(after.map((x) => x.id)).toEqual([LATEST_PLAY_SHELF_ID, "builtin:recently-added"]);
+    expect(after[0].items).toEqual(["fresh"]);
+    expect(after[1]).toBe(before[1]);
+  });
+
+  it("places a first shelf by the user's order and drops it when null", () => {
+    const order = ["builtin:recently-added", LATEST_PLAY_SHELF_ID];
+    const added = withLatestPlayShelf([shelf("builtin:recently-added")], shelf(LATEST_PLAY_SHELF_ID), order);
+    expect(added.map((x) => x.id)).toEqual(["builtin:recently-added", LATEST_PLAY_SHELF_ID]);
+    expect(withLatestPlayShelf(added, null, order).map((x) => x.id)).toEqual(["builtin:recently-added"]);
   });
 });

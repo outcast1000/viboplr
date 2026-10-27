@@ -10,6 +10,8 @@ import {
   snapshotIdsOf,
   droppedSnapshotIds,
   SNAPSHOT_TRACK_CAP,
+  bumpPlaySession,
+  buildMixtapeSession,
   type RecentPlaySession,
 } from "../utils/recentPlays";
 import type { QueueTrack } from "../types";
@@ -189,5 +191,54 @@ describe("Latest play snapshots", () => {
     let ring = prev;
     for (let i = 0; i < 12; i++) ring = recordPlaySession(ring, session({ source: "album", name: `X${i}`, ts: 10 + i }));
     expect(droppedSnapshotIds(prev, ring)).toEqual(["a", "b"]);
+  });
+});
+
+describe("replaying a card", () => {
+  it("moves it to the front and keeps its snapshot", () => {
+    const prev = [
+      session({ source: "playlist", name: "Mix", artistName: null, snapshotId: "snap-1", startIndex: 2, ts: 1 }),
+      session({ source: "album", name: "B", ts: 2 }),
+    ];
+    const after = bumpPlaySession(prev, prev[0], 99);
+    expect(after.map((s) => s.name)).toEqual(["B", "Mix"]);
+    expect(after[1]).toMatchObject({ snapshotId: "snap-1", startIndex: 2, ts: 99 });
+    expect(droppedSnapshotIds(prev, after)).toEqual([]);
+  });
+
+  it("prefers the live entry over the shelf's older copy", () => {
+    const live = session({ source: "playlist", name: "Mix", artistName: null, snapshotId: "new", ts: 5 });
+    const shelfCopy = { ...live, snapshotId: "deleted", ts: 1 };
+    const after = bumpPlaySession([live], shelfCopy, 9);
+    expect(after).toHaveLength(1);
+    expect(after[0].snapshotId).toBe("new");
+  });
+
+  it("forgets an unreadable snapshot when asked", () => {
+    const prev = [session({ source: "radio", name: "Radio: X", artistName: null, snapshotId: "bad", startIndex: 0 })];
+    const after = bumpPlaySession(prev, prev[0], 9, { dropSnapshot: true });
+    expect(after[0].snapshotId).toBeUndefined();
+    expect(after[0].startIndex).toBeUndefined();
+    expect(droppedSnapshotIds(prev, after)).toEqual(["bad"]);
+  });
+});
+
+describe("mixtape cards", () => {
+  const lead = track({ path: "mixtape://10+20@/m/Road Trip.mixtape" });
+
+  it("point at the file, store no cover and take no snapshot", () => {
+    const s = buildMixtapeSession("/m/Road Trip.mixtape", "Road Trip", lead, 7);
+    expect(s).toEqual({ source: "mixtape", name: "Road Trip", mixtapePath: "/m/Road Trip.mixtape", track: lead, ts: 7 });
+    expect(snapshotFor([lead, lead, lead], 0, "mixtape")).toBeNull();
+    expect(replaysFromSnapshot(s)).toBe(false);
+    expect(sessionSubtitle(s)).toBe("Mixtape");
+  });
+
+  it("are keyed by file, so two mixtapes with one title stay two cards", () => {
+    const a = buildMixtapeSession("/m/a.mixtape", "Road Trip", lead, 1);
+    const b = buildMixtapeSession("/m/b.mixtape", "Road Trip", lead, 2);
+    expect(sessionKey(a)).not.toBe(sessionKey(b));
+    expect(recordPlaySession([a], b)).toHaveLength(2);
+    expect(recordPlaySession([a], { ...a, ts: 3 })).toHaveLength(1);
   });
 });

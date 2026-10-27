@@ -327,6 +327,7 @@ macro_rules! invoke_handler {
             commands::take_pending_mixtape_open,
             commands::cancel_mixtape_operation,
             commands::open_mixtape_for_play,
+            commands::mixtape_cover,
             commands::main_playlist_write,
             commands::main_playlist_read,
             commands::main_playlist_clear,

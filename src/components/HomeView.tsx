@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import type { HomeShelfItem, HomeShelfResult, HomeShelfDisplayKind } from "../types/plugin";
 import type { ResolvedShelf } from "../hooks/useHome";
+import type { RecentPlaySession } from "../utils/recentPlays";
 import {
   useHome,
   BUILTIN_SHELF_DESCRIPTORS,
@@ -46,6 +47,8 @@ export interface HomeViewProps {
   // Bumped by the host when a collection resync changes the library, so Home
   // re-fetches its content shelves (see useHome).
   libraryRevision: number;
+  // The Latest play list (null until read); its shelf follows it live.
+  recentPlays: RecentPlaySession[] | null;
   onShelfItemClick: (shelf: ResolvedShelf, item: HomeShelfItem) => void;
   onShelfItemContextMenu: (shelf: ResolvedShelf, item: HomeShelfItem, e: React.MouseEvent) => void;
   onShelfItemPlay: (shelf: ResolvedShelf, item: HomeShelfItem) => void;
@@ -144,6 +147,7 @@ export function HomeView(props: HomeViewProps) {
     shelfOrder,
     restoredRef: props.restoredRef,
     libraryRevision: props.libraryRevision,
+    recentPlays: props.recentPlays,
   });
 
   function toggleShelf(id: string) {

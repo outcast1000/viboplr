@@ -64,7 +64,10 @@ pub fn build_manifest(
 /// Resize an image to fit within max_dimension, preserving aspect ratio, and return JPEG bytes.
 fn resize_image_to_jpeg(path: &Path, max_dimension: u32) -> Result<Vec<u8>, String> {
     let img = image::open(path).map_err(|e| format!("Failed to open image: {}", e))?;
+    encode_resized_jpeg(img, max_dimension)
+}
 
+fn encode_resized_jpeg(img: image::DynamicImage, max_dimension: u32) -> Result<Vec<u8>, String> {
     let (width, height) = img.dimensions();
     let needs_resize = width > max_dimension || height > max_dimension;
 
@@ -563,6 +566,53 @@ pub fn open_for_play(path: &Path, art_dir: &Path) -> Result<PlayableMixtape, Str
     Ok(PlayableMixtape { manifest, tracks, cover_path })
 }
 
+/// Largest cover entry `cover_data_uri` will read; a real one is well under a
+/// megabyte (exports resize to 800px), and this is a stranger's archive.
+const COVER_READ_CAP: u64 = 16 * 1024 * 1024;
+/// Largest cover passed through as-is when it can't be resized (webp/gif).
+const COVER_PASSTHROUGH_CAP: usize = 512 * 1024;
+
+/// A mixtape's cover as a small `data:` URI, read in memory — nothing is
+/// written to disk. Backs the Home "Latest play" card of a mixtape the user
+/// opened: the cover a play extracts lives in a temp folder emptied at the
+/// next launch, and the card should need nothing but the `.mixtape` itself.
+/// The cover is shrunk to `max_dimension` (the card is small, and the URI is
+/// kept in the Home snapshot); a webp/gif the build can't decode is passed
+/// through when small enough. `Ok(None)`: no cover, or one that can't be shown.
+pub fn cover_data_uri(path: &Path, max_dimension: u32) -> Result<Option<String>, String> {
+    use base64::Engine;
+    let file = File::open(path).map_err(|e| format!("Failed to open mixtape: {}", e))?;
+    let mut archive =
+        ZipArchive::new(file).map_err(|e| format!("Failed to read ZIP archive: {}", e))?;
+    let Some(name) = read_manifest(&mut archive)?.cover else { return Ok(None) };
+    let bytes = {
+        let Ok(entry) = archive.by_name(&name) else { return Ok(None) };
+        if entry.size() > COVER_READ_CAP {
+            return Ok(None);
+        }
+        let mut bytes = Vec::with_capacity(entry.size() as usize);
+        entry
+            .take(COVER_READ_CAP)
+            .read_to_end(&mut bytes)
+            .map_err(|e| format!("Failed to read cover: {}", e))?;
+        bytes
+    };
+    let encoded = match image::load_from_memory(&bytes) {
+        Ok(img) => ("image/jpeg", encode_resized_jpeg(img, max_dimension)?),
+        Err(_) => match crate::commands::sniff_image_ext(&bytes) {
+            Some(ext @ ("webp" | "gif")) if bytes.len() <= COVER_PASSTHROUGH_CAP => {
+                (if ext == "webp" { "image/webp" } else { "image/gif" }, bytes)
+            }
+            _ => return Ok(None),
+        },
+    };
+    Ok(Some(format!(
+        "data:{};base64,{}",
+        encoded.0,
+        base64::engine::general_purpose::STANDARD.encode(encoded.1)
+    )))
+}
+
 fn read_manifest(archive: &mut ZipArchive<File>) -> Result<BundleManifest, String> {
     let mut manifest_file = archive
         .by_name("manifest.json")
@@ -691,13 +741,14 @@ pub fn mixtape_path_from_argv(argv: &[String]) -> Option<String> {
     argv.iter()
         .skip(1)
         .filter(|a| !a.starts_with("--"))
-        .filter(|a| {
-            Path::new(a)
-                .extension()
-                .is_some_and(|e| e.eq_ignore_ascii_case("mixtape"))
-        })
+        .filter(|a| is_mixtape_path(Path::new(a)))
         .last()
         .cloned()
+}
+
+/// Whether a path names a `.mixtape` file (by extension, any case).
+pub fn is_mixtape_path(path: &Path) -> bool {
+    path.extension().is_some_and(|e| e.eq_ignore_ascii_case("mixtape"))
 }
 
 #[cfg(test)]
@@ -988,6 +1039,40 @@ mod tests {
         let cover = opened.cover_path.as_deref().unwrap();
         assert!(Path::new(cover).starts_with(&art) && Path::new(cover).exists());
         assert!(!art.join("tracks").exists());
+    }
+
+    #[test]
+    fn test_cover_data_uri_reads_the_cover_in_memory_and_shrinks_it() {
+        let tmp = tempfile::tempdir().unwrap();
+        let mixtape_path = create_test_mixtape(tmp.path());
+        let before: Vec<_> = std::fs::read_dir(tmp.path()).unwrap().map(|e| e.unwrap().path()).collect();
+
+        let uri = cover_data_uri(&mixtape_path, 40).unwrap().expect("the fixture has a cover");
+
+        let b64 = uri.strip_prefix("data:image/jpeg;base64,").expect("a JPEG data URI");
+        use base64::Engine;
+        let bytes = base64::engine::general_purpose::STANDARD.decode(b64).unwrap();
+        let img = image::load_from_memory(&bytes).unwrap();
+        assert_eq!(img.dimensions(), (40, 40), "shrunk to the card size");
+        let after: Vec<_> = std::fs::read_dir(tmp.path()).unwrap().map(|e| e.unwrap().path()).collect();
+        assert_eq!(before, after, "nothing is written next to the mixtape");
+    }
+
+    #[test]
+    fn test_cover_data_uri_is_none_without_a_cover() {
+        let tmp = tempfile::tempdir().unwrap();
+        let dest = tmp.path().join("plain.mixtape");
+        let manifest = build_manifest("No Cover".into(), MixtapeType::Custom, HashMap::new(), None, vec![]);
+        build_playlist_mixtape(&dest, None, manifest, &[], false).unwrap();
+        assert_eq!(cover_data_uri(&dest, 40).unwrap(), None);
+    }
+
+    #[test]
+    fn test_is_mixtape_path() {
+        assert!(is_mixtape_path(Path::new("/a/Road Trip.mixtape")));
+        assert!(is_mixtape_path(Path::new("C:\\a\\X.MIXTAPE")));
+        assert!(!is_mixtape_path(Path::new("/a/cover.jpg")));
+        assert!(!is_mixtape_path(Path::new("/a/mixtape")));
     }
 
     #[test]

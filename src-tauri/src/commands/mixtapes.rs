@@ -406,6 +406,22 @@ pub async fn open_mixtape_for_play(
     .await
 }
 
+/// Edge of the cover a Home "Latest play" card shows (the card is ~160px; 2×
+/// for a Retina display).
+const CARD_COVER_MAX: u32 = 320;
+
+/// A `.mixtape`'s cover as a `data:` URI, read straight out of the file (see
+/// `mixtape::cover_data_uri`); null when it has none. For the Latest play card
+/// of a mixtape the user opened, which names nothing but the file.
+#[tauri::command]
+pub async fn mixtape_cover(path: String) -> Result<Option<String>, String> {
+    let path = std::path::PathBuf::from(path);
+    if !crate::mixtape::is_mixtape_path(&path) {
+        return Err("Not a .mixtape file".to_string());
+    }
+    run_blocking(move || crate::mixtape::cover_data_uri(&path, CARD_COVER_MAX)).await
+}
+
 #[tauri::command]
 pub fn import_mixtape(
     path: String,
