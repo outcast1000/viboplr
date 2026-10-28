@@ -175,6 +175,84 @@ export const SHORTS = [
       },
     ],
   },
+  {
+    // "Pure, or shaped": bit-perfect on (its confirm dialog says what it does,
+    // which is the readable half — the bar's gem is a 14px colour accent),
+    // off again, then the EQ curve moving through presets. In that order
+    // because bit-perfect suspends the EQ.
+    // The confirm prints the output device's name: record on built-in
+    // speakers, not a DAC or headphones named after a person.
+    // The gem is on the bar only while the mode is on (unpinned), so turning
+    // it ON is the `bitPerfect` action and turning it off is the click.
+    id: "audiophiles-pure-or-shaped",
+    persona: "audiophiles",
+    title: "Pure, or shaped",
+    needs: ["demo"],
+    seconds: 22,
+    // Not tinkerers' 760: the bar drops its audio pill (EQ, the gem, volume)
+    // at 920px and below (NowPlayingBar.css), and both beats live in it.
+    window: { width: 940, height: 960 },
+    setup: [
+      { action: { action: "closeModals" } },
+      { action: { action: "bitPerfect", on: false }, optional: true },
+      { action: { action: "eqPanel", open: false }, optional: true },
+      { action: { action: "queuePanel", open: false } },
+      // Not Vibo: its success token is the accent pink, so "verified" would
+      // look like "checking". Here success is green.
+      { skin: "Default Dark Blue" },
+      { navigate: { view: "nowplaying" } },
+      { playback: { play: true } },
+      { wait: 1500 },
+    ],
+    beats: [
+      { at: 0, focus: { full: true }, caption: "Hear the file.\nNot the mixer." },
+      {
+        at: 2600,
+        focus: { target: { role: "button", name: "Enable" }, pad: 280 },
+        settle: 700,
+        caption: "Bit-perfect:\nexactly as it's stored",
+        steps: [{ action: { action: "bitPerfect", on: true } }],
+      },
+      // No dialog when the profile ticked "Don't ask again": the click
+      // misses and the mode is already on.
+      { at: 6000, steps: [{ click: { role: "button", name: "Enable" }, moveMs: 600, optional: true }] },
+      {
+        // The camera gets there before the verdict: the gem turns from the
+        // accent ("checking") to the success colour with a dot ~3s after
+        // Enable (first take), and that change is the beat.
+        at: 7200,
+        focus: { target: { role: "button", name: "Bit-perfect" }, pad: 260 },
+        settle: 300,
+        caption: "Exclusive output.\nVerified per track.",
+      },
+      { at: 11200, steps: [{ check: "bitPerfect" }] },
+      {
+        at: 12400,
+        focus: { target: { role: "button", name: "Vocal" }, pad: 280 },
+        settle: 600,
+        caption: "Or shape it",
+        steps: [
+          { click: { role: "button", name: "Bit-perfect" }, moveMs: 500 },
+          { wait: 400 },
+          { action: { action: "eqPanel", open: true } },
+        ],
+      },
+      { at: 14400, steps: [{ click: { role: "button", name: "Bass Boost" }, moveMs: 450 }] },
+      { at: 15900, steps: [{ click: { role: "button", name: "Vocal" }, moveMs: 400 }], caption: "Ten bands.\nYour presets." },
+      { at: 17400, steps: [{ click: { role: "button", name: "Electronic" }, moveMs: 400 }] },
+      { at: 19200, focus: { full: true }, caption: "Pure, or shaped.\nYour call." },
+    ],
+    // The preset clicks switched the EQ on: put it back to Flat and Off, or
+    // the next take and the site's `eq-panel` still inherit it.
+    after: [
+      { action: { action: "closeModals" } },
+      { action: { action: "bitPerfect", on: false } },
+      { action: { action: "eqPanel", open: true } },
+      { click: { role: "button", name: "Flat" }, moveMs: 0 },
+      { click: { role: "checkbox", name: "On" }, moveMs: 0 },
+      { action: { action: "eqPanel", open: false } },
+    ],
+  },
 ];
 
 /** Whether a scenario clicks, types or presses keys on camera — those need

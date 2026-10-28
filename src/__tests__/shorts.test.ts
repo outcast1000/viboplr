@@ -175,6 +175,7 @@ describe("scenarios", () => {
     const byId = Object.fromEntries(SHORTS.map((s: { id: string }) => [s.id, usesInput(s)]));
     expect(byId["collectors-bulk-edit"]).toBe(true);
     expect(byId["tinkerers-skins"]).toBe(false);
+    expect(byId["audiophiles-pure-or-shaped"]).toBe(true);
   });
 
   it("never write version numbers into captions (they must not age)", () => {

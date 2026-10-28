@@ -66,6 +66,14 @@ export async function runStep(api, step, facts) {
       await api("POST", "/ui/input", { kind: "type", ...s.type });
     } else if (s.key) {
       await api("POST", "/ui/input", { kind: "key", keys: s.key });
+    } else if (s.check === "bitPerfect") {
+      // The gem is green only once the engine verified exclusive access at
+      // the file's rate; anything else would be a take that shows a claim
+      // the app itself didn't make. Warn, don't abort: the take may still
+      // be usable for timing.
+      const bp = (await api("GET", "/status")).bitPerfect;
+      if (bp?.state === "bit-perfect") console.log(`  bit-perfect verified on "${bp.device}" (shown on camera)`);
+      else console.warn(`  bit-perfect NOT verified: ${JSON.stringify(bp)}`);
     }
   } catch (e) {
     if (!step.optional) throw e;
