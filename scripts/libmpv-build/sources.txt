@@ -2,6 +2,8 @@
 # name  dest-dir (under src/, "." = its own dir)  url  sha256
 # Bump deliberately: change the url, run `build.sh pin` to refresh the sha256,
 # then build and run the engine tests on both platforms (the build-libmpv workflow).
+# shaderc and its three third_party trees are Windows-only (mpv's d3d11 renderer),
+# at the revisions shaderc's own DEPS file pins for that tag.
 mpv          mpv                              https://github.com/mpv-player/mpv/archive/refs/tags/v0.41.0.tar.gz  ee21092a5ee427353392360929dc64645c54479aefdb5babc5cfbb5fad626209
 ffmpeg       ffmpeg                           https://ffmpeg.org/releases/ffmpeg-9.0.2.tar.xz  8c3850283eb25fa026482078a04051e0be17347b09ef81a0849bec15a96e002e
 libplacebo   libplacebo                       https://github.com/haasn/libplacebo/archive/refs/tags/v7.387.0.tar.gz  f9e62d3774a9c4cfd198ec3abaa88294aaade2e31c04d5ab02bcf4abc98b1df5
@@ -17,3 +19,7 @@ fribidi      fribidi                          https://github.com/fribidi/fribidi
 dav1d        dav1d                            https://github.com/videolan/dav1d/archive/refs/tags/1.5.4.tar.gz  a1d5b63d2d38ec9bd03acf643caa51fa22edd1e89c5a109c4807717216bbec07
 luajit       luajit                           https://github.com/LuaJIT/LuaJIT/archive/a4c064539ea931274d407e1249b4bb575424a0f4.tar.gz  15625df3ebfbd1f76371005bffae39b84c65e718e57acc9a9c57863c7c101541
 openssl      openssl                          https://github.com/openssl/openssl/releases/download/openssl-3.5.9/openssl-3.5.9.tar.gz  603f5602e2eef00d77fbd429d34dcd5822bb301757a1bc9cdb24c670f1eb859a
+shaderc      shaderc                          https://github.com/google/shaderc/archive/refs/tags/v2026.4.tar.gz  f06ce5bcca94e5df7f34e115743597d0ad2e13c5fe9213c67dc8c76031241947
+glslang      shaderc/third_party/glslang      https://github.com/KhronosGroup/glslang/archive/e1b562a8bed273a02f30b59b66a5d499793cede5.tar.gz  907174a24713c6202c146f164bf81783f1fbc79c8cb821a30f18f159eb980312
+spirv_tools  shaderc/third_party/spirv-tools  https://github.com/KhronosGroup/SPIRV-Tools/archive/ef96ed763b43b59b33b31b362f09a02b729fa1c9.tar.gz  82c62146083fd558735a3171cf97cfc47903ca7d368482e87f94bd44883c0f00
+spirv_headers shaderc/third_party/spirv-headers https://github.com/KhronosGroup/SPIRV-Headers/archive/04fd3caa1e8267e4d95c806cad901181728e1006.tar.gz  392f4801409aad9c4f1b77745f179952fd6264e4c8bd0fc1bc45dfa6807bf6d0

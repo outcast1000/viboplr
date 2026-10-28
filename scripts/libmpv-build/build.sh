@@ -139,6 +139,22 @@ Cflags: -I\${prefix}/include/luajit-2.1
 EOF
 }
 
+# Windows only (mpv's d3d11 renderer compiles its shaders with it). Built from
+# source with glslang + SPIRV-Tools inside: UCRT64's libshaderc_combined.a
+# leaves both out, so it can't be linked statically.
+build_shaderc() {
+  local b="$SRC/shaderc/_b"
+  rm -rf "$b"
+  cmake -S "$SRC/shaderc" -B "$b" -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX="$P" \
+    -DCMAKE_INSTALL_LIBDIR=lib -DBUILD_SHARED_LIBS=OFF \
+    -DSHADERC_SKIP_TESTS=ON -DSHADERC_SKIP_EXAMPLES=ON -DSHADERC_SKIP_EXECUTABLES=ON \
+    -DSHADERC_SKIP_COPYRIGHT_CHECK=ON -DSHADERC_ENABLE_WERROR_COMPILE=OFF \
+    -DSPIRV_SKIP_EXECUTABLES=ON -DSPIRV_SKIP_TESTS=ON -DSPIRV_WERROR=OFF \
+    -DENABLE_GLSLANG_BINARIES=OFF -DGLSLANG_TESTS=OFF > "$WORK/shaderc-configure.log"
+  cmake --build "$b" > "$WORK/shaderc-build.log"
+  cmake --install "$b" > /dev/null
+}
+
 build_deps() {
   meson_static freetype -Dharfbuzz=disabled -Dpng=disabled -Dbrotli=disabled -Dbzip2=disabled \
     -Dzlib=system -Dtests=disabled
@@ -152,6 +168,10 @@ build_deps() {
   else ass+=(-Dcoretext=disabled -Ddirectwrite=enabled); fi
   meson_static libass "${ass[@]}"
   meson_static dav1d -Denable_tools=false -Denable_tests=false -Denable_examples=false
+  if [ "$OS" = windows ]; then
+    build_shaderc
+    windows_static_shims # before libplacebo, which looks both up too
+  fi
   local pl=(-Dvulkan=disabled -Dopengl=enabled -Dglslang=disabled -Dlcms=disabled -Dlibdovi=disabled
     -Dxxhash=disabled -Ddemos=false -Dtests=false -Dunwind=disabled)
   if [ "$OS" = macos ]; then pl+=(-Dd3d11=disabled -Dshaderc=disabled)
@@ -166,19 +186,24 @@ build_deps() {
 #
 # Both are C++; their -lstdc++ (like libavfilter.pc's) resolves to the static
 # archive because meson runs with --prefer-static on Windows (see build_mpv).
+#
+# shaderc is ours (build_shaderc); spirv-cross is UCRT64's, whose static
+# spirv-cross-c.pc names only the C API archive, so its component archives
+# are listed here — dependents before what they depend on.
 windows_static_shims() {
   local sys="${MINGW_PREFIX:-/ucrt64}/lib/pkgconfig"
-  shim() { # name source-module
+  shim() { # name source-module pkg-config-dir extra-libs
     cat > "$P/lib/pkgconfig/$1.pc" <<EOF
 Name: $1
 Description: static $2 (shim)
-Version: $(PKG_CONFIG_LIBDIR="$sys" pkg-config --modversion "$2")
-Cflags: $(PKG_CONFIG_LIBDIR="$sys" pkg-config --cflags "$2")
-Libs: $(PKG_CONFIG_LIBDIR="$sys" pkg-config --static --libs "$2") -lstdc++
+Version: $(PKG_CONFIG_LIBDIR="$3" pkg-config --modversion "$2")
+Cflags: $(PKG_CONFIG_LIBDIR="$3" pkg-config --cflags "$2")
+Libs: $(PKG_CONFIG_LIBDIR="$3" pkg-config --static --libs "$2") $4 -lstdc++
 EOF
   }
-  shim shaderc shaderc_combined
-  shim spirv-cross-c-shared spirv-cross-c
+  shim shaderc shaderc_combined "$P/lib/pkgconfig" ""
+  shim spirv-cross-c-shared spirv-cross-c "$sys" \
+    "-lspirv-cross-msl -lspirv-cross-hlsl -lspirv-cross-glsl -lspirv-cross-cpp -lspirv-cross-reflect -lspirv-cross-util -lspirv-cross-core"
 }
 
 build_ffmpeg() {
@@ -301,7 +326,6 @@ build() {
   fetch
   setup_env
   build_deps
-  [ "$OS" = windows ] && windows_static_shims
   export PKG_CONFIG_PATH="$P/lib/pkgconfig:$PKG_CONFIG_LIBDIR"
   build_ffmpeg
   build_mpv
