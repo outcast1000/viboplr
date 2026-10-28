@@ -226,6 +226,9 @@ pub enum Event {
         #[allow(dead_code)]
         reply_userdata: u64,
     },
+    /// A hook added with [`Mpv::hook_add`] was reached. mpv blocks that point
+    /// until [`Mpv::hook_continue`] is called with `id` — always answer.
+    Hook { name: String, id: u64 },
     /// Any event kind the engine doesn't consume.
     Other(#[allow(dead_code)] i32),
 }
@@ -330,6 +333,18 @@ impl Mpv {
         })
     }
 
+    /// Ask mpv to stop at the named hook (e.g. `on_load_fail`) and deliver an
+    /// [`Event::Hook`]; mpv waits there until [`Mpv::hook_continue`].
+    pub fn hook_add(&self, name: &str, priority: i32) -> Result<()> {
+        let cname = CString::new(name).map_err(|_| Error::Null)?;
+        mpv_err(unsafe { (self.lib.hook_add)(self.ctx.as_ptr(), 0, cname.as_ptr(), priority) })
+    }
+
+    /// Let mpv go on past the hook the [`Event::Hook`] with this `id` reported.
+    pub fn hook_continue(&self, id: u64) -> Result<()> {
+        mpv_err(unsafe { (self.lib.hook_continue)(self.ctx.as_ptr(), id) })
+    }
+
     /// Turn off deprecated events still delivered by default (`MPV_EVENT_IDLE`).
     pub fn disable_deprecated_events(&self) -> Result<()> {
         mpv_err(unsafe { (self.lib.request_event)(self.ctx.as_ptr(), ffi::MPV_EVENT_IDLE, 0) })
@@ -379,6 +394,11 @@ impl Mpv {
                     change,
                     reply_userdata: raw.reply_userdata,
                 }))
+            }
+            ffi::MPV_EVENT_HOOK => {
+                let hook = unsafe { &*(raw.data as *const ffi::mpv_event_hook) };
+                let name = unsafe { CStr::from_ptr(hook.name) }.to_string_lossy().into_owned();
+                Some(Ok(Event::Hook { name, id: hook.id }))
             }
             other => Some(Ok(Event::Other(other))),
         }

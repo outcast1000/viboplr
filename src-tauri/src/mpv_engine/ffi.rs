@@ -56,6 +56,9 @@ pub const MPV_EVENT_IDLE: mpv_event_id = 11;
 pub const MPV_EVENT_SEEK: mpv_event_id = 20;
 pub const MPV_EVENT_PLAYBACK_RESTART: mpv_event_id = 21;
 pub const MPV_EVENT_PROPERTY_CHANGE: mpv_event_id = 22;
+/// A hook registered with `mpv_hook_add` was reached; mpv waits until the
+/// handler answers with `mpv_hook_continue`.
+pub const MPV_EVENT_HOOK: mpv_event_id = 25;
 
 #[repr(C)]
 pub struct mpv_event {
@@ -70,6 +73,12 @@ pub struct mpv_event_property {
     pub name: *const c_char,
     pub format: mpv_format,
     pub data: *mut c_void,
+}
+
+#[repr(C)]
+pub struct mpv_event_hook {
+    pub name: *const c_char,
+    pub id: u64,
 }
 
 #[repr(C)]
@@ -140,6 +149,8 @@ pub struct LibMpv {
         unsafe extern "C" fn(*mut mpv_handle, u64, *const c_char, mpv_format) -> c_int,
     pub request_event: unsafe extern "C" fn(*mut mpv_handle, mpv_event_id, c_int) -> c_int,
     pub wait_event: unsafe extern "C" fn(*mut mpv_handle, c_double) -> *mut mpv_event,
+    pub hook_add: unsafe extern "C" fn(*mut mpv_handle, u64, *const c_char, c_int) -> c_int,
+    pub hook_continue: unsafe extern "C" fn(*mut mpv_handle, u64) -> c_int,
     pub render_context_create: unsafe extern "C" fn(
         *mut *mut mpv_render_context,
         *mut mpv_handle,
@@ -375,6 +386,8 @@ fn load_from(path: PathBuf, origin: &'static str) -> Result<LibMpv, String> {
         observe_property: "mpv_observe_property",
         request_event: "mpv_request_event",
         wait_event: "mpv_wait_event",
+        hook_add: "mpv_hook_add",
+        hook_continue: "mpv_hook_continue",
         render_context_create: "mpv_render_context_create",
         render_context_set_update_callback: "mpv_render_context_set_update_callback",
         render_context_render: "mpv_render_context_render",

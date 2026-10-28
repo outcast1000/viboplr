@@ -785,6 +785,12 @@ impl Engine {
         if let Err(e) = client.observe_property("vo-configured", Format::Flag, 7) {
             log::warn!("mpv-engine: cannot observe vo-configured: {e}");
         }
+        // A failed load must end the deck's playlist before mpv moves on (see
+        // the Hook arm in run_event_loop). Best-effort: without it the
+        // after-the-fact `stop` on the error still ends it, a step late.
+        if let Err(e) = client.hook_add("on_load_fail", 0) {
+            log::warn!("mpv-engine: cannot hook on_load_fail: {e}");
+        }
 
         let state = self.state.clone();
         let waves = self.waves.clone();
@@ -1864,6 +1870,28 @@ fn run_event_loop(
                 match capture_key {
                     Some(key) => waves.begin(deck, &key),
                     None => waves.finish(deck),
+                }
+            }
+            Ok(Event::Hook { name, id }) => {
+                // mpv waits here, before it decides what to play next — so the
+                // rest of the deck's playlist is dropped before it can start
+                // (an expanded playlist's next entry, a gapless arm). The `stop`
+                // on the error that follows came too late: on a loaded machine
+                // mpv had already requested the next entry. Not while a newer
+                // load of ours is on its way — `play` sets that flag under this
+                // lock before its loadfile, whose entry must not be cleared.
+                if name == "on_load_fail" {
+                    let st = state.lock().unwrap();
+                    if !st.expecting_start[deck] {
+                        if let Err(e) = client.command("playlist-clear", &[]) {
+                            log::error!("mpv-engine: playlist-clear on a failed load failed: {e}");
+                        }
+                    }
+                }
+                // Always answer, whatever happened above: an unanswered hook
+                // leaves this deck stuck at the failed load for good.
+                if let Err(e) = client.hook_continue(id) {
+                    log::error!("mpv-engine: hook_continue({name}) failed: {e}");
                 }
             }
             Ok(Event::Seek) => {
@@ -3178,8 +3206,9 @@ mod tests {
     /// something else was loaded (35 in one real log, all "no owning track").
     /// The failure of the track the frontend asked for must end the deck's
     /// playlist there.
-    #[test]
-    fn test_a_failed_track_does_not_play_on_through_an_expanded_playlist() {
+    /// A local server whose `/list.m3u` names five entries, every one of them
+    /// refused (403). Returns its port and the paths it was asked for.
+    fn serve_refused_playlist() -> (u16, Arc<Mutex<Vec<String>>>) {
         use std::io::{BufRead, BufReader, Write};
         let listener = std::net::TcpListener::bind("127.0.0.1:0").expect("bind");
         let port = listener.local_addr().unwrap().port();
@@ -3206,7 +3235,25 @@ mod tests {
                 }
             }
         });
+        (port, requests)
+    }
 
+    /// Only the entry that failed was requested, and it raised one error.
+    fn assert_only_the_failed_entry_was_tried(
+        requests: &Mutex<Vec<String>>,
+        rx: &mpsc::Receiver<(String, serde_json::Value)>,
+    ) {
+        // Long enough for the next entries to have been tried, were they queued.
+        std::thread::sleep(Duration::from_secs(3));
+        let entries: Vec<String> = requests.lock().unwrap().iter().filter(|p| p.starts_with("/entry")).cloned().collect();
+        assert_eq!(entries, vec!["/entry0.m4a".to_string()],
+            "only the entry that failed may be requested — got {entries:?}");
+        assert_eq!(rx.try_iter().filter(|(n, _)| n == "engine-error").count(), 0, "one failure, one error");
+    }
+
+    #[test]
+    fn test_a_failed_track_does_not_play_on_through_an_expanded_playlist() {
+        let (port, requests) = serve_refused_playlist();
         let (sink, rx) = collect_events();
         let Some(engine) = try_test_engine(sink) else { return };
         engine
@@ -3214,12 +3261,32 @@ mod tests {
             .expect("play accepted");
         let err = wait_for(&rx, "engine-error", Duration::from_secs(10));
         assert_eq!(err["trackKey"], "trk:list");
-        // Long enough for the next entries to have been tried, were they queued.
-        std::thread::sleep(Duration::from_secs(3));
-        let entries: Vec<String> = requests.lock().unwrap().iter().filter(|p| p.starts_with("/entry")).cloned().collect();
-        assert_eq!(entries, vec!["/entry0.m4a".to_string()],
-            "only the entry that failed may be requested — got {entries:?}");
-        assert_eq!(rx.try_iter().filter(|(n, _)| n == "engine-error").count(), 0, "one failure, one error");
+        assert_only_the_failed_entry_was_tried(&requests, &rx);
+    }
+
+    /// The same, with the engine slow to react — what a loaded machine does,
+    /// made certain. Holding the engine's state lock stalls the deck's event
+    /// loop through the whole load; mpv itself doesn't wait for it. Ending the
+    /// playlist only after the error (a `stop` on EndFile) then lets mpv start
+    /// the next entry every time; the `on_load_fail` hook makes mpv wait for
+    /// the stalled loop before it moves on. A test that only raced this window
+    /// passed for weeks on a fast machine and failed under the full suite.
+    #[test]
+    fn test_a_failed_load_ends_the_playlist_even_when_the_engine_reacts_late() {
+        let (port, requests) = serve_refused_playlist();
+        let (sink, rx) = collect_events();
+        let Some(engine) = try_test_engine(sink) else { return };
+        engine
+            .play(&format!("http://127.0.0.1:{port}/list.m3u"), None, "trk:list", None, 0.5, false, false)
+            .expect("play accepted");
+        {
+            let _stalled = engine.state.lock().unwrap();
+            // Far longer than loading the list and refusing entry0 takes locally.
+            std::thread::sleep(Duration::from_secs(2));
+        }
+        let err = wait_for(&rx, "engine-error", Duration::from_secs(10));
+        assert_eq!(err["trackKey"], "trk:list");
+        assert_only_the_failed_entry_was_tried(&requests, &rx);
     }
 
     /// Network-dependent — run explicitly:
