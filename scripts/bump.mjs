@@ -155,7 +155,9 @@ async function mpvMasterStep() {
   }
   const rl = createInterface({ input: process.stdin, output: process.stdout });
   const ask = async (q) => (await rl.question(q)).trim().toLowerCase();
-  const build = await ask(`  Run the Build libmpv workflow on mpv ${MPV_BRANCH} ${head.slice(0, 10)} (builds, tests, publishes; re-pins nothing)? [y/N] `);
+  // Each question names its mpv by commit, date and subject: a bare hash
+  // left "the current mpv" unclear right after a summary naming two of them.
+  const build = await ask(`  Run the Build libmpv workflow on mpv ${MPV_BRANCH} (${commitLine(headCommit)}) — builds, tests, publishes; re-pins nothing? [y/N] `);
   if (build !== "y" && build !== "yes") {
     rl.close();
     console.log("  Not built — going on with the pinned mpv.\n");
@@ -167,7 +169,7 @@ async function mpvMasterStep() {
   } catch (e) {
     console.error(`  ⚠ Couldn't start the workflow: ${errText(e)}`);
   }
-  const goOn = await ask(`  Go on with this release on the current mpv (${base.hash})? [Y/n] `);
+  const goOn = await ask(`  Go on with this release on the mpv it pins now (${commitLine(baseCommit)}), not the build just started? [Y/n] `);
   rl.close();
   if (goOn === "n" || goOn === "no") {
     console.log("\nRelease stopped before any change. Re-pin to the new build once it passes, then run bump again.");
