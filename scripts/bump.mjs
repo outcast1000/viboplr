@@ -9,6 +9,9 @@
 //   0. Merges a waiting libmpv update PR once its tests + CI passed (no prompt), or
 //      starts the update workflow when upstream is newer and no PR is open
 //      (0b. offers to re-vendor libmpv when the vendored copy isn't the pinned one)
+//      (0c. lists mpv master's commits past the pinned mpv, offers to run the
+//       Build libmpv workflow on them, and asks whether to release on the
+//       current mpv — a "no" stops before anything is changed)
 //   1. Runs CI checks (typecheck, Rust tests, TS tests) — aborts on failure
 //   2. Bumps version in package.json, Cargo.toml, tauri.conf.json
 //   3. Updates static version badge + download URLs across docs/ pages
@@ -36,6 +39,7 @@ import { renderFeaturesHtml } from "./lib/features.mjs";
 import { locStep } from "./lib/locRepo.mjs";
 // MIRROR_REPO is this repo: the libmpv workflow runs, mirrors and opens its PR here.
 import { MIRROR_REPO, checkRunsArgs, hostPlatformKey, libmpvAction, requiredChecksState, vendorState } from "./lib/libmpvUpdate.mjs";
+import { MPV_BRANCH, MPV_REPO, SHOWN_COMMITS, commitLine, compareUrl, furthestBehind, newestCommits, pinnedMpvCommits } from "./lib/mpvUpstream.mjs";
 import { createInterface } from "readline/promises";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
@@ -91,6 +95,84 @@ if (isBeta) {
 
 libmpvStep();
 await vendorStep();
+await mpvMasterStep();
+
+// ---------------------------------------------------------------------------
+// Step 0c — Is mpv master ahead of the mpv this release ships?
+//
+// Compares each platform's pinned mpv commit (the lock's mpvGitHash) with mpv
+// master and lists what is new. When it is ahead, offers to start the Build
+// libmpv workflow on that master commit (it builds, tests and publishes to
+// vendor-libmpv; nothing is re-pinned), and then asks whether this release
+// should go on with the mpv it already has — a "no" stops before Step 1, so
+// nothing has been changed. Never fatal: a failed lookup is reported and the
+// release goes on. With no terminal it only reports.
+// ---------------------------------------------------------------------------
+
+async function mpvMasterStep() {
+  const gh = (cmd) => execSync(`gh ${cmd}`, { cwd: root, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }).trim();
+  const errText = (e) => (e.stderr || e.stdout || e.message).toString().trim();
+  const lock = JSON.parse(readFileSync(resolve(root, "scripts/libmpv.lock.json"), "utf8"));
+  const pinned = pinnedMpvCommits(lock);
+  if (pinned.length === 0) return;
+
+  console.log("Checking mpv master against the pinned mpv...\n");
+  let base, head, shown, more;
+  try {
+    const compares = pinned.map((p) => {
+      const cmp = JSON.parse(gh(`api repos/${MPV_REPO}/compare/${p.hash}...${MPV_BRANCH}`));
+      return { ...p, aheadBy: cmp.ahead_by ?? 0, commits: cmp.commits ?? [] };
+    });
+    base = furthestBehind(compares);
+    if (!base) {
+      console.log(`✓ mpv ${MPV_BRANCH} has nothing past the pinned mpv\n`);
+      return;
+    }
+    head = JSON.parse(gh(`api repos/${MPV_REPO}/commits/${MPV_BRANCH}`)).sha;
+    const recent = base.commits.length === base.aheadBy
+      ? []
+      : JSON.parse(gh(`api "repos/${MPV_REPO}/commits?sha=${MPV_BRANCH}&per_page=${SHOWN_COMMITS}"`));
+    ({ shown, more } = newestCommits({ aheadBy: base.aheadBy, compareCommits: base.commits, recent }));
+  } catch (e) {
+    console.error(`⚠ Couldn't compare with mpv ${MPV_BRANCH} (release continues):\n${errText(e)}\n`);
+    return;
+  }
+
+  const others = pinned.filter((p) => p.hash !== base.hash)
+    .map((p) => `${p.platforms.join(", ")} pins ${p.hash}`);
+  console.log(`mpv ${MPV_BRANCH} is ${base.aheadBy} commit${base.aheadBy === 1 ? "" : "s"} ahead of ${base.hash} (${base.platforms.join(", ")})` +
+    (others.length ? `; ${others.join("; ")}` : "") + ":");
+  for (const c of shown) console.log(`  ${commitLine(c)}`);
+  if (more > 0) console.log(`  …and ${more} more`);
+  console.log(`  ${compareUrl(base.hash)}\n`);
+
+  const dispatch = `workflow run build-libmpv.yml --repo ${MIRROR_REPO} -f publish=true -f mpv_ref=${head}`;
+  if (!process.stdin.isTTY) {
+    console.log(`  To build it: gh ${dispatch}\n`);
+    return;
+  }
+  const rl = createInterface({ input: process.stdin, output: process.stdout });
+  const ask = async (q) => (await rl.question(q)).trim().toLowerCase();
+  const build = await ask(`  Run the Build libmpv workflow on mpv ${MPV_BRANCH} ${head.slice(0, 10)} (builds, tests, publishes; re-pins nothing)? [y/N] `);
+  if (build !== "y" && build !== "yes") {
+    rl.close();
+    console.log("  Not built — going on with the pinned mpv.\n");
+    return;
+  }
+  try {
+    gh(dispatch);
+    console.log(`  Started: gh run list --workflow build-libmpv.yml --repo ${MIRROR_REPO}`);
+  } catch (e) {
+    console.error(`  ⚠ Couldn't start the workflow: ${errText(e)}`);
+  }
+  const goOn = await ask(`  Go on with this release on the current mpv (${base.hash})? [Y/n] `);
+  rl.close();
+  if (goOn === "n" || goOn === "no") {
+    console.log("\nRelease stopped before any change. Re-pin to the new build once it passes, then run bump again.");
+    process.exit(0);
+  }
+  console.log("  Going on with the current mpv.\n");
+}
 
 async function vendorStep() {
   const platform = hostPlatformKey();

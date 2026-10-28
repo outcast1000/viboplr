@@ -29,6 +29,16 @@ SRC="$WORK/src"
 P="$WORK/prefix"
 OUT="$WORK/out"
 JOBS="${JOBS:-$(getconf _NPROCESSORS_ONLN 2>/dev/null || echo 4)}"
+# Optional: build this mpv commit instead of the pinned release (the
+# build-libmpv workflow's mpv_ref input, which `npm run bump` fills in when mpv
+# master is ahead). A moving commit has no pinned sha256, so its archive's hash
+# is recorded in the build info instead of checked. Hex only — it becomes a URL.
+MPV_REF="${MPV_REF:-}"
+if [ -n "$MPV_REF" ] && ! [[ "$MPV_REF" =~ ^[0-9a-f]{7,40}$ ]]; then
+  echo "MPV_REF must be a commit sha (7-40 hex digits), got: $MPV_REF" >&2
+  exit 2
+fi
+MPV_SHA256=""
 
 case "$(uname -s)" in
   Darwin) OS=macos; ARCH=aarch64 ;;
@@ -65,15 +75,25 @@ fetch() {
   rm -rf "$SRC"; mkdir -p "$SRC"
   local name dest url want got
   # Parents before children: libplacebo/3rdparty/* unpack into libplacebo.
+  local file
   while read -r name dest url want; do
-    download "$url" "$DL/$name.tar"
-    got=$(sha256 "$DL/$name.tar")
-    if [ "$got" != "$want" ]; then
-      echo "sha256 mismatch for $name: want $want, got $got" >&2
-      exit 1
+    file="$DL/$name.tar"
+    if [ "$name" = mpv ] && [ -n "$MPV_REF" ]; then
+      url="https://github.com/mpv-player/mpv/archive/$MPV_REF.tar.gz"
+      file="$DL/mpv-$MPV_REF.tar"
+      download "$url" "$file"
+      MPV_SHA256=$(sha256 "$file")
+      echo "mpv at $MPV_REF (unpinned): sha256 $MPV_SHA256"
+    else
+      download "$url" "$file"
+      got=$(sha256 "$file")
+      if [ "$got" != "$want" ]; then
+        echo "sha256 mismatch for $name: want $want, got $got" >&2
+        exit 1
+      fi
     fi
     mkdir -p "$SRC/$dest"
-    tar -xf "$DL/$name.tar" -C "$SRC/$dest" --strip-components=1
+    tar -xf "$file" -C "$SRC/$dest" --strip-components=1
   done < <(sources)
 }
 
@@ -286,9 +306,14 @@ check_self_contained() { # lib
 
 package() {
   local recipe mpvver name
-  recipe=$(cat "$SOURCES" "$HERE/build.sh" | { if command -v sha256sum >/dev/null; then sha256sum; else shasum -a 256; fi; } | cut -c1-8)
-  mpvver=$(grep -E '^mpv ' "$SOURCES" | grep -oE 'v[0-9]+\.[0-9]+\.[0-9]+' | head -1)
-  name="libmpv-vibo-${mpvver#v}-$recipe-$OS-$ARCH"
+  recipe=$({ cat "$SOURCES" "$HERE/build.sh"; echo "$MPV_REF"; } | { if command -v sha256sum >/dev/null; then sha256sum; else shasum -a 256; fi; } | cut -c1-8)
+  if [ -n "$MPV_REF" ]; then
+    mpvver="git-${MPV_REF:0:10}"
+  else
+    mpvver=$(grep -E '^mpv ' "$SOURCES" | grep -oE 'v[0-9]+\.[0-9]+\.[0-9]+' | head -1)
+    mpvver=${mpvver#v}
+  fi
+  name="libmpv-vibo-$mpvver-$recipe-$OS-$ARCH"
   local stage="$WORK/stage"
   rm -rf "$stage"
   if [ "$OS" = macos ]; then
@@ -314,6 +339,10 @@ package() {
     echo "  \"sha256\": \"$(sha256 "$OUT/$name.zip")\","
     echo "  \"recipe\": \"$recipe\","
     echo "  \"platform\": \"$OS-$ARCH\","
+    if [ -n "$MPV_REF" ]; then
+      echo "  \"mpv_ref\": \"$MPV_REF\","
+      echo "  \"mpv_sha256\": \"$MPV_SHA256\","
+    fi
     echo "  \"sources\": {"
     sources | awk '{printf "    \"%s\": \"%s\",\n", $1, $3}' | sed '$ s/,$//'
     echo "  }"

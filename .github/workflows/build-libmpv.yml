@@ -18,6 +18,10 @@ on:
         description: Upload the archives to the vendor-libmpv release (never overwrites)
         type: boolean
         default: false
+      mpv_ref:
+        description: Build this mpv commit instead of the pinned release (full or short sha; `npm run bump` fills it in)
+        type: string
+        default: ""
 
 concurrency:
   group: build-libmpv
@@ -38,6 +42,10 @@ jobs:
             platform: windows-x86_64
     runs-on: ${{ matrix.os }}
     timeout-minutes: 120
+    env:
+      # Through the environment, never pasted into a script: build.sh
+      # validates it (hex sha only) before it reaches a URL.
+      MPV_REF: ${{ inputs.mpv_ref }}
     steps:
       - uses: actions/checkout@v5
 
