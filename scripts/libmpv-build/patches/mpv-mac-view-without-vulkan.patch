@@ -1,0 +1,23 @@
+mac/view: build without Vulkan
+
+beddaec5ab ("mac/view: make our view aware of possible transparent
+rendering", 2026-01-11) made View.isOpaque look at MetalLayer, which is
+defined in video/out/mac/metal_layer.swift — compiled only when Vulkan is
+enabled. A cocoa + swift build without Vulkan (ours: the app renders via
+the libmpv OpenGL render API) then fails with "cannot find type
+'MetalLayer' in scope". Guard the check on the feature flag mpv already
+passes to swiftc.
+
+--- a/video/out/mac/view.swift
++++ b/video/out/mac/view.swift
+@@ -30,9 +30,11 @@
+
+     override var isOpaque: Bool {
++#if HAVE_VULKAN
+         if let metalLayer = layer as? MetalLayer {
+             return !metalLayer.isOpaque
+         }
++#endif
+
+         return true
+     }

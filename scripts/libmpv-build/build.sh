@@ -95,6 +95,24 @@ fetch() {
     mkdir -p "$SRC/$dest"
     tar -xf "$file" -C "$SRC/$dest" --strip-components=1
   done < <(sources)
+  apply_patches
+}
+
+# patches/mpv-*.patch fix upstream mpv for our configuration. Each applies only
+# where it fits — 0.41.0 lacks code that master needs patched — and is logged
+# either way; a patch whose context drifted is skipped too, and then the
+# original build error is what fails, so nothing goes quietly unfixed.
+apply_patches() {
+  local p
+  for p in "$HERE"/patches/mpv-*.patch; do
+    [ -e "$p" ] || continue
+    if patch -d "$SRC/mpv" -p1 --forward --dry-run -s < "$p" > /dev/null 2>&1; then
+      patch -d "$SRC/mpv" -p1 --forward -s < "$p"
+      echo "patched mpv: $(basename "$p")"
+    else
+      echo "not applied (doesn't fit this mpv): $(basename "$p")"
+    fi
+  done
 }
 
 # ---------------------------------------------------------------------------
@@ -306,7 +324,7 @@ check_self_contained() { # lib
 
 package() {
   local recipe mpvver name
-  recipe=$({ cat "$SOURCES" "$HERE/build.sh"; echo "$MPV_REF"; } | { if command -v sha256sum >/dev/null; then sha256sum; else shasum -a 256; fi; } | cut -c1-8)
+  recipe=$({ cat "$SOURCES" "$HERE/build.sh" "$HERE"/patches/*.patch 2>/dev/null; echo "$MPV_REF"; } | { if command -v sha256sum >/dev/null; then sha256sum; else shasum -a 256; fi; } | cut -c1-8)
   if [ -n "$MPV_REF" ]; then
     mpvver="git-${MPV_REF:0:10}"
   else
