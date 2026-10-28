@@ -28,6 +28,7 @@ import {
   annotateGalleryPlugins,
   annotateGallerySkins,
   buildAssistantRoster,
+  parseAssistantSkin,
 } from "../utils/controlApi";
 import type { QueueTrack, Track } from "../types";
 import type { PluginManifestContributes } from "../types/plugin";
@@ -502,5 +503,42 @@ describe("annotateGallerySkins", () => {
     expect(out[1]).toMatchObject({ id: "paper", installed: false, active: false });
     // The raw gallery fields an agent can't use (file, colors) are dropped.
     expect(out[0]).not.toHaveProperty("file");
+  });
+});
+
+describe("parseAssistantSkin", () => {
+  const colors = {
+    "bg-primary": "#1A1410", "bg-secondary": "#221a14", "bg-tertiary": "#2b2119", "bg-surface": "#33281e",
+    "bg-hover": "#3d3024", "text-primary": "#f3e6cf", "text-secondary": "#c9b38f", "text-tertiary": "#9c8668",
+    "accent": "#e0a24a", "accent-dim": "#b07a2e", "accent-text": "#1a1410", "border": "#3a2d22",
+    "now-playing-bg": "#1f1812", "success": "#7fb069", "error": "#e05a4a", "warning": "#e8b04a",
+    "like": "#e8607a", "dislike": "#e8b04a", "video-bg": "#000000",
+  };
+
+  it("accepts a colours-only skin and fills in the bookkeeping", () => {
+    const r = parseAssistantSkin({ name: " Morrison Hotel ", type: "dark", colors });
+    expect("skin" in r).toBe(true);
+    if (!("skin" in r)) return;
+    expect(r.skin).toMatchObject({ name: "Morrison Hotel", author: "Assistant", version: "1.0.0", type: "dark" });
+    expect((r.skin.colors as Record<string, string>)["bg-primary"]).toBe("#1a1410");
+  });
+
+  // CSS could restyle or cover the surfaces where a click is the user's
+  // consent; an assistant only ever gets colours.
+  it("refuses custom CSS from an assistant", () => {
+    expect(parseAssistantSkin({ name: "X", type: "dark", colors, customCSS: ".x{}" })).toEqual({
+      error: "customCSS isn't accepted from an assistant — colours only",
+    });
+  });
+
+  it("drops unknown colour keys and reports what an import would", () => {
+    const r = parseAssistantSkin({ name: "X", type: "dark", colors: { ...colors, "evil": "url(x)" } });
+    expect("skin" in r && !("evil" in (r.skin.colors as object))).toBe(true);
+    expect(parseAssistantSkin({ name: "X", type: "dark", colors: { ...colors, accent: "red" } })).toEqual({
+      error: "Invalid color for 'accent': red",
+    });
+    expect(parseAssistantSkin({ name: "X", type: "dim", colors })).toEqual({ error: "Type must be 'dark' or 'light'" });
+    expect(parseAssistantSkin({ type: "dark", colors })).toEqual({ error: "skin.name is required" });
+    expect(parseAssistantSkin("nope")).toEqual({ error: "skin must be an object" });
   });
 });

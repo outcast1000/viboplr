@@ -63,6 +63,7 @@ import {
   parsePlaybackSet,
   parseLikeState,
   resolveSkin,
+  parseAssistantSkin,
   summarizeCapabilities,
   describeContributes,
   annotateGalleryPlugins,
@@ -192,6 +193,8 @@ export interface ControlApiDeps {
     installedSkins: SkinInfo[];
     activeSkinId: string;
     applySkin: (id: string) => void;
+    /** useSkins.saveSkin — writes a user skin, switches to it when `apply`. */
+    saveSkin: (skin: object, apply?: boolean) => Promise<string>;
     /** useSkins.fetchGallery — same TTL-cached contract as the plugin gallery. */
     fetchGallery: (force?: boolean) => Promise<GallerySkinEntry[]>;
   };
@@ -1560,6 +1563,14 @@ export function useControlApi(deps: ControlApiDeps) {
         }
         d.skins.applySkin(skin.id);
         return { ok: true, id: skin.id, name: skin.name };
+      }
+
+      case "skins.create": {
+        const parsed = parseAssistantSkin(payload.skin);
+        if ("error" in parsed) bad(parsed.error);
+        const apply = payload.apply !== false;
+        const id = await d.skins.saveSkin(parsed.skin, apply);
+        return { ok: true, id, name: parsed.skin.name, applied: apply };
       }
 
       case "tags.edit": {

@@ -130,6 +130,7 @@ pub fn classify(method: &str, route: &str) -> Classified {
         ("POST", "/v1/tracks/{id}/replace-file") => c("Replace a track's file", Write),
         ("POST", "/v1/extensions/{id}/enabled") => c("Enable or disable an extension", Write),
         ("POST", "/v1/skins/apply") => c("Apply a skin", Write),
+        ("POST", "/v1/skins") => c("Create a skin", Write),
         ("GET", _) | ("HEAD", _) => c("Read", Read),
         _ => c("Change something", Write),
     }

@@ -16,6 +16,8 @@ import type {
 } from "../types/plugin";
 import type { GallerySkinEntry, SkinInfo } from "../types/skin";
 import { resolveShelfPlayAction } from "./homeShelfPlay";
+import { validateSkin } from "../skinUtils";
+import { SKIN_COLOR_KEYS } from "../types/skin";
 import { stabilityTier } from "./pluginStability";
 
 /** Payload of the `control-api-request` Tauri event. */
@@ -331,6 +333,35 @@ export function resolveSkin<T extends { id: string; name: string }>(
   if (byId) return byId;
   const n = idOrName.toLowerCase();
   return installed.find((s) => s.name.toLowerCase() === n) ?? null;
+}
+
+/** The skin an assistant hands `POST /v1/skins`, checked as an imported skin
+ *  is (`validateSkin`) with three differences: `author` and `version` are
+ *  filled in when missing (an assistant shouldn't fail on bookkeeping),
+ *  colours are lower-cased, and **`customCSS` is refused**. Colours alone
+ *  can't move or hide anything, but CSS could restyle or cover the surfaces
+ *  where the user's click is the consent (AI control settings, install and
+ *  permission dialogs, the Pause segment) — and the assistant is the one
+ *  party that must never be able to do that. Returns the skin or an error. */
+export function parseAssistantSkin(value: unknown): { skin: Record<string, unknown> & { name: string } } | { error: string } {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return { error: "skin must be an object" };
+  const s = value as Record<string, unknown>;
+  if (s.customCSS !== undefined) return { error: "customCSS isn't accepted from an assistant — colours only" };
+  if (typeof s.name !== "string" || !s.name.trim()) return { error: "skin.name is required" };
+  if (s.name.trim().length > 40) return { error: "skin.name must be at most 40 characters" };
+  const colors = s.colors && typeof s.colors === "object" ? (s.colors as Record<string, unknown>) : {};
+  const skin = {
+    name: s.name.trim(),
+    author: typeof s.author === "string" && s.author.trim() ? s.author.trim().slice(0, 60) : "Assistant",
+    version: typeof s.version === "string" && s.version.trim() ? s.version.trim() : "1.0.0",
+    type: s.type,
+    colors: Object.fromEntries(
+      SKIN_COLOR_KEYS.filter((k) => colors[k] !== undefined)
+        .map((k) => [k, typeof colors[k] === "string" ? (colors[k] as string).toLowerCase() : colors[k]]),
+    ),
+  };
+  const v = validateSkin(skin);
+  return v.ok ? { skin } : { error: v.error };
 }
 
 // --- Extension capabilities + gallery ---------------------------------------

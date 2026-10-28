@@ -4858,6 +4858,7 @@ function App() {
       activeSkinId: skins.activeSkinId,
       applySkin: skins.applySkin,
       fetchGallery: skins.fetchGallery,
+      saveSkin: skins.saveSkin,
     },
     extensions: {
       updates: extensionsHook.updates,

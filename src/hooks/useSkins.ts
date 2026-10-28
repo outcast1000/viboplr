@@ -125,6 +125,15 @@ export function useSkins() {
     }
   }, [applySkin, refreshUserSkins]);
 
+  // Save a skin someone else built (the control API's skins.create) as a user
+  // skin and, unless told otherwise, switch to it. Returns its id.
+  const saveSkin = useCallback(async (skin: object, apply = true): Promise<string> => {
+    const id = await invoke<string>("save_user_skin", { skinJson: JSON.stringify(skin, null, 2) });
+    await refreshUserSkins();
+    if (apply) applySkin(id);
+    return id;
+  }, [applySkin, refreshUserSkins]);
+
   const deleteSkin = useCallback(async (id: string) => {
     await invoke("delete_user_skin", { id });
     await refreshUserSkins();
@@ -264,6 +273,7 @@ export function useSkins() {
     previewSkin,
     clearPreview,
     importSkin,
+    saveSkin,
     deleteSkin,
     gallerySkins,
     galleryLoading,
