@@ -428,7 +428,7 @@ box-shadow:0 10px 40px rgba(0,0,0,.35)}
 
 /** The closing card: the wordmark (the site's pink→magenta gradient), the
  *  positioning line and the address. `iconSvg` is docs/assets/icon.svg. */
-export function endCardHtml(iconSvg, tagline = "The player for music you own") {
+export function endCardHtml(iconSvg, tagline = "Your music. Your AI.") {
   return `<!doctype html><html><head><meta charset="utf-8">
 <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;600;800&display=block" rel="stylesheet">
 <style>

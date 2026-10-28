@@ -5,7 +5,8 @@ Status: draft for review (2026-10-24; revised plan + Reddit targets 2026-10-27).
 
 ## Ground rules for the whole series
 
-- **Series frame: "the player for music you own."** Same positioning as the site
+- **Series frame: "Your music. Your AI."** (motto since 2026-10-28; was "the player for music
+  you own"). Same positioning as the site
   (`.claude/rules/site.md` → Positioning). Collectors, self-hosters and audiophiles are the
   headline audiences, so their shorts are released first. AI control gets a short of its own but
   never opens the series.

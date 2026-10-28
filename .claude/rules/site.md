@@ -9,11 +9,11 @@ paths:
 
 **Deploy timing:** `pages.yml` deploys any `docs/**` push to main immediately — **except** release commits (`release: vX.Y.Z`), which it skips; for those, `release.yml`'s `deploy-site` job dispatches the Pages deploy only after **both** platform installers have built and uploaded, so the live site never links assets that don't exist yet. Don't remove the `if` guard in `pages.yml` or the `deploy-site` job without the other — each is half of that handshake.
 
-## Positioning (owner decision, 2026-10-16)
+## Positioning (owner decision, 2026-10-16; motto changed 2026-10-28)
 
-Vibo is **the player for music you own**: local folders and Subsonic/Navidrome servers in one library. That is the headline on the home page, the README and the onboarding wizard. Everything else is a reason to *stay*, never the pitch:
+The motto is **"Your music. Your AI."** — the home page hero and `<title>`, the README's opening line and the YouTube Shorts' end card. It replaced "The player for music you own" (2026-10-28): Vibo is built with AI and for AI, and the motto says so without giving up the ownership half. Ownership still **leads the copy under it**: local folders and Subsonic/Navidrome servers in one library come first in the hero subtitle, the README's first paragraph and the onboarding wizard. Everything else is a reason to *stay*:
 
-- **AI control (the MCP server) is a feature, not the headline.** It gets its own section below the fold, framed as optional and off by default. Do not put it back in the hero, the `<title>` or the meta description.
+- **AI control (the MCP server) is half the motto, never a requirement.** Wherever it is mentioned near the top it is framed as optional and off by default ("Off until you say so"); its full section (`#ai`) stays below the fold. Don't let AI take over the subtitle, the meta description's opening or the persona pages' headlines — the primary audiences (below) came for their music.
 - **"Built by AI" is the story, not the product.** It lives in `story.html`, the README's "Built with AI" section and the bottom CTA's story link, never in the hero or the opening pitch. Listeners choose a player for what it does for their music.
 - **Three primary audiences:** collectors, self-hosters (Subsonic/Navidrome) and audiophiles. They are the only persona cards on the home page. The other persona pages stay live (they are linked from outside), but appear only as "More ways to use Vibo" links and in each page's "Also for you". A new persona page joins that link row; it does not get a home-page card.
 

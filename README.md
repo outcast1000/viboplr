@@ -1,6 +1,6 @@
 # Vibo
 
-**The player for music you own.**
+**Your music. Your AI.**
 
 Vibo is a free, open-source desktop music player for macOS and Windows, made for people who keep their own collection: folders of files, a Subsonic or Navidrome server, or both, in one library and one queue.
 
