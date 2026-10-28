@@ -87,6 +87,18 @@ fn generate_salt() -> String {
     format!("{:x}{:x}", nanos, nanos.wrapping_mul(2654435761))
 }
 
+/// A server URL as typed by the user, ready to store and connect to: trimmed,
+/// trailing slash removed, and `https://` assumed when no scheme was given
+/// (`music.example.com` → `https://music.example.com`).
+pub fn normalize_server_url(url: &str) -> String {
+    let url = url.trim().trim_end_matches('/');
+    if url.is_empty() || url.contains("://") {
+        url.to_string()
+    } else {
+        format!("https://{}", url)
+    }
+}
+
 impl SubsonicClient {
     pub fn new(url: &str, username: &str, password: &str) -> Result<Self, SubsonicError> {
         let base_url = url.trim_end_matches('/').to_string();
@@ -302,6 +314,15 @@ impl SubsonicClient {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn normalize_server_url_assumes_https_without_scheme() {
+        assert_eq!(normalize_server_url(" music.example.com/ "), "https://music.example.com");
+        assert_eq!(normalize_server_url("192.168.1.5:4533"), "https://192.168.1.5:4533");
+        assert_eq!(normalize_server_url("http://nas.local:4533/"), "http://nas.local:4533");
+        assert_eq!(normalize_server_url("https://music.example.com"), "https://music.example.com");
+        assert_eq!(normalize_server_url("  "), "");
+    }
 
     fn token_client() -> SubsonicClient {
         SubsonicClient::from_stored(

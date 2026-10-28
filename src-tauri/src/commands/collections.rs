@@ -115,7 +115,10 @@ pub async fn add_collection(
             Ok(collection)
         }
         "subsonic" => {
-            let server_url = url.as_deref().ok_or("URL is required for subsonic collections")?;
+            let server_url = crate::subsonic::normalize_server_url(
+                url.as_deref().ok_or("URL is required for subsonic collections")?,
+            );
+            let server_url = server_url.as_str();
             let user = username.as_deref().ok_or("Username is required for subsonic collections")?;
             let pass = password.as_deref().ok_or("Password is required for subsonic collections")?;
 
@@ -357,7 +360,7 @@ pub async fn update_subsonic_connection(
         if collection.kind != "subsonic" {
             return Err(format!("Connection settings are not editable for '{}' collections", collection.kind));
         }
-        let url = url.trim().trim_end_matches('/').to_string();
+        let url = crate::subsonic::normalize_server_url(&url);
         let username = username.trim().to_string();
         if !(url.starts_with("http://") || url.starts_with("https://")) {
             return Err("Server URL must start with http:// or https://".to_string());
@@ -494,7 +497,7 @@ pub async fn subsonic_test_connection(
     log::info!("subsonic_test_connection called with url: {}", url);
     // async + spawn_blocking: SubsonicClient::new probes the server inline.
     run_blocking(move || -> Result<_, String> {
-        SubsonicClient::new(&url, &username, &password)
+        SubsonicClient::new(&crate::subsonic::normalize_server_url(&url), &username, &password)
             .map_err(|e| format!("{}", e))?;
         Ok("Connected successfully".to_string())
     })
