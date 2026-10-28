@@ -915,9 +915,12 @@ export function useControlApi(deps: ControlApiDeps) {
         // Untargeted: kick the Rust image worker's provider-chain resolve —
         // the same commands the UI's Retrieve buttons invoke. Async by nature
         // (the worker emits *-image-ready events); the caller re-GETs.
-        if (kind === "artist") await invoke("fetch_artist_image", { artistName: name });
-        else if (kind === "album") await invoke("fetch_album_image", { albumTitle: name, artistName: artistName ?? null });
-        else await invoke("fetch_tag_image", { tagName: name });
+        // `force` is the Retrieve button's re-fetch: it replaces a stored
+        // image and skips the day-long memory of a failed lookup.
+        const force = payload.force === true;
+        if (kind === "artist") await invoke("fetch_artist_image", { artistName: name, force });
+        else if (kind === "album") await invoke("fetch_album_image", { albumTitle: name, artistName: artistName ?? null, force });
+        else await invoke("fetch_tag_image", { tagName: name, force });
         return { started: true, note: "resolving through the image provider chain — retry GET /v1/images/{kind} in a few seconds" };
       }
 
