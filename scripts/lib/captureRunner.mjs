@@ -66,6 +66,9 @@ export async function runStep(api, step, facts) {
       await api("POST", "/ui/input", { kind: "type", ...s.type });
     } else if (s.key) {
       await api("POST", "/ui/input", { kind: "key", keys: s.key });
+    } else if (s.createSkin) {
+      // What an assistant's manage_extensions create_skin sends (POST /v1/skins).
+      await api("POST", "/skins", { skin: s.createSkin });
     } else if (s.check === "bitPerfect") {
       // The gem is green only once the engine verified exclusive access at
       // the file's rate; anything else would be a take that shows a claim

@@ -1,9 +1,15 @@
 import { describe, expect, it } from "vitest";
+import { parseAssistantSkin } from "../utils/controlApi";
 import {
   END_CARD_SECS,
   MIN_CROP_SOURCE_W,
   SHORTS,
   serverRedactions,
+  isShowcaseName,
+  chatWindows,
+  chatHtml,
+  fillFacts,
+  ROADHOUSE_SKIN,
   SHORT_H,
   SHORT_W,
   canvasFor,
@@ -150,6 +156,7 @@ describe("captions and the ffmpeg command", () => {
     });
     expect(args).toContain("bed.mp3");
     expect(args).toContain("[a]");
+    expect(args.join(" ")).toContain("loudnorm=I=-16");
   });
 
   it("escapes caption text and keeps line breaks", () => {
@@ -177,7 +184,46 @@ describe("scenarios", () => {
     expect(byId["collectors-bulk-edit"]).toBe(true);
     expect(byId["tinkerers-skins"]).toBe(false);
     expect(byId["audiophiles-pure-or-shaped"]).toBe(true);
-    expect(byId["self-hosters-server"]).toBe(true);
+    expect(byId["self-hosters-server"]).toBe(false);
+  });
+
+  it("keep the whole conversation up, one frame per message", () => {
+    const beats = [
+      { startedAt: 0, caption: "Hook" },
+      { startedAt: 27.2, caption: "Or just ask your AI", captionTop: 150, chat: { role: "user", text: "Make it light" } },
+      { startedAt: 29.4, chat: { role: "assistant", text: "Done." } },
+    ];
+    const chats = chatWindows(beats, 38);
+    expect(chats).toEqual([
+      { messages: [{ role: "user", text: "Make it light" }], start: 27.2, end: 29.35 },
+      { messages: [{ role: "user", text: "Make it light" }, { role: "assistant", text: "Done." }], start: 29.4, end: 37.95 },
+    ]);
+    expect(captionWindows(beats, 38)[1].top).toBe(150);
+    expect(captionWindows(beats, 38)[0].top).toBeUndefined();
+    const html = chatHtml(chats[1].messages);
+    expect(html).toContain("Your AI");
+    expect(html).toContain("Make it light");
+  });
+
+  it("design a skin the create-skin route accepts", () => {
+    const r = parseAssistantSkin(ROADHOUSE_SKIN);
+    expect("skin" in r).toBe(true);
+  });
+
+  it("fill facts into on-screen text, leaving unknown names as written", () => {
+    const facts = { artist: "The Doors", showcaseAlbum: "Morrison Hotel", showcaseTrackId: 7 };
+    expect(fillFacts("$showcaseAlbum, by $artist.", facts)).toBe("Morrison Hotel, by The Doors.");
+    expect(fillFacts("Track $showcaseTrackId and $nope", facts)).toBe("Track $showcaseTrackId and $nope");
+  });
+
+  it("keep Greek and placeholder names off camera", () => {
+    expect(isShowcaseName("Bob Dylan")).toBe(true);
+    expect(isShowcaseName("Blonde on Blonde")).toBe(true);
+    expect(isShowcaseName("Μωρά Στη Φωτιά")).toBe(false);
+    expect(isShowcaseName("Live in Ἀθῆναι")).toBe(false);
+    expect(isShowcaseName("[Unknown Album]")).toBe(false);
+    expect(isShowcaseName("Various Artists")).toBe(false);
+    expect(isShowcaseName("")).toBe(false);
   });
 
   it("keep a real server's address off camera", () => {

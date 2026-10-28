@@ -38,12 +38,49 @@ export const END_CARD_SECS = 2.5;
  *             { rect: [x, y, w, h], pad? } (viewport CSS px) or { full: true };
  *             absent = the camera holds
  *   caption — text shown from this beat until the next caption (or `until` ms)
+ *   chat    — { role: "user" | "assistant", text } added to an on-screen chat
+ *             (the AI scenes): the whole conversation so far stays up until
+ *             the recording ends. Text may name facts as `$artist` etc.
+ * A beat's own `captionTop` moves just its caption (the AI scenes lift it out
+ * of the chat's way).
  * `captionTop` (output px, default CAPTION_TOP) moves every caption of a short
  * — a portrait window leaves only a thin band above it, so a caption up there
  * covers the window's own headline.
  * `setup` runs before recording, `after` once it is done (also on failure).
  * Step values may use the runner's facts ("$compilationTrackIds").
  */
+/** The skin the tinkerers' AI scene designs from a one-line brief ("warm,
+ *  late-night roadhouse"). Written by an AI (Claude) for this scene, applied
+ *  through the same `POST /v1/skins` an assistant's MCP `create_skin` uses.
+ *  Text is readable on every background (dimmest pair, text-tertiary on
+ *  bg-primary, 5.9:1; on bg-surface 4.6:1), and success / warning / error stay distinct from the
+ *  gold accent. Not tied to the showcase artist, which the runner picks. */
+export const ROADHOUSE_SKIN = {
+  name: "Roadhouse",
+  type: "dark",
+  colors: {
+    "bg-primary": "#17110c",
+    "bg-secondary": "#1f1711",
+    "bg-tertiary": "#291e16",
+    "bg-surface": "#33261b",
+    "bg-hover": "#3e2e21",
+    "text-primary": "#f4e7d0",
+    "text-secondary": "#cdb592",
+    "text-tertiary": "#a48d6c",
+    "accent": "#d9a441",
+    "accent-dim": "#a87a2c",
+    "accent-text": "#17110c",
+    "border": "#3b2c20",
+    "now-playing-bg": "#1b140e",
+    "success": "#8fbf6a",
+    "error": "#e2574c",
+    "warning": "#ef7f3a",
+    "like": "#e8607a",
+    "dislike": "#ef7f3a",
+    "video-bg": "#000000",
+  },
+};
+
 export const SHORTS = [
   {
     id: "collectors-bulk-edit",
@@ -136,8 +173,8 @@ export const SHORTS = [
     id: "tinkerers-skins",
     persona: "tinkerers",
     title: "Make it look like yours",
-    needs: ["demo"],
-    seconds: 17,
+    needs: ["library"],
+    seconds: 38,
     window: { width: 760, height: 960 },
     // Low, over the track list: the band above the window is ~280px, and a
     // caption at the default top covers the artist's name.
@@ -146,6 +183,9 @@ export const SHORTS = [
       { action: { action: "closeModals" } },
       { action: { action: "queuePanel", open: false } },
       { skin: "Vibo" },
+      // The bar shows the showcase artist's track, not whatever the
+      // profile's queue held (inserted next, undone after).
+      { playTemp: "$showcaseTrackId" },
       { navigate: { artist: "$artist" } },
       { action: { action: "heroLook", look: "aurora-drift" } },
       { action: { action: "scroll", to: "top" } },
@@ -170,8 +210,37 @@ export const SHORTS = [
       {
         at: 15000,
         focus: { full: true },
+        caption: "Every page follows",
+        steps: [{ action: { action: "heroLook", look: "aurora-drift" } }, { navigate: { view: "nowplaying" } }],
+      },
+      { at: 17200, steps: [{ skin: "Arctic Light" }] },
+      { at: 19200, steps: [{ skin: "Ocean Blue" }] },
+      { at: 21200, steps: [{ skin: "Forest" }] },
+      {
+        at: 23200,
         caption: "Or make your own skin",
-        steps: [{ skin: "Arctic Light" }, { action: { action: "heroLook", look: "aurora-drift" } }],
+        until: 3600,
+        steps: [{ skin: "Vibo" }, { navigate: { artist: "$artist" } }, { action: { action: "scroll", to: "top" } }],
+      },
+      // The AI scene: what an assistant does through MCP (the same control
+      // API verbs these steps call). The caption moves to the top band, the
+      // chat takes the lower half.
+      {
+        at: 27200,
+        caption: "Or just ask your AI",
+        captionTop: 150,
+        chat: { role: "user", text: "Design me a skin: warm, late-night roadhouse" },
+      },
+      {
+        at: 29400,
+        steps: [{ createSkin: ROADHOUSE_SKIN }],
+        chat: { role: "assistant", text: "Made \u201cRoadhouse\u201d and switched to it." },
+      },
+      { at: 32200, chat: { role: "user", text: "Now open $showcaseAlbum" } },
+      {
+        at: 33800,
+        steps: [{ navigate: { album: "$showcaseAlbum", artistName: "$artist" } }],
+        chat: { role: "assistant", text: "Here it is." },
       },
     ],
   },
@@ -187,8 +256,8 @@ export const SHORTS = [
     id: "audiophiles-pure-or-shaped",
     persona: "audiophiles",
     title: "Pure, or shaped",
-    needs: ["demo"],
-    seconds: 22,
+    needs: ["library"],
+    seconds: 38,
     // Not tinkerers' 760: the bar drops its audio pill (EQ, the gem, volume)
     // at 920px and below (NowPlayingBar.css), and both beats live in it.
     window: { width: 940, height: 960 },
@@ -200,8 +269,10 @@ export const SHORTS = [
       // Not Vibo: its success token is the accent pink, so "verified" would
       // look like "checking". Here success is green.
       { skin: "Default Dark Blue" },
+      // The showcase track (a cover, a non-Greek title), inserted next and
+      // undone after, so the profile's own queue is left as it was.
+      { playTemp: "$showcaseTrackId" },
       { navigate: { view: "nowplaying" } },
-      { playback: { play: true } },
       { wait: 1500 },
     ],
     beats: [
@@ -240,7 +311,36 @@ export const SHORTS = [
       { at: 14400, steps: [{ click: { role: "button", name: "Bass Boost" }, moveMs: 450 }] },
       { at: 15900, steps: [{ click: { role: "button", name: "Vocal" }, moveMs: 400 }], caption: "Ten bands.\nYour presets." },
       { at: 17400, steps: [{ click: { role: "button", name: "Electronic" }, moveMs: 400 }] },
-      { at: 19200, focus: { full: true }, caption: "Pure, or shaped.\nYour call." },
+      {
+        at: 19200,
+        focus: { full: true },
+        caption: "Gapless, ReplayGain,\ncrossfade",
+        steps: [{ action: { action: "eqPanel", open: false } }, { navigate: { settings: "exclusive-audio" } }],
+      },
+      // The AI scene: what an assistant does through MCP (the same control
+      // API verbs and clicks these steps use).
+      {
+        at: 23200,
+        caption: "Or just ask your AI",
+        steps: [{ navigate: { view: "nowplaying" } }],
+        chat: { role: "user", text: "What exactly is this file?" },
+      },
+      {
+        at: 25200,
+        steps: [
+          { navigate: { track: "$showcaseTrack", artistName: "$artist", albumTitle: "$showcaseAlbum" } },
+          { wait: 1200 },
+          { click: { role: "tab", name: "Details" }, moveMs: 500, optional: true },
+        ],
+        chat: { role: "assistant", text: "Here's everything about it." },
+      },
+      { at: 29800, chat: { role: "user", text: "Show me the whole album" } },
+      {
+        at: 31400,
+        steps: [{ navigate: { album: "$showcaseAlbum", artistName: "$artist" } }],
+        chat: { role: "assistant", text: "$showcaseAlbum, by $artist." },
+      },
+      { at: 35000, focus: { full: true }, caption: "Pure, or shaped.\nYour call." },
     ],
     // The preset clicks switched the EQ on: put it back to Flat and Off, or
     // the next take and the site's `eq-panel` still inherit it.
@@ -254,29 +354,28 @@ export const SHORTS = [
     ],
   },
   {
-    // "Your server, built in" — the one short NOT from the demo library: the
-    // owner's real Navidrome (owner decision, 2026-10-28), with the demo
-    // folder switched off for the take and back on after, so the library on
-    // camera is the server's alone. The server's address is redacted for the
-    // whole run (`serverRedactions`); credentials never reach the control
-    // API. Remove or disable the server collection after recording, or every
-    // later capture from this profile includes the real library.
+    // "Your server, built in": the owner's real Navidrome (owner decision,
+    // 2026-10-28). The demo folder is switched off in the profile by hand, so
+    // the library on camera is the server's alone; the take doesn't touch
+    // collections. The server's address is redacted for the whole run
+    // (`serverRedactions`); credentials never reach the control API.
     // The track plays through `playTemp` (inserted next, undone after), not
     // the album's Play button: that would replace the profile's seeded queue
     // the perf probes replay.
     id: "self-hosters-server",
     persona: "self-hosters",
     title: "Your server, built in",
-    needs: ["demo", "server"],
-    seconds: 19,
+    needs: ["server", "library"],
+    seconds: 38,
     window: { width: 940, height: 960 },
     setup: [
       { action: { action: "closeModals" } },
       { action: { action: "queuePanel", open: false } },
       { skin: "Vibo" },
+      // Playing from the start, so the bar shows the server's track
+      // throughout (inserted next, undone after).
+      { playTemp: "$showcaseTrackId" },
       { navigate: { view: "collections" } },
-      { wait: 800 },
-      { click: { role: "button", name: "$demoCollectionOff" }, moveMs: 0 },
       { wait: 1500 },
     ],
     beats: [
@@ -287,29 +386,58 @@ export const SHORTS = [
         caption: "Every album,\nfrom your server",
         steps: [{ navigate: { artist: "$artist" } }, { action: { action: "scroll", to: "top" } }],
       },
-      { at: 6800, steps: [{ navigate: { album: "$serverAlbum", artistName: "$artist" } }] },
+      { at: 6800, steps: [{ navigate: { album: "$showcaseAlbum", artistName: "$artist" } }] },
       {
         at: 8600,
         focus: { full: true },
         caption: "Built in.\nNo plugin needed.",
-        steps: [{ playTemp: "$serverTrackId" }, { navigate: { view: "nowplaying" } }],
+        steps: [{ navigate: { view: "nowplaying" } }],
       },
       {
-        at: 13000,
+        at: 12400,
+        caption: "Search it all,\ninstantly",
+        steps: [{ action: { action: "search", query: "$artist" } }],
+      },
+      {
+        at: 16400,
         focus: { full: true },
         caption: "Or take a copy\nwith you",
         settle: 800,
-        steps: [{ action: { action: "download" } }],
+        steps: [{ action: { action: "search", query: "" } }, { action: { action: "download" } }],
+      },
+      // The AI scene: what an assistant does through MCP (the same control
+      // API verbs these steps call).
+      {
+        at: 21000,
+        caption: "Or just ask your AI",
+        steps: [{ action: { action: "closeModals" } }],
+        chat: { role: "user", text: "Find every song with \u201cblues\u201d in the title" },
+      },
+      {
+        at: 23200,
+        steps: [{ action: { action: "search", query: "blues" } }],
+        chat: { role: "assistant", text: "Here they are, from your server." },
+      },
+      { at: 28000, chat: { role: "user", text: "Take me to $artist" } },
+      {
+        at: 29600,
+        steps: [{ action: { action: "search", query: "" } }, { navigate: { artist: "$artist" } }, { action: { action: "scroll", to: "top" } }],
+        chat: { role: "assistant", text: "$artist, straight from your Navidrome." },
       },
     ],
-    after: [
-      { action: { action: "closeModals" } },
-      { navigate: { view: "collections" } },
-      { wait: 600 },
-      { click: { role: "button", name: "$demoCollectionOn" }, moveMs: 0 },
-    ],
+    after: [{ action: { action: "closeModals" } }, { action: { action: "search", query: "" } }],
   },
 ];
+
+/** Whether a name may appear on camera in a library short: no Greek (owner
+ *  decision, 2026-10-29 — the series is for an international audience) and
+ *  no placeholder (`[Unknown Album]`, `Unknown Artist`, …), which renders as
+ *  a stock image rather than a cover. */
+export function isShowcaseName(name) {
+  if (!name || /[\u0370-\u03FF\u1F00-\u1FFF]/.test(name)) return false;
+  const folded = name.toLowerCase().replace(/[^a-z0-9]/g, "");
+  return !["", "unknown", "unknownalbum", "unknownartist", "noalbum", "noartist", "variousartists"].includes(folded);
+}
 
 /** Showcase redaction rules that keep a real server's address off camera:
  *  its URL, and its name when that is the hostname (the app names a new
@@ -419,6 +547,24 @@ export function cameraFilter(keys, canvas, { fps = SHORT_FPS, moveSecs = DEFAULT
   return `zoompan=z='${canvas.width}/(${w})':x='${x}':y='${y}':d=1:s=${SHORT_W}x${SHORT_H}:fps=${fps}`;
 }
 
+/** `$name` in a beat's text, filled from the run's facts (`$artist`,
+ *  `$showcaseAlbum`, …); an unknown name is left as written. */
+export function fillFacts(text, facts) {
+  return text.replace(/\$([A-Za-z]\w*)/g, (m, key) => (typeof facts[key] === "string" ? facts[key] : m));
+}
+
+/** The chat overlay's frames: one per chat beat, each showing every message
+ *  so far, from that beat until the next one (the last until the recording
+ *  ends). Same shape as `captionWindows`, so both composite the same way. */
+export function chatWindows(beats, durationSecs) {
+  const withChat = beats.filter((b) => b.chat);
+  return withChat.map((b, i) => ({
+    messages: withChat.slice(0, i + 1).map((c) => c.chat),
+    start: Number(b.startedAt.toFixed(2)),
+    end: Number(((withChat[i + 1]?.startedAt ?? durationSecs) - 0.05).toFixed(2)),
+  }));
+}
+
 /** When each caption shows: from its beat's real start to the next caption
  *  (or its own `until`), never past the recording. Seconds. */
 export function captionWindows(beats, durationSecs) {
@@ -427,7 +573,12 @@ export function captionWindows(beats, durationSecs) {
     const start = b.startedAt;
     const next = withText[i + 1]?.startedAt ?? durationSecs;
     const end = b.until !== undefined ? Math.min(next, start + b.until / 1000) : next;
-    return { text: b.caption, start: Number(start.toFixed(2)), end: Number(Math.max(start + 0.5, end - 0.05).toFixed(2)) };
+    return {
+      text: b.caption,
+      start: Number(start.toFixed(2)),
+      end: Number(Math.max(start + 0.5, end - 0.05).toFixed(2)),
+      ...(b.captionTop !== undefined ? { top: b.captionTop } : {}),
+    };
   });
 }
 
@@ -469,7 +620,10 @@ export function composeArgs({ raw, canvas, keys, captions, captionPngs, endCard,
   g.push(`[main][end]concat=n=2:v=1:a=0[v]`);
   const maps = ["-map", "[v]"];
   if (musicIdx !== null) {
-    g.push(`[${musicIdx}:a]atrim=duration=${total},asetpts=PTS-STARTPTS,afade=t=in:d=0.5,afade=t=out:st=${Math.max(0, total - 1.5)}:d=1.5[a]`);
+    // Normalised to -16 LUFS so every short in the series sits at one level
+    // whatever bed it uses (YouTube turns down anything louder anyway).
+    g.push(`[${musicIdx}:a]atrim=duration=${total},asetpts=PTS-STARTPTS,loudnorm=I=-16:TP=-1.5:LRA=11,`
+      + `afade=t=in:d=0.5,afade=t=out:st=${Math.max(0, total - 1.5)}:d=1.5[a]`);
     maps.push("-map", "[a]", "-c:a", "aac", "-b:a", "192k");
   }
   return [
@@ -498,6 +652,31 @@ html,body{margin:0;width:${SHORT_W}px;height:${SHORT_H}px;background:transparent
 color:#fff;text-align:center;padding:26px 40px;border-radius:28px;background:rgba(10,10,18,.72);
 box-shadow:0 10px 40px rgba(0,0,0,.35)}
 </style></head><body><div class="cap"><div class="box">${lines}</div></div></body></html>`;
+}
+
+/** Where the chat sits: low, above the Shorts player's bottom controls. */
+export const CHAT_BOTTOM = 470;
+
+/** The AI scenes' chat as a full-frame transparent page: the user's message
+ *  right-aligned in the brand gradient, the assistant's left in a dark
+ *  bubble under a small "Your AI" label, newest at the bottom. */
+export function chatHtml(messages, { bottom = CHAT_BOTTOM } = {}) {
+  const bubbles = messages.map((m) => m.role === "user"
+    ? `<div class="row me"><div class="b me">${escapeHtml(m.text)}</div></div>`
+    : `<div class="row ai"><div class="who">Your AI</div><div class="b ai">${escapeHtml(m.text)}</div></div>`).join("");
+  return `<!doctype html><html><head><meta charset="utf-8">
+<link href="https://fonts.googleapis.com/css2?family=Outfit:wght@500;600;700&display=block" rel="stylesheet">
+<style>
+html,body{margin:0;width:${SHORT_W}px;height:${SHORT_H}px;background:transparent;overflow:hidden}
+.chat{position:absolute;left:70px;right:130px;bottom:${bottom}px;display:flex;flex-direction:column;gap:22px;
+font-family:Outfit,"Avenir Next","Helvetica Neue",sans-serif}
+.row{display:flex;flex-direction:column}.row.me{align-items:flex-end}.row.ai{align-items:flex-start}
+.who{font-size:30px;font-weight:600;color:#ffb3d4;margin:0 0 8px 18px;letter-spacing:.5px}
+.b{font-size:50px;font-weight:600;line-height:1.2;padding:24px 34px;border-radius:34px;max-width:780px;
+box-shadow:0 10px 40px rgba(0,0,0,.4)}
+.b.me{color:#fff;background:linear-gradient(90deg,#ff5fa2,#c03ce0);border-bottom-right-radius:10px}
+.b.ai{color:#fff;background:rgba(18,16,28,.9);border:2px solid rgba(255,255,255,.12);border-bottom-left-radius:10px}
+</style></head><body><div class="chat">${bubbles}</div></body></html>`;
 }
 
 /** The closing card: the wordmark (the site's pink→magenta gradient), the

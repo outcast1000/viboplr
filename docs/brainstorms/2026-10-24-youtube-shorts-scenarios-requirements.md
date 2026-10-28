@@ -40,6 +40,14 @@ Status: draft for review (2026-10-24; revised plan + Reddit targets 2026-10-27).
   Library; `--music` mixes in a file you have the rights to. There is no safe number of seconds of
   copyrighted audio. Any Content ID claim blocks a Short over 1 minute worldwide, and a shorter one
   gets the rights holder's policy.
+- **Bed chosen (2026-10-29): HoliznaCC0 — "Eat"** (Funk collection, CC0, no credit needed,
+  https://opengameart.org/content/funk-collection), mixed with `--music` at −16 LUFS. CC0 so no
+  Content ID claim and no description credit, and the sound is in the file, so it reaches Reddit.
+  Kept outside the repo at `~/ViboplrShorts/music/holiznacc0-eat.mp3`.
+- **Library shorts use the real library (2026-10-29):** tinkerers, audiophiles and self-hosters
+  run on the profile's own collections (`needs: ["library"]`); the runner picks the artist
+  (photo + every cover, no Greek names, studio album). ~38 s each plus the end card, each closing
+  on an AI scene: staged chat bubbles, the app reacting through the real control-API verbs.
 - **Text only**, no voice-over.
 - **Generic click / type / key** went into the control API behind its own switch (Settings → AI
   control → **Click and type**), available to MCP too. It refuses the AI control settings, the
