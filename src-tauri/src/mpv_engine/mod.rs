@@ -558,6 +558,12 @@ impl Engine {
                 // stream-resolver chain owns that, and the hook would spawn a
                 // yt-dlp subprocess on every failed load otherwise.
                 init.set_property("ytdl", false)?;
+                // Verify https peers. mpv's own default has flipped between
+                // releases (0.41.0: no, master: yes) and mpv passes it straight
+                // to FFmpeg, so a build swap silently decided whether streams
+                // were verified. tls-ca-file (ensure_ca_bundle) supplies the
+                // roots this checks against.
+                init.set_property("tls-verify", true)?;
                 if let Some(ao) = ao_override {
                     init.set_property("ao", ao)?;
                 }
@@ -2596,6 +2602,17 @@ mod tests {
             "[probe] codec={:?} samplerate={:?} format={:?} bitrate={:?}",
             info.codec, info.sample_rate, info.format, info.bitrate
         );
+    }
+
+    #[test]
+    fn test_decks_verify_tls_whatever_the_build_defaults_to() {
+        // mpv 0.41.0 defaults tls-verify to no and passes that to FFmpeg, so
+        // without the explicit set a self-signed https source played.
+        let (sink, _rx) = collect_events();
+        let Some(engine) = try_test_engine(sink) else { return };
+        for deck in &engine.decks {
+            assert_eq!(deck.mpv.get_property::<String>("tls-verify").unwrap(), "yes");
+        }
     }
 
     #[test]
