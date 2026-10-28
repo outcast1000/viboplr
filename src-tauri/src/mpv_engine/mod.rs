@@ -3676,6 +3676,100 @@ mod tests {
         assert_levels(&s, &[0, 1, 2, 3]);
     }
 
+    /// A stream gets the same waveform a file does — the reason the capture
+    /// exists (a stream is never fetched a second time to compute one). Served
+    /// over HTTP, so mpv reads it through the network path: the buffer
+    /// readout, which only network sources emit, proves that.
+    #[test]
+    fn test_wave_capture_records_a_network_stream() {
+        use std::io::{BufRead, BufReader, Write};
+        let dir = tempfile::tempdir().unwrap();
+        let wav = dir.path().join("steps.wav");
+        write_sine_wav(&wav, LEVELS.len() as f64, stepped_amp);
+        let body = std::fs::read(&wav).unwrap();
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").expect("bind");
+        let port = listener.local_addr().unwrap().port();
+        std::thread::spawn(move || {
+            for stream in listener.incoming() {
+                let Ok(stream) = stream else { break };
+                let mut reader = BufReader::new(stream.try_clone().unwrap());
+                loop {
+                    let mut line = String::new();
+                    if reader.read_line(&mut line).unwrap_or(0) == 0 || line.trim().is_empty() { break; }
+                }
+                let mut s = stream;
+                let _ = write!(s, "HTTP/1.1 200 OK\r\nContent-Type: audio/wav\r\nContent-Length: {}\r\nConnection: close\r\n\r\n", body.len());
+                let _ = s.write_all(&body);
+            }
+        });
+
+        let (sink, rx) = collect_events();
+        let Some(engine) = try_test_engine(sink) else { return };
+        engine.play(&format!("http://127.0.0.1:{port}/steps.wav"), None, "trk:net", None, 1.0, false, false).unwrap();
+        let mut saw_buffer = false;
+        let deadline = Instant::now() + Duration::from_secs(15);
+        loop {
+            let (name, _) = rx
+                .recv_timeout(deadline.saturating_duration_since(Instant::now()))
+                .expect("timed out waiting for engine-ended");
+            saw_buffer |= name == "engine-buffer";
+            if name == "engine-ended" {
+                break;
+            }
+        }
+        assert!(saw_buffer, "played through the network path (it reported its buffer)");
+        let s = engine.wave_snapshot("trk:net").expect("kept after the stream ended");
+        assert_eq!(s.rms.len(), LEVELS.len());
+        let heard = s.coverage * LEVELS.len() as f64;
+        assert!(heard >= LEVELS.len() as f64 - 0.2, "a full listen covers the stream: {s:?}");
+        assert_levels(&s, &[0, 1, 2, 3]);
+    }
+
+    /// Waveform capture on a real stream (e.g. a yt-dlp-resolved YouTube
+    /// audio URL), the way the app plays it: reads the capture every 5s and
+    /// reports how much of the track has been heard and its newest levels. Run:
+    ///   VIBOPLR_WAVE_STREAM=<url> [VIBOPLR_WAVE_HEADERS='{…}'] [VIBOPLR_WAVE_CA=<pem>]
+    ///   [VIBOPLR_WAVE_SECS=30] cargo test probe_wave_capture_on_a_real_stream -- --ignored --nocapture
+    #[test]
+    #[ignore]
+    fn probe_wave_capture_on_a_real_stream() {
+        let Ok(url) = std::env::var("VIBOPLR_WAVE_STREAM") else {
+            eprintln!("[probe] set VIBOPLR_WAVE_STREAM (optionally _HEADERS / _CA / _SECS)");
+            return;
+        };
+        let headers: Option<HashMap<String, String>> = std::env::var("VIBOPLR_WAVE_HEADERS")
+            .ok()
+            .and_then(|s| serde_json::from_str(&s).ok());
+        let secs: u64 = std::env::var("VIBOPLR_WAVE_SECS").ok().and_then(|s| s.parse().ok()).unwrap_or(30);
+        let (sink, rx) = collect_events();
+        let Some(engine) = try_test_engine(sink) else { return };
+        if let Ok(ca) = std::env::var("VIBOPLR_WAVE_CA") {
+            engine.set_tls_ca_file(std::path::Path::new(&ca)).expect("tls ca");
+        }
+        engine
+            .play_with_headers(&url, None, headers.as_ref(), "trk:wave", None, 0.5, false, false)
+            .expect("play accepted");
+        let restart = wait_for(&rx, "engine-playback-restart", Duration::from_secs(60));
+        eprintln!("[probe] playing: {restart}");
+        let start = Instant::now();
+        while start.elapsed() < Duration::from_secs(secs) {
+            std::thread::sleep(Duration::from_secs(5));
+            match engine.wave_snapshot("trk:wave") {
+                Some(s) => {
+                    let heard = s.rms.iter().filter(|v| v.is_some()).count();
+                    let newest: Vec<String> = s.rms.iter().flatten().rev().take(4)
+                        .map(|v| format!("{v:.3}")).collect();
+                    eprintln!(
+                        "[probe] t+{:>2}s  duration {:?}s  heard {heard} s  coverage {:.1}%  newest rms {:?}",
+                        start.elapsed().as_secs(), s.duration_secs.map(|d| d.round()), s.coverage * 100.0, newest
+                    );
+                }
+                None => eprintln!("[probe] t+{:>2}s  no capture", start.elapsed().as_secs()),
+            }
+        }
+        engine.stop().expect("stop");
+    }
+
     /// The track the queue advances to is captured too, by either arm: a
     /// gapless successor (same deck) and a crossfade arm (the standby deck,
     /// loaded paused).
