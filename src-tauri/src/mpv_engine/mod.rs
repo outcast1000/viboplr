@@ -2281,6 +2281,15 @@ mod tests {
             );
             return None;
         }
+        // Which build the suite ran against — CI that tests a specific build
+        // (build-libmpv.yml) checks this line, since a vendored copy would
+        // otherwise pass in its place.
+        static ANNOUNCED: std::sync::Once = std::sync::Once::new();
+        ANNOUNCED.call_once(|| {
+            if let Some(lib) = super::ffi::loaded() {
+                eprintln!("[engine-test] libmpv: {} ({})", lib.path.display(), lib.origin);
+            }
+        });
         Some(Engine::new(sink, Some("null"), None).expect("engine init"))
     }
 

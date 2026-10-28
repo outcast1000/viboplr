@@ -118,11 +118,23 @@ jobs:
     steps:
       - uses: actions/checkout@v5
 
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+
       - uses: dtolnay/rust-toolchain@stable
 
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: src-tauri
+
+      # Only for the build: tauri-build refuses to compile without the files the
+      # per-platform bundle config lists (the pinned libmpv, and on macOS its
+      # luajit sidecar). The tests below load THIS run's library instead —
+      # VIBOPLR_LIBMPV_PATH outranks the vendored copy, and the test step fails
+      # unless the suite reports it loaded from there.
+      - name: Vendor the pinned libmpv (build prerequisite)
+        run: node scripts/fetch-libmpv.mjs
 
       - uses: actions/download-artifact@v4
         with:
@@ -151,6 +163,12 @@ jobs:
             echo "::error::engine tests were skipped — libmpv did not load"
             exit 1
           fi
+          if ! grep -q "^\[engine-test\] libmpv: .* (env)$" engine-test.log; then
+            echo "::error::the suite did not run against this build (VIBOPLR_LIBMPV_PATH)"
+            grep "^\[engine-test\] libmpv:" engine-test.log || true
+            exit 1
+          fi
+          grep "^\[engine-test\] libmpv:" engine-test.log
 
   publish:
     needs: engine-test
