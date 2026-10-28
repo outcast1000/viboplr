@@ -61,8 +61,12 @@ if (!zips.length) throw new Error(`no zips in ${path.relative(root, distDir)} â€
 const work = fs.mkdtempSync(path.join(os.tmpdir(), "engine-components-"));
 try {
   for (const name of zips) {
-    const m = /^engine-libmpv-(.+)-([0-9a-f]+)\.zip$/.exec(name);
-    const entry = m && lock.platforms[m[1]];
+    // engine-libmpv-<platform>-<version>.zip, matched against the lock's own
+    // platform keys: a version is an mpv hash or a self-built build name
+    // (vibo-0.41.0-31f30cf7), so it can't be told apart by its characters.
+    const platform = Object.keys(lock.platforms).find((p) => name.startsWith(`engine-libmpv-${p}-`));
+    const m = platform && [name, platform, name.slice(`engine-libmpv-${platform}-`.length, -".zip".length)];
+    const entry = m && name.endsWith(".zip") && m[2] && lock.platforms[m[1]];
     if (!entry) {
       console.warn(`${name}: no matching platform in the lock â€” skipped`);
       continue;

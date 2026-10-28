@@ -4,7 +4,7 @@
 // link that will be deleted — the failure that broke the v1.0.94 Windows build.
 import { describe, it, expect } from "vitest";
 // @ts-expect-error — plain .mjs dev script, no type declarations
-import { REQUIRED_CHECKS, UPSTREAMS, archiveProblems, hostPlatformKey, libmpvAction, lockEntryFor, missingFiles, mirrorUrl, parseClientApiVersion, pickAsset, prBody, requiredChecksState, sameCommit, vendorState } from "../../scripts/lib/libmpvUpdate.mjs";
+import { REQUIRED_CHECKS, UPSTREAMS, archiveProblems, hostPlatformKey, isSelfBuilt, libmpvAction, lockEntryFor, missingFiles, mirrorUrl, parseClientApiVersion, pickAsset, prBody, requiredChecksState, sameCommit, vendorState } from "../../scripts/lib/libmpvUpdate.mjs";
 
 const win = UPSTREAMS["windows-x86_64"];
 const mac = UPSTREAMS["macos-aarch64"];
@@ -211,5 +211,17 @@ describe("vendorState", () => {
   it("is unpinned on a platform the lock doesn't cover", () => {
     expect(vendorState(undefined, null)).toBe("unpinned");
     expect(vendorState(undefined, "abc123")).toBe("unpinned");
+  });
+});
+
+describe("isSelfBuilt", () => {
+  it("marks a pin to our own build, which the weekly upstream update must leave alone", () => {
+    expect(isSelfBuilt({ selfBuilt: true, mpvGitHash: "41f6a64506" })).toBe(true);
+  });
+
+  it("treats an upstream pin, or a missing one, as updatable", () => {
+    expect(isSelfBuilt({ source: "eko5624/mpv-mac", mpvGitHash: "baa3e11d42" })).toBe(false);
+    expect(isSelfBuilt({ selfBuilt: "yes" })).toBe(false);
+    expect(isSelfBuilt(undefined)).toBe(false);
   });
 });

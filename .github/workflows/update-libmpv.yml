@@ -1,5 +1,9 @@
 name: Update libmpv
 
+# Both platforms now pin our own build (scripts/libmpv-build, the build-libmpv
+# workflow), and update-libmpv.mjs skips self-built pins — so today this run
+# finds nothing. It stays for a platform pinned back to an upstream build.
+#
 # Weekly: is there a newer libmpv build than the pinned one? If so, mirror it,
 # re-pin it, prove it loads and plays on real macOS and Windows runners,
 # repackage the downloadable engine component, open (or refresh) a pull request,

@@ -3,8 +3,7 @@
   "bundle": {
     "macOS": {
       "frameworks": [
-        "vendor/libmpv/macos-aarch64/lib/libmpv.2.dylib",
-        "vendor/libmpv/macos-aarch64/lib/libluajit-5.1.2.dylib"
+        "vendor/libmpv/macos-aarch64/lib/libmpv.2.dylib"
       ]
     }
   }

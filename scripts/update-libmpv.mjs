@@ -25,6 +25,7 @@ import {
   MIRROR_TAG,
   UPSTREAMS,
   archiveProblems,
+  isSelfBuilt,
   lockEntryFor,
   parseClientApiVersion,
   pickAsset,
@@ -115,6 +116,10 @@ try {
   for (const [platform, upstream] of Object.entries(UPSTREAMS)) {
     if (onlyPlatform && platform !== onlyPlatform) continue;
     const current = lock.platforms[platform];
+    if (isSelfBuilt(current)) {
+      console.log(`${platform}: pinned to our own build (${current.build ?? current.mpvGitHash}) — not updated from ${upstream.repo}`);
+      continue;
+    }
     const release = await github(`/repos/${upstream.repo}/releases/latest`);
     const asset = release && pickAsset(release, upstream);
     if (!asset) {

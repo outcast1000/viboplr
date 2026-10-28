@@ -60,7 +60,9 @@ for (const [platform, entry] of Object.entries(mpvLock.platforms)) {
     console.log(`${platform}: vendor dir missing — run \`node scripts/fetch-libmpv.mjs --all\` (skipped)`);
     continue;
   }
-  const version = entry.mpvGitHash;
+  // A self-built pin names its build (recipe included): every rebuild of the
+  // same mpv commit is a different zip, and the publisher never overwrites one.
+  const version = entry.build ?? entry.mpvGitHash;
   const zipName = `engine-libmpv-${platform}-${version}.zip`;
   const zipPath = path.join(outDir, zipName);
   const files = platformFiles(platform, libDir);

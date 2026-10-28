@@ -49,6 +49,13 @@ export function pickAsset(release, upstream) {
   return null;
 }
 
+/** A platform pinned to our own build (scripts/libmpv-build): upstream
+ *  builds are never proposed for it — it moves through the build-libmpv
+ *  workflow and a deliberate re-pin instead. */
+export function isSelfBuilt(entry) {
+  return entry?.selfBuilt === true;
+}
+
 /** Same mpv commit? Builds shorten hashes to different lengths (304426c vs 3f1b23abd0). */
 export function sameCommit(a, b) {
   if (!a || !b) return false;
