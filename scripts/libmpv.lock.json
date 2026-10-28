@@ -3,10 +3,10 @@
   "platforms": {
     "macos-aarch64": {
       "source": "eko5624/mpv-mac (self-contained libmpv.2.dylib, ffmpeg statically linked, GPL)",
-      "url": "https://github.com/outcast1000/viboplr/releases/download/vendor-libmpv/libmpv-arm64-6a262d11f6.zip",
-      "upstream": "https://github.com/eko5624/mpv-mac/releases/download/2026-10-19/libmpv-arm64-6a262d11f6.zip",
-      "sha256": "7cc69ff1eff7f940617c47bcbf5468001b7b958b3e6aab05b294ac78e037e128",
-      "mpvGitHash": "6a262d11f6"
+      "url": "https://github.com/outcast1000/viboplr/releases/download/vendor-libmpv/libmpv-arm64-baa3e11d42.zip",
+      "upstream": "https://github.com/eko5624/mpv-mac/releases/download/2026-10-26/libmpv-arm64-baa3e11d42.zip",
+      "sha256": "2ef5c27125a2ebf5ae12b27662ab5a36a7f50eed5525e4335d268ec9859d2993",
+      "mpvGitHash": "baa3e11d42"
     },
     "windows-x86_64": {
       "source": "shinchiro/mpv-winbuild-cmake (libmpv-2.dll, ffmpeg statically linked, GPL)",
