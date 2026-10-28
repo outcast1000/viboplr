@@ -1,0 +1,2 @@
+# Run by MSYS2 bash on the Windows runner, whose git checks out CRLF by default.
+scripts/libmpv-build/* text eol=lf

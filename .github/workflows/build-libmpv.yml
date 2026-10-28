@@ -1,0 +1,177 @@
+name: Build libmpv
+
+# Builds our own trimmed, self-contained libmpv (scripts/libmpv-build/) for
+# macOS arm64 and Windows x64, proves each one loads and plays by running the
+# real-libmpv engine tests against it, and — only when asked — publishes the
+# archives to the `vendor-libmpv` prerelease that scripts/libmpv.lock.json
+# points at. It never re-pins the lock: adopting a build is a separate,
+# deliberate change (re-test playback on both platforms first).
+#
+# The archive name carries the recipe hash (sources.txt + build.sh), and the
+# publish step never overwrites a name that exists: packaging isn't
+# byte-reproducible, and a released app may already pin the published bytes.
+
+on:
+  workflow_dispatch:
+    inputs:
+      publish:
+        description: Upload the archives to the vendor-libmpv release (never overwrites)
+        type: boolean
+        default: false
+
+concurrency:
+  group: build-libmpv
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-14
+            platform: macos-aarch64
+          - os: windows-latest
+            platform: windows-x86_64
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v5
+
+      # Only the build tools and the few system libraries the recipe takes from
+      # UCRT64 (zlib, iconv, and shaderc + spirv-cross for mpv's d3d11
+      # renderer). No other media library may be installed here: the recipe's
+      # pkg-config path includes UCRT64's, so anything present could be picked up.
+      - if: runner.os == 'Windows'
+        uses: msys2/setup-msys2@v2
+        with:
+          msystem: UCRT64
+          update: true
+          install: >-
+            make diffutils zip
+            mingw-w64-ucrt-x86_64-gcc
+            mingw-w64-ucrt-x86_64-meson
+            mingw-w64-ucrt-x86_64-ninja
+            mingw-w64-ucrt-x86_64-nasm
+            mingw-w64-ucrt-x86_64-pkgconf
+            mingw-w64-ucrt-x86_64-python
+            mingw-w64-ucrt-x86_64-zlib
+            mingw-w64-ucrt-x86_64-libiconv
+            mingw-w64-ucrt-x86_64-shaderc
+            mingw-w64-ucrt-x86_64-spirv-cross
+
+      - name: Build (macOS)
+        if: runner.os == 'macOS'
+        env:
+          LIBMPV_WORK: ${{ runner.temp }}/libmpv-build
+        run: scripts/libmpv-build/build.sh build
+
+      - name: Build (Windows, MSYS2 UCRT64)
+        if: runner.os == 'Windows'
+        shell: msys2 {0}
+        run: |
+          export LIBMPV_WORK="$(cygpath -u '${{ runner.temp }}')/libmpv-build"
+          scripts/libmpv-build/build.sh build
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: libmpv-${{ matrix.platform }}
+          path: ${{ runner.temp }}/libmpv-build/out/
+          if-no-files-found: error
+
+      # The logs are what you need when a configure step fails.
+      - if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-logs-${{ matrix.platform }}
+          path: |
+            ${{ runner.temp }}/libmpv-build/src/**/configure.log
+            ${{ runner.temp }}/libmpv-build/src/**/config.log
+            ${{ runner.temp }}/libmpv-build/src/**/meson-logs/meson-log.txt
+          if-no-files-found: ignore
+
+  engine-test:
+    needs: build
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-latest
+            platform: macos-aarch64
+            lib: libmpv/libmpv.2.dylib
+          - os: windows-latest
+            platform: windows-x86_64
+            lib: libmpv-2.dll
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: libmpv-${{ matrix.platform }}
+          path: ${{ runner.temp }}/libmpv
+
+      - name: Unpack
+        shell: bash
+        working-directory: ${{ runner.temp }}/libmpv
+        run: |
+          unzip -q -o ./*.zip
+          ls -la
+          cat ./*.json
+
+      # The engine tests skip themselves when libmpv is absent — here that
+      # would be a pass that proves nothing, so a skip fails the job.
+      - name: Engine tests (this libmpv)
+        shell: bash
+        working-directory: src-tauri
+        env:
+          VIBOPLR_LIBMPV_PATH: ${{ runner.temp }}/libmpv/${{ matrix.lib }}
+        run: |
+          set -o pipefail
+          cargo test --lib mpv_engine -- --nocapture 2>&1 | tee engine-test.log
+          if grep -q "\[engine-test\] SKIPPED" engine-test.log; then
+            echo "::error::engine tests were skipped — libmpv did not load"
+            exit 1
+          fi
+
+  publish:
+    needs: engine-test
+    if: inputs.publish
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: libmpv-*
+          path: dist
+          merge-multiple: true
+
+      - name: Upload to vendor-libmpv (never overwrites)
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+        run: |
+          existing=$(gh release view vendor-libmpv --repo "$REPO" --json assets --jq '.assets[].name')
+          echo "## vendor-libmpv" >> "$GITHUB_STEP_SUMMARY"
+          for j in dist/*.json; do
+            zip="dist/$(jq -r .name "$j")"
+            name=$(basename "$zip")
+            if grep -qxF "$name" <<< "$existing"; then
+              # Same recipe, different bytes: the published copy stands.
+              echo "::notice::$name is already published — left as is"
+              echo "- \`$name\` — already published, this run's build was not uploaded" >> "$GITHUB_STEP_SUMMARY"
+            else
+              gh release upload vendor-libmpv "$zip" "$j" --repo "$REPO"
+              echo "- \`$name\` — sha256 \`$(jq -r .sha256 "$j")\`" >> "$GITHUB_STEP_SUMMARY"
+            fi
+          done
