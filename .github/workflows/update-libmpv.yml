@@ -92,7 +92,7 @@ jobs:
             scripts/libmpv.lock.json
 
       - if: steps.update.outputs.changed == 'true'
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: libmpv-update-summary
           path: libmpv-update.md
@@ -195,7 +195,7 @@ jobs:
     steps:
       - uses: actions/checkout@v5
 
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           name: libmpv-update-summary
 

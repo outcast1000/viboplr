@@ -90,7 +90,7 @@ jobs:
           export LIBMPV_WORK="$(cygpath -u '${{ runner.temp }}')/libmpv-build"
           scripts/libmpv-build/build.sh build
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: libmpv-${{ matrix.platform }}
           path: ${{ runner.temp }}/libmpv-build/out/
@@ -98,7 +98,7 @@ jobs:
 
       # The logs are what you need when a configure step fails.
       - if: failure()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: build-logs-${{ matrix.platform }}
           path: |
@@ -144,7 +144,7 @@ jobs:
       - name: Vendor the pinned libmpv (build prerequisite)
         run: node scripts/fetch-libmpv.mjs
 
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           name: libmpv-${{ matrix.platform }}
           path: ${{ runner.temp }}/libmpv
@@ -185,7 +185,7 @@ jobs:
     permissions:
       contents: write
     steps:
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           pattern: libmpv-*
           path: dist

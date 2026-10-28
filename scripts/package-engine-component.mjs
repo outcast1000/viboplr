@@ -51,6 +51,10 @@ function platformFiles(platform, libDir) {
   throw new Error(`unsupported platform ${platform}`);
 }
 
+// Only this pin's zips: publish-engine-components.mjs publishes and pins
+// every zip it finds here, so an earlier run's leftovers could re-pin an old
+// build depending on which name sorts last.
+fs.rmSync(outDir, { recursive: true, force: true });
 fs.mkdirSync(outDir, { recursive: true });
 let wroteLock = false;
 
