@@ -73,6 +73,10 @@ jobs:
         if: runner.os == 'Windows'
         shell: msys2 {0}
         run: |
+          # The DLL must carry libstdc++ itself. --prefer-static already steers
+          # meson to the archive; hiding the import library on this throwaway
+          # runner makes linking the runtime DLL impossible rather than unlikely.
+          mv "$MINGW_PREFIX/lib/libstdc++.dll.a" "$MINGW_PREFIX/lib/libstdc++.dll.a.hidden"
           export LIBMPV_WORK="$(cygpath -u '${{ runner.temp }}')/libmpv-build"
           scripts/libmpv-build/build.sh build
 
@@ -91,6 +95,8 @@ jobs:
             ${{ runner.temp }}/libmpv-build/src/**/configure.log
             ${{ runner.temp }}/libmpv-build/src/**/config.log
             ${{ runner.temp }}/libmpv-build/src/**/meson-logs/meson-log.txt
+            ${{ runner.temp }}/libmpv-build/src/mpv/_b/*.rsp
+            ${{ runner.temp }}/libmpv-build/prefix/lib/pkgconfig/*.pc
           if-no-files-found: ignore
 
   engine-test:

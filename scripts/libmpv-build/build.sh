@@ -106,9 +106,10 @@ meson_static() { # srcdir args...
   local d="$SRC/$1"; shift
   rm -rf "$d/_b"
   meson setup "$d/_b" "$d" --prefix="$P" --libdir=lib --buildtype=release -Db_ndebug=true \
-    --default-library=static "$@"
+    --default-library=static ${MESON_PREFER_STATIC[@]+"${MESON_PREFER_STATIC[@]}"} "$@"
   meson install -C "$d/_b" --quiet
 }
+[ "$OS" = windows ] && MESON_PREFER_STATIC=(--prefer-static) || MESON_PREFER_STATIC=()
 
 build_openssl() { # macOS only — Windows uses schannel
   cd "$SRC/openssl"
@@ -163,20 +164,17 @@ build_deps() {
 # mpv and libplacebo look for shaderc / spirv-cross under their SHARED names.
 # Point those names at UCRT64's static archives so the DLL carries them.
 #
-# Both are C++, and the DLL is linked by the C driver, so libstdc++ has to be
-# named — as the ARCHIVE (-l:libstdc++.a). A plain -lstdc++ resolved to
-# libstdc++.dll.a even under -static and every C++ symbol came out twice.
+# Both are C++; their -lstdc++ (like libavfilter.pc's) resolves to the static
+# archive because meson runs with --prefer-static on Windows (see build_mpv).
 windows_static_shims() {
   local sys="${MINGW_PREFIX:-/ucrt64}/lib/pkgconfig"
   shim() { # name source-module
-    local libs
-    libs=$(PKG_CONFIG_LIBDIR="$sys" pkg-config --static --libs "$2" | tr ' ' '\n' | grep -vxE -- '-lstdc\+\+' | tr '\n' ' ')
     cat > "$P/lib/pkgconfig/$1.pc" <<EOF
 Name: $1
 Description: static $2 (shim)
 Version: $(PKG_CONFIG_LIBDIR="$sys" pkg-config --modversion "$2")
 Cflags: $(PKG_CONFIG_LIBDIR="$sys" pkg-config --cflags "$2")
-Libs: $libs -l:libstdc++.a
+Libs: $(PKG_CONFIG_LIBDIR="$sys" pkg-config --static --libs "$2") -lstdc++
 EOF
   }
   shim shaderc shaderc_combined
@@ -223,15 +221,18 @@ build_mpv() {
     # The app renders Windows video with vo=gpu into a wid child, on d3d11.
     opts+=(-Dd3d11=enabled -Dshaderc=enabled -Dspirv-cross=enabled -Dd3d-hwaccel=enabled
       -Dwasapi=enabled -Dgl-win32=enabled -Ddirect3d=disabled)
-    # One self-contained DLL: libgcc, libstdc++ (shaderc/spirv-cross) and
-    # winpthread folded in rather than shipped beside it. mpv enables C++ on
-    # Windows, so meson links the DLL with the C++ driver — which reads
-    # cpp_link_args, not c_link_args, and otherwise adds libstdc++.dll.a.
+    # One self-contained DLL: libgcc, libstdc++ (FFmpeg's libavfilter.pc and
+    # shaderc/spirv-cross ask for it) and winpthread folded in. -static alone
+    # isn't enough: meson resolves pkg-config's -lstdc++ to a library PATH
+    # itself, preferring libstdc++.dll.a unless told --prefer-static, and a
+    # path is beyond the linker's -Bstatic — every C++ symbol came out twice.
+    # (macOS can't take --prefer-static: its SDK ships no libiconv.a.)
     local static="-static -static-libgcc -static-libstdc++"
-    link=("-Dc_link_args=$static" "-Dcpp_link_args=$static")
+    link=(--prefer-static "-Dc_link_args=$static" "-Dcpp_link_args=$static")
   fi
   local b="$SRC/mpv/_b"
   rm -rf "$b"
+  echo "pkg-config files naming a C++ runtime: $(grep -l 'stdc++\|c++' "$P"/lib/pkgconfig/*.pc "$P"/ff/lib/pkgconfig/*.pc 2>/dev/null | xargs -n1 basename 2>/dev/null | tr '\n' ' ')"
   meson setup "$b" "$SRC/mpv" --prefix="$P/mpv" --libdir=lib --buildtype=release -Db_ndebug=true \
     --default-library=shared "${opts[@]}" ${link[@]+"${link[@]}"}
   meson compile -C "$b" 2>&1 | tee "$WORK/mpv-link.log"
