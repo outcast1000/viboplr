@@ -40,6 +40,10 @@ pub struct PluginRoot {
     pub builtin: bool,
     /// One folder that IS a plugin (the dev plugin path), id from its manifest.
     pub single: bool,
+    /// Scanned only to report what it would have defined (`RegistryStatus::ignored`):
+    /// the dev folder in a release build, whose plugin still loads but whose
+    /// definitions don't count.
+    pub definitions_ignored: bool,
 }
 
 #[derive(Debug, Clone, Serialize, PartialEq)]
@@ -71,12 +75,38 @@ pub struct Refused {
     pub reason: String,
 }
 
+/// A definition left out because of where its plugin was loaded from.
+#[derive(Debug, Clone, Serialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct Ignored {
+    pub plugin_id: String,
+    pub name: String,
+}
+
 #[derive(Debug, Clone, Default, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct RegistryStatus {
     pub pending_consent: Vec<PendingConsent>,
     pub conflicts: Vec<Conflict>,
     pub refused: Vec<Refused>,
+    pub ignored: Vec<Ignored>,
+}
+
+/// Where a tool a plugin asks for stands, from that plugin's side — what the
+/// host needs to open the right dialog, or to say why it can't.
+#[derive(Debug, Clone, Serialize, PartialEq)]
+#[serde(tag = "kind", rename_all = "camelCase", rename_all_fields = "camelCase")]
+pub enum DefinitionState {
+    /// A definition is in force (this plugin's or another's).
+    Active,
+    /// This plugin's unsigned definition waits for the user's consent.
+    PendingConsent { item: PendingConsent },
+    /// This plugin's definition was refused.
+    Refused { reason: String },
+    /// This plugin runs from the dev folder, whose definitions this build ignores.
+    DevFolderIgnored,
+    /// Nothing defines it.
+    Undefined,
 }
 
 #[derive(Debug, Clone)]
@@ -150,6 +180,24 @@ pub fn status() -> RegistryStatus {
         .ok()
         .and_then(|r| r.as_ref().map(|r| r.status.clone()))
         .unwrap_or_default()
+}
+
+/// Where `name` stands for `plugin_id`, read from the registry as it is now.
+pub fn definition_state(plugin_id: &str, name: &str) -> DefinitionState {
+    if active_def(name).is_some() {
+        return DefinitionState::Active;
+    }
+    let status = status();
+    if let Some(item) = status.pending_consent.into_iter().find(|p| p.plugin_id == plugin_id && p.name == name) {
+        return DefinitionState::PendingConsent { item };
+    }
+    if let Some(r) = status.refused.into_iter().find(|r| r.plugin_id == plugin_id && r.name == name) {
+        return DefinitionState::Refused { reason: r.reason };
+    }
+    if status.ignored.iter().any(|i| i.plugin_id == plugin_id && i.name == name) {
+        return DefinitionState::DevFolderIgnored;
+    }
+    DefinitionState::Undefined
 }
 
 // ---- Consent -----------------------------------------------------------
@@ -684,14 +732,42 @@ struct ReadPlugin {
     uses: Vec<String>,
 }
 
+/// A plugin folder's id and the tools it defines, read without validating or
+/// trusting anything — only to name what was left out (`Ignored`).
+fn defined_names(dir: &Path) -> Option<(String, Vec<String>)> {
+    let text = std::fs::read_to_string(dir.join("manifest.json")).ok()?;
+    let manifest: serde_json::Value = serde_json::from_str(&text).ok()?;
+    let id = manifest.get("id").and_then(|v| v.as_str())?.to_string();
+    let names = manifest
+        .get("binaryDependencies")
+        .and_then(|v| v.as_array())
+        .map(|all| {
+            all.iter()
+                .filter(|e| e.get("definition").is_some())
+                .filter_map(|e| e.get("name").and_then(|v| v.as_str()).map(str::to_string))
+                .collect()
+        })
+        .unwrap_or_default();
+    Some((id, names))
+}
+
 fn collect(
     roots: &[PluginRoot],
     refused: &mut Vec<Refused>,
+    ignored: &mut Vec<Ignored>,
     uses: &mut HashMap<String, Vec<String>>,
 ) -> Vec<Candidate> {
     let mut seen = std::collections::HashSet::new();
     let mut out = Vec::new();
     for root in roots {
+        if root.definitions_ignored {
+            // Not part of the precedence: the copies behind it keep counting,
+            // exactly as when this root wasn't scanned at all.
+            if let Some((plugin_id, names)) = defined_names(&root.dir) {
+                ignored.extend(names.into_iter().map(|name| Ignored { plugin_id: plugin_id.clone(), name }));
+            }
+            continue;
+        }
         let folders: Vec<(PathBuf, Option<String>)> = if root.single {
             vec![(root.dir.clone(), None)]
         } else {
@@ -732,19 +808,23 @@ fn collect(
     out
 }
 
-/// The roots in the plugin listing's precedence: the dev folder (debug builds
-/// only — a release build ignores an unsigned dev folder's definitions), the
-/// profile's plugins, the bundled plugins, then the debug-only test plugins.
+/// The roots in the plugin listing's precedence: the dev folder, the profile's
+/// plugins, the bundled plugins, then the debug-only test plugins. A release
+/// build ignores an unsigned dev folder's definitions — it is still scanned, to
+/// say so when its plugin asks for a tool (`DefinitionState::DevFolderIgnored`).
 pub fn roots_for(profile_dir: &Path, native_dir: Option<&Path>, dev_dir: Option<&str>) -> Vec<PluginRoot> {
     let mut roots = Vec::new();
-    if cfg!(debug_assertions) {
-        if let Some(dev) = dev_dir.filter(|d| !d.is_empty()) {
-            roots.push(PluginRoot { dir: PathBuf::from(dev), builtin: false, single: true });
-        }
+    if let Some(dev) = dev_dir.filter(|d| !d.is_empty()) {
+        roots.push(PluginRoot {
+            dir: PathBuf::from(dev),
+            builtin: false,
+            single: true,
+            definitions_ignored: !cfg!(debug_assertions),
+        });
     }
-    roots.push(PluginRoot { dir: crate::plugins::plugins_dir(profile_dir), builtin: false, single: false });
+    roots.push(PluginRoot { dir: crate::plugins::plugins_dir(profile_dir), builtin: false, single: false, definitions_ignored: false });
     for dir in native_dir.map(Path::to_path_buf).into_iter().chain(crate::plugins::dev_plugins_dir()) {
-        roots.push(PluginRoot { dir, builtin: true, single: false });
+        roots.push(PluginRoot { dir, builtin: true, single: false, definitions_ignored: false });
     }
     roots
 }
@@ -755,8 +835,9 @@ pub fn roots_for(profile_dir: &Path, native_dir: Option<&Path>, dev_dir: Option<
 pub fn rebuild(profile_dir: &Path, roots: Vec<PluginRoot>) -> bool {
     let consent = read_consent(profile_dir);
     let mut refused = Vec::new();
+    let mut ignored = Vec::new();
     let mut uses = HashMap::new();
-    let mut candidates = collect(&roots, &mut refused, &mut uses);
+    let mut candidates = collect(&roots, &mut refused, &mut ignored, &mut uses);
     // Signed before unsigned, then first installed first.
     candidates.sort_by(|a, b| b.signed.cmp(&a.signed).then(a.order.cmp(&b.order)).then(a.plugin_id.cmp(&b.plugin_id)));
 
@@ -805,14 +886,17 @@ pub fn rebuild(profile_dir: &Path, roots: Vec<PluginRoot>) -> bool {
     for r in &refused {
         log::warn!("Dependency {} from {} refused: {}", r.name, r.plugin_id, r.reason);
     }
-    let status = RegistryStatus { pending_consent: pending, conflicts, refused };
+    for i in &ignored {
+        log::info!("Dependency {} from {}'s dev folder ignored: a release build uses no dev-folder definitions", i.name, i.plugin_id);
+    }
+    let status = RegistryStatus { pending_consent: pending, conflicts, refused, ignored };
     let summary = |active: &[Active], status: &RegistryStatus| {
         let mut a: Vec<String> = active
             .iter()
             .map(|x| format!("{}={}:{}:{}", x.def.name, x.fingerprint, x.signed, x.declared_by.join(",")))
             .collect();
         a.sort();
-        format!("{a:?}|{:?}|{:?}|{:?}", status.pending_consent, status.conflicts, status.refused)
+        format!("{a:?}|{:?}|{:?}|{:?}|{:?}", status.pending_consent, status.conflicts, status.refused, status.ignored)
     };
     let mut changed = true;
     if let Ok(mut reg) = REGISTRY.write() {
@@ -1065,7 +1149,7 @@ mod tests {
         // Spelled out: the consent dialog says when nothing checks the download.
         entry["definition"]["managed"]["checksum"] = json!({ "none": true });
         write_plugin(plugins.path(), "torrents", json!([entry, { "name": "ffmpeg", "required": false }]));
-        let roots = vec![PluginRoot { dir: plugins.path().to_path_buf(), builtin: false, single: false }];
+        let roots = vec![PluginRoot { dir: plugins.path().to_path_buf(), builtin: false, single: false, definitions_ignored: false }];
 
         rebuild(profile.path(), roots.clone());
         assert!(active_def("demo-torrent").is_none(), "an unsigned definition isn't used before consent");
@@ -1111,8 +1195,8 @@ mod tests {
         write_plugin(user.path(), "second", json!([other]));
         write_plugin(user.path(), "same", json!([demo]));
         let roots = vec![
-            PluginRoot { dir: user.path().to_path_buf(), builtin: false, single: false },
-            PluginRoot { dir: bundled.path().to_path_buf(), builtin: true, single: false },
+            PluginRoot { dir: user.path().to_path_buf(), builtin: false, single: false, definitions_ignored: false },
+            PluginRoot { dir: bundled.path().to_path_buf(), builtin: true, single: false, definitions_ignored: false },
         ];
         rebuild(profile.path(), roots);
         let def = active_def("demo-video").unwrap();
@@ -1139,12 +1223,59 @@ mod tests {
         demo["name"] = json!("demo-ref");
         write_plugin(bundled.path(), "lastfm", json!([demo]));
         write_plugin(bundled.path(), "lyrics", json!([{ "name": "demo-ref", "required": false, "reason": "x" }]));
-        rebuild(profile.path(), vec![PluginRoot { dir: bundled.path().to_path_buf(), builtin: true, single: false }]);
+        rebuild(profile.path(), vec![PluginRoot { dir: bundled.path().to_path_buf(), builtin: true, single: false, definitions_ignored: false }]);
         assert!(declares("lastfm", "demo-ref"));
         assert!(declares("lyrics", "demo-ref"), "a reference without a definition still declares");
         assert!(!declares("lyrics", "yt-dlp"));
         assert!(!declares("nobody", "demo-ref"));
         assert_eq!(declared_by("demo-ref"), vec!["lastfm".to_string()], "Provided by stays the definers");
         reset_for_tests();
+    }
+
+    // What `promptDep` reads to open the right dialog or say why it can't —
+    // the silent case was a dev-folder plugin in a release build, whose
+    // definition the registry dropped without a trace.
+    #[test]
+    fn test_definition_state_names_why_a_tool_has_no_definition() {
+        let _g = SERIAL.lock().unwrap_or_else(|e| e.into_inner());
+        let profile = tempfile::tempdir().unwrap();
+        let plugins = tempfile::tempdir().unwrap();
+        let mut entry = rqbit_entry();
+        entry["name"] = json!("demo-state");
+        write_plugin(plugins.path(), "torrents", json!([entry.clone()]));
+        let dev = PluginRoot { dir: plugins.path().join("torrents"), builtin: false, single: true, definitions_ignored: true };
+
+        rebuild(profile.path(), vec![dev.clone()]);
+        assert_eq!(definition_state("torrents", "demo-state"), DefinitionState::DevFolderIgnored);
+        assert!(active_def("demo-state").is_none() && status().pending_consent.is_empty(), "ignored, not waiting");
+        assert_eq!(definition_state("someone-else", "demo-state"), DefinitionState::Undefined, "only the plugin it came from");
+
+        rebuild(profile.path(), vec![PluginRoot { definitions_ignored: false, ..dev.clone() }]);
+        let DefinitionState::PendingConsent { item } = definition_state("torrents", "demo-state") else {
+            panic!("an unsigned definition in a counted root waits for consent");
+        };
+        grant_consent(profile.path(), "torrents", &[item.fingerprint]).unwrap();
+        assert_eq!(definition_state("torrents", "demo-state"), DefinitionState::Active);
+        assert_eq!(definition_state("someone-else", "demo-state"), DefinitionState::Active, "in force for everyone");
+
+        entry["definition"]["managed"]["version"] = json!("1.0.0");
+        write_plugin(plugins.path(), "torrents", json!([entry]));
+        rebuild_again();
+        let DefinitionState::Refused { reason } = definition_state("torrents", "demo-state") else {
+            panic!("a pinned version is refused");
+        };
+        assert!(!reason.is_empty());
+        assert_eq!(definition_state("torrents", "nothing"), DefinitionState::Undefined);
+        revoke_consent(profile.path(), "torrents").unwrap();
+        reset_for_tests();
+    }
+
+    #[test]
+    fn test_a_release_build_scans_the_dev_folder_only_to_report_it() {
+        let roots = roots_for(Path::new("/profile"), None, Some("/dev/plugin"));
+        assert_eq!(roots[0].dir, PathBuf::from("/dev/plugin"));
+        assert_eq!(roots[0].definitions_ignored, !cfg!(debug_assertions));
+        assert!(roots.iter().skip(1).all(|r| !r.definitions_ignored));
+        assert!(roots_for(Path::new("/profile"), None, Some("")).iter().all(|r| !r.single), "no dev folder, no root");
     }
 }

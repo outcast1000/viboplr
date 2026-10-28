@@ -944,7 +944,7 @@ mod tests {
         .unwrap();
         crate::dependency_registry::rebuild(
             app,
-            vec![crate::dependency_registry::PluginRoot { dir: plugins.to_path_buf(), builtin: true, single: false }],
+            vec![crate::dependency_registry::PluginRoot { dir: plugins.to_path_buf(), builtin: true, single: false, definitions_ignored: false }],
         );
         true
     }

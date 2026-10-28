@@ -583,6 +583,21 @@ pub async fn dependency_registry_status() -> Result<DependencyRegistryStatus, St
     .await
 }
 
+/// Where tool `name` stands for plugin `plugin_id` — in force, waiting for
+/// consent, refused, ignored (dev folder in a release build) or undefined.
+/// Read when a plugin asks for the tool, so the answer is the registry's now,
+/// not a copy the webview fetched earlier.
+#[tauri::command]
+pub async fn dependency_definition_state(
+    plugin_id: String,
+    name: String,
+) -> Result<crate::dependency_registry::DefinitionState, String> {
+    run_blocking(move || {
+        Ok::<_, std::convert::Infallible>(crate::dependency_registry::definition_state(&plugin_id, &name))
+    })
+    .await
+}
+
 /// The user agreed, in the host's warning dialog, to let an unsigned plugin's
 /// definitions be used. Only fingerprints the plugin is waiting on are taken.
 #[tauri::command]

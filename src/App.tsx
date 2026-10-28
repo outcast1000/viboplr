@@ -2757,7 +2757,15 @@ function App() {
         const p = payload as { name?: unknown; feature?: unknown };
         if (typeof p.name === "string" && p.name) {
           const feature = typeof p.feature === "string" && p.feature ? p.feature : undefined;
-          dependencies.promptDep(p.name, feature, _pluginId).catch(console.error);
+          dependencies.promptDep(p.name, feature, _pluginId).catch((e) => {
+            // No dialog could open: say why, or the plugin's "press Install"
+            // waits on nothing.
+            console.error("Failed to open the install dialog:", e);
+            notify(e instanceof Error ? e.message : `Couldn't install ${p.name}: ${String(e)}`, {
+              kind: "error",
+              source: pluginNames[_pluginId] ?? _pluginId,
+            });
+          });
         }
       }
     },

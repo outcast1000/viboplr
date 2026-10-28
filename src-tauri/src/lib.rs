@@ -215,6 +215,7 @@ macro_rules! invoke_handler {
             commands::dependency_uninstall_managed,
             commands::dependency_check_updates,
             commands::dependency_registry_status,
+            commands::dependency_definition_state,
             commands::dependency_definitions_consent,
             commands::dependency_definitions_revoke,
             commands::dependency_remove_unused,

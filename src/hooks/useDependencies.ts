@@ -74,6 +74,37 @@ export interface UndefinedTool {
 }
 
 /**
+ * Where a tool a plugin asks for stands, from that plugin's side — the
+ * backend's `dependency_definition_state`, read when the plugin asks so it is
+ * the registry's answer now (`dependency_registry::DefinitionState`).
+ */
+export type DefinitionState =
+  | { kind: "active" }
+  | { kind: "pendingConsent"; item: PendingDefinition }
+  | { kind: "refused"; reason: string }
+  | { kind: "devFolderIgnored" }
+  | { kind: "undefined" };
+
+/**
+ * Why a plugin's `require-dependency` can't open an install dialog. Shown to
+ * the user, since otherwise the request does nothing and the plugin waits on a
+ * dialog that never comes.
+ */
+export function noDefinitionReason(
+  name: string,
+  state: Exclude<DefinitionState, { kind: "active" } | { kind: "pendingConsent" }>,
+): string {
+  switch (state.kind) {
+    case "refused":
+      return `Couldn't install ${name}: Vibo refused this plugin's definition of it (${state.reason}).`;
+    case "devFolderIgnored":
+      return `Couldn't install ${name}: this plugin runs from your dev plugin folder, and a release build of Vibo ignores tool definitions there. Run a development build, or install the plugin normally.`;
+    case "undefined":
+      return `Couldn't install ${name}: no installed plugin tells Vibo where to get it.`;
+  }
+}
+
+/**
  * Tools the enabled plugins reference that no definition in force covers and no
  * unsigned definition is waiting to cover — e.g. a plugin that uses yt-dlp after
  * the plugin defining it was removed. Empty until a first check has run (an
@@ -242,7 +273,6 @@ export function useDependencies(pluginStates: PluginState[]) {
   // wait again, but asking straight away would undo the Revoke click.
   const revokedRef = useRef<Set<string>>(new Set());
   const checkAllRef = useRef<(force?: boolean) => Promise<DependencyInfo[]>>(async () => []);
-  const registryRef = useLatestRef(registry);
   const pluginStatesRef = useLatestRef(pluginStates);
   const checkedRef = useRef<Set<string>>(new Set());
   // Plugin-declaration signature the current `deps` were built from; null until
@@ -615,36 +645,49 @@ export function useDependencies(pluginStates: PluginState[]) {
   // of its unsigned definitions still waiting for consent, the consent dialog
   // comes first — this is where an optional tool gets asked. The dialog then
   // names the plugin and says "needed" for a tool its entry marks optional.
+  //
+  // A plugin's request that can't open a dialog rejects with a reason for the
+  // user; resolving `false` there left the plugin waiting on a dialog that never
+  // came. `false` is kept for the user's own answer (consent declined). Where
+  // the definition stands is asked of the backend at this moment
+  // (`dependency_definition_state`), never read off `registry`: that copy is
+  // empty until the first deferred check and a render behind after `checkAll`.
   const promptDep = useCallback(
     async (name: string, feature?: string, pluginId?: string): Promise<boolean> => {
       let label = feature;
       let required = true;
       if (pluginId) {
         const plugin = pluginStatesRef.current.find((p) => p.id === pluginId);
-        const entry = plugin?.manifest.binaryDependencies?.find((b) => b.name === name);
-        if (!plugin || !entry) {
-          console.error(`Plugin ${pluginId} asked for ${name}, which its manifest doesn't list`);
-          return false;
-        }
+        if (!plugin) throw new Error(`Couldn't install ${name}: the plugin that asked for it isn't running.`);
+        const entry = plugin.manifest.binaryDependencies?.find((b) => b.name === name);
+        if (!entry) throw new Error(`Couldn't install ${name}: this plugin doesn't list it among the tools it uses.`);
         // The consumer rows carry the plugin's name, which is how the dialog
         // finds the reason line, so that is the default label.
         label ??= plugin.manifest.name;
         required = !!entry.required;
-        const items = registryRef.current.pendingConsent.filter((p) => p.pluginId === pluginId && p.name === name);
-        if (items.length > 0) {
-          const ok = await askConsent({ pluginId, pluginName: items[0].pluginName, items });
+        const definitionState = () => invoke<DefinitionState>("dependency_definition_state", { pluginId, name });
+        let state = await definitionState();
+        if (state.kind === "pendingConsent") {
+          const ok = await askConsent({ pluginId, pluginName: state.item.pluginName, items: [state.item] });
           if (!ok) return false;
           await checkAll();
+          state = await definitionState();
         }
+        if (state.kind === "pendingConsent") throw new Error(`Couldn't install ${name}: its definition is still waiting for your OK.`);
+        if (state.kind !== "active") throw new Error(noDefinitionReason(name, state));
       }
       const dep = await checkDep(name);
-      if (!dep) return false;
+      if (!dep) {
+        // The definition is in force, so a null here is a failed check.
+        if (pluginId) throw new Error(`Couldn't install ${name}: Vibo couldn't check whether it's installed. Try again.`);
+        return false;
+      }
       if (dep.status === "installed") return true;
       setModalState({ dep, feature: label ?? name, required });
       trackTelemetry("dependency_missing", { name });
       return false;
     },
-    [checkDep, checkAll, askConsent, pluginStatesRef, registryRef],
+    [checkDep, checkAll, askConsent, pluginStatesRef],
   );
 
   const dismissModal = useCallback(() => {
