@@ -1,11 +1,10 @@
 // What `npm run bump` reports about mpv master: is it ahead of the mpv the
-// release ships, and by which commits? Pure — bump.mjs does the GitHub calls
-// (compare + commit list) and the prompts; this decides what they mean.
+// release ships, and by how many commits? Pure — bump.mjs does the GitHub
+// calls (compare count, the two commits) and the prompts; this decides what
+// they mean.
 
 export const MPV_REPO = "mpv-player/mpv";
 export const MPV_BRANCH = "master";
-// Shown newest first; the rest are counted and linked, not listed.
-export const SHOWN_COMMITS = 25;
 
 /** The mpv commits the lock ships, one entry per distinct commit:
  *  [{ hash, platforms: [...] }]. Entries with no recorded hash are left out. */
@@ -34,17 +33,6 @@ export function furthestBehind(compares) {
   const behind = compares.filter((c) => c.aheadBy > 0);
   if (behind.length === 0) return null;
   return behind.reduce((a, b) => (b.aheadBy > a.aheadBy ? b : a));
-}
-
-/** The newest `limit` commits master has past the base, newest first.
- *  `compareCommits` is the compare API's list (oldest first, capped at 250 by
- *  GitHub); when it is complete it is the exact set, otherwise `recent` (the
- *  branch's newest commits, newest first) stands in — the history is linear,
- *  so the newest `aheadBy` of it are the same commits. */
-export function newestCommits({ aheadBy, compareCommits, recent }, limit = SHOWN_COMMITS) {
-  const exact = Array.isArray(compareCommits) && compareCommits.length === aheadBy;
-  const newestFirst = exact ? [...compareCommits].reverse() : (recent ?? []).slice(0, aheadBy);
-  return { shown: newestFirst.slice(0, limit), more: Math.max(0, aheadBy - Math.min(limit, newestFirst.length)) };
 }
 
 /** The compare page for a human: everything between the base and master. */

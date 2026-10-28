@@ -3,7 +3,7 @@
 // lists the wrong ones as "new" against a platform that already ships them.
 import { describe, it, expect } from "vitest";
 // @ts-expect-error — plain .mjs dev script, no type declarations
-import { commitLine, compareUrl, furthestBehind, newestCommits, pinnedMpvCommits } from "../../scripts/lib/mpvUpstream.mjs";
+import { commitLine, compareUrl, furthestBehind, pinnedMpvCommits } from "../../scripts/lib/mpvUpstream.mjs";
 
 const commit = (sha: string, subject: string, date = "2026-10-27T10:00:00Z") => ({
   sha,
@@ -42,32 +42,6 @@ describe("furthestBehind", () => {
 
   it("is null when master has nothing new for any platform", () => {
     expect(furthestBehind([{ hash: "aaaaaaa", platforms: [], aheadBy: 0 }])).toBeNull();
-  });
-});
-
-describe("newestCommits", () => {
-  it("lists the compare result newest first when it is complete", () => {
-    const compareCommits = [commit("1".repeat(40), "oldest"), commit("2".repeat(40), "middle"), commit("3".repeat(40), "newest")];
-    const { shown, more } = newestCommits({ aheadBy: 3, compareCommits, recent: [] }, 2);
-    expect(shown.map((c: { sha: string }) => c.sha[0])).toEqual(["3", "2"]);
-    expect(more).toBe(1);
-  });
-
-  it("falls back to the branch's newest commits when GitHub truncated the compare", () => {
-    // GitHub caps the compare list at 250 commits; 1346 ahead can't be listed from it.
-    const compareCommits = Array.from({ length: 250 }, (_, i) => commit(String(i).padStart(40, "0"), `old ${i}`));
-    const recent = Array.from({ length: 25 }, (_, i) => commit(`f${i}`.padEnd(40, "0"), `new ${i}`));
-    const { shown, more } = newestCommits({ aheadBy: 1346, compareCommits, recent });
-    expect(shown[0].commit.message).toMatch(/^new 0/);
-    expect(shown).toHaveLength(25);
-    expect(more).toBe(1346 - 25);
-  });
-
-  it("never lists more commits than master is ahead by", () => {
-    const recent = Array.from({ length: 25 }, (_, i) => commit(`a${i}`.padEnd(40, "0"), `c${i}`));
-    const { shown, more } = newestCommits({ aheadBy: 4, compareCommits: [], recent });
-    expect(shown).toHaveLength(4);
-    expect(more).toBe(0);
   });
 });
 
