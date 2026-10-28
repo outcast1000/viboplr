@@ -162,22 +162,25 @@ build_deps() {
 
 # mpv and libplacebo look for shaderc / spirv-cross under their SHARED names.
 # Point those names at UCRT64's static archives so the DLL carries them.
+#
+# Both are C++, and the DLL is linked by the C driver, so libstdc++ has to be
+# named — as the ARCHIVE (-l:libstdc++.a). A plain -lstdc++ resolved to
+# libstdc++.dll.a even under -static and every C++ symbol came out twice.
 windows_static_shims() {
   local sys="${MINGW_PREFIX:-/ucrt64}/lib/pkgconfig"
-  cat > "$P/lib/pkgconfig/shaderc.pc" <<EOF
-Name: shaderc
-Description: static shaderc_combined (shim)
-Version: $(PKG_CONFIG_LIBDIR="$sys" pkg-config --modversion shaderc_combined)
-Cflags: $(PKG_CONFIG_LIBDIR="$sys" pkg-config --cflags shaderc_combined)
-Libs: $(PKG_CONFIG_LIBDIR="$sys" pkg-config --static --libs shaderc_combined) -lstdc++
+  shim() { # name source-module
+    local libs
+    libs=$(PKG_CONFIG_LIBDIR="$sys" pkg-config --static --libs "$2" | tr ' ' '\n' | grep -vxE -- '-lstdc\+\+' | tr '\n' ' ')
+    cat > "$P/lib/pkgconfig/$1.pc" <<EOF
+Name: $1
+Description: static $2 (shim)
+Version: $(PKG_CONFIG_LIBDIR="$sys" pkg-config --modversion "$2")
+Cflags: $(PKG_CONFIG_LIBDIR="$sys" pkg-config --cflags "$2")
+Libs: $libs -l:libstdc++.a
 EOF
-  cat > "$P/lib/pkgconfig/spirv-cross-c-shared.pc" <<EOF
-Name: spirv-cross-c-shared
-Description: static spirv-cross-c (shim)
-Version: $(PKG_CONFIG_LIBDIR="$sys" pkg-config --modversion spirv-cross-c)
-Cflags: $(PKG_CONFIG_LIBDIR="$sys" pkg-config --cflags spirv-cross-c)
-Libs: $(PKG_CONFIG_LIBDIR="$sys" pkg-config --static --libs spirv-cross-c) -lstdc++
-EOF
+  }
+  shim shaderc shaderc_combined
+  shim spirv-cross-c-shared spirv-cross-c
 }
 
 build_ffmpeg() {
@@ -209,7 +212,10 @@ build_mpv() {
   local link=()
   if [ "$OS" = macos ]; then
     # 0.41's macOS sources need the Swift build even for libmpv (clipboard-mac.m).
-    opts+=(-Dswift-build=enabled -Dcocoa=enabled -Dgl-cocoa=enabled -Dplain-gl=enabled
+    # swiftc otherwise targets the build host's macOS (14 on CI, 26 locally),
+    # which the linker only warns about — the dylib would claim 11.0 and fail
+    # to load on anything older than the machine that built it.
+    opts+=(-Dswift-build=enabled "-Dswift-flags=-target arm64-apple-macos11.0" -Dcocoa=enabled -Dgl-cocoa=enabled -Dplain-gl=enabled
       -Dvideotoolbox-gl=enabled -Dvideotoolbox-pl=disabled -Dcoreaudio=enabled -Davfoundation=disabled
       -Dmacos-cocoa-cb=disabled -Dmacos-media-player=disabled -Dmacos-touchbar=disabled
       -Dshaderc=disabled -Dspirv-cross=disabled)
@@ -225,7 +231,8 @@ build_mpv() {
   rm -rf "$b"
   meson setup "$b" "$SRC/mpv" --prefix="$P/mpv" --libdir=lib --buildtype=release -Db_ndebug=true \
     --default-library=shared "${opts[@]}" ${link[@]+"${link[@]}"}
-  meson compile -C "$b"
+  meson compile -C "$b" 2>&1 | tee "$WORK/mpv-link.log"
+  [ "${PIPESTATUS[0]}" = 0 ] || exit 1
   meson install -C "$b" --quiet
 }
 
@@ -235,6 +242,11 @@ check_self_contained() { # lib
     bad=$(otool -L "$1" | tail -n +2 | awk '{print $1}' | grep -vE '^(/usr/lib/|/System/Library/|@rpath/libmpv)' || true)
     [ -z "$bad" ] || { echo "non-system dependencies:"; echo "$bad"; exit 1; }
     otool -l "$1" | grep -A4 LC_BUILD_VERSION | grep -q "minos 11.0" || { echo "minos is not 11.0"; exit 1; }
+    # minos alone isn't enough: an object built for a newer macOS links with
+    # only a warning. Fail on it.
+    if grep -q "was built for newer 'macOS' version" "$WORK/mpv-link.log"; then
+      grep -m3 "was built for newer 'macOS' version" "$WORK/mpv-link.log"; exit 1
+    fi
   else
     # MinGW runtime DLLs and anything from UCRT64 start with lib / zlib.
     local bad
@@ -245,7 +257,7 @@ check_self_contained() { # lib
 
 package() {
   local recipe mpvver name
-  recipe=$(cat "$SOURCES" "${BASH_SOURCE[0]}" | { if command -v sha256sum >/dev/null; then sha256sum; else shasum -a 256; fi; } | cut -c1-8)
+  recipe=$(cat "$SOURCES" "$HERE/build.sh" | { if command -v sha256sum >/dev/null; then sha256sum; else shasum -a 256; fi; } | cut -c1-8)
   mpvver=$(grep -E '^mpv ' "$SOURCES" | grep -oE 'v[0-9]+\.[0-9]+\.[0-9]+' | head -1)
   name="libmpv-vibo-${mpvver#v}-$recipe-$OS-$ARCH"
   local stage="$WORK/stage"
