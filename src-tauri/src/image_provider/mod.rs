@@ -1,5 +1,6 @@
 pub mod embedded;
 pub mod folder;
+pub mod server;
 
 use std::path::Path;
 
@@ -7,6 +8,8 @@ use std::path::Path;
 pub const CORE_FOLDER: &str = "core:folder";
 /// Artwork embedded in the audio file's tags.
 pub const CORE_EMBEDDED: &str = "core:embedded";
+/// The cover from the Subsonic/Navidrome server the album lives on.
+pub const CORE_SERVER: &str = "core:server";
 
 /// The built-in image providers, seeded into `image_providers` as ordinary rows
 /// so they sit in the same user-orderable chain as plugin providers — see the
@@ -17,11 +20,14 @@ pub const CORE_EMBEDDED: &str = "core:embedded";
 /// of every plugin row instead of colliding with one. Folder art leads because
 /// it is the higher-resolution, easier-to-fix copy and is what the folder-art
 /// conventions assume; embedded follows, which is where it effectively sat
-/// before it became reorderable at all.
+/// before it became reorderable at all. The server's own cover follows them
+/// (a server album has no local folder or file, so for it this is first) and
+/// still leads every online provider.
 pub const CORE_IMAGE_PROVIDERS: &[(&str, &str, i64)] = &[
     (CORE_FOLDER, "album", 10),
     (CORE_FOLDER, "artist", 10),
     (CORE_EMBEDDED, "album", 20),
+    (CORE_SERVER, "album", 30),
 ];
 
 /// Is this provider id one of the built-ins?

@@ -165,6 +165,7 @@ macro_rules! invoke_handler {
             commands::clear_image_failures,
             commands::save_entity_image_from_provider,
             commands::extract_embedded_album_image,
+            commands::extract_server_album_image,
             commands::extract_folder_entity_image,
             commands::get_folder_image_patterns,
             commands::set_folder_image_patterns,
@@ -574,6 +575,7 @@ struct ImageChain<'a> {
     registry: &'a ImageResolveRegistry,
     folder: &'a image_provider::folder::FolderImageProvider,
     embedded: &'a image_provider::embedded::EmbeddedArtworkProvider,
+    server: &'a image_provider::server::ServerArtProvider,
 }
 
 /// Per-provider ceiling for a bridge round-trip.
@@ -637,6 +639,10 @@ fn resolve_entity_image(
             resolve_from_folder(chain, target, dest)
         } else if plugin_id == image_provider::CORE_EMBEDDED {
             resolve_from_embedded(chain, target, dest)
+        } else if plugin_id == image_provider::CORE_SERVER {
+            // The user's own server: no `used_bridge`, since the courtesy
+            // delay is for third-party APIs.
+            resolve_from_server(chain, target, dest)
         } else if image_provider::is_core_provider(plugin_id) {
             // A `core:*` row this build doesn't know — a row left behind by a
             // downgrade, say. It must fail its turn, not be handed to the
@@ -744,6 +750,20 @@ fn resolve_from_embedded(
     // The provider swaps in the extension the picture's mime type calls for, so
     // the file it wrote is not necessarily the `dest` it was handed.
     written_image_path(dest).ok_or_else(|| "Embedded artwork vanished after write".to_string())
+}
+
+/// `core:server` — the cover from the Subsonic/Navidrome server the album
+/// lives on (`image_provider/server.rs`).
+fn resolve_from_server(
+    chain: &ImageChain,
+    target: &ImageTarget,
+    dest: &std::path::Path,
+) -> Result<std::path::PathBuf, String> {
+    let ImageTarget::Album { title, artist_name } = target else {
+        return Err("Server artwork only applies to albums".into());
+    };
+    AlbumImageProvider::fetch_album_image(chain.server, title, artist_name.as_deref(), dest)?;
+    written_image_path(dest).ok_or_else(|| "Server artwork vanished after write".to_string())
 }
 
 /// Which file a provider actually wrote, given the `.jpg` base path it was
@@ -1177,11 +1197,12 @@ pub fn run() {
                 condvar: Condvar::new(),
             }));
 
-            // Built-in image providers. Both are Rust-native (no bridge
-            // round-trip) but neither is privileged: they take their turn in the
+            // Built-in image providers. All are Rust-native (no bridge
+            // round-trip) but none is privileged: they take their turn in the
             // user's chain like any plugin — see `resolve_entity_image`.
             let folder_provider = image_provider::folder::FolderImageProvider::new(db.clone());
             let embedded_provider = image_provider::embedded::EmbeddedArtworkProvider::new(db.clone());
+            let server_provider = image_provider::server::ServerArtProvider::new(db.clone());
 
             // Spawn the image download worker thread
             let worker_queue = download_queue.clone();
@@ -1199,6 +1220,7 @@ pub fn run() {
                     registry: &worker_registry,
                     folder: &folder_provider,
                     embedded: &embedded_provider,
+                    server: &server_provider,
                 };
                 loop {
                     let request = {

@@ -288,6 +288,17 @@ impl SubsonicClient {
         url
     }
 
+    /// URL for an item's cover art (`getCoverArt.view`), resized by the server
+    /// to `size` px on its long edge. `id` may be a song id: Navidrome resolves
+    /// a media-file id to that file's (or its album's) art. **Carries the
+    /// credentials** in its query string — never log it.
+    pub fn cover_art_url(&self, id: &str, size: u32) -> String {
+        format!(
+            "{}/rest/getCoverArt.view?id={}&size={}&{}",
+            self.base_url, id, size, self.auth_params
+        )
+    }
+
     /// URL for the original, untranscoded file via the `download.view` endpoint.
     /// Unlike `stream.view`, this never transcodes — the server returns the
     /// source file byte-for-byte.

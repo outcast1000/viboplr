@@ -7,12 +7,13 @@ import { CORE_LOCAL_LYRICS_PROVIDER } from "./infoFetchChain";
  * artwork against a plugin instead of it being pinned first — so any surface
  * that renders or walks that list has to recognize them.
  *
- * The ids mirror `image_provider::{CORE_FOLDER, CORE_EMBEDDED}` in Rust. The
+ * The ids mirror `image_provider::{CORE_FOLDER, CORE_EMBEDDED, CORE_SERVER}` in Rust. The
  * `core:` prefix can never collide with a plugin id: plugin ids come from
  * manifests, where `:` isn't legal.
  */
 export const CORE_FOLDER_PROVIDER = "core:folder";
 export const CORE_EMBEDDED_PROVIDER = "core:embedded";
+export const CORE_SERVER_PROVIDER = "core:server";
 
 export function isCoreImageProvider(providerId: string): boolean {
   return providerId.startsWith("core:");
@@ -21,6 +22,7 @@ export function isCoreImageProvider(providerId: string): boolean {
 const CORE_NAMES: Record<string, string> = {
   [CORE_FOLDER_PROVIDER]: "Folder image",
   [CORE_EMBEDDED_PROVIDER]: "Embedded artwork",
+  [CORE_SERVER_PROVIDER]: "Your server",
   // Not an image provider — the info-type chain's core row (local lyrics) —
   // but Settings → Providers labels both lists through imageProviderName, so
   // its display name lives in the same map.
@@ -31,6 +33,7 @@ const CORE_NAMES: Record<string, string> = {
 const CORE_LONG_NAMES: Record<string, string> = {
   [CORE_FOLDER_PROVIDER]: "Folder image (next to the tracks)",
   [CORE_EMBEDDED_PROVIDER]: "Embedded artwork (audio file)",
+  [CORE_SERVER_PROVIDER]: "Your server (Subsonic / Navidrome cover)",
   [CORE_LOCAL_LYRICS_PROVIDER]: "Local files (embedded tag / .lrc)",
 };
 
@@ -57,6 +60,7 @@ export function coreProviderSupports(
 ): boolean {
   if (providerId === CORE_FOLDER_PROVIDER) return entity === "album" || entity === "artist";
   if (providerId === CORE_EMBEDDED_PROVIDER) return entity === "album";
+  if (providerId === CORE_SERVER_PROVIDER) return entity === "album";
   return false;
 }
 
@@ -73,6 +77,12 @@ export async function fetchCoreImageProvider(
 ): Promise<string> {
   if (providerId === CORE_EMBEDDED_PROVIDER) {
     return invoke<string>("extract_embedded_album_image", {
+      albumTitle: name,
+      artistName: artistName ?? null,
+    });
+  }
+  if (providerId === CORE_SERVER_PROVIDER) {
+    return invoke<string>("extract_server_album_image", {
       albumTitle: name,
       artistName: artistName ?? null,
     });

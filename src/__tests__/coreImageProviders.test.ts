@@ -2,6 +2,7 @@ import { describe, it, expect } from "vitest";
 import {
   CORE_EMBEDDED_PROVIDER,
   CORE_FOLDER_PROVIDER,
+  CORE_SERVER_PROVIDER,
   coreProviderSupports,
   imageProviderName,
   isCoreImageProvider,
@@ -11,6 +12,7 @@ describe("isCoreImageProvider", () => {
   it("recognizes the built-ins and nothing else", () => {
     expect(isCoreImageProvider(CORE_FOLDER_PROVIDER)).toBe(true);
     expect(isCoreImageProvider(CORE_EMBEDDED_PROVIDER)).toBe(true);
+    expect(isCoreImageProvider(CORE_SERVER_PROVIDER)).toBe(true);
     expect(isCoreImageProvider("lastfm")).toBe(false);
     expect(isCoreImageProvider("google-image-search")).toBe(false);
   });
@@ -21,6 +23,7 @@ describe("imageProviderName", () => {
     const names = new Map([["lastfm", "Last.fm"]]);
     expect(imageProviderName(CORE_FOLDER_PROVIDER, names)).toBe("Folder image");
     expect(imageProviderName(CORE_EMBEDDED_PROVIDER, names)).toBe("Embedded artwork");
+    expect(imageProviderName(CORE_SERVER_PROVIDER, names)).toBe("Your server");
     expect(imageProviderName(CORE_FOLDER_PROVIDER, names, "long")).toBe(
       "Folder image (next to the tracks)",
     );
@@ -47,6 +50,12 @@ describe("coreProviderSupports", () => {
     expect(coreProviderSupports(CORE_EMBEDDED_PROVIDER, "album")).toBe(true);
     expect(coreProviderSupports(CORE_EMBEDDED_PROVIDER, "artist")).toBe(false);
     expect(coreProviderSupports(CORE_EMBEDDED_PROVIDER, "tag")).toBe(false);
+
+    // The server's getCoverArt is asked by an album's track; artist art on a
+    // Navidrome comes from the same online services the plugins already ask.
+    expect(coreProviderSupports(CORE_SERVER_PROVIDER, "album")).toBe(true);
+    expect(coreProviderSupports(CORE_SERVER_PROVIDER, "artist")).toBe(false);
+    expect(coreProviderSupports(CORE_SERVER_PROVIDER, "tag")).toBe(false);
   });
 
   it("claims nothing for a plugin id", () => {

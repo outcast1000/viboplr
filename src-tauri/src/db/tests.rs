@@ -59,7 +59,7 @@ fn test_core_image_providers_are_seeded_ahead_of_plugins() {
         .into_iter()
         .map(|(plugin_id, _, _)| plugin_id)
         .collect();
-    assert_eq!(order, vec!["core:folder", "core:embedded", "lastfm"]);
+    assert_eq!(order, vec!["core:folder", "core:embedded", "core:server", "lastfm"]);
 }
 
 #[test]
@@ -89,13 +89,14 @@ fn test_plugin_sync_leaves_the_core_image_providers_alone() {
             ("lastfm".to_string(), 100),
             ("core:folder".to_string(), 700),
             ("core:embedded".to_string(), 700),
+            ("core:server".to_string(), 700),
         ],
         "core rows must survive the sync, still active and with the user's priority",
     );
 
     // And a sync that finds no plugins at all must not clear them either.
     db.sync_image_providers(&[]).unwrap();
-    assert_eq!(db.get_image_providers("album").unwrap().len(), 2);
+    assert_eq!(db.get_image_providers("album").unwrap().len(), 3);
     assert_eq!(db.get_image_providers("artist").unwrap().len(), 1);
 }
 

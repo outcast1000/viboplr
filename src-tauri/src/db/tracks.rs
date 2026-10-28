@@ -1006,6 +1006,34 @@ impl Database {
         .optional()
     }
 
+    /// One track of the album on an enabled Subsonic/Navidrome collection, as
+    /// `(collection_id, remote_song_id)` — server tracks store the song id as
+    /// their path. Album artist OR track artist, same reasoning as
+    /// `get_track_path_for_album`.
+    pub fn get_server_track_for_album(
+        &self,
+        album_title: &str,
+        artist_name: Option<&str>,
+    ) -> SqlResult<Option<(i64, String)>> {
+        let conn = self.conn.lock().unwrap();
+        let base = "SELECT co.id, t.path FROM tracks t \
+                    JOIN albums a ON t.album_id = a.id \
+                    LEFT JOIN artists ar ON t.artist_id = ar.id \
+                    LEFT JOIN artists aar ON a.artist_id = aar.id \
+                    JOIN collections co ON t.collection_id = co.id \
+                    WHERE a.title = ?1 AND co.kind = 'subsonic' AND co.enabled = 1";
+        let map = |row: &rusqlite::Row| Ok((row.get(0)?, row.get(1)?));
+        match artist_name {
+            Some(artist) => conn.query_row(
+                &format!("{base} AND (ar.name = ?2 OR aar.name = ?2) LIMIT 1"),
+                params![album_title, artist],
+                map,
+            ),
+            None => conn.query_row(&format!("{base} LIMIT 1"), params![album_title], map),
+        }
+        .optional()
+    }
+
     /// Local track locations for an album, as `(collection_root, absolute_path)`
     /// pairs. Folder-art discovery needs both halves: the path says which
     /// directory to probe, the root says where to stop climbing.

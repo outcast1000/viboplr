@@ -250,6 +250,43 @@ pub fn extract_folder_entity_image(
     Ok(saved.to_string_lossy().to_string())
 }
 
+/// Fetch an album's cover from the Subsonic/Navidrome server it lives on to a
+/// temp file and return its path — the Retrieve modal's preview for
+/// `core:server`. Errors when no enabled server holds the album or the server
+/// has no cover for it.
+#[tauri::command]
+pub async fn extract_server_album_image(
+    state: State<'_, AppState>,
+    album_title: String,
+    artist_name: Option<String>,
+) -> Result<String, String> {
+    let db = state.db.clone();
+    let tmp_dir = state.app_dir.join("tmp_preview");
+    super::run_blocking(move || {
+        let provider = crate::image_provider::server::ServerArtProvider::new(db);
+        let slug = crate::entity_image::entity_image_slug("album", &album_title, artist_name.as_deref());
+        std::fs::create_dir_all(&tmp_dir).map_err(|e| e.to_string())?;
+        let dest = tmp_dir.join(format!("server-{}.jpg", slug));
+        // A previous preview may have been stored under another extension.
+        for ext in ["jpg", "png", "webp", "gif"] {
+            let _ = std::fs::remove_file(dest.with_extension(ext));
+        }
+        crate::image_provider::AlbumImageProvider::fetch_album_image(
+            &provider,
+            &album_title,
+            artist_name.as_deref(),
+            &dest,
+        )?;
+        ["jpg", "png", "webp", "gif"]
+            .iter()
+            .map(|ext| dest.with_extension(ext))
+            .find(|p| p.exists())
+            .map(|p| p.to_string_lossy().to_string())
+            .ok_or_else(|| "Server artwork vanished after write".to_string())
+    })
+    .await
+}
+
 /// Extract an album's embedded artwork (from the audio file's tags) to a temp
 /// file and return its path, so the Retrieve modal can offer "Embedded artwork"
 /// as a selectable provider and preview it before applying. Returns an error
