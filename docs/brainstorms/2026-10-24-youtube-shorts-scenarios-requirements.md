@@ -10,6 +10,12 @@ Status: draft for review (2026-10-24; revised plan + Reddit targets 2026-10-27).
   (`.claude/rules/site.md` → Positioning). Collectors, self-hosters and audiophiles are the
   headline audiences, so their shorts are released first. AI control gets a short of its own but
   never opens the series.
+- **Exception (owner decision, 2026-10-28): the self-hosters short uses the owner's real
+  Navidrome**, added to `perf-demo` beside the demo folder. Its address is redacted for the
+  whole run (`serverRedactions`: URL → `https://navidrome.local`, a hostname name →
+  "Navidrome"), credentials never reach the control API, and the collection is **disabled or
+  removed right after recording** — left on, every later capture from the profile shows the
+  real library. Nothing else gets this exception.
 - **Record from the demo library only** (`perf-demo` profile: `npm run demo:library` →
   `demo:setup` → capture). The first site captures came from a real profile and put a whole
   collection, its history and its likes on a public page. The same applies here, more so.
@@ -124,7 +130,9 @@ for reference; this section wins where they disagree.
 
 ### Buildable today
 
-Tinkerers (fix), info lovers, rediscoverers, audiophiles. Self-hosters needs the demo Navidrome;
+Tinkerers (fix), info lovers, rediscoverers, audiophiles — audiophiles built 2026-10-28
+(`audiophiles-pure-or-shaped`). Self-hosters built the same day on the owner's real Navidrome
+(`self-hosters-server`, see the exception above) instead of a demo server;
 collectors and the AI shorts need the real-vs-scripted model decision. So the "primary audiences
 first" rule can't hold for the first release unless those two are unblocked first. The best-fit
 subreddits below belong to exactly those blocked shorts, which is a reason to unblock them early.

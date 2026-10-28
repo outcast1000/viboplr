@@ -253,7 +253,81 @@ export const SHORTS = [
       { action: { action: "eqPanel", open: false } },
     ],
   },
+  {
+    // "Your server, built in" — the one short NOT from the demo library: the
+    // owner's real Navidrome (owner decision, 2026-10-28), with the demo
+    // folder switched off for the take and back on after, so the library on
+    // camera is the server's alone. The server's address is redacted for the
+    // whole run (`serverRedactions`); credentials never reach the control
+    // API. Remove or disable the server collection after recording, or every
+    // later capture from this profile includes the real library.
+    // The track plays through `playTemp` (inserted next, undone after), not
+    // the album's Play button: that would replace the profile's seeded queue
+    // the perf probes replay.
+    id: "self-hosters-server",
+    persona: "self-hosters",
+    title: "Your server, built in",
+    needs: ["demo", "server"],
+    seconds: 19,
+    window: { width: 940, height: 960 },
+    setup: [
+      { action: { action: "closeModals" } },
+      { action: { action: "queuePanel", open: false } },
+      { skin: "Vibo" },
+      { navigate: { view: "collections" } },
+      { wait: 800 },
+      { click: { role: "button", name: "$demoCollectionOff" }, moveMs: 0 },
+      { wait: 1500 },
+    ],
+    beats: [
+      { at: 0, focus: { full: true }, caption: "Your Navidrome,\nright in your player" },
+      {
+        at: 3200,
+        focus: { full: true },
+        caption: "Every album,\nfrom your server",
+        steps: [{ navigate: { artist: "$artist" } }, { action: { action: "scroll", to: "top" } }],
+      },
+      { at: 6800, steps: [{ navigate: { album: "$serverAlbum", artistName: "$artist" } }] },
+      {
+        at: 8600,
+        focus: { full: true },
+        caption: "Built in.\nNo plugin needed.",
+        steps: [{ playTemp: "$serverTrackId" }, { navigate: { view: "nowplaying" } }],
+      },
+      {
+        at: 13000,
+        focus: { full: true },
+        caption: "Or take a copy\nwith you",
+        settle: 800,
+        steps: [{ action: { action: "download" } }],
+      },
+    ],
+    after: [
+      { action: { action: "closeModals" } },
+      { navigate: { view: "collections" } },
+      { wait: 600 },
+      { click: { role: "button", name: "$demoCollectionOn" }, moveMs: 0 },
+    ],
+  },
 ];
+
+/** Showcase redaction rules that keep a real server's address off camera:
+ *  its URL, and its name when that is the hostname (the app names a new
+ *  server after it). `collections` is GET /v1/collections, which carries no
+ *  credentials. Longest text wins (`compileRules`), so the URL rule fires
+ *  before the bare host inside it. */
+export function serverRedactions(collections) {
+  const rules = [];
+  for (const c of collections) {
+    if (c.kind !== "subsonic" || !c.url) continue;
+    let host;
+    try { host = new URL(c.url).hostname; } catch { continue; }
+    rules.push({ text: c.url.replace(/\/+$/, ""), replacement: "https://navidrome.local" });
+    if (c.name?.toLowerCase().includes(host.toLowerCase())) rules.push({ text: c.name, replacement: "Navidrome" });
+    else rules.push({ text: host, replacement: "navidrome.local" });
+  }
+  return rules;
+}
 
 /** Whether a scenario clicks, types or presses keys on camera — those need
  *  the profile's **Click and type** switch; the rest run without it. */

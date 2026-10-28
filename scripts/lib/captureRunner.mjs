@@ -94,7 +94,17 @@ async function playTemp(api, trackId, facts) {
   }
   if (index < 0) throw new Error(`track ${trackId} didn't land in the queue`);
   await api("POST", "/queue/jump", { index });
-  await api("POST", "/playback", { play: true });
+  // The jump starts the track itself. A stream (a Subsonic server) takes a
+  // moment to open, and a play sent before it has would resume the track
+  // being replaced — so wait for it to be the current one first.
+  let landed = false;
+  for (let tries = 0; tries < 50 && !landed; tries++) {
+    const status = await api("GET", "/status");
+    landed = status.currentTrack?.libraryId === trackId;
+    if (landed && !status.playing) await api("POST", "/playback", { play: true });
+    if (!landed) await sleep(200);
+  }
+  if (!landed) console.warn(`  track ${trackId} didn't start within 10s — the take shows whatever is playing`);
   facts.undo.push(async () => {
     const q = await api("GET", "/queue");
     const at = q.tracks.findIndex((t) => t.libraryId === trackId);

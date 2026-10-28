@@ -3,6 +3,7 @@ import {
   END_CARD_SECS,
   MIN_CROP_SOURCE_W,
   SHORTS,
+  serverRedactions,
   SHORT_H,
   SHORT_W,
   canvasFor,
@@ -176,6 +177,21 @@ describe("scenarios", () => {
     expect(byId["collectors-bulk-edit"]).toBe(true);
     expect(byId["tinkerers-skins"]).toBe(false);
     expect(byId["audiophiles-pure-or-shaped"]).toBe(true);
+    expect(byId["self-hosters-server"]).toBe(true);
+  });
+
+  it("keep a real server's address off camera", () => {
+    const rules = serverRedactions([
+      { kind: "local", url: null, name: "Music" },
+      { kind: "subsonic", url: "https://Navidrome.example.org/", name: "Navidrome.example.org" },
+      { kind: "subsonic", url: "http://10.0.0.5:4533", name: "Home" },
+    ]);
+    expect(rules).toEqual([
+      { text: "https://Navidrome.example.org", replacement: "https://navidrome.local" },
+      { text: "Navidrome.example.org", replacement: "Navidrome" },
+      { text: "http://10.0.0.5:4533", replacement: "https://navidrome.local" },
+      { text: "10.0.0.5", replacement: "navidrome.local" },
+    ]);
   });
 
   it("never write version numbers into captions (they must not age)", () => {

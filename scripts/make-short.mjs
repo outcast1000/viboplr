@@ -41,7 +41,7 @@ import {
   setSystemMuted, sleep, systemMuted, windowRect,
 } from "./lib/captureRunner.mjs";
 import {
-  SHORTS, canvasFor, captionHtml, captionWindows, composeArgs, endCardHtml, frameRegion, toVideoRect, usesInput,
+  SHORTS, canvasFor, captionHtml, serverRedactions, captionWindows, composeArgs, endCardHtml, frameRegion, toVideoRect, usesInput,
 } from "./lib/shorts.mjs";
 
 const REPO = resolve(dirname(fileURLToPath(import.meta.url)), "..");
@@ -98,12 +98,38 @@ async function ensureCompilationMessy(api, opts) {
   throw new Error("the rescan didn't split the compilation back into one album per artist");
 }
 
-async function discoverFacts(api, opts) {
+async function discoverFacts(api, opts, scene) {
   const facts = { undo: [], artist: opts.demo ? SHOWCASE.heroArtist : null };
   if (opts.demo) {
     const rows = await query(api,
       "SELECT t.id FROM tracks t JOIN albums al ON al.id = t.album_id WHERE al.title = ?1 ORDER BY t.track_number", [SHOWCASE.compilation.title]);
     facts.compilationTrackIds = rows.map((r) => r[0]);
+  }
+  if (scene.needs?.includes("server")) {
+    // The hero artist's fullest album that only the server has: playing it
+    // is what proves the stream. Ids from GET /v1/collections, because the
+    // query route refuses any SQL naming that table.
+    const servers = (await api("GET", "/collections")).filter((c) => c.kind === "subsonic" && c.enabled).map((c) => c.id);
+    if (servers.length === 0) throw new Error("no enabled Subsonic/Navidrome collection in this profile — add one in Collections first");
+    const marks = servers.map(() => "?").join(",");
+    const [row] = await query(api, `
+      SELECT al.title FROM tracks t JOIN albums al ON al.id = t.album_id JOIN artists ar ON ar.id = al.artist_id
+      WHERE ar.name = ? GROUP BY al.id
+      HAVING SUM(t.collection_id NOT IN (${marks})) = 0 AND al.year IS NOT NULL
+      ORDER BY COUNT(*) DESC, al.year LIMIT 1`, [facts.artist, ...servers]);
+    if (!row) throw new Error(`the server has no ${facts.artist} album the local library lacks`);
+    facts.serverAlbum = row[0];
+    const [first] = await query(api, `
+      SELECT t.id FROM tracks t JOIN albums al ON al.id = t.album_id JOIN artists ar ON ar.id = al.artist_id
+      WHERE ar.name = ? AND al.title = ? ORDER BY t.track_number LIMIT 1`, [facts.artist, facts.serverAlbum]);
+    facts.serverTrackId = first[0];
+    // The demo folder is switched off for the take (and back on after), so
+    // the library on camera is the server's alone. Named by its card's
+    // toggle (CollectionsView's aria-label).
+    const demo = (await api("GET", "/collections")).find((c) => c.kind === "local" && c.path && resolve(c.path) === opts.demo);
+    if (!demo) throw new Error(`no local collection at ${opts.demo} to switch off`);
+    facts.demoCollectionOff = `Disable ${demo.name}`;
+    facts.demoCollectionOn = `Enable ${demo.name}`;
   }
   return facts;
 }
@@ -193,7 +219,7 @@ function videoSize(file) {
 }
 
 async function makeShort(api, scene, opts, screen) {
-  const facts = await discoverFacts(api, opts);
+  const facts = await discoverFacts(api, opts, scene);
   for (const step of scene.setup ?? []) await runStep(api, step, facts);
   await sleep(1200);
   const viewport = (await api("POST", "/ui/query", { limit: 1 })).viewport;
@@ -202,6 +228,7 @@ async function makeShort(api, scene, opts, screen) {
     take = await record(api, scene, facts, screen);
   } finally {
     for (const step of scene.after ?? []) await runStep(api, { ...step, optional: true }, facts);
+    while (facts.undo.length) await facts.undo.pop()().catch((e) => console.error(`  undo failed: ${e.message}`));
   }
 
   const video = videoSize(take.raw);
@@ -259,6 +286,7 @@ async function main() {
     { text: homedir(), replacement: "~" },
     { text: String(port), replacement: "•••••" },
     { text: `••••••••${String(token).slice(-4)}`, replacement: "••••••••••••" },
+    ...serverRedactions(await api("GET", "/collections")),
   ];
   const [ui0, win0, status0, ext0] = await Promise.all([api("GET", "/ui"), api("GET", "/window"), api("GET", "/status"), api("GET", "/extensions")]);
   const skin0 = (ext0.skins ?? []).find((s) => s.active)?.id;

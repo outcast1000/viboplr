@@ -102,6 +102,7 @@ export function CollectionsView({
                     className={`collection-enable-toggle ${c.enabled ? "collection-enable-toggle-on" : ""}`}
                     onClick={() => onToggleEnabled(c)}
                     title={c.enabled ? "Disable" : "Enable"}
+                    aria-label={`${c.enabled ? "Disable" : "Enable"} ${c.name}`}
                   >
                     {c.enabled ? "On" : "Off"}
                   </button>
