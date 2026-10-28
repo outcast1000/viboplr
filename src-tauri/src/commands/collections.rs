@@ -115,7 +115,7 @@ pub async fn add_collection(
             Ok(collection)
         }
         "subsonic" => {
-            let server_url = crate::subsonic::normalize_server_url(
+            let server_url = crate::user_url::normalize_user_url(
                 url.as_deref().ok_or("URL is required for subsonic collections")?,
             );
             let server_url = server_url.as_str();
@@ -205,7 +205,11 @@ pub async fn add_collection(
             Ok(collection)
         }
         "manifest" => {
-            let manifest_url = url.as_deref().ok_or("URL is required for manifest collections")?;
+            // Scheme only: the trailing slash decides how relative track refs resolve.
+            let manifest_url = crate::user_url::assume_scheme(
+                url.as_deref().ok_or("URL is required for manifest collections")?,
+            );
+            let manifest_url = manifest_url.as_str();
 
             // Validate by fetching + parsing the manifest BEFORE creating anything.
             // A bad / unreachable URL or malformed JSON fails here and propagates to
@@ -360,7 +364,7 @@ pub async fn update_subsonic_connection(
         if collection.kind != "subsonic" {
             return Err(format!("Connection settings are not editable for '{}' collections", collection.kind));
         }
-        let url = crate::subsonic::normalize_server_url(&url);
+        let url = crate::user_url::normalize_user_url(&url);
         let username = username.trim().to_string();
         if !(url.starts_with("http://") || url.starts_with("https://")) {
             return Err("Server URL must start with http:// or https://".to_string());
@@ -497,7 +501,7 @@ pub async fn subsonic_test_connection(
     log::info!("subsonic_test_connection called with url: {}", url);
     // async + spawn_blocking: SubsonicClient::new probes the server inline.
     run_blocking(move || -> Result<_, String> {
-        SubsonicClient::new(&crate::subsonic::normalize_server_url(&url), &username, &password)
+        SubsonicClient::new(&crate::user_url::normalize_user_url(&url), &username, &password)
             .map_err(|e| format!("{}", e))?;
         Ok("Connected successfully".to_string())
     })

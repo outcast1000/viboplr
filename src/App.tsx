@@ -229,6 +229,7 @@ import ReportProblemModal from "./components/ReportProblemModal";
 import type { DiagnosticContext, DiagnosticSources } from "./utils/diagnosticReport";
 import { recordAppError } from "./utils/errorLog";
 import { classifyErrorKind, errorText } from "./utils/errorKind";
+import { userUrlHost } from "./utils/userUrl";
 
 
 import { useAssignRef, useLatestRef } from "./hooks/useLatestRef";
@@ -6080,12 +6081,7 @@ function App() {
           onConfirm={async () => {
             const { name, url } = deepLinkMusicSource;
             setDeepLinkMusicSource(null);
-            let fallbackName = url;
-            try {
-              fallbackName = new URL(url).host || url;
-            } catch {
-              // Unparseable URL — fall back to the raw string as the name.
-            }
+            const fallbackName = userUrlHost(url);
             try {
               await invoke<Collection>("add_collection", {
                 kind: "manifest",
@@ -6115,12 +6111,7 @@ function App() {
           onCancel={() => setShowAddMusicSource(false)}
           onSubmit={async (url) => {
             setShowAddMusicSource(false);
-            let name = url;
-            try {
-              name = new URL(url).host || url;
-            } catch {
-              // Unparseable URL — fall back to the raw string as the name.
-            }
+            const name = userUrlHost(url);
             try {
               await invoke<Collection>("add_collection", { kind: "manifest", name, url });
               library.loadLibrary();

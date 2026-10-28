@@ -48,6 +48,7 @@ mod dependency_registry;
 mod plugin_programs;
 mod quit_handshake;
 mod trust_store;
+mod user_url;
 #[cfg(target_os = "macos")]
 mod cursor_tracker;
 #[cfg(target_os = "macos")]

@@ -430,7 +430,8 @@ fn find_plugin_id_in_zip<R: Read + std::io::Seek>(archive: &mut zip::ZipArchive<
 }
 
 fn normalize_github_url(url: &str) -> String {
-    let url = url.trim().trim_end_matches('/');
+    let url = crate::user_url::normalize_user_url(url);
+    let url = url.as_str();
     if url.ends_with(".zip") {
         return url.to_string();
     }
@@ -747,6 +748,10 @@ mod tests {
         );
         assert_eq!(
             normalize_github_url("https://example.com/plugin.zip"),
+            "https://example.com/plugin.zip"
+        );
+        assert_eq!(
+            normalize_github_url("example.com/plugin.zip"),
             "https://example.com/plugin.zip"
         );
         assert_eq!(

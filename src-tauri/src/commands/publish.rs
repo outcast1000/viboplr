@@ -22,7 +22,7 @@ pub fn add_publish_server(
     url: String,
     token: String,
 ) -> Result<AddPublishServerResult, String> {
-    let base = publish_server::normalize_base_url(&url);
+    let base = crate::user_url::normalize_user_url(&url);
     let who = publish_server::whoami(&base, &token)?;
     let id = state
         .db
@@ -102,7 +102,7 @@ pub fn publish_to_server(
 
         match result {
             Ok(res) => {
-                let base = publish_server::normalize_base_url(&url);
+                let base = crate::user_url::normalize_user_url(&url);
                 let public_url = format!("{}/{}/", base, slug);
                 let manifest_url = format!("{}/{}/manifest.json", base, slug);
                 let deep_link = format!(

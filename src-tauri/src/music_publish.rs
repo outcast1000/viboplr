@@ -103,7 +103,8 @@ pub fn export_music_source(
     base_url: &str,
     tracks: &[PublishTrack],
 ) -> Result<ExportResult, String> {
-    let base = base_url.trim().trim_end_matches('/');
+    let base = crate::user_url::normalize_user_url(base_url);
+    let base = base.as_str();
     if base.is_empty() {
         return Err("A base URL (where the bundle will be hosted) is required".to_string());
     }
@@ -326,7 +327,7 @@ mod tests {
         let res = export_music_source(
             dest.to_str().unwrap(),
             "My Mix",
-            "https://me.example.com/music/", // trailing slash should be trimmed
+            "me.example.com/music/", // https:// assumed, trailing slash trimmed
             &tracks,
         )
         .unwrap();

@@ -29,6 +29,7 @@ import {
   joinNames,
 } from "./onboardingSteps";
 import { resyncStatusText, type ResyncProgressInfo } from "../utils/resyncProgress";
+import { userUrlHost } from "../utils/userUrl";
 import "./OnboardingWizard.css";
 
 interface ScanActivity extends ResyncProgressInfo {
@@ -442,7 +443,7 @@ function MusicStep({
     setAdding(true);
     setError(null);
     try {
-      const name = new URL(url).host;
+      const name = userUrlHost(url);
       await invoke("add_collection", { kind: "manifest", name, url });
       trackTelemetry("collection_added", { kind: "manifest" });
       setManifestUrl("");

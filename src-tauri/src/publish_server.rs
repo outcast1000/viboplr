@@ -94,12 +94,6 @@ struct CommitWire {
 
 // --- pure helpers (unit-tested) ---
 
-/// Normalize a user-entered base URL: trim whitespace and trailing slashes so
-/// path joins never double a '/'.
-pub(crate) fn normalize_base_url(url: &str) -> String {
-    url.trim().trim_end_matches('/').to_string()
-}
-
 /// Build an API endpoint URL from an already-normalized base.
 fn api_url(base: &str, path: &str) -> String {
     format!("{}/api/v1/{}", base, path)
@@ -151,7 +145,7 @@ fn upload_client() -> Result<reqwest::blocking::Client, String> {
 /// Validate a server URL + token pair: GET whoami, check the token is
 /// accepted and the server speaks API v1. Returns the artist identity.
 pub fn whoami(base_url: &str, token: &str) -> Result<WhoAmI, String> {
-    let base = normalize_base_url(base_url);
+    let base = crate::user_url::normalize_user_url(base_url);
     if base.is_empty() {
         return Err("A server URL is required".to_string());
     }
@@ -298,7 +292,7 @@ pub fn publish_tracks(
     cancel: &AtomicBool,
     mut progress: impl FnMut(usize, usize, &str),
 ) -> Result<PublishResult, String> {
-    let base = normalize_base_url(base_url);
+    let base = crate::user_url::normalize_user_url(base_url);
     if base.is_empty() {
         return Err("A server URL is required".to_string());
     }
@@ -363,16 +357,8 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_normalize_base_url() {
-        assert_eq!(normalize_base_url("https://music.example.com/"), "https://music.example.com");
-        assert_eq!(normalize_base_url("  https://music.example.com//  "), "https://music.example.com");
-        assert_eq!(normalize_base_url("https://music.example.com"), "https://music.example.com");
-        assert_eq!(normalize_base_url("   "), "");
-    }
-
-    #[test]
     fn test_api_url_building() {
-        let base = normalize_base_url("https://music.example.com/");
+        let base = crate::user_url::normalize_user_url("https://music.example.com/");
         assert_eq!(api_url(&base, "whoami"), "https://music.example.com/api/v1/whoami");
         assert_eq!(api_url(&base, "sessions"), "https://music.example.com/api/v1/sessions");
         assert_eq!(
