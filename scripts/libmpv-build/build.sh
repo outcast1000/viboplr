@@ -224,8 +224,11 @@ build_mpv() {
     opts+=(-Dd3d11=enabled -Dshaderc=enabled -Dspirv-cross=enabled -Dd3d-hwaccel=enabled
       -Dwasapi=enabled -Dgl-win32=enabled -Ddirect3d=disabled)
     # One self-contained DLL: libgcc, libstdc++ (shaderc/spirv-cross) and
-    # winpthread folded in rather than shipped beside it.
-    link=(-Dc_link_args="-static -static-libgcc -static-libstdc++")
+    # winpthread folded in rather than shipped beside it. mpv enables C++ on
+    # Windows, so meson links the DLL with the C++ driver — which reads
+    # cpp_link_args, not c_link_args, and otherwise adds libstdc++.dll.a.
+    local static="-static -static-libgcc -static-libstdc++"
+    link=("-Dc_link_args=$static" "-Dcpp_link_args=$static")
   fi
   local b="$SRC/mpv/_b"
   rm -rf "$b"
