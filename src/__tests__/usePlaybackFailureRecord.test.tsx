@@ -156,6 +156,23 @@ describe("usePlayback → per-entry failure record", () => {
     clearAllNativeRetries();
   });
 
+  it("a local file the decoder rejects fails at once instead of searching the chain", async () => {
+    // The chain would offer the Library copy (the same file) and then the
+    // plugin resolvers, which search the web by the file's name.
+    clearAllNativeRetries();
+    const resolve = vi.fn(async (t: QueueTrack) => {
+      noteResolvedEntry(t.key, failedEntryCount(t.key), 3);
+      return resolved;
+    });
+    const { result, outcome } = mount(resolve);
+    await act(async () => { await result.current.handlePlay(song); });
+
+    emit("engine-error", { trackKey: "q:1", code: "decode", message: "unrecognized file format (-17)" });
+    expect(resolve).toHaveBeenCalledTimes(1);
+    expect(outcome.failed).toHaveBeenCalledTimes(1);
+    clearAllNativeRetries();
+  });
+
   it("files a missing engine as an engine failure, not a rejected source", async () => {
     const { result, outcome } = mount(async () => resolved, { engine: false });
     await act(async () => { await result.current.handlePlay(song); });

@@ -17,6 +17,7 @@ import {
   MAX_CONSECUTIVE_AUTO_SKIPS,
   ENGINE_UNAVAILABLE_ERROR,
   AUDIO_OUTPUT_PLAYBACK_ERROR,
+  FORMAT_PLAYBACK_ERROR,
   VIDEO_UNAVAILABLE_ERROR,
   UNPLAYABLE_SOURCE_ERROR,
   type PlayIntent,
@@ -804,9 +805,15 @@ export function usePlayback(
         // Out of retries for this source: play the track from the next entry
         // in its resolver chain (the Library copy under its current path, then
         // the plugin resolvers) before calling it a failure. Not for an audio
-        // device that won't open — no other source fixes that.
-        const deviceFailure = engineErrorMessage(payload.message) === AUDIO_OUTPUT_PLAYBACK_ERROR;
-        if (!deviceFailure && fallBackFromFailedSource(track.key)) {
+        // device that won't open — no other source fixes that. Nor for a local
+        // file the decoder rejects: the file is damaged, the Library entry
+        // finds that same file, and the plugin resolvers then search the web
+        // for its name ("video-476" played a random YouTube upload). A moved
+        // file fails with a load error instead, and still falls back.
+        const failure = engineErrorMessage(payload.message);
+        const deviceFailure = failure === AUDIO_OUTPUT_PLAYBACK_ERROR;
+        const damagedLocalFile = failedSource?.kind === "file" && failure === FORMAT_PLAYBACK_ERROR;
+        if (!deviceFailure && !damagedLocalFile && fallBackFromFailedSource(track.key)) {
           logPlayback(`Engine error key=${track.key} — falling back to the next source in the chain`);
           pendingSeekRef.current = nativeLastPositionRef.current;
           handlePlayRef.current(track, "auto");
