@@ -61,6 +61,84 @@
       <div class="timeline" id="timeline">
         <div class="timeline-entry reveal">
         <div class="timeline-header">
+          <span class="timeline-version">Viboplr v1.0.113</span>
+          <span class="timeline-date">October 30, 2026</span>
+        </div>
+        <div class="timeline-body">
+          <h4>Features</h4>
+          <ul>
+          <li><strong>site</strong>: rediscoverers short, the assistant finding forgotten favourites</li>
+          <li><strong>assistant</strong>: pack library tracks into a shareable mixtape</li>
+          <li><strong>control-api</strong>: assistants can delete a user skin</li>
+          <li><strong>site</strong>: library shorts at 40s, with an AI scene and a music bed</li>
+          <li><strong>control-api</strong>: assistants can create a skin</li>
+          <li><strong>site</strong>: self-hosters short on the owner's Navidrome</li>
+          <li><strong>control-api</strong>: force on POST /v1/images/{kind}</li>
+          <li><strong>images</strong>: album covers from the user's own Subsonic/Navidrome server</li>
+          <li><strong>site</strong>: new motto — &quot;Your music. Your AI.&quot;</li>
+          <li><strong>site</strong>: audiophiles short — bit-perfect, then the EQ</li>
+          <li><strong>bump</strong>: offer to build mpv master when it is ahead of the pinned mpv</li>
+          </ul>
+          <h4>Bug Fixes</h4>
+          <ul>
+          <li><strong>playback</strong>: a reused queue key can't play another song's file</li>
+          <li><strong>playback</strong>: a damaged local file fails instead of searching the web</li>
+          <li><strong>tags</strong>: don't load a whole file to look for an APE footer</li>
+          <li><strong>macos</strong>: accept the first click on an inactive window</li>
+          <li><strong>storyboard</strong>: seek per tile when the decoder ignores -skip_frame</li>
+          <li><strong>deps</strong>: count built-ins and tell every no-dialog case apart</li>
+          <li><strong>engine</strong>: end a deck's playlist in mpv's on_load_fail hook</li>
+          <li><strong>libmpv-build</strong>: patch mpv master's macOS view to build without Vulkan</li>
+          <li><strong>bump</strong>: name each mpv in Step 0c's questions</li>
+          <li><strong>bump</strong>: count mpv master's commits without a megabyte compare</li>
+          <li><strong>build-libmpv</strong>: vendor the pinned libmpv so the test build compiles</li>
+          <li><strong>libmpv-build</strong>: build shaderc from source; link spirv-cross's parts on Windows</li>
+          <li><strong>libmpv-build</strong>: make meson pick static libstdc++ on Windows</li>
+          <li><strong>libmpv-build</strong>: pass the static link flags to the C++ driver too</li>
+          <li><strong>libmpv-build</strong>: target macOS 11 in Swift, link libstdc++ statically on Windows</li>
+          <li><strong>engine</strong>: verify https peers whatever libmpv defaults to</li>
+          <li><strong>urls</strong>: assume a scheme for every URL the user types</li>
+          <li><strong>subsonic</strong>: assume https:// when a server URL has no scheme</li>
+          <li><strong>deps</strong>: say why a plugin's install request opens no dialog</li>
+          <li><strong>home</strong>: Latest play replays keep their tracks; mixtape cards replay the file</li>
+          <li><strong>engine</strong>: stop a failed deck instead of playing on through an expanded playlist</li>
+          <li><strong>scrobble</strong>: count plays of tracks with no stored duration</li>
+          </ul>
+          <h4>Documentation</h4>
+          <ul>
+          <li><strong>shorts</strong>: map each persona to its AI features</li>
+          <li><strong>shorts</strong>: revised plan — merges, cuts and subreddits per persona</li>
+          </ul>
+          <h4>Tests</h4>
+          <ul>
+          <li><strong>plugins</strong>: retry the refused-connection test on a fresh port</li>
+          <li><strong>engine</strong>: waveform capture on a network stream</li>
+          </ul>
+          <h4>CI</h4>
+          <ul>
+          <li>libmpv update PRs run CI without approval; fix Windows check and slow apt</li>
+          </ul>
+          <h4>Style</h4>
+          <ul>
+          <li><strong>ui</strong>: drop every focus ring</li>
+          </ul>
+          <h4>Build</h4>
+          <ul>
+          <li><strong>libmpv</strong>: pin our build of mpv master dc4b285c93 on both platforms</li>
+          <li><strong>libmpv</strong>: pin our own trimmed libmpv on both platforms</li>
+          <li><strong>libmpv</strong>: build our own trimmed libmpv in CI</li>
+          <li><strong>engine</strong>: re-pin the downloadable engine component</li>
+          <li><strong>libmpv</strong>: update pinned libmpv (macos-aarch64)</li>
+          </ul>
+        </div>
+        <div class="timeline-assets">
+            <a href="https://github.com/outcast1000/viboplr/releases/download/v1.0.113/Viboplr_1.0.113_aarch64.dmg" class="timeline-asset-link"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg> Viboplr_1.0.113_aarch64.dmg</a>
+            <a href="https://github.com/outcast1000/viboplr/releases/download/v1.0.113/Viboplr_1.0.113_x64-setup.exe" class="timeline-asset-link"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg> Viboplr_1.0.113_x64-setup.exe</a>
+        </div>
+      </div>
+      
+        <div class="timeline-entry reveal">
+        <div class="timeline-header">
           <span class="timeline-version">Viboplr v1.0.112</span>
           <span class="timeline-date">October 25, 2026</span>
         </div>
