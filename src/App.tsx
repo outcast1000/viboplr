@@ -4859,6 +4859,7 @@ function App() {
       applySkin: skins.applySkin,
       fetchGallery: skins.fetchGallery,
       saveSkin: skins.saveSkin,
+      deleteSkin: skins.deleteSkin,
     },
     extensions: {
       updates: extensionsHook.updates,

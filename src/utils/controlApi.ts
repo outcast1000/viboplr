@@ -335,6 +335,19 @@ export function resolveSkin<T extends { id: string; name: string }>(
   return installed.find((s) => s.name.toLowerCase() === n) ?? null;
 }
 
+/** The skin `POST /v1/skins/delete` may remove: a user skin (one the user
+ *  made, imported, installed from the gallery or an assistant created) found by
+ *  id or name. Built-ins ship with the app and have no file to delete. */
+export function resolveDeletableSkin<T extends { id: string; name: string; source: string }>(
+  installed: T[],
+  idOrName: string,
+): { skin: T } | { error: string } {
+  const skin = resolveSkin(installed, idOrName);
+  if (!skin) return { error: `skin "${idOrName}" is not installed (installed: ${installed.map((s) => s.id).join(", ")})` };
+  if (skin.source !== "user") return { error: `"${skin.name}" is a built-in skin and can't be deleted` };
+  return { skin };
+}
+
 /** The skin an assistant hands `POST /v1/skins`, checked as an imported skin
  *  is (`validateSkin`) with three differences: `author` and `version` are
  *  filled in when missing (an assistant shouldn't fail on bookkeeping),

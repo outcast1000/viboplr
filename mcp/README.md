@@ -87,7 +87,7 @@ tables are refused server-side), the app version (`app_version` — with
 current; report-only, updates install from inside the app), extension/skin
 management (per-plugin capability summaries, one plugin's full detail, and
 gallery browsing, and installing a gallery entry — which Vibo asks the user
-about in its own dialog; deleting stays out of reach), window control (incl. size/position and the macOS window
+about in its own dialog; creating and deleting user skins, but deleting plugins stays out of reach), window control (incl. size/position and the macOS window
 id), UI control (`navigate` opens a page — a view, an artist/album/tag/track by
 name, a Settings section, a plugin view; `ui_control` reads what is on screen
 and opens/closes panels and dialogs, never touching the library or files), log

@@ -29,6 +29,7 @@ import {
   annotateGallerySkins,
   buildAssistantRoster,
   parseAssistantSkin,
+  resolveDeletableSkin,
 } from "../utils/controlApi";
 import type { QueueTrack, Track } from "../types";
 import type { PluginManifestContributes } from "../types/plugin";
@@ -503,6 +504,32 @@ describe("annotateGallerySkins", () => {
     expect(out[1]).toMatchObject({ id: "paper", installed: false, active: false });
     // The raw gallery fields an agent can't use (file, colors) are dropped.
     expect(out[0]).not.toHaveProperty("file");
+  });
+});
+
+describe("resolveDeletableSkin", () => {
+  const installed = [
+    { id: "default", name: "Default Dark Blue", source: "builtin" },
+    { id: "tide-pool", name: "Tide Pool", source: "user" },
+  ];
+
+  it("finds a user skin by id or name", () => {
+    expect(resolveDeletableSkin(installed, "tide-pool")).toEqual({ skin: installed[1] });
+    expect(resolveDeletableSkin(installed, "tide pool")).toEqual({ skin: installed[1] });
+  });
+
+  // A built-in has no file behind it; refusing here names the reason instead
+  // of surfacing the backend's "Failed to delete skin" for a missing file.
+  it("refuses a built-in skin", () => {
+    expect(resolveDeletableSkin(installed, "Default Dark Blue")).toEqual({
+      error: "\"Default Dark Blue\" is a built-in skin and can't be deleted",
+    });
+  });
+
+  it("names the installed skins when nothing matches", () => {
+    expect(resolveDeletableSkin(installed, "Brutal Zine")).toEqual({
+      error: "skin \"Brutal Zine\" is not installed (installed: default, tide-pool)",
+    });
   });
 });
 

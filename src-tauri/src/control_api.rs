@@ -568,6 +568,7 @@ pub(crate) fn build_router(state: ServerState) -> Router {
         .route("/v1/extensions/{id}/install", post(handle_extension_install))
         .route("/v1/skins/apply", post(|s, b| handle_bridge_body(s, "skins.apply", json!({}), b)))
         .route("/v1/skins", post(|s, b| handle_bridge_body(s, "skins.create", json!({}), b)))
+        .route("/v1/skins/delete", post(|s, b| handle_bridge_body(s, "skins.delete", json!({}), b)))
         // Inside auth: an unauthenticated request is not the assistant's activity.
         .layer(middleware::from_fn_with_state(activity_state, activity_middleware))
         .layer(middleware::from_fn_with_state(auth_state, auth_middleware))

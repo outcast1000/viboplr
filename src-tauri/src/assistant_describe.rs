@@ -352,7 +352,7 @@ pub fn describe(route: &str, path: &str, req: &Value, names: &Names) -> Option<S
             on_off(&req["enabled"]).unwrap_or("?")
         ),
         "/v1/extensions/{id}/install" => path_name(path, "extensions").unwrap_or("?").to_string(),
-        "/v1/skins/apply" => str_of(req, "id").or_else(|| str_of(req, "name"))?.to_string(),
+        "/v1/skins/apply" | "/v1/skins/delete" => str_of(req, "id").or_else(|| str_of(req, "name"))?.to_string(),
         "/v1/skins" => str_of(&req["skin"], "name")?.to_string(),
         "/v1/actions/invoke" => {
             let action = str_of(req, "actionId")?;

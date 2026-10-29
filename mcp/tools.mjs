@@ -1055,13 +1055,13 @@ export const TOOLS = [
     readOnlyWhen: { action: ["list", "get", "gallery"] },
     categories: ["app"],
     description:
-      "List installed plugins/skins with per-plugin capability summaries + pending updates; get one plugin's full detail (declared contributions vs what's live now, API usage, binary dependencies); browse the extension gallery (entries marked installed); install a gallery plugin or skin; enable/disable a plugin; start a background update check (poll list after ~15s); apply a skin by id or name; or create_skin: design a new skin and switch to it. create_skin takes skin = { name (≤40 chars), type: dark or light, colors: { bg-primary, bg-secondary, bg-tertiary, bg-surface, bg-hover, text-primary, text-secondary, text-tertiary, accent, accent-dim, accent-text, border, now-playing-bg, success, error, warning, like, dislike, video-bg — each #rgb or #rrggbb } }; keep text readable against its background (aim for 4.5:1), and keep success/warning/error distinct from the accent. Colours only: customCSS is refused. It is saved as a user skin the user can edit or delete, and applied unless apply=false. action=install takes a gallery id only (never a URL) and opens the app's own install dialog — the user approves there, not in this chat, so say you've asked and that a dialog is waiting in Vibo. It blocks until they answer and returns outcome: installed (enabled true/false, plus the plugin's tools), declined, cancelled, failed, or already-installed. A declined install is the user's answer — don't ask again in the same conversation unless they bring it up. If the call times out, the dialog may still be open: check action=list later. Deleting extensions is not possible through this API.",
+      "List installed plugins/skins with per-plugin capability summaries + pending updates; get one plugin's full detail (declared contributions vs what's live now, API usage, binary dependencies); browse the extension gallery (entries marked installed); install a gallery plugin or skin; enable/disable a plugin; start a background update check (poll list after ~15s); apply a skin by id or name; delete_skin: remove a user skin by id or name (built-ins can't be; the file is deleted permanently, and deleting the active skin switches to the default — confirm with the user first); or create_skin: design a new skin and switch to it. create_skin takes skin = { name (≤40 chars), type: dark or light, colors: { bg-primary, bg-secondary, bg-tertiary, bg-surface, bg-hover, text-primary, text-secondary, text-tertiary, accent, accent-dim, accent-text, border, now-playing-bg, success, error, warning, like, dislike, video-bg — each #rgb or #rrggbb } }; keep text readable against its background (aim for 4.5:1), and keep success/warning/error distinct from the accent. Colours only: customCSS is refused. It is saved as a user skin the user can edit or delete, and applied unless apply=false. action=install takes a gallery id only (never a URL) and opens the app's own install dialog — the user approves there, not in this chat, so say you've asked and that a dialog is waiting in Vibo. It blocks until they answer and returns outcome: installed (enabled true/false, plus the plugin's tools), declined, cancelled, failed, or already-installed. A declined install is the user's answer — don't ask again in the same conversation unless they bring it up. If the call times out, the dialog may still be open: check action=list later. Deleting plugins is not possible through this API.",
     inputSchema: obj(
       {
-        action: en(["list", "get", "gallery", "install", "set_enabled", "check_updates", "apply_skin", "create_skin"], "What to do"),
-        id: str("Plugin id (get, set_enabled), gallery plugin/skin id (install) or skin id (apply_skin)"),
+        action: en(["list", "get", "gallery", "install", "set_enabled", "check_updates", "apply_skin", "create_skin", "delete_skin"], "What to do"),
+        id: str("Plugin id (get, set_enabled), gallery plugin/skin id (install) or skin id (apply_skin, delete_skin)"),
         enabled: bool("set_enabled: the new state"),
-        name: str("Skin name, case-insensitive (apply_skin alternative to id)"),
+        name: str("Skin name, case-insensitive (apply_skin / delete_skin alternative to id)"),
         skin: { type: "object", description: "create_skin: { name, type, colors } — see the tool description for the colour keys" },
         apply: bool("create_skin: switch to the new skin (default true)"),
       },
@@ -1088,6 +1088,9 @@ export const TOOLS = [
         case "apply_skin":
           if (id === undefined && name === undefined) throw new Error('"id" or "name" is required for action=apply_skin');
           return ctx.request("POST", "/v1/skins/apply", { id, name });
+        case "delete_skin":
+          if (id === undefined && name === undefined) throw new Error('"id" or "name" is required for action=delete_skin');
+          return ctx.request("POST", "/v1/skins/delete", { id, name });
         case "create_skin":
           need({ skin }, ["skin"], "action=create_skin");
           return ctx.request("POST", "/v1/skins", { skin, apply });

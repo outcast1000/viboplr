@@ -64,6 +64,7 @@ import {
   parseLikeState,
   resolveSkin,
   parseAssistantSkin,
+  resolveDeletableSkin,
   summarizeCapabilities,
   describeContributes,
   annotateGalleryPlugins,
@@ -195,6 +196,8 @@ export interface ControlApiDeps {
     applySkin: (id: string) => void;
     /** useSkins.saveSkin — writes a user skin, switches to it when `apply`. */
     saveSkin: (skin: object, apply?: boolean) => Promise<string>;
+    /** useSkins.deleteSkin — removes a user skin's file; the active one falls back to the default. */
+    deleteSkin: (id: string) => Promise<void>;
     /** useSkins.fetchGallery — same TTL-cached contract as the plugin gallery. */
     fetchGallery: (force?: boolean) => Promise<GallerySkinEntry[]>;
   };
@@ -1503,7 +1506,7 @@ export function useControlApi(deps: ControlApiDeps) {
         return {
           plugins: annotateGalleryPlugins(galleryPlugins, d.plugins.pluginStates),
           skins: annotateGallerySkins(gallerySkins, d.skins.installedSkins, d.skins.activeSkinId),
-          note: "To install one, call extensions install with its id: the app asks the user in its own dialog, and nothing is installed unless they press Install there. Deleting extensions is not possible through this API.",
+          note: "To install one, call extensions install with its id: the app asks the user in its own dialog, and nothing is installed unless they press Install there. Deleting plugins is not possible through this API.",
         };
       }
 
@@ -1571,6 +1574,16 @@ export function useControlApi(deps: ControlApiDeps) {
         const apply = payload.apply !== false;
         const id = await d.skins.saveSkin(parsed.skin, apply);
         return { ok: true, id, name: parsed.skin.name, applied: apply };
+      }
+
+      case "skins.delete": {
+        const idOrName = optionalString(payload.id) ?? optionalString(payload.name)
+          ?? bad("skins.delete needs an id or name");
+        const found = resolveDeletableSkin(d.skins.installedSkins, idOrName);
+        if ("error" in found) bad(found.error);
+        const wasActive = d.skins.activeSkinId === found.skin.id;
+        await d.skins.deleteSkin(found.skin.id);
+        return { ok: true, id: found.skin.id, name: found.skin.name, activeSkinId: wasActive ? "default" : d.skins.activeSkinId };
       }
 
       case "tags.edit": {
