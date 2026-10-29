@@ -39,9 +39,15 @@ pub fn read_tagged_file(path: impl AsRef<Path>) -> lofty::error::Result<TaggedFi
 }
 
 /// The file read as if its trailing APE tag weren't there, or `None` when it
-/// has none or still can't be read. Loads the whole file into memory, which
-/// is acceptable only because this runs after a failed read, not on every one.
+/// has none or still can't be read. Loads the whole file into memory, so it
+/// first checks the file's last bytes for an APE footer: a failed read is not
+/// rare — lofty can't identify a QuickTime `.mov` at all — and loading a
+/// multi-GB video to find no footer held the disk for seconds, stalling the
+/// playback reading the same file.
 fn read_without_trailing_ape(path: &Path) -> Option<TaggedFile> {
+    if !ends_with_ape_footer(path) {
+        return None;
+    }
     let bytes = std::fs::read(path).ok()?;
     let ape = trailing_ape_range(&bytes)?;
     let mut rest = Vec::with_capacity(bytes.len() - ape.len());
@@ -53,6 +59,26 @@ fn read_without_trailing_ape(path: &Path) -> Option<TaggedFile> {
         None => Probe::new(cursor).guess_file_type().ok()?,
     };
     probe.options(relaxed_parse_options()).read().ok()
+}
+
+/// Whether the file's APE footer slot (the last 32 bytes, or the 32 before a
+/// trailing ID3v1 tag) holds `APETAGEX`. Reads at most 160 bytes.
+fn ends_with_ape_footer(path: &Path) -> bool {
+    use std::io::{Read, Seek, SeekFrom};
+    let Ok(mut file) = std::fs::File::open(path) else { return false };
+    let Ok(len) = file.metadata().map(|m| m.len()) else { return false };
+    let tail_len = len.min(160);
+    let mut tail = vec![0u8; tail_len as usize];
+    if file.seek(SeekFrom::Start(len - tail_len)).is_err() || file.read_exact(&mut tail).is_err() {
+        return false;
+    }
+    let mut end = tail.len();
+    if end >= 128 && &tail[end - 128..end - 125] == b"TAG" {
+        end -= 128;
+    }
+    end.checked_sub(32)
+        .and_then(|start| tail.get(start..start + 8))
+        .is_some_and(|sig| sig == b"APETAGEX")
 }
 
 /// Byte range of an APE tag at the end of the file (before an ID3v1 tag, if
@@ -284,6 +310,30 @@ mod tests {
         let tag = file.primary_tag().expect("ID3v2 tag");
         assert_eq!(tag.title().as_deref(), Some("Vocal"));
         assert_eq!(tag.artist().as_deref(), Some("Madrugada"));
+    }
+
+    #[test]
+    fn test_the_ape_fallback_only_loads_a_file_that_ends_in_an_ape_footer() {
+        let dir = tempfile::tempdir().unwrap();
+
+        let ape_path = dir.path().join("overcounted-ape.mp3");
+        let (bytes, _) = mp3_with_overcounted_ape("Vocal", "Madrugada");
+        std::fs::write(&ape_path, &bytes).unwrap();
+        assert!(ends_with_ape_footer(&ape_path));
+
+        // A QuickTime movie: lofty can't identify the format, so every read
+        // fails — and the fallback used to load the whole (multi-GB) file.
+        let mov_path = dir.path().join("clip.mov");
+        let mut mov = vec![0, 0, 0, 0x14];
+        mov.extend_from_slice(b"ftypqt  \0\0\0\0qt  ");
+        mov.extend(std::iter::repeat_n(0u8, 4096));
+        std::fs::write(&mov_path, &mov).unwrap();
+        assert!(read_tagged_file(&mov_path).is_err());
+        assert!(!ends_with_ape_footer(&mov_path));
+
+        let tiny = dir.path().join("tiny.bin");
+        std::fs::write(&tiny, b"APETAG").unwrap();
+        assert!(!ends_with_ape_footer(&tiny));
     }
 
     #[test]
