@@ -383,6 +383,16 @@ ffmpeg -hide_banner -loglevel error -y -skip_frame nokey -i <file> -an \
 ```
 
 - `-skip_frame nokey` is what makes this cheap (83 MB / 0.36 s vs 161 MB / 3.2 s).
+  **Only if the decoder honours it.** libaom — ffmpeg's AV1 decoder when the build has
+  no libdav1d (gyan.dev "essentials", for one) — decodes every frame regardless: a
+  24-minute 4K60 AV1 file ran ~40 min at ~2.7 cores and ~1 GB. ffmpeg names its
+  decoder in the `-i` banner (`Video: av1 (libaom-av1) …`), so `storyboard.rs` probes
+  it first, and for a decoder in `DECODERS_IGNORING_SKIP_FRAME` runs one
+  `-noaccurate_seek -ss <tile time> -frames:v 1` ffmpeg per tile instead and composes
+  the sheet itself — bounded by the tile count (that file: 100 tiles in ~400 s; AV1
+  forward keyframes make some seeks decode on to the next displayable frame).
+  Progress, cancel, abort and resume work the same in both modes. Every pass runs
+  below normal priority with `-threads` at half the cores.
 - The `[strip]` side output is **progress, not cache**: while ffmpeg runs, the backend
   polls the frames dir and streams the completed frames to the frontend as
   `storyboard-partial` events (cumulative, in time order), so the detail-page

@@ -11,6 +11,13 @@
 // 1080p 5-minute source at ~0.3 s / ~85 MB peak, versus ~3.2 s / ~161 MB for a full
 // decode. The cost is granularity — grid slots that fall between keyframes repeat
 // the previous frame, which is harmless to render.
+//
+// That saving depends on the decoder honouring `-skip_frame`, and libaom (the AV1
+// decoder an ffmpeg without libdav1d falls back to) ignores it: the "keyframe" pass
+// silently becomes a full decode. For those (`DECODERS_IGNORING_SKIP_FRAME`) the pass
+// is one short `-noaccurate_seek` ffmpeg per tile instead (`PassMode::SeekPerTile`),
+// bounded by the tile count. Either way ffmpeg runs below normal priority on half the
+// cores — a 4K decode will otherwise take the whole machine.
 
 use std::path::{Path, PathBuf};
 
@@ -416,8 +423,97 @@ fn compose_sheet(
         .map_err(|e| format!("Failed to encode sheet: {}", e))
 }
 
+/// Every storyboard ffmpeg runs below normal priority. A pass is background work the
+/// user never asked for by name, and even a bounded one decodes 4K frames on every
+/// core it is given — it must lose to playback and the UI, never compete with them.
 fn ffmpeg_command() -> std::process::Command {
-    dependencies::command_with_path("ffmpeg")
+    #[allow(unused_mut)]
+    let mut cmd = dependencies::command_with_path("ffmpeg");
+    #[cfg(target_os = "windows")]
+    {
+        use std::os::windows::process::CommandExt;
+        // Replaces command_with_path's flags, so CREATE_NO_WINDOW is restated.
+        const BELOW_NORMAL_PRIORITY_CLASS: u32 = 0x0000_4000;
+        cmd.creation_flags(crate::plugin_programs::process::CREATE_NO_WINDOW | BELOW_NORMAL_PRIORITY_CLASS);
+    }
+    #[cfg(unix)]
+    {
+        use std::os::unix::process::CommandExt;
+        // SAFETY: nice(2) is a plain syscall, async-signal-safe between fork and exec.
+        // Its result is ignored: a pass that keeps normal priority still works.
+        unsafe {
+            cmd.pre_exec(|| {
+                libc::nice(10);
+                Ok(())
+            });
+        }
+    }
+    cmd
+}
+
+/// Decoder threads per pass: half the machine, at least two. Same reason as the
+/// priority above — a 4K decode will happily take every core.
+fn decode_threads() -> String {
+    let cores = std::thread::available_parallelism().map_or(4, |n| n.get());
+    (cores / 2).max(2).to_string()
+}
+
+/// How a pass gets its frames.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum PassMode {
+    /// One ffmpeg over the whole file with `-skip_frame nokey`: cheap only because
+    /// the decoder throws non-keyframes away unseen.
+    Keyframes,
+    /// One short ffmpeg per tile: input-seek to the keyframe at or before the tile's
+    /// time (`-noaccurate_seek`) and decode that single frame. Costs a process start
+    /// per tile, but is bounded by the tile count whatever the decoder does.
+    SeekPerTile,
+}
+
+/// Decoders that accept `-skip_frame nokey` and then decode every frame anyway.
+/// With one of these the keyframe pass becomes a full decode: on a 24-minute 4K60
+/// AV1 file under libaom (the decoder ffmpeg builds without libdav1d fall back to,
+/// e.g. gyan.dev's "essentials") it ran ~40 min at ~2.7 cores and ~1 GB, where a
+/// seek per tile took ~0.7 s each. libdav1d honours the flag and is not listed.
+const DECODERS_IGNORING_SKIP_FRAME: &[&str] = &["libaom-av1"];
+
+/// The decoder ffmpeg names for the first video stream in its `-i` banner:
+/// `Video: av1 (libaom-av1) (Main) (av01 / …)` → `libaom-av1`. ffmpeg prints the
+/// decoder only when its name differs from the codec's, so for most streams the
+/// first parenthesis is the profile (`h264 (High)` → `High`) — harmless, since the
+/// answer is only ever compared against `DECODERS_IGNORING_SKIP_FRAME`.
+fn parse_video_decoder(ffmpeg_banner: &str) -> Option<String> {
+    let line = ffmpeg_banner.lines().find(|l| l.contains("Video: "))?;
+    let after = &line[line.find("Video: ")? + "Video: ".len()..];
+    let rest = after.split_once(' ')?.1;
+    let inner = rest.strip_prefix('(')?;
+    Some(inner[..inner.find(')')?].to_string())
+}
+
+fn pass_mode_for(decoder: Option<&str>) -> PassMode {
+    match decoder {
+        Some(d) if DECODERS_IGNORING_SKIP_FRAME.contains(&d) => PassMode::SeekPerTile,
+        _ => PassMode::Keyframes,
+    }
+}
+
+/// Asks ffmpeg which decoder it would use. Anything unreadable keeps the keyframe
+/// pass, which is right for every decoder not known to ignore `skip_frame`.
+fn probe_pass_mode(video_path: &Path) -> PassMode {
+    let mut cmd = ffmpeg_command();
+    cmd.args(["-hide_banner", "-i", &video_path.to_string_lossy()]);
+    cmd.stdin(std::process::Stdio::null());
+    let Ok(out) = cmd.output() else { return PassMode::Keyframes };
+    let decoder = parse_video_decoder(&String::from_utf8_lossy(&out.stderr));
+    let mode = pass_mode_for(decoder.as_deref());
+    if mode == PassMode::SeekPerTile {
+        log::info!(
+            "Storyboard for {}: decoder {} ignores -skip_frame, seeking per tile instead",
+            video_path.display(),
+            decoder.as_deref().unwrap_or("?")
+        );
+    }
+    mode
 }
 
 /// The error `generate_with_progress` returns when its ffmpeg pass was killed
@@ -445,6 +541,10 @@ struct Runs {
     /// without this the pass would start anyway and run to completion unwatched.
     /// Each entry is consumed by the matching `begin`.
     stillborn: std::collections::HashSet<String>,
+    /// Paths `abort_for_path` force-stopped. A per-tile pass runs many children, and
+    /// a killed one looks like any failed tile, so the pass checks this between
+    /// tiles instead of starting the next. Cleared when a pass starts.
+    aborted: std::collections::HashSet<String>,
 }
 
 fn runs() -> &'static std::sync::Mutex<Runs> {
@@ -454,6 +554,7 @@ fn runs() -> &'static std::sync::Mutex<Runs> {
             interest: std::collections::HashMap::new(),
             children: std::collections::HashMap::new(),
             stillborn: std::collections::HashSet::new(),
+            aborted: std::collections::HashSet::new(),
         })
     })
 }
@@ -518,6 +619,12 @@ pub fn abort_for_path(track_path: &str) {
     let child = {
         let mut r = runs().lock().unwrap();
         r.interest.remove(track_path);
+        // Bounded like `stillborn`: a path aborted with no pass running (a delete of a
+        // video nobody was previewing) is only cleared by a later pass over it.
+        if r.aborted.len() >= 256 {
+            r.aborted.clear();
+        }
+        r.aborted.insert(track_path.to_string());
         r.children.get(track_path).cloned()
     };
     if let Some(child) = child {
@@ -644,6 +751,91 @@ fn keep_or_discard(
     }
 }
 
+/// The error a pass returns when `abort_for_path` stopped it (the source is being
+/// deleted). Unlike `CANCELLED`, it reaches only a caller that is itself going away.
+const ABORTED: &str = "storyboard generation aborted";
+
+/// Consume an abort aimed at this path, if one landed.
+fn take_aborted(track_path: &str) -> bool {
+    runs().lock().unwrap().aborted.remove(track_path)
+}
+
+/// Spawn `cmd` and publish it as the path's running child (replacing the previous
+/// one of a per-tile pass), with stderr drained on a thread so a chatty decoder
+/// can't fill the pipe and block ffmpeg.
+fn spawn_published(
+    mut cmd: std::process::Command,
+    track_path: &str,
+) -> Result<(std::sync::Arc<std::sync::Mutex<std::process::Child>>, std::thread::JoinHandle<String>), String> {
+    cmd.stdin(std::process::Stdio::null());
+    cmd.stdout(std::process::Stdio::null());
+    cmd.stderr(std::process::Stdio::piped());
+    let mut child = cmd.spawn().map_err(|e| format!("Failed to run ffmpeg: {}", e))?;
+    let stderr_pipe = child.stderr.take();
+    let stderr_handle = std::thread::spawn(move || {
+        let mut s = String::new();
+        if let Some(mut pipe) = stderr_pipe {
+            use std::io::Read;
+            let _ = pipe.read_to_string(&mut s);
+        }
+        s
+    });
+    let child = std::sync::Arc::new(std::sync::Mutex::new(child));
+    runs().lock().unwrap().children.insert(track_path.to_string(), child.clone());
+    Ok((child, stderr_handle))
+}
+
+enum Waited {
+    Exited(std::process::ExitStatus),
+    /// Every caller walked away; the child has been killed and reaped.
+    Abandoned,
+    Failed(String),
+}
+
+/// Poll a published child to exit, killing it once nobody wants the pass
+/// (`cancellable` only). `on_tick` runs between polls, for progress.
+fn wait_polling(
+    child: &std::sync::Arc<std::sync::Mutex<std::process::Child>>,
+    track_path: &str,
+    cancellable: bool,
+    mut on_tick: impl FnMut(),
+) -> Waited {
+    // `kill_child` and the poll below must each take the lock and give it back: a
+    // guard created in a `match` scrutinee lives until the end of the whole `match`,
+    // so locking again inside an arm deadlocks this thread against itself (it did —
+    // the cancel path hung forever while ffmpeg ran to completion regardless).
+    let kill_child = || {
+        let mut c = child.lock().unwrap();
+        let _ = c.kill();
+        let _ = c.wait();
+    };
+    loop {
+        let polled = child.lock().unwrap().try_wait();
+        match polled {
+            Ok(Some(status)) => return Waited::Exited(status),
+            Ok(None) => {
+                // Nobody is waiting for this sheet any more (track skipped, view
+                // closed, feature switched off): stop decoding rather than finish a
+                // pass no one asked for. Checked before reporting progress so a
+                // cancelled pass emits no further partials.
+                if cancellable && abandoned(track_path) {
+                    kill_child();
+                    return Waited::Abandoned;
+                }
+                on_tick();
+                // 80ms, not something lazier: a typical music video's keyframe pass
+                // finishes in ~0.3-0.5s, so a slow poll would collapse the whole
+                // progression into one late event.
+                std::thread::sleep(std::time::Duration::from_millis(80));
+            }
+            Err(e) => {
+                kill_child();
+                return Waited::Failed(format!("Failed to wait for ffmpeg: {}", e));
+            }
+        }
+    }
+}
+
 /// Generate the sheet for `video_path` and cache it. `duration_secs` comes from the
 /// caller (see `video_frames::get_video_duration`) so we don't probe twice.
 ///
@@ -671,6 +863,19 @@ pub fn generate_with_progress(
     video_path: &Path,
     duration_secs: f64,
     request_id: Option<&str>,
+    on_partial: impl FnMut(usize, &[String]),
+) -> Result<Storyboard, String> {
+    generate(app_dir, track_path, video_path, duration_secs, request_id, None, on_partial)
+}
+
+/// `generate_with_progress`, with the pass mode forced instead of probed (tests).
+fn generate(
+    app_dir: &Path,
+    track_path: &str,
+    video_path: &Path,
+    duration_secs: f64,
+    request_id: Option<&str>,
+    mode_override: Option<PassMode>,
     mut on_partial: impl FnMut(usize, &[String]),
 ) -> Result<Storyboard, String> {
     if duration_secs <= 0.0 {
@@ -691,6 +896,8 @@ pub fn generate_with_progress(
         running.insert(track_path.to_string());
         InflightGuard(track_path.to_string())
     };
+    // An abort aimed at an earlier pass (or at no pass) must not stop this one.
+    runs().lock().unwrap().aborted.remove(track_path);
 
     // A waiter can be abandoned while it sleeps — and if the winner it was waiting on
     // was itself cancelled there is no cache to serve, so without this check the
@@ -725,55 +932,8 @@ pub fn generate_with_progress(
     // undoes it, rounded to even for yuvj420p; `setsar=1` then stops the encoder
     // recording a non-square ratio that nothing downstream reads anyway.
     let scale = format!("scale={w}:trunc({w}/dar/2)*2,setsar=1", w = g.tile_w);
-    let mut cmd = ffmpeg_command();
-    cmd.args(["-hide_banner", "-loglevel", "error", "-y"]);
-    let seek = format!("{:.4}", start_tile as f64 * g.interval_secs);
-    if start_tile > 0 {
-        // Input seek, so the skipped span is never decoded — that saving is the whole
-        // point of resuming. Output timestamps restart at the seek point, so
-        // `fps=1/interval` lands the remaining tiles on the same grid as a
-        // straight-through pass.
-        cmd.args(["-ss", &seek]);
-    }
-    cmd.args([
-        // Keyframes only — this is what makes one pass cheap. Must precede -i.
-        "-skip_frame", "nokey",
-        "-i", &video_path.to_string_lossy(),
-        "-an",
-    ]);
-    if start_tile > 0 {
-        // Resuming: frames only. A `tile` filter here would build a grid of just the
-        // remainder, so the finished sheet is composed from the partial plus these.
-        cmd.args([
-            "-filter_complex", &format!("fps=1/{:.4},{}[strip]", g.interval_secs, scale),
-            "-map", "[strip]",
-            // Stops the decode at the last tile we still need instead of running to EOF.
-            "-frames:v", &remaining.to_string(),
-            "-c:v", "mjpeg", "-q:v", "5", "-pix_fmt", "yuvj420p",
-            &frame_pattern,
-        ]);
-    } else {
-        cmd.args([
-            // One decode pass, two outputs: the individual frames (progress, scratch)
-            // and the tiled sheet (the cached artifact).
-            "-filter_complex", &format!(
-                "fps=1/{:.4},{},split=2[strip][grid];[grid]tile={}x{}[sheet]",
-                g.interval_secs, scale, g.cols, g.rows
-            ),
-            // MJPEG unconditionally: `webp_supported()` is false on stock homebrew
-            // ffmpeg, so the WebP path already falls back in practice. Sheets are small.
-            "-map", "[strip]",
-            "-c:v", "mjpeg", "-q:v", "5", "-pix_fmt", "yuvj420p",
-            &frame_pattern,
-            "-map", "[sheet]",
-            "-frames:v", "1",
-            "-c:v", "mjpeg", "-q:v", "5", "-pix_fmt", "yuvj420p",
-            &out_str,
-        ]);
-    }
-    cmd.stdin(std::process::Stdio::null());
-    cmd.stdout(std::process::Stdio::null());
-    cmd.stderr(std::process::Stdio::piped());
+    let mode = mode_override.unwrap_or_else(|| probe_pass_mode(video_path));
+    let threads = decode_threads();
 
     // Every failure exit: the scratch frames and any half-written sheet go now.
     let discard_failed = || {
@@ -781,111 +941,216 @@ pub fn generate_with_progress(
         let _ = std::fs::remove_file(&out);
     };
 
-    let mut child = match cmd.spawn() {
-        Ok(c) => c,
-        Err(e) => {
-            discard_failed();
-            return Err(format!("Failed to run ffmpeg: {}", e));
-        }
-    };
-    // Drained on a thread so a chatty stderr can't fill the pipe and block ffmpeg.
-    let stderr_pipe = child.stderr.take();
-    let stderr_handle = std::thread::spawn(move || {
-        let mut s = String::new();
-        if let Some(mut pipe) = stderr_pipe {
-            use std::io::Read;
-            let _ = pipe.read_to_string(&mut s);
-        }
-        s
-    });
-
-    // Published so `cancel_request` can reach this pass; unpublished on every exit.
-    let child = std::sync::Arc::new(std::sync::Mutex::new(child));
-    let _child_guard = {
-        runs().lock().unwrap().children.insert(track_path.to_string(), child.clone());
-        ChildGuard(track_path.to_string())
-    };
-
+    // Each child is published so `cancel_request` / `abort_for_path` can reach it;
+    // the guard unpublishes whichever is current on every exit.
+    let _child_guard = ChildGuard(track_path.to_string());
     let started = std::time::Instant::now();
-    let mut reported = 0usize;
-    // `kill_child` and the poll below must each take the lock and give it back: a
-    // guard created in a `match` scrutinee lives until the end of the whole `match`,
-    // so locking again inside an arm deadlocks this thread against itself (it did —
-    // the cancel path hung forever while ffmpeg ran to completion regardless).
-    let kill_child = || {
-        let mut c = child.lock().unwrap();
-        let _ = c.kill();
-        let _ = c.wait();
+    let cancellable = request_id.is_some();
+    // Shared by both modes' cancel paths: keep what the pass got, then report it.
+    let cancelled = |done: Vec<(usize, PathBuf)>| -> Result<Storyboard, String> {
+        keep_or_discard(
+            app_dir, &k, &g, duration_secs, resume.as_ref(), &done,
+            started.elapsed(), video_path,
+        );
+        discard_failed();
+        log::debug!("Storyboard for {} cancelled", video_path.display());
+        Err(CANCELLED.to_string())
     };
-    let status = loop {
-        let polled = child.lock().unwrap().try_wait();
-        match polled {
-            Ok(Some(status)) => break status,
-            Ok(None) => {
-                // Nobody is waiting for this sheet any more (track skipped, view
-                // closed, feature switched off): stop decoding rather than finish a
-                // pass no one asked for. Checked before reporting progress so a
-                // cancelled pass emits no further partials.
-                if request_id.is_some() && abandoned(track_path) {
-                    kill_child();
-                    // The child is gone, so every frame on disk is complete.
-                    let done = tile_frames(&fdir, true, start_tile);
-                    keep_or_discard(
-                        app_dir, &k, &g, duration_secs, resume.as_ref(), &done,
-                        started.elapsed(), video_path,
-                    );
+
+    match mode {
+        PassMode::Keyframes => {
+            let mut cmd = ffmpeg_command();
+            cmd.args(["-hide_banner", "-loglevel", "error", "-y"]);
+            let seek = format!("{:.4}", start_tile as f64 * g.interval_secs);
+            if start_tile > 0 {
+                // Input seek, so the skipped span is never decoded — that saving is the whole
+                // point of resuming. Output timestamps restart at the seek point, so
+                // `fps=1/interval` lands the remaining tiles on the same grid as a
+                // straight-through pass.
+                cmd.args(["-ss", &seek]);
+            }
+            cmd.args([
+                "-threads", &threads,
+                // Keyframes only — this is what makes one pass cheap. Must precede -i.
+                "-skip_frame", "nokey",
+                "-i", &video_path.to_string_lossy(),
+                "-an",
+            ]);
+            if start_tile > 0 {
+                // Resuming: frames only. A `tile` filter here would build a grid of just the
+                // remainder, so the finished sheet is composed from the partial plus these.
+                cmd.args([
+                    "-filter_complex", &format!("fps=1/{:.4},{}[strip]", g.interval_secs, scale),
+                    "-map", "[strip]",
+                    // Stops the decode at the last tile we still need instead of running to EOF.
+                    "-frames:v", &remaining.to_string(),
+                    "-c:v", "mjpeg", "-q:v", "5", "-pix_fmt", "yuvj420p",
+                    &frame_pattern,
+                ]);
+            } else {
+                cmd.args([
+                    // One decode pass, two outputs: the individual frames (progress, scratch)
+                    // and the tiled sheet (the cached artifact).
+                    "-filter_complex", &format!(
+                        "fps=1/{:.4},{},split=2[strip][grid];[grid]tile={}x{}[sheet]",
+                        g.interval_secs, scale, g.cols, g.rows
+                    ),
+                    // MJPEG unconditionally: `webp_supported()` is false on stock homebrew
+                    // ffmpeg, so the WebP path already falls back in practice. Sheets are small.
+                    "-map", "[strip]",
+                    "-c:v", "mjpeg", "-q:v", "5", "-pix_fmt", "yuvj420p",
+                    &frame_pattern,
+                    "-map", "[sheet]",
+                    "-frames:v", "1",
+                    "-c:v", "mjpeg", "-q:v", "5", "-pix_fmt", "yuvj420p",
+                    &out_str,
+                ]);
+            }
+            let (child, stderr_handle) = match spawn_published(cmd, track_path) {
+                Ok(c) => c,
+                Err(e) => {
                     discard_failed();
-                    log::debug!("Storyboard for {} cancelled", video_path.display());
-                    return Err(CANCELLED.to_string());
+                    return Err(e);
                 }
+            };
+            let mut reported = 0usize;
+            let waited = wait_polling(&child, track_path, cancellable, || {
                 let done = completed_frames(&fdir, false);
                 if done.len() > reported {
                     reported = done.len();
                     on_partial(start_tile, &done);
                 }
-                // 80ms, not something lazier: a typical music video's keyframe pass
-                // finishes in ~0.3-0.5s, so a slow poll would collapse the whole
-                // progression into one late event.
-                std::thread::sleep(std::time::Duration::from_millis(80));
-            }
-            Err(e) => {
-                kill_child();
+            });
+            let status = match waited {
+                Waited::Exited(status) => status,
+                // The child is gone, so every frame on disk is complete.
+                Waited::Abandoned => return cancelled(tile_frames(&fdir, true, start_tile)),
+                Waited::Failed(e) => {
+                    discard_failed();
+                    return Err(e);
+                }
+            };
+            let stderr_text = stderr_handle.join().unwrap_or_default();
+            if !status.success() {
                 discard_failed();
-                return Err(format!("Failed to wait for ffmpeg: {}", e));
+                return Err(format!("ffmpeg storyboard generation failed: {}", stderr_text));
             }
         }
-    };
-    let stderr_text = stderr_handle.join().unwrap_or_default();
-
-    if !status.success() {
-        discard_failed();
-        return Err(format!("ffmpeg storyboard generation failed: {}", stderr_text));
+        PassMode::SeekPerTile => {
+            for (n, tile) in (start_tile..g.count).enumerate() {
+                if take_aborted(track_path) {
+                    discard_failed();
+                    return Err(ABORTED.to_string());
+                }
+                if cancellable && abandoned(track_path) {
+                    return cancelled(tile_frames(&fdir, true, start_tile));
+                }
+                // Same %03d numbering the keyframe pass's image2 muxer uses, so
+                // `tile_frames` and the progress events read both alike.
+                let file = fdir.join(format!("{:03}.jpg", n + 1));
+                let at = format!("{:.4}", tile as f64 * g.interval_secs);
+                let mut cmd = ffmpeg_command();
+                cmd.args([
+                    "-hide_banner", "-loglevel", "error", "-y",
+                    "-threads", &threads,
+                    // Land on the keyframe at or before `at` and take it as decoded —
+                    // without this ffmpeg decodes on up to `at`, up to a whole GOP.
+                    // The keyframe is also what the keyframe pass shows for this slot.
+                    "-noaccurate_seek",
+                    "-ss", &at,
+                    "-i", &video_path.to_string_lossy(),
+                    "-an",
+                    "-frames:v", "1",
+                    "-vf", &scale,
+                    "-c:v", "mjpeg", "-q:v", "5", "-pix_fmt", "yuvj420p",
+                ]);
+                cmd.arg(&file);
+                let (child, stderr_handle) = match spawn_published(cmd, track_path) {
+                    Ok(c) => c,
+                    Err(e) => {
+                        discard_failed();
+                        return Err(e);
+                    }
+                };
+                let status = match wait_polling(&child, track_path, cancellable, || {}) {
+                    Waited::Exited(status) => status,
+                    Waited::Abandoned => {
+                        // Killed mid-write: this tile's file can't be trusted.
+                        let _ = std::fs::remove_file(&file);
+                        return cancelled(tile_frames(&fdir, true, start_tile));
+                    }
+                    Waited::Failed(e) => {
+                        discard_failed();
+                        return Err(e);
+                    }
+                };
+                let stderr_text = stderr_handle.join().unwrap_or_default();
+                if take_aborted(track_path) {
+                    discard_failed();
+                    return Err(ABORTED.to_string());
+                }
+                if !status.success() || !file.exists() {
+                    // One unreadable spot (a damaged GOP, a seek past the last
+                    // keyframe) repeats the previous tile, as a slot between keyframes
+                    // does in the keyframe pass. With nothing before it in this run,
+                    // the failure is the source's, not the spot's.
+                    let prev = (n > 0).then(|| fdir.join(format!("{:03}.jpg", n)));
+                    match prev {
+                        Some(prev) if std::fs::copy(&prev, &file).is_ok() => {
+                            log::debug!(
+                                "Storyboard for {}: tile {} unreadable, repeating tile {}: {}",
+                                video_path.display(), tile, tile - 1, stderr_text.trim()
+                            );
+                        }
+                        _ => {
+                            discard_failed();
+                            return Err(format!("ffmpeg storyboard generation failed: {}", stderr_text));
+                        }
+                    }
+                }
+                // Every file on disk is complete between children.
+                on_partial(start_tile, &completed_frames(&fdir, true));
+            }
+        }
     }
-    if let Some(base) = resume.as_ref() {
-        // Resumed run: ffmpeg produced only the remaining frames, so the finished
-        // sheet is the partial with those pasted after it. A short tail is not an
-        // error — `count` can over-claim the last tile by one, which the grid has
-        // always padded with black.
+
+    if resume.is_some() || mode == PassMode::SeekPerTile {
+        // Composed here rather than by ffmpeg's `tile` filter: a resumed run produced
+        // only the remaining frames (pasted after the partial), and a per-tile pass
+        // never had one ffmpeg see every frame. A short tail is not an error — `count`
+        // can over-claim the last tile by one, which the grid has always padded with
+        // black.
         let tail = tile_frames(&fdir, true, start_tile);
-        let composed = compose_sheet(
-            &out, g.cols, base.tile_w, base.tile_h, g.rows,
-            Some(Path::new(&base.sheet)), &tail,
-        );
+        let dims = match resume.as_ref() {
+            Some(base) => Ok((base.tile_w, base.tile_h)),
+            None => tail
+                .first()
+                .ok_or_else(|| "no frames extracted".to_string())
+                .and_then(|(_, f)| image::image_dimensions(f).map_err(|e| e.to_string())),
+        };
+        let composed = dims.and_then(|(tile_w, tile_h)| {
+            compose_sheet(
+                &out, g.cols, tile_w, tile_h, g.rows,
+                resume.as_ref().map(|b| Path::new(&b.sheet)), &tail,
+            )
+        });
         if let Err(e) = composed {
             // The partial is the suspect (a torn or mismatched sheet), so drop it —
             // the next pass then starts clean rather than failing the same way.
             discard_partial(app_dir, &k);
             discard_failed();
-            return Err(format!("Failed to compose resumed storyboard: {}", e));
+            return Err(format!("Failed to compose storyboard: {}", e));
         }
-        log::info!(
-            "Storyboard for {}: resumed at tile {}/{}, {} new frame(s)",
-            video_path.display(), start_tile, g.count, tail.len()
-        );
+        if start_tile > 0 {
+            log::info!(
+                "Storyboard for {}: resumed at tile {}/{}, {} new frame(s)",
+                video_path.display(), start_tile, g.count, tail.len()
+            );
+        }
     }
     if !out.exists() {
         discard_failed();
-        return Err(format!("ffmpeg storyboard generation failed: {}", stderr_text));
+        return Err("ffmpeg storyboard generation produced no sheet".to_string());
     }
     // Not `discard_failed`: the sheet is good, and the webview may still be loading these frames.
     retire_frames_dir(track_path, fdir.clone(), FRAMES_LINGER);
@@ -1919,5 +2184,196 @@ mod tests {
                 g.cols, g.tile_w, sheet_w, MAX_SHEET_WIDTH
             );
         }
+    }
+
+    #[test]
+    fn test_parse_video_decoder_reads_the_decoder_ffmpeg_names() {
+        // Verbatim from the gyan.dev essentials build on a 4K AV1 file.
+        let banner = "Input #0, mov,mp4,m4a,3gp,3g2,mj2, from 'x.mp4':\n  \
+            Stream #0:0[0x1](eng): Video: av1 (libaom-av1) (Main) (av01 / 0x31307661), yuv420p(tv, bt709/unknown/unknown, progressive), 3840x2160 [SAR 1:1 DAR 16:9], 7818 kb/s, 60 fps\n  \
+            Stream #0:1[0x2](eng): Audio: aac (LC) (mp4a / 0x6134706D), 48000 Hz, stereo";
+        assert_eq!(parse_video_decoder(banner).as_deref(), Some("libaom-av1"));
+        assert_eq!(pass_mode_for(parse_video_decoder(banner).as_deref()), PassMode::SeekPerTile);
+    }
+
+    #[test]
+    fn test_decoders_that_honour_skip_frame_keep_the_keyframe_pass() {
+        // ffmpeg names no decoder when it matches the codec, so the first parenthesis
+        // is the profile — and that must never read as "ignores skip_frame".
+        let h264 = "  Stream #0:0: Video: h264 (High) (avc1 / 0x31637661), yuv420p, 1920x1080";
+        assert_eq!(parse_video_decoder(h264).as_deref(), Some("High"));
+        assert_eq!(pass_mode_for(parse_video_decoder(h264).as_deref()), PassMode::Keyframes);
+        let dav1d = "  Stream #0:0: Video: av1 (libdav1d) (Main) (av01 / 0x31307661), yuv420p";
+        assert_eq!(pass_mode_for(parse_video_decoder(dav1d).as_deref()), PassMode::Keyframes);
+        let bare = "  Stream #0:0: Video: mjpeg, yuvj420p, 640x480";
+        assert_eq!(parse_video_decoder(bare), None);
+        assert_eq!(pass_mode_for(None), PassMode::Keyframes);
+        assert_eq!(parse_video_decoder("no streams at all"), None);
+    }
+
+    /// The per-tile pass must produce the same board the keyframe pass does: same
+    /// geometry, same sheet size, and each tile sampling its own moment. The block
+    /// clip's brightness encodes its own timeline, so tile greys are compared tile by
+    /// tile against the keyframe pass over the same file. `#[ignore]`d: encodes a
+    /// clip; self-skips without ffmpeg.
+    #[test]
+    #[ignore]
+    fn test_seek_per_tile_pass_matches_the_keyframe_pass() {
+        if !crate::video_frames::is_ffmpeg_available() {
+            eprintln!("[storyboard-test] SKIPPED — ffmpeg not available");
+            return;
+        }
+        let dir = tempfile::tempdir().unwrap();
+        let f = dir.path().join("blocks.mp4");
+        let secs = 300u32;
+        assert!(encode_block_clip(&f, secs, &[]), "failed to encode test clip");
+        let track_path = format!("file://{}", f.to_string_lossy());
+        let k = key(&track_path);
+
+        let keyframes = generate(dir.path(), &track_path, &f, secs as f64, None, Some(PassMode::Keyframes), |_, _| {})
+            .expect("keyframe pass");
+        let baseline: Vec<i32> = (0..keyframes.count)
+            .map(|i| tile_luma(&sheet_path(dir.path(), &k), &keyframes, i))
+            .collect();
+        delete_cached(dir.path(), &track_path);
+
+        let mut partials: Vec<usize> = Vec::new();
+        let seeked = generate(dir.path(), &track_path, &f, secs as f64, None, Some(PassMode::SeekPerTile), |start, frames| {
+            assert_eq!(start, 0);
+            partials.push(frames.len());
+        })
+        .expect("per-tile pass");
+        assert_eq!(
+            (seeked.count, seeked.cols, seeked.rows, seeked.tile_w, seeked.tile_h),
+            (keyframes.count, keyframes.cols, keyframes.rows, keyframes.tile_w, keyframes.tile_h)
+        );
+        assert_eq!(
+            partials,
+            (1..=seeked.count).collect::<Vec<_>>(),
+            "one progress event per tile, cumulative"
+        );
+        assert!(!frames_dir(dir.path(), &k).exists(), "scratch frames dir must be cleaned up");
+        for i in 0..seeked.count {
+            let got = tile_luma(&sheet_path(dir.path(), &k), &seeked, i);
+            // The keyframe pass pads an over-claimed last slot black; the per-tile
+            // pass shows a frame there. Every other tile must agree.
+            if i + 1 == seeked.count && baseline[i] <= 4 {
+                continue;
+            }
+            assert!(
+                (got - baseline[i]).abs() <= 3,
+                "tile {i}: per-tile grey {got} vs keyframe pass {}",
+                baseline[i]
+            );
+        }
+        assert!(get_cached(dir.path(), &track_path).is_some(), "round-trips via cache");
+    }
+
+    /// Times a real pass, mode chosen as the app chooses it, on
+    /// `VIBOPLR_STORYBOARD=<video file>`. `#[ignore]`d; reports, asserts only success.
+    #[test]
+    #[ignore]
+    fn probe_storyboard_real_file() {
+        let Ok(path) = std::env::var("VIBOPLR_STORYBOARD") else {
+            eprintln!("[storyboard-probe] SKIPPED — set VIBOPLR_STORYBOARD=<video file>");
+            return;
+        };
+        let f = PathBuf::from(path);
+        let dur = crate::video_frames::get_video_duration(&f).expect("duration");
+        let dir = tempfile::tempdir().unwrap();
+        let track_path = format!("file://{}", f.to_string_lossy());
+        let mode = probe_pass_mode(&f);
+        let started = std::time::Instant::now();
+        let b = generate_with_progress(dir.path(), &track_path, &f, dur, None, |_, _| {}).expect("generate");
+        eprintln!(
+            "[storyboard-probe] {:?}: {} tiles in {:?} ({:.0}s of video)",
+            mode, b.count, started.elapsed(), dur
+        );
+    }
+
+    /// A per-tile pass runs many children, and one killed by `abort_for_path` looks
+    /// like a failed tile. The pass must stop rather than carry on with the next
+    /// tile (or repeat the previous one into the killed slot). `#[ignore]`d.
+    #[test]
+    #[ignore]
+    fn test_abort_stops_a_per_tile_pass() {
+        if !crate::video_frames::is_ffmpeg_available() {
+            eprintln!("[storyboard-test] SKIPPED — ffmpeg not available");
+            return;
+        }
+        let dir = tempfile::tempdir().unwrap();
+        let f = dir.path().join("doomed-seek.mp4");
+        assert!(encode_block_clip(&f, 1200, &[]), "failed to encode test clip");
+        let track_path = format!("file://{}", f.to_string_lossy());
+        let res = std::thread::scope(|scope| {
+            let gen = scope.spawn(|| {
+                generate(dir.path(), &track_path, &f, 1200.0, None, Some(PassMode::SeekPerTile), |_, _| {})
+            });
+            let started = std::time::Instant::now();
+            while !runs().lock().unwrap().children.contains_key(&track_path) {
+                assert!(started.elapsed() < std::time::Duration::from_secs(20), "ffmpeg never started");
+                std::thread::sleep(std::time::Duration::from_millis(5));
+            }
+            abort_for_path(&track_path);
+            assert!(
+                !inflight().0.lock().unwrap().contains(&track_path),
+                "abort_for_path returned while the pass was still in flight"
+            );
+            gen.join().unwrap()
+        });
+        assert_eq!(res.err().as_deref(), Some(ABORTED));
+        assert!(get_cached(dir.path(), &track_path).is_none());
+        std::fs::remove_file(&f).expect("the source must be deletable after an abort");
+    }
+
+    /// Cancel a per-tile pass part-way, then run it again: the second pass resumes
+    /// from the partial the first left, and the seam keeps the tiles in time order.
+    /// `#[ignore]`d.
+    #[test]
+    #[ignore]
+    fn test_a_cancelled_per_tile_pass_resumes() {
+        if !crate::video_frames::is_ffmpeg_available() {
+            eprintln!("[storyboard-test] SKIPPED — ffmpeg not available");
+            return;
+        }
+        let dir = tempfile::tempdir().unwrap();
+        let f = dir.path().join("blocks-resume.mp4");
+        // 300s at the 10s floor: 30 tiles, all inside the clip's unsaturated greys.
+        let secs = 300u32;
+        assert!(encode_block_clip(&f, secs, &[]), "failed to encode test clip");
+        let track_path = format!("file://{}", f.to_string_lossy());
+        let k = key(&track_path);
+
+        assert!(begin_request(&track_path, "first"));
+        let started = std::time::Instant::now();
+        let first = generate(dir.path(), &track_path, &f, secs as f64, Some("first"), Some(PassMode::SeekPerTile), |_, frames| {
+            // Withdraw once enough tiles landed for the partial to be worth keeping.
+            if frames.len() >= 10 && started.elapsed() >= RESUME_MIN_ELAPSED {
+                end_request(&track_path, "first");
+            }
+        });
+        assert_eq!(first.err().as_deref(), Some(CANCELLED));
+        let g = geometry(secs as f64);
+        let partial = read_partial(dir.path(), &k, &g, secs as f64).expect("a partial was kept");
+        assert!(partial.tiles_done >= 10 && partial.tiles_done < g.count);
+
+        let mut starts = Vec::new();
+        let resumed = generate(dir.path(), &track_path, &f, secs as f64, None, Some(PassMode::SeekPerTile), |start, _| {
+            starts.push(start);
+        })
+        .expect("resumed per-tile pass");
+        assert!(!starts.is_empty() && starts.iter().all(|s| *s == partial.tiles_done), "resume starts at the partial's end");
+        assert_eq!(resumed.count, g.count);
+        let greys: Vec<i32> = (0..resumed.count)
+            .map(|i| tile_luma(&sheet_path(dir.path(), &k), &resumed, i))
+            .collect();
+        for i in 1..greys.len() {
+            assert!(
+                greys[i] - greys[i - 1] >= 4,
+                "tile {i} ({}) should be a step lighter than tile {} ({}) — off across the seam?",
+                greys[i], i - 1, greys[i - 1]
+            );
+        }
+        assert!(read_partial(dir.path(), &k, &g, secs as f64).is_none(), "the sheet supersedes the partial");
     }
 }
