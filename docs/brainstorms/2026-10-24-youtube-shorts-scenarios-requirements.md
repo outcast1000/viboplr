@@ -102,6 +102,42 @@ Open decisions:
   runner waits for the card and the person recording clicks Approve live (the camera holds on
   it), rather than opening with "Approve all" already set, which loses the best beat.
 
+## Personas × AI features (2026-10-29)
+
+Which AI capability each persona's short (and persona page) should lead with. "In-app" is the
+AI Assistant plugin (llm); "external" is Claude or any MCP client over the control API. Tool
+names are the MCP server's.
+
+| Persona | AI angle | Behind it | Example ask |
+|---|---|---|---|
+| **Collectors** | Tag and folder cleanup by asking | `guide` renaming + tagging recipes, `edit_track_tags`, `write_file_tags`, `manage_files` (move into Artist/Album, cover.jpg, synced lyrics), `rename_history`; in-app *Clean up titles…* / *Find missing tracks…* | "Late Night Drive is one compilation, file it under Various Artists" |
+| **Audiophiles** | It checks the files, then upgrades them | `ffmpeg-tools__analyze_audio` / `media_info` (fake FLACs, transcodes, loudness), `query_library` by format, `guide` upgrade, `replace_track_file` (side-by-side compare, swap on yes) | "Which of my 'lossless' albums are really MP3s?" |
+| **Self-hosters** | Your server, by asking | `collections`, `catalog_search` / `catalog_play`, `download_track` (server → local folder, tagged) | "Pull this album from Navidrome into my Music folder" |
+| **Rediscoverers** | It knows your history | `query_library` over history, `start_radio`, `home_shelves`, `edit_playlist`, `lastfm__recent_scrobbles` / `top_charts`; in-app chat filling the queue | "Something for a rainy Sunday, nothing I played this week" |
+| **Info lovers** | Liner notes and meaning | `get_cue_context` + `cue_sheet` (cards, lyric-video clips), `get_lyrics`, `lyrics__search_lyrics`, `get_entity_info`, `search_info`, `web_search`; Meaning tab, *Ask AI about this album* | "Explain this song as it plays" |
+| **Tinkerers** | It designs a skin; plugins add tools | `manage_extensions` `create_skin` (already the tinkerers short's closing scene), `plugin_tools` | "Make me a skin from this album cover" |
+| **Coders** | Music without leaving the terminal | Claude Code over MCP, `playback_control`, `play_tracks`, `get_status`, `window_control` (mini player), the REST API | "Something to focus to, then go to the mini player" |
+| **Downloaders** | Find it, get it, play it | `ytdlp__search` / `ytdlp__play_url`, `download_plugin_track`, `guide` extensions (finds the plugin, the user approves the install) | "Find the music video for this song and download it" |
+| **Spotify users** | Any Spotify playlist, played from sources you choose, even as clips; packed as a mixtape | `spotify-browse__list_playlists` / `get_playlist_tracks` → `play_tracks` with metadata-only entries (the stream resolvers find each song at play time, no Premium) or yt-dlp for video; `download_plugin_track` per track (explicit `pluginId`, one at a time) → `manage_files` `create_mixtape` (new 2026-10-29) | "Play my Discover Weekly as videos" / "Turn this playlist into a mixtape I can send" |
+
+Notes:
+
+- **Strongest fits:** collectors, info lovers, rediscoverers — the AI removes real work or
+  answers what the app can't show by itself. They're also the drafted AI candidates above.
+- **Audiophiles:** pitch it as "it checks your files", not as a chatbot (r/audiophile).
+- **Self-hosters:** the thinnest AI story; AI as a closing beat, not the hook.
+- **Spotify** stays cut from the shorts (see Cuts). If it comes back: say "your Spotify playlists,
+  played from sources you choose", never "like a paid subscription"; and the download-to-mixtape
+  half goes on camera only with freely licensed music (same strike rule as downloaders), with
+  copy about *your* playlist rather than sharing commercial albums. The chain itself is buildable:
+  downloads are per track by design (no host batch download — conventions.md), and
+  `create_mixtape` is source-faithful, so streamed tracks must be downloaded first.
+- **Site gap:** only coders, info-lovers and tinkerers cross-link the AI page in "Also for you".
+  Audiophiles, collectors, downloaders, rediscoverers, self-hosters and spotify could each get an
+  AI card using the example ask above.
+- The audiophile and self-hoster asks haven't been run end to end yet; check them live before they
+  go on the site or into a short.
+
 ## Revised plan (2026-10-27): merges, cuts and where to post
 
 The 21 scenarios below plus the six AI candidates above overlap, need a person or an outside
