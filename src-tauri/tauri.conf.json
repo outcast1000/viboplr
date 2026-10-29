@@ -18,6 +18,7 @@
         "title": "Vibo",
         "decorations": false,
         "transparent": true,
+        "acceptFirstMouse": true,
         "width": 1024,
         "height": 700,
         "minWidth": 300,
