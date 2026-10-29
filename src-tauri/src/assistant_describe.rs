@@ -329,6 +329,11 @@ pub fn describe(route: &str, path: &str, req: &Value, names: &Names) -> Option<S
             format!("{}: {}", tracks()?, step)
         }
         "/v1/albums/{id}/cover-file" => format!("Album #{}", path_id(path, "albums").unwrap_or(0)),
+        "/v1/mixtapes" => format!(
+            "Mixtape {} with {}",
+            str_of(req, "title").map(quote).unwrap_or_default(),
+            plural(as_i64_list(&req["trackIds"]).len(), "track", "tracks")
+        ),
         "/v1/cues" => {
             let song = titled(req, "title").or_else(|| titled(&req["track"], "title"))?;
             match req["sheet"]["cues"].as_array().or_else(|| req["cues"].as_array()) {
@@ -407,6 +412,10 @@ pub fn describe_result(route: &str, res: &Value) -> Option<String> {
             let (n, failed) = (res["requested"].as_i64()?, res["failed"].as_i64().unwrap_or(0));
             if failed == 0 { format!("{} written", n) } else { format!("{} of {} failed", failed, n) }
         }
+        "/v1/mixtapes" => {
+            let (packed, requested) = (res["packed"].as_i64()?, res["requested"].as_i64().unwrap_or(0));
+            if packed == requested { format!("{} packed", packed) } else { format!("{} of {} packed", packed, requested) }
+        }
         "/v1/history/rename" => {
             let moved = res["playsMoved"].as_i64().or_else(|| res["plays"].as_i64())?;
             format!("{} plays re-filed", moved)
@@ -475,6 +484,16 @@ mod tests {
         assert_eq!(d.as_deref(), Some("playlist “Late night”: remove 2 rows"));
         let d = describe("/v1/playlists/{id}", "/v1/playlists/3", &json!({"name":"Winter"}), &n);
         assert_eq!(d.as_deref(), Some("playlist “Late night” → “Winter”"));
+    }
+
+    #[test]
+    fn test_a_mixtape_names_its_title_and_what_was_packed() {
+        let d = describe("/v1/mixtapes", "/v1/mixtapes", &json!({"title":"Road Trip","trackIds":[1,2,3],"collectionId":1}), &Names::default());
+        assert_eq!(d.as_deref(), Some("Mixtape “Road Trip” with 3 tracks"));
+        let all = json!({"packed":3,"requested":3,"skipped":[]});
+        assert_eq!(describe_result("/v1/mixtapes", &all).as_deref(), Some("3 packed"));
+        let some = json!({"packed":2,"requested":3,"skipped":["X (not available offline)"]});
+        assert_eq!(describe_result("/v1/mixtapes", &some).as_deref(), Some("2 of 3 packed"));
     }
 
     #[test]

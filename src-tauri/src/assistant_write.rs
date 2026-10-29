@@ -6,7 +6,8 @@
 //! Settings → AI control:
 //!
 //! - `modify_tags`    — write tag/metadata edits into audio files
-//! - `manage_files`   — create lyrics/cover files, move/rename tracks
+//! - `manage_files`   — create lyrics/cover files and mixtapes, move/rename
+//!   tracks
 //! - `downloads`      — download a track's own source into a collection
 //! - `plugin_actions` — make a plugin act: invoke a context-menu action,
 //!   deliver a deep link, or call an assistant tool the plugin did not
@@ -742,6 +743,24 @@ fn settle_ext(named_ext: String, source: &DownloadSource, temp: &Path) -> String
 /// `Artist - Title.ext`, refuse conflicts outright, and index the result so it
 /// becomes a library row. The shared tail of every assistant download —
 /// source-faithful and plugin-resolved alike.
+/// `<collection root>/<subdir>` for a file the assistant creates: the
+/// collection must be an enabled local folder and the subdir must stay inside
+/// it (validated + symlink-checked). Not created here. Returns the root too.
+fn collection_dest_dir(db: &Arc<Database>, collection_id: i64, subdir: &str) -> Result<(String, PathBuf), String> {
+    let collection = db.get_collection_by_id(collection_id).map_err(|e| e.to_string())?;
+    if collection.kind != "local" || collection.path.is_none() {
+        return Err(format!("collection \"{}\" is not a local folder", collection.name));
+    }
+    if !collection.enabled {
+        return Err(format!("collection \"{}\" is disabled", collection.name));
+    }
+    let root_str = collection.path.clone().unwrap();
+    let root = Path::new(&root_str);
+    let dest_dir = root.join(parse_relative_dir(subdir)?);
+    ensure_within_root(root, &dest_dir)?;
+    Ok((root_str, dest_dir))
+}
+
 pub fn land_download(
     db: &Arc<Database>,
     collection_id: i64,
@@ -755,18 +774,7 @@ pub fn land_download(
     if title.trim().is_empty() {
         return Err("title must not be empty".to_string());
     }
-    let collection = db.get_collection_by_id(collection_id).map_err(|e| e.to_string())?;
-    if collection.kind != "local" || collection.path.is_none() {
-        return Err(format!("collection \"{}\" is not a local folder", collection.name));
-    }
-    if !collection.enabled {
-        return Err(format!("collection \"{}\" is disabled", collection.name));
-    }
-    let root_str = collection.path.clone().unwrap();
-    let root = Path::new(&root_str);
-    let dir_rel = parse_relative_dir(subdir)?;
-    let dest_dir = root.join(&dir_rel);
-    ensure_within_root(root, &dest_dir)?;
+    let (root_str, dest_dir) = collection_dest_dir(db, collection_id, subdir)?;
 
     let named_ext = match ext_hint {
         "auto" | "" => String::new(),
@@ -1163,6 +1171,109 @@ pub fn download_track_source(
     land_download(db, collection_id, subdir, artist, &track.title, &ext_hint, DownloadSource::Url(url, None), None)
 }
 
+pub const MAX_MIXTAPE_TRACKS: usize = 200;
+/// Where a mixtape lands when the caller names no subdir.
+pub const DEFAULT_MIXTAPE_SUBDIR: &str = "Mixtapes";
+
+/// Pack library tracks into a `.mixtape` file — the archive the app's own
+/// Export Mixtape writes, audio included — at
+/// `<collection root>/<subdir>/<title>.mixtape`, ready for the user to share.
+///
+/// The export is the app's (`commands::run_full_export`), so it carries the
+/// same source-faithful rule: local files are packed, a Subsonic or direct
+/// http(s) source is downloaded as itself, and a plugin-scheme track is
+/// skipped and reported — never resolved through a provider. To include such
+/// a track, download it first (`POST /v1/downloads/plugin`) and pass the
+/// library track that lands. Never overwrites; the name comes from the title.
+#[allow(clippy::too_many_arguments)]
+pub fn create_mixtape(
+    db: &Arc<Database>,
+    app_dir: &Path,
+    collection_id: i64,
+    subdir: &str,
+    title: &str,
+    track_ids: &[i64],
+    description: Option<&str>,
+) -> Result<Value, String> {
+    let title = title.trim();
+    if title.is_empty() {
+        return Err("title must not be empty".to_string());
+    }
+    if title.chars().count() > 120 {
+        return Err("title is too long (120 characters at most)".to_string());
+    }
+    if track_ids.is_empty() {
+        return Err("trackIds must name at least one track".to_string());
+    }
+    if track_ids.len() > MAX_MIXTAPE_TRACKS {
+        return Err(format!("at most {} tracks per mixtape", MAX_MIXTAPE_TRACKS));
+    }
+
+    let (_, dest_dir) = collection_dest_dir(db, collection_id, subdir)?;
+    let filename = format!("{}.mixtape", crate::downloader::sanitize_filename(title));
+    validate_filename(&filename)?;
+    let dest = dest_dir.join(&filename);
+    if dest.exists() {
+        return Err(format!("{} already exists — pick another title", dest.display()));
+    }
+
+    let mut tracks = Vec::with_capacity(track_ids.len());
+    for &id in track_ids {
+        let t = db.get_track_by_id(id).map_err(|e| format!("track {}: {}", id, e))?;
+        tracks.push(crate::models::MixtapeExportTrackInput {
+            id: Some(t.id),
+            title: t.title,
+            artist: t.artist_name,
+            album: t.album_title,
+            duration_secs: t.duration_secs,
+            path: Some(t.path),
+            image_url: None,
+        });
+    }
+    // The cover is the first album with a cached image, keyed the way the
+    // image cache keys albums (by album artist).
+    let cover_image_path = track_ids.iter().find_map(|&id| {
+        let t = db.get_track_by_id(id).ok()?;
+        let album = t.album_title.as_deref()?;
+        let artist = t.album_artist_name.as_deref().or(t.artist_name.as_deref())?;
+        let slug = crate::entity_image::entity_image_slug("album", album, Some(artist));
+        crate::entity_image::get_image_path(app_dir, "album", &slug).map(|p| p.to_string_lossy().to_string())
+    });
+    let mut metadata = std::collections::HashMap::new();
+    if let Some(d) = description.map(str::trim).filter(|d| !d.is_empty()) {
+        metadata.insert("description".to_string(), d.chars().take(500).collect());
+    }
+
+    std::fs::create_dir_all(&dest_dir).map_err(|e| format!("failed to create {}: {}", dest_dir.display(), e))?;
+    let options = crate::models::MixtapeFullExportOptions {
+        title: title.to_string(),
+        mixtape_type: crate::models::MixtapeType::Custom,
+        metadata,
+        created_by: None,
+        cover_image_path,
+        include_thumbs: true,
+        tracks,
+        format: None,
+    };
+    // Its own temp dir: the app's export dialog uses `temp_mixtape_export`,
+    // and an export removes its temp dir when it finishes.
+    let nanos = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_nanos())
+        .unwrap_or(0);
+    let temp_dir = app_dir.join(format!("temp_mixtape_export-{}", nanos));
+    let cancel = std::sync::atomic::AtomicBool::new(false);
+    let dest_str = dest.to_string_lossy().to_string();
+    let outcome = crate::commands::run_full_export(db, app_dir, &temp_dir, options, &dest_str, &cancel, &|_| {})?;
+    Ok(serde_json::json!({
+        "path": dest_str,
+        "fileSize": outcome.file_size,
+        "requested": track_ids.len(),
+        "packed": outcome.packed,
+        "skipped": outcome.skipped,
+    }))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1426,6 +1537,70 @@ mod tests {
             .unwrap();
         let err = download_track_source(&db, remote, sub.id, "").unwrap_err();
         assert!(err.contains("not a local folder"), "got: {}", err);
+    }
+
+    #[test]
+    fn test_create_mixtape_packs_local_tracks_and_reports_the_rest() {
+        let root = tempfile::tempdir().unwrap();
+        let app_dir = tempfile::tempdir().unwrap();
+        let (db, local_id, col) = seed_local(root.path());
+        let db = Arc::new(db);
+        let plugin = db
+            .upsert_track("ytdlp://abc", "Plugin Track", None, None, None, None, None, None, None, None, None)
+            .unwrap();
+
+        let value = create_mixtape(
+            &db, app_dir.path(), col, DEFAULT_MIXTAPE_SUBDIR, "Road Trip", &[local_id, plugin], Some("for the drive"),
+        )
+        .unwrap();
+        assert_eq!(value["requested"], 2);
+        assert_eq!(value["packed"], 1);
+        // Source-faithful: the plugin track is reported, never resolved.
+        let skipped = value["skipped"].as_array().unwrap();
+        assert_eq!(skipped.len(), 1);
+        assert!(skipped[0].as_str().unwrap().contains("not available offline"), "got: {:?}", skipped);
+
+        let dest = root.path().join("Mixtapes").join("Road Trip.mixtape");
+        assert_eq!(value["path"].as_str().unwrap(), dest.to_string_lossy());
+        let preview = crate::mixtape::read_mixtape(&dest, app_dir.path()).unwrap();
+        assert_eq!(preview.manifest.title, "Road Trip");
+        assert_eq!(preview.manifest.tracks.len(), 1);
+        assert_eq!(preview.manifest.tracks[0].title, "Song A");
+        assert_eq!(preview.manifest.metadata.get("description").map(String::as_str), Some("for the drive"));
+
+        // Never overwrites, and leaves no temp dir behind.
+        let err = create_mixtape(&db, app_dir.path(), col, DEFAULT_MIXTAPE_SUBDIR, "Road Trip", &[local_id], None)
+            .unwrap_err();
+        assert!(err.contains("already exists"), "got: {}", err);
+        let leftovers = std::fs::read_dir(app_dir.path())
+            .unwrap()
+            .filter_map(|e| e.ok())
+            .filter(|e| e.file_name().to_string_lossy().starts_with("temp_mixtape_export"))
+            .count();
+        assert_eq!(leftovers, 0);
+    }
+
+    #[test]
+    fn test_create_mixtape_refuses_bad_requests_before_writing() {
+        let root = tempfile::tempdir().unwrap();
+        let app_dir = tempfile::tempdir().unwrap();
+        let (db, local_id, col) = seed_local(root.path());
+        let db = Arc::new(db);
+        let make = |title: &str, ids: &[i64], subdir: &str| create_mixtape(&db, app_dir.path(), col, subdir, title, ids, None);
+
+        assert!(make("  ", &[local_id], "").unwrap_err().contains("title"));
+        assert!(make("Empty", &[], "").unwrap_err().contains("at least one"));
+        let many = vec![local_id; MAX_MIXTAPE_TRACKS + 1];
+        assert!(make("Huge", &many, "").unwrap_err().contains("at most"));
+        assert!(make("Escape", &[local_id], "../out").unwrap_err().contains(".."));
+
+        // Nothing packable → an error and no file.
+        let plugin = db
+            .upsert_track("ytdlp://abc", "Plugin Track", None, None, None, None, None, None, None, None, None)
+            .unwrap();
+        let err = make("Nothing", &[plugin], "").unwrap_err();
+        assert!(err.contains("No tracks could be resolved"), "got: {}", err);
+        assert!(!root.path().join("Nothing.mixtape").exists());
     }
 
     #[test]

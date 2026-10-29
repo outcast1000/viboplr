@@ -41,7 +41,7 @@ pub(crate) fn ext_from_direct_url(url: &str) -> String {
 /// (with a log line) on failure — the caller flags the track as skipped.
 #[allow(clippy::too_many_arguments)]
 fn download_export_source(
-    app: &tauri::AppHandle,
+    progress: &dyn Fn(crate::models::MixtapeExportProgress),
     temp_dir: &std::path::Path,
     i: usize,
     total: usize,
@@ -51,8 +51,7 @@ fn download_export_source(
     ext: &str,
     cancel: &std::sync::atomic::AtomicBool,
 ) -> Option<String> {
-    use tauri::Emitter;
-    let _ = app.emit("mixtape-export-progress", crate::models::MixtapeExportProgress {
+    progress(crate::models::MixtapeExportProgress {
         current_track: (i + 1) as u32,
         total_tracks: total as u32,
         phase: format!("downloading:{}", source_label),
@@ -150,6 +149,177 @@ pub fn export_mixtape_playlist_only(
     Ok(())
 }
 
+/// What a finished full export produced.
+pub(crate) struct FullExportOutcome {
+    pub file_size: u64,
+    /// Tracks packed into the archive.
+    pub packed: usize,
+    /// "<title> (<reason>)" for every track left out.
+    pub skipped: Vec<String>,
+}
+
+/// The full (audio-carrying) export, shared by the app's export dialog
+/// (`export_mixtape_full`) and the control API's `POST /v1/mixtapes`. Blocking;
+/// `temp_dir` must be the caller's own — it is removed when this returns.
+///
+/// Source-faithful, never automatic: a file is packed, a Subsonic or direct
+/// http(s) source is downloaded AS ITSELF, and anything else (a plugin scheme,
+/// a metadata-only entry) is flagged as not available offline and skipped.
+/// There is deliberately no provider fallback here — exporting must never pick
+/// a different copy of a track than the one in the list.
+pub(crate) fn run_full_export(
+    db: &Arc<Database>,
+    app_dir: &std::path::Path,
+    temp_dir: &std::path::Path,
+    options: crate::models::MixtapeFullExportOptions,
+    dest_path: &str,
+    cancel: &AtomicBool,
+    progress: &dyn Fn(crate::models::MixtapeExportProgress),
+) -> Result<FullExportOutcome, String> {
+    let _ = std::fs::create_dir_all(temp_dir);
+    let result = run_full_export_in(db, app_dir, temp_dir, options, dest_path, cancel, progress);
+    let _ = std::fs::remove_dir_all(temp_dir);
+    result
+}
+
+fn run_full_export_in(
+    db: &Arc<Database>,
+    app_dir: &std::path::Path,
+    temp_dir: &std::path::Path,
+    options: crate::models::MixtapeFullExportOptions,
+    dest_path: &str,
+    cancel: &AtomicBool,
+    progress: &dyn Fn(crate::models::MixtapeExportProgress),
+) -> Result<FullExportOutcome, String> {
+    let format = options.format.as_deref().unwrap_or("flac").to_string();
+    let mut sources: Vec<crate::mixtape::MixtapeTrackSource> = Vec::new();
+    let mut skipped: Vec<String> = Vec::new();
+    let total = options.tracks.len();
+    let packing = |i: usize, title: &str| progress(crate::models::MixtapeExportProgress {
+        current_track: (i + 1) as u32,
+        total_tracks: total as u32,
+        phase: "packing".to_string(),
+        track_title: title.to_string(),
+    });
+
+    for (i, track) in options.tracks.iter().enumerate() {
+        if cancel.load(Ordering::Relaxed) {
+            return Err("Export cancelled".to_string());
+        }
+
+        let mut skip_reason: Option<&'static str> = None;
+        let audio_path: Option<String> = match track.path.as_deref() {
+            Some(path) if path.starts_with("file://") => {
+                packing(i, &track.title);
+                let fs_path = &path[7..];
+                if std::path::Path::new(fs_path).exists() {
+                    Some(fs_path.to_string())
+                } else {
+                    skip_reason = Some("file missing");
+                    None
+                }
+            }
+            Some(path) if path.starts_with(crate::mixtape::ENTRY_SCHEME) => {
+                // A track played from a .mixtape: its bytes are on this
+                // disk, inside that archive — copy them out and pack them.
+                packing(i, &track.title);
+                match crate::mixtape::extract_entry(path, temp_dir, &format!("{:03}", i)) {
+                    Ok(p) => Some(p),
+                    Err(e) => {
+                        log::error!("[mixtape-export] couldn't read \"{}\" from its mixtape: {}", track.title, e);
+                        skip_reason = Some("file missing");
+                        None
+                    }
+                }
+            }
+            Some(path) if path.starts_with("subsonic://") => {
+                match resolve_subsonic_download_target(db, path, Some(&format)) {
+                    Ok(target) => {
+                        // "auto" = original of unknown container; fall back to the
+                        // requested format's extension, same as the download modal.
+                        let ext = if target.ext == "auto" {
+                            crate::downloader::format_fallback_extension(&format).to_string()
+                        } else {
+                            target.ext
+                        };
+                        download_export_source(progress, temp_dir, i, total, track, "subsonic", &target.url, &ext, cancel)
+                    }
+                    Err(e) => {
+                        log::error!("[mixtape-export] subsonic resolve failed for \"{}\": {}", track.title, e);
+                        skip_reason = Some("download failed");
+                        None
+                    }
+                }
+            }
+            Some(path) if path.starts_with("http://") || path.starts_with("https://") => {
+                let ext = ext_from_direct_url(path);
+                download_export_source(progress, temp_dir, i, total, track, "web", path, &ext, cancel)
+            }
+            Some(_) | None => {
+                skip_reason = Some("not available offline");
+                None
+            }
+        };
+        if audio_path.is_none() && skip_reason.is_none() {
+            skip_reason = Some("download failed");
+        }
+
+        match audio_path {
+            Some(path) => {
+                let thumb_path = track.album.as_ref().and_then(|album| {
+                    let artist = track.artist.as_deref().unwrap_or("");
+                    let slug = crate::entity_image::entity_image_slug("album", album, Some(artist));
+                    crate::entity_image::get_image_path(app_dir, "album", &slug)
+                        .map(|p| p.to_string_lossy().to_string())
+                }).or_else(|| {
+                    track.image_url.as_ref().and_then(|url| {
+                        if !url.starts_with("http") && std::path::Path::new(url).exists() {
+                            Some(url.clone())
+                        } else {
+                            None
+                        }
+                    })
+                });
+                sources.push(crate::mixtape::MixtapeTrackSource {
+                    title: track.title.clone(),
+                    artist: track.artist.clone().unwrap_or_default(),
+                    album: track.album.clone(),
+                    duration_secs: track.duration_secs,
+                    audio_path: path,
+                    thumb_path,
+                });
+            }
+            None => {
+                skipped.push(match skip_reason {
+                    Some(reason) => format!("{} ({})", track.title, reason),
+                    None => track.title.clone(),
+                });
+            }
+        }
+    }
+
+    if sources.is_empty() {
+        return Err(format!("No tracks could be resolved. Skipped: {}", skipped.join(", ")));
+    }
+
+    let manifest = crate::mixtape::build_manifest(
+        options.title, options.mixtape_type, options.metadata,
+        options.created_by, vec![],
+    );
+    let dest = std::path::Path::new(dest_path);
+    let cover = options.cover_image_path.as_ref().map(|p| std::path::Path::new(p.as_str()));
+    let file_size = crate::mixtape::build_mixtape(
+        dest, cover, &sources, manifest, options.include_thumbs, cancel,
+        |current, total, title, _| {
+            progress(crate::models::MixtapeExportProgress {
+                current_track: current, total_tracks: total,
+                phase: "packing".to_string(), track_title: title.to_string(),
+            });
+        },
+    )?;
+    Ok(FullExportOutcome { file_size, packed: sources.len(), skipped })
+}
+
 #[tauri::command]
 pub fn export_mixtape_full(
     dest_path: String,
@@ -174,167 +344,17 @@ pub fn export_mixtape_full(
     let db = state.db.clone();
     cancel.store(false, Ordering::Relaxed);
 
-    let tracks_input = options.tracks.clone();
-    let cover_image_path = options.cover_image_path.clone();
-    let include_thumbs = options.include_thumbs;
-    let format = options.format.as_deref().unwrap_or("flac").to_string();
-
     thread::spawn(move || {
         let temp_dir = app_dir.join("temp_mixtape_export");
-        let _ = std::fs::create_dir_all(&temp_dir);
-
-        let mut sources: Vec<crate::mixtape::MixtapeTrackSource> = Vec::new();
-        let mut skipped: Vec<String> = Vec::new();
-        let total = tracks_input.len();
-
-        for (i, track) in tracks_input.iter().enumerate() {
-            if cancel.load(Ordering::Relaxed) {
-                let _ = std::fs::remove_dir_all(&temp_dir);
-                let _ = app.emit("mixtape-export-error",
-                    serde_json::json!({ "message": "Export cancelled" }));
-                return;
-            }
-
-            // Source-faithful, never automatic: a file is packed, a Subsonic or
-            // direct http(s) source is downloaded AS ITSELF, and anything else
-            // (a plugin scheme, a metadata-only entry) is flagged as not
-            // available offline and skipped. There is deliberately no provider
-            // fallback here — exporting must never pick a different copy of a
-            // track than the one in the list.
-            let mut skip_reason: Option<&'static str> = None;
-            let audio_path: Option<String> = match track.path.as_deref() {
-                Some(path) if path.starts_with("file://") => {
-                    let _ = app.emit("mixtape-export-progress", crate::models::MixtapeExportProgress {
-                        current_track: (i + 1) as u32,
-                        total_tracks: total as u32,
-                        phase: "packing".to_string(),
-                        track_title: track.title.clone(),
-                    });
-                    let fs_path = &path[7..];
-                    if std::path::Path::new(fs_path).exists() {
-                        Some(fs_path.to_string())
-                    } else {
-                        skip_reason = Some("file missing");
-                        None
-                    }
-                }
-                Some(path) if path.starts_with(crate::mixtape::ENTRY_SCHEME) => {
-                    // A track played from a .mixtape: its bytes are on this
-                    // disk, inside that archive — copy them out and pack them.
-                    let _ = app.emit("mixtape-export-progress", crate::models::MixtapeExportProgress {
-                        current_track: (i + 1) as u32,
-                        total_tracks: total as u32,
-                        phase: "packing".to_string(),
-                        track_title: track.title.clone(),
-                    });
-                    match crate::mixtape::extract_entry(path, &temp_dir, &format!("{:03}", i)) {
-                        Ok(p) => Some(p),
-                        Err(e) => {
-                            log::error!("[mixtape-export] couldn't read \"{}\" from its mixtape: {}", track.title, e);
-                            skip_reason = Some("file missing");
-                            None
-                        }
-                    }
-                }
-                Some(path) if path.starts_with("subsonic://") => {
-                    match resolve_subsonic_download_target(&db, path, Some(&format)) {
-                        Ok(target) => {
-                            // "auto" = original of unknown container; fall back to the
-                            // requested format's extension, same as the download modal.
-                            let ext = if target.ext == "auto" {
-                                crate::downloader::format_fallback_extension(&format).to_string()
-                            } else {
-                                target.ext
-                            };
-                            download_export_source(&app, &temp_dir, i, total, track, "subsonic", &target.url, &ext, &cancel)
-                        }
-                        Err(e) => {
-                            log::error!("[mixtape-export] subsonic resolve failed for \"{}\": {}", track.title, e);
-                            skip_reason = Some("download failed");
-                            None
-                        }
-                    }
-                }
-                Some(path) if path.starts_with("http://") || path.starts_with("https://") => {
-                    let ext = ext_from_direct_url(path);
-                    download_export_source(&app, &temp_dir, i, total, track, "web", path, &ext, &cancel)
-                }
-                Some(_) => {
-                    skip_reason = Some("not available offline");
-                    None
-                }
-                None => {
-                    skip_reason = Some("not available offline");
-                    None
-                }
-            };
-            if audio_path.is_none() && skip_reason.is_none() {
-                skip_reason = Some("download failed");
-            }
-
-            match audio_path {
-                Some(path) => {
-                    let thumb_path = track.album.as_ref().and_then(|album| {
-                        let artist = track.artist.as_deref().unwrap_or("");
-                        let slug = crate::entity_image::entity_image_slug("album", album, Some(artist));
-                        crate::entity_image::get_image_path(&app_dir, "album", &slug)
-                            .map(|p| p.to_string_lossy().to_string())
-                    }).or_else(|| {
-                        track.image_url.as_ref().and_then(|url| {
-                            if !url.starts_with("http") && std::path::Path::new(url).exists() {
-                                Some(url.clone())
-                            } else {
-                                None
-                            }
-                        })
-                    });
-                    sources.push(crate::mixtape::MixtapeTrackSource {
-                        title: track.title.clone(),
-                        artist: track.artist.clone().unwrap_or_default(),
-                        album: track.album.clone(),
-                        duration_secs: track.duration_secs,
-                        audio_path: path,
-                        thumb_path,
-                    });
-                }
-                None => {
-                    skipped.push(match skip_reason {
-                        Some(reason) => format!("{} ({})", track.title, reason),
-                        None => track.title.clone(),
-                    });
-                }
-            }
-        }
-
-        if sources.is_empty() {
-            let _ = std::fs::remove_dir_all(&temp_dir);
-            let _ = app.emit("mixtape-export-error", serde_json::json!({
-                "message": format!("No tracks could be resolved. Skipped: {}", skipped.join(", ")),
-            }));
-            return;
-        }
-
-        let manifest = crate::mixtape::build_manifest(
-            options.title, options.mixtape_type, options.metadata,
-            options.created_by, vec![],
-        );
-        let dest = std::path::Path::new(&dest_path);
-        let cover = cover_image_path.as_ref().map(|p| std::path::Path::new(p.as_str()));
-
-        match crate::mixtape::build_mixtape(
-            dest, cover, &sources, manifest, include_thumbs, &cancel,
-            |current, total, title, _| {
-                let _ = app.emit("mixtape-export-progress", crate::models::MixtapeExportProgress {
-                    current_track: current, total_tracks: total,
-                    phase: "packing".to_string(), track_title: title.to_string(),
-                });
-            },
-        ) {
-            Ok(file_size) => {
-                let complete_payload = if !skipped.is_empty() {
-                    serde_json::json!({ "path": dest_path, "fileSize": file_size, "skipped": skipped })
+        let progress = |p: crate::models::MixtapeExportProgress| {
+            let _ = app.emit("mixtape-export-progress", p);
+        };
+        match run_full_export(&db, &app_dir, &temp_dir, options, &dest_path, &cancel, &progress) {
+            Ok(outcome) => {
+                let complete_payload = if !outcome.skipped.is_empty() {
+                    serde_json::json!({ "path": dest_path, "fileSize": outcome.file_size, "skipped": outcome.skipped })
                 } else {
-                    serde_json::json!({ "path": dest_path, "fileSize": file_size })
+                    serde_json::json!({ "path": dest_path, "fileSize": outcome.file_size })
                 };
                 let _ = app.emit("mixtape-export-complete", complete_payload);
             }
@@ -342,8 +362,6 @@ pub fn export_mixtape_full(
                 let _ = app.emit("mixtape-export-error", serde_json::json!({ "message": e }));
             }
         }
-
-        let _ = std::fs::remove_dir_all(&temp_dir);
     });
 
     Ok(())

@@ -130,7 +130,9 @@ still accepted and ignored, so existing configs keep starting.
 
 Five tools can change the user's files: `write_file_tags` (tag/metadata
 edits written into the audio files — the app's canonical bulk edit), `manage_files` (lyrics/cover sidecar files;
-two-step plan-then-apply moves/renames within a collection; the change log),
+two-step plan-then-apply moves/renames within a collection; packing library
+tracks into a shareable `.mixtape` — source-faithful, plugin-scheme tracks are
+skipped and listed; the change log),
 `download_track` (a track's *own* subsonic/http source, as itself, into a
 local collection — never resolved through a download provider), and
 `download_plugin_track` (a plugin-sourced track through the plugin that OWNS

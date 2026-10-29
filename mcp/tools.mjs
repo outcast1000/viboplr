@@ -74,7 +74,7 @@ export const GUIDES = {
   extensions:
     "Extensions recipe (when the user wants something Vibo can't do with what's installed — scrobbling, a streaming catalog, YouTube videos, Soulseek or torrent downloads, artist photos, web search, audio analysis, a new look — or a tool reports that nothing installed provides it): check manage_extensions list first (it may be installed but off — then offer set_enabled), else manage_extensions gallery and pick the entry whose provides names the service (web-search, playback-fallback, downloads, catalog-search, images, scrobbling, …) or whose description fits. Tell the user in a sentence what it would add, who makes it, and if it's experimental; on their yes, call action=install — the app then asks them in its own dialog. Once it's installed and enabled, do what they originally asked with it (its tools are reachable through plugin_tools, its pages through navigate pluginView). Some plugins need a sign-in or an external program first: say so and open its settings rather than guessing. Never recommend an extension from outside the gallery.",
   capabilities:
-    "If the user asks what you (or this MCP server) can do with Vibo, answer warmly and in plain language, never as a list of tool names. Lead with the high-value jobs that are tedious by hand: fixing names across the library — greeklish back into Greek, mojibake (garbled accents like 'BjÃ¶rk'), typos, messy downloaded titles like 'Artist - Song (Official Video)', one artist split under several spellings — with the tags, the files and the play history all following (guide topic=renaming); tagging the whole library properly from community genres (guide topic=tagging); saving lyrics and cover art next to the files and tidying folders, always showing the plan first. Then the everyday things: play, queue or start a radio by mood or artist; build and edit playlists; answer questions about the library and listening history (most played per year, liked but forgotten, never played) and find a song from a half-remembered lyric (search_info); download a track from its own source or through a plugin such as yt-dlp. If they want something none of the installed plugins does, mention that the gallery may have it (guide topic=extensions). And one the app has no button for: liner notes on the Now Playing screen — cue cards explaining the lyrics as they're sung, or a whole lyric-video clip (get_cue_context's guide), for the playing song or the rest of the queue; this needs no permission switch. Check writeScopes (app_version) first and mention which of these need a permission switch the user hasn't turned on yet. Close by asking which they'd like to start with — or offer to look through the library for names that need fixing.",
+    "If the user asks what you (or this MCP server) can do with Vibo, answer warmly and in plain language, never as a list of tool names. Lead with the high-value jobs that are tedious by hand: fixing names across the library — greeklish back into Greek, mojibake (garbled accents like 'BjÃ¶rk'), typos, messy downloaded titles like 'Artist - Song (Official Video)', one artist split under several spellings — with the tags, the files and the play history all following (guide topic=renaming); tagging the whole library properly from community genres (guide topic=tagging); saving lyrics and cover art next to the files and tidying folders, always showing the plan first. Then the everyday things: play, queue or start a radio by mood or artist; build and edit playlists; answer questions about the library and listening history (most played per year, liked but forgotten, never played) and find a song from a half-remembered lyric (search_info); download a track from its own source or through a plugin such as yt-dlp; pack a playlist's worth of tracks into one .mixtape file they can send to a friend (manage_files create_mixtape — streamed tracks have to be downloaded first). If they want something none of the installed plugins does, mention that the gallery may have it (guide topic=extensions). And one the app has no button for: liner notes on the Now Playing screen — cue cards explaining the lyrics as they're sung, or a whole lyric-video clip (get_cue_context's guide), for the playing song or the rest of the queue; this needs no permission switch. Check writeScopes (app_version) first and mention which of these need a permission switch the user hasn't turned on yet. Close by asking which they'd like to start with — or offer to look through the library for names that need fixing.",
 };
 
 // ---------------------------------------------------------------------------
@@ -839,10 +839,11 @@ export const TOOLS = [
       "action=write_lyrics saves lyrics as a sidecar file next to a local track's audio file (.lrc when the content has LRC timestamps, .txt otherwise; existing files are refused unless overwrite=true, which trashes the old one). " +
       "action=save_cover writes cover.<ext> into an album's folder — from an http(s) url the APP fetches, or fromCache=true to copy the album image the app already resolved. " +
       "action=move moves/renames local files WITHIN their own collection and is TWO-STEP: the first call only returns a plan (exact from→to list + planHash, nothing touched) — show it to the user — then re-send the same call with planHash to apply. Extensions never change, nothing is ever overwritten, the library rows follow the files (ids/tags/likes/playlists kept). Max 50 moves. " +
+      "action=create_mixtape packs library tracks (audio included) into one shareable <title>.mixtape file at <collection root>/<subdir, default \"Mixtapes\">/ — the app's own Export Mixtape, so it is source-faithful: local files are packed, server (subsonic) and direct http(s) tracks are downloaded as themselves, and plugin-scheme tracks (YouTube, Soulseek, …) are SKIPPED and listed in `skipped` — to include one, download it first with download_plugin_track and pass the library track that lands. Never overwrites (pick another title). Max 200 tracks; can take minutes. Returns path, packed, skipped — tell the user where the file is so they can share it. " +
       "Every applied write is recorded in the app log as an \"Assistant change [...]\" line (the logs tool, while logging is on).",
     inputSchema: obj(
       {
-        action: en(["write_lyrics", "save_cover", "move"], "What to do"),
+        action: en(["write_lyrics", "save_cover", "move", "create_mixtape"], "What to do"),
         trackId: num("Library track id (write_lyrics)"),
         content: str("The lyrics text (write_lyrics)"),
         kind: en(["auto", "synced", "plain"], "Lyrics kind — auto detects LRC timestamps (write_lyrics)"),
@@ -863,10 +864,15 @@ export const TOOLS = [
           ),
         },
         planHash: str("From the planning call — sending it applies the plan (move)"),
+        title: str("Mixtape title — also its file name (create_mixtape)"),
+        trackIds: numArr("Library track ids, in play order (create_mixtape, max 200)"),
+        collectionId: num("Destination LOCAL collection id, from the collections tool (create_mixtape)"),
+        subdir: str("Folder inside the collection root (create_mixtape; default \"Mixtapes\", \"\" = the root)"),
+        description: str("Short description stored in the mixtape (create_mixtape, optional)"),
       },
       ["action"],
     ),
-    run: ({ action, trackId, content, kind, albumId, url, fromCache, overwrite, moves, planHash }, ctx) => {
+    run: ({ action, trackId, content, kind, albumId, url, fromCache, overwrite, moves, planHash, title, trackIds, collectionId, subdir, description }, ctx) => {
       switch (action) {
         case "write_lyrics":
           need({ trackId, content }, ["trackId", "content"], "action=write_lyrics");
@@ -877,6 +883,14 @@ export const TOOLS = [
         case "move":
           need({ moves }, ["moves"], "action=move");
           return ctx.request("POST", "/v1/files/move", { moves, planHash }, { timeoutMs: SLOW_MS });
+        case "create_mixtape":
+          need({ title, trackIds, collectionId }, ["title", "trackIds", "collectionId"], "action=create_mixtape");
+          return ctx.request(
+            "POST",
+            "/v1/mixtapes",
+            { title, trackIds, collectionId, subdir, description },
+            { timeoutMs: DOWNLOAD_MS },
+          );
         default:
           throw new Error(`unknown manage_files action: ${action}`);
       }

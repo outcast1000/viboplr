@@ -99,6 +99,22 @@ function startFakeApi(): Promise<{ port: number; seen: SeenRequest[]; close: () 
       });
       return;
     }
+    if (req.url === "/v1/mixtapes" && req.method === "POST") {
+      let body = "";
+      req.on("data", (c) => (body += c));
+      req.on("end", () => {
+        seen[seen.length - 1].body = body;
+        const b = JSON.parse(body);
+        reply(200, {
+          path: `/Music/Mixtapes/${b.title}.mixtape`,
+          fileSize: 1234,
+          requested: b.trackIds.length,
+          packed: b.trackIds.length - 1,
+          skipped: ["Plugin Song (not available offline)"],
+        });
+      });
+      return;
+    }
     if (req.url === "/v1/downloads/plugin" && req.method === "POST") {
       let body = "";
       req.on("data", (c) => (body += c));
@@ -606,6 +622,23 @@ describe("MCP server over stdio", () => {
 
     // move without moves is a caller error, not a request.
     const missing = await rpc.request("tools/call", { name: "manage_files", arguments: { action: "move" } });
+    expect((missing.result as { isError?: boolean }).isError).toBe(true);
+  });
+
+  it("posts manage_files create_mixtape to /v1/mixtapes and returns what was packed", async () => {
+    const res = await rpc.request("tools/call", {
+      name: "manage_files",
+      arguments: { action: "create_mixtape", title: "Road Trip", trackIds: [4, 5, 6], collectionId: 2 },
+    });
+    expect(JSON.parse(toolText(res.result))).toMatchObject({ packed: 2, requested: 3 });
+    const posted = api.seen.find((r) => r.method === "POST" && r.url === "/v1/mixtapes");
+    expect(JSON.parse(posted!.body!)).toEqual({ title: "Road Trip", trackIds: [4, 5, 6], collectionId: 2 });
+
+    // Missing the destination is a caller error, not a request.
+    const missing = await rpc.request("tools/call", {
+      name: "manage_files",
+      arguments: { action: "create_mixtape", title: "X", trackIds: [1] },
+    });
     expect((missing.result as { isError?: boolean }).isError).toBe(true);
   });
 

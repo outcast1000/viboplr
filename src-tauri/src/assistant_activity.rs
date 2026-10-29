@@ -127,6 +127,7 @@ pub fn classify(method: &str, route: &str) -> Classified {
         ("POST", "/v1/tracks/{id}/lyrics-file") => c("Write a lyrics file", Write),
         ("POST", "/v1/albums/{id}/cover-file") => c("Write a cover image", Write),
         ("POST", "/v1/files/move") => c("Move files", Write),
+        ("POST", "/v1/mixtapes") => c("Create a mixtape", Write),
         ("POST", "/v1/tracks/{id}/replace-file") => c("Replace a track's file", Write),
         ("POST", "/v1/extensions/{id}/enabled") => c("Enable or disable an extension", Write),
         ("POST", "/v1/skins/apply") => c("Apply a skin", Write),

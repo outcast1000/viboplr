@@ -543,6 +543,7 @@ pub(crate) fn build_router(state: ServerState) -> Router {
         .route("/v1/tracks/{id}/lyrics-file", post(handle_lyrics_file))
         .route("/v1/albums/{id}/cover-file", post(handle_cover_file))
         .route("/v1/files/move", post(handle_files_move))
+        .route("/v1/mixtapes", post(handle_create_mixtape))
         // Delete local tracks to the trash, two-phase like moves: plan, then
         // apply with the plan's hash. "Delete tracks" scope.
         .route("/v1/tracks/delete", post(handle_tracks_delete))
@@ -1947,6 +1948,55 @@ async fn handle_cover_file(
 
 #[derive(serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
+struct MixtapeBody {
+    title: String,
+    track_ids: Vec<i64>,
+    collection_id: i64,
+    #[serde(default)]
+    subdir: Option<String>,
+    #[serde(default)]
+    description: Option<String>,
+}
+
+/// Pack library tracks into a shareable `.mixtape` inside a local collection
+/// (`assistant_write::create_mixtape` — the app's own full export, so the
+/// source-faithful rule holds: plugin-scheme tracks are skipped and reported).
+/// Backend-direct like the other file writes: nothing in React state mirrors
+/// a mixtape file. Blocking for as long as the export takes.
+async fn handle_create_mixtape(state: AxumState<ServerState>, body: Bytes) -> Response {
+    if let Err(resp) = check_scope(&state.0, Scope::ManageFiles) {
+        return resp;
+    }
+    let parsed: MixtapeBody = match parse_typed(&body) {
+        Ok(p) => p,
+        Err(resp) => return resp,
+    };
+    let db = state.0.db.clone();
+    let app_dir = state.0.app_dir.clone();
+    write_op("mixtapes.create", move || {
+        let subdir = parsed.subdir.as_deref().unwrap_or(assistant_write::DEFAULT_MIXTAPE_SUBDIR);
+        let value = assistant_write::create_mixtape(
+            &db,
+            &app_dir,
+            parsed.collection_id,
+            subdir,
+            &parsed.title,
+            &parsed.track_ids,
+            parsed.description.as_deref(),
+        )?;
+        let summary = format!(
+            "packed {} of {} track(s) into mixtape → {}",
+            value["packed"].as_u64().unwrap_or(0),
+            parsed.track_ids.len(),
+            value["path"].as_str().unwrap_or("?"),
+        );
+        Ok((value, summary))
+    })
+    .await
+}
+
+#[derive(serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
 struct MoveBody {
     moves: Vec<assistant_write::MoveRequest>,
     #[serde(default)]
@@ -2708,6 +2758,7 @@ mod tests {
             ("POST", "/v1/tracks/1/lyrics-file", r#"{"content":"la"}"#),
             ("POST", "/v1/albums/1/cover-file", r#"{"fromCache":true}"#),
             ("POST", "/v1/files/move", r#"{"moves":[{"trackId":1}]}"#),
+            ("POST", "/v1/mixtapes", r#"{"title":"Mix","trackIds":[1],"collectionId":1}"#),
             ("POST", "/v1/tracks/1/download", r#"{"collectionId":1}"#),
             ("POST", "/v1/downloads/plugin", r#"{"collectionId":1,"uri":"ytdlp://abc"}"#),
             ("POST", "/v1/tracks/1/replace-file", r#"{"uri":"slsk://abc"}"#),
