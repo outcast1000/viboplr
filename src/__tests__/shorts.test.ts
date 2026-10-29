@@ -6,6 +6,7 @@ import {
   SHORTS,
   serverRedactions,
   isShowcaseName,
+  pickForgotten,
   chatWindows,
   chatHtml,
   fillFacts,
@@ -185,6 +186,7 @@ describe("scenarios", () => {
     expect(byId["tinkerers-skins"]).toBe(false);
     expect(byId["audiophiles-pure-or-shaped"]).toBe(true);
     expect(byId["self-hosters-server"]).toBe(false);
+    expect(byId["rediscoverers-forgotten"]).toBe(false);
   });
 
   it("keep the whole conversation up, one frame per message", () => {
@@ -224,6 +226,27 @@ describe("scenarios", () => {
     expect(isShowcaseName("[Unknown Album]")).toBe(false);
     expect(isShowcaseName("Various Artists")).toBe(false);
     expect(isShowcaseName("")).toBe(false);
+  });
+
+  it("pick the forgotten favourites the assistant names: on-camera names, a few per artist", () => {
+    const rows = [
+      [1, "So What", "Miles Davis", 19],
+      [2, "All Blues", "Miles Davis", 16],
+      [3, "Freddie Freeloader", "Miles Davis", 12],
+      [4, "Μωρά Στη Φωτιά", "Μωρά Στη Φωτιά", 11],
+      [5, "Risingson", "Massive Attack", 11],
+      [6, "Something", "The Beatles", 8],
+    ];
+    expect(pickForgotten(rows)).toEqual({
+      forgottenTrackIds: [1, 2, 5, 6],
+      forgottenCount: "4",
+      forgottenTopArtist: "Miles Davis",
+      forgottenTop: "So What",
+      forgottenTopPlays: "19",
+    });
+    expect(pickForgotten(rows, { max: 3 })?.forgottenTrackIds).toEqual([1, 2, 5]);
+    // Too few to back the bubble's claim.
+    expect(pickForgotten(rows.slice(0, 3))).toBeNull();
   });
 
   it("keep a real server's address off camera", () => {

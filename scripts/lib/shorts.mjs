@@ -427,7 +427,114 @@ export const SHORTS = [
     ],
     after: [{ action: { action: "closeModals" } }, { action: { action: "search", query: "" } }],
   },
+  {
+    // "You own thousands of songs. You play fifty." Home's shelves (made
+    // from the profile's own history) and the History view, then the
+    // assistant answering the question Home only hints at: the songs played
+    // on repeat and then dropped, found by a real history query at run time
+    // (`$forgottenTrackIds`, `needs: "history"`) and played next. Nothing
+    // here replaces the queue — the radio and shelf Play buttons would, and
+    // the perf probes replay that queue — so the songs go in after the
+    // current one (`playTemp`) and are taken out again after the take.
+    // Home stays scrolled past the radio carousel: it rotates every 8s
+    // through stations from the whole library, Greek names included (second
+    // take). Offsets are px from the takes; retune when the shelf set changes.
+    // The takes ran with "Recently added albums" hidden (homeShelfVisibility,
+    // set with the app stopped): on the owner's library it shows Greek
+    // titles, and it sits between the shelves this scene shows.
+    id: "rediscoverers-forgotten",
+    persona: "rediscoverers",
+    title: "You own thousands of songs. You play fifty.",
+    needs: ["library", "history"],
+    seconds: 38,
+    window: { width: 940, height: 960 },
+    setup: [
+      { action: { action: "closeModals" } },
+      { action: { action: "queuePanel", open: false } },
+      { skin: "Vibo" },
+      { playTemp: "$showcaseTrackId" },
+      { navigate: { view: "home" } },
+      { action: { action: "scroll", to: 480 } },
+      { wait: 2500 },
+    ],
+    beats: [
+      { at: 0, focus: { full: true }, caption: "You own thousands\nof songs." },
+      { at: 2600, caption: "You play fifty.", steps: [{ action: { action: "scroll", to: 760, smooth: true } }] },
+      {
+        at: 5400,
+        caption: "Home knows\nwhat you love",
+        steps: [{ action: { action: "scroll", to: 1000, smooth: true } }],
+      },
+      {
+        at: 9000,
+        caption: "…and what\nyou forgot",
+        steps: [{ action: { action: "scroll", to: 1500, smooth: true } }],
+      },
+      {
+        at: 12800,
+        focus: { full: true },
+        caption: "Every play,\nremembered",
+        steps: [{ navigate: { view: "history" } }, { action: { action: "scroll", to: "top" } }],
+      },
+      {
+        at: 16600,
+        caption: "Fresh mixes,\nevery day",
+        steps: [{ navigate: { view: "home" } }, { action: { action: "scroll", to: 480 } }],
+      },
+      // The AI scene: what an assistant does through MCP (query_library over
+      // history, then play_tracks next — the same control API verbs).
+      {
+        at: 20400,
+        caption: "Or just ask your AI",
+        captionTop: 150,
+        chat: { role: "user", text: "What did I love, then forget?" },
+      },
+      {
+        at: 22800,
+        // Panel first, so the songs are seen arriving; no landing wait (a
+        // stream takes seconds to open, and the wait would push the beats).
+        steps: [{ action: { action: "queuePanel", open: true } }, { playTemp: "$forgottenTrackIds", land: false }],
+        chat: { role: "assistant", text: "$forgottenCount songs you played on repeat, then dropped. Playing them now." },
+      },
+      { at: 27600, chat: { role: "user", text: "Which one did I play most?" } },
+      {
+        at: 29200,
+        steps: [{ action: { action: "queuePanel", open: false } }, { navigate: { artist: "$forgottenTopArtist" } }, { action: { action: "scroll", to: "top" } }],
+        chat: { role: "assistant", text: "\u201c$forgottenTop\u201d by $forgottenTopArtist. $forgottenTopPlays plays." },
+      },
+      { at: 34400, focus: { full: true }, caption: "Play it again." },
+    ],
+    after: [{ action: { action: "closeModals" } }, { action: { action: "queuePanel", open: false } }],
+  },
 ];
+
+/** The rediscoverers' "loved, then forgot" list from history rows
+ *  `[trackId, title, artistName, plays]`, most played first: on-camera names
+ *  only (`isShowcaseName`), at most `perArtist` songs per artist so one
+ *  favourite doesn't fill the queue, `max` in all. Null when fewer than
+ *  three qualify — a bubble claiming a list the history can't back is
+ *  staging, not a demo. */
+export function pickForgotten(rows, { max = 8, perArtist = 2 } = {}) {
+  const perCount = new Map();
+  const picked = [];
+  for (const [id, title, artist, plays] of rows) {
+    if (picked.length >= max) break;
+    if (!isShowcaseName(title) || !isShowcaseName(artist)) continue;
+    const n = perCount.get(artist) ?? 0;
+    if (n >= perArtist) continue;
+    perCount.set(artist, n + 1);
+    picked.push({ id, title, artist, plays });
+  }
+  if (picked.length < 3) return null;
+  const [top] = picked;
+  return {
+    forgottenTrackIds: picked.map((p) => p.id),
+    forgottenCount: String(picked.length),
+    forgottenTopArtist: top.artist,
+    forgottenTop: top.title,
+    forgottenTopPlays: String(top.plays),
+  };
+}
 
 /** Whether a name may appear on camera in a library short: no Greek (owner
  *  decision, 2026-10-29 — the series is for an international audience) and

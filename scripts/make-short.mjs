@@ -43,7 +43,7 @@ import {
   setSystemMuted, sleep, systemMuted, windowRect,
 } from "./lib/captureRunner.mjs";
 import {
-  SHORTS, canvasFor, captionHtml, chatHtml, chatWindows, fillFacts, isShowcaseName, serverRedactions, captionWindows, composeArgs, endCardHtml, frameRegion, toVideoRect, usesInput,
+  SHORTS, canvasFor, captionHtml, chatHtml, chatWindows, fillFacts, isShowcaseName, pickForgotten, serverRedactions, captionWindows, composeArgs, endCardHtml, frameRegion, toVideoRect, usesInput,
 } from "./lib/shorts.mjs";
 
 const REPO = resolve(dirname(fileURLToPath(import.meta.url)), "..");
@@ -170,6 +170,43 @@ async function pickShowcase(api, opts) {
   return { artist: chosen.name, showcaseAlbum: album, showcaseTrackId: track[0], showcaseTrack: track[1] };
 }
 
+/** The songs the rediscoverers' assistant finds: Home's "Forgotten
+ *  favorites" pool (db/history.rs `pick_forgotten_favorites`: none in the
+ *  last 30 days, not disliked, in an enabled collection) with a floor of
+ *  five plays, so "played on repeat" holds on any profile; most played
+ *  first, one library copy per song. The scene opens the top song's artist
+ *  page, so that artist needs a photo (requested and waited for like
+ *  `pickShowcase`; an artist that never gets one is passed over). */
+const FORGOTTEN_MIN_PLAYS = 5;
+const ARTIST_IMAGE_WAIT_MS = 60000;
+async function pickForgottenFacts(api, opts) {
+  const enabled = (await api("GET", "/collections")).filter((c) => c.enabled).map((c) => c.id);
+  if (enabled.length === 0) throw new Error("no enabled collection in this profile");
+  const rows = await query(api, `
+    SELECT MIN(t.id), MIN(t.title), MIN(ar.name), ht.play_count FROM history_tracks ht
+    JOIN history_artists ha ON ha.id = ht.history_artist_id
+    JOIN tracks t ON strip_diacritics(unicode_lower(t.title)) = ht.canonical_title
+    JOIN artists ar ON ar.id = t.artist_id AND strip_diacritics(unicode_lower(ar.name)) = ha.canonical_name
+    WHERE ht.play_count >= ${FORGOTTEN_MIN_PLAYS} AND ht.last_played_at < strftime('%s', 'now') - 30 * 86400
+      AND t.liked != -1 AND t.collection_id IN (${enabled.map(() => "?").join(",")})
+    GROUP BY ht.id ORDER BY ht.play_count DESC LIMIT 80`, enabled);
+  let facts = pickForgotten(rows);
+  const skipped = new Set();
+  while (facts && !(await hasImage(opts.profile, "artist", facts.forgottenTopArtist))) {
+    const name = facts.forgottenTopArtist;
+    console.log(`  fetching a photo for ${name} …`);
+    await api("POST", "/images/artist", { name });
+    let found = false;
+    for (const end = Date.now() + ARTIST_IMAGE_WAIT_MS; !found && Date.now() < end; await sleep(5000)) found = await hasImage(opts.profile, "artist", name);
+    if (found) break;
+    skipped.add(name);
+    facts = pickForgotten(rows.filter((r) => !skipped.has(r[2])));
+  }
+  if (!facts) throw new Error("the history has fewer than three forgotten favourites (with an artist photo) in the enabled collections");
+  console.log(`  forgotten: ${facts.forgottenCount} songs, led by ${facts.forgottenTopArtist} — ${facts.forgottenTop} (${facts.forgottenTopPlays} plays)`);
+  return facts;
+}
+
 async function discoverFacts(api, opts, scene) {
   const facts = { undo: [], artist: opts.demo ? SHOWCASE.heroArtist : null };
   if (opts.demo) {
@@ -184,6 +221,7 @@ async function discoverFacts(api, opts, scene) {
   // One pick per run, so every short in it shows the same artist even when
   // more covers land between takes.
   if (scene.needs?.includes("library")) Object.assign(facts, (opts.showcase ??= await pickShowcase(api, opts)));
+  if (scene.needs?.includes("history")) Object.assign(facts, await pickForgottenFacts(api, opts));
   return facts;
 }
 

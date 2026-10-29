@@ -9,7 +9,7 @@ import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import { WINDOWS_PARK_POINTER, profilesDir } from "./capturePlatform.mjs";
-import { checkExpect, cropRect, parseScreenDevice, resolveRefs } from "./captureScenes.mjs";
+import { checkExpect, cropRect, findRun, parseScreenDevice, resolveRefs } from "./captureScenes.mjs";
 
 export const PLATFORM = process.platform;
 export const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -57,7 +57,7 @@ export async function runStep(api, step, facts) {
       if (!duration) throw new Error("the current track reports no duration");
       await api("POST", "/playback", { seekSecs: Math.max(0, duration - s.seekFromEnd) });
     } else if (s.playTemp) {
-      await playTemp(api, s.playTemp, facts);
+      await playTemp(api, s.playTemp, facts, { land: s.land !== false });
     } else if (s.click) {
       // Generic input (POST /v1/ui/input): needs the profile's "Click and
       // type" assistant permission. The cursor glides there on camera.
@@ -83,20 +83,26 @@ export async function runStep(api, step, facts) {
   }
 }
 
-/** Insert a library track after the current one and play it, remembering
- *  how to undo that (`facts.undo`, drained after the scene). */
-async function playTemp(api, trackId, facts) {
+/** Insert library tracks (one id or a list) after the current one and play
+ *  the first, remembering how to undo that (`facts.undo`, drained after the
+ *  scene). `land: false` returns after the jump instead of waiting up to 10s
+ *  for a stream to start — mid-take, that wait would push every later beat. */
+async function playTemp(api, ids, facts, { land = true } = {}) {
+  const trackIds = Array.isArray(ids) ? ids : [ids];
+  const trackId = trackIds[0];
   const before = await api("GET", "/status");
-  await api("POST", "/queue/tracks", { trackIds: [trackId], mode: "next", allowDuplicates: true });
+  await api("POST", "/queue/tracks", { trackIds, mode: "next", allowDuplicates: true });
   // The add lands through React state, so the first read can predate it.
   let index = -1;
   for (let tries = 0; tries < 15 && index < 0; tries++) {
     if (tries) await sleep(200);
     const queue = await api("GET", "/queue");
-    index = queue.tracks.findIndex((t, i) => i > queue.index && t.libraryId === trackId);
+    index = findRun(queue.tracks.map((t) => t.libraryId), trackIds, queue.index + 1);
   }
-  if (index < 0) throw new Error(`track ${trackId} didn't land in the queue`);
+  if (index < 0) throw new Error(`track${trackIds.length > 1 ? "s" : ""} ${trackIds.join(", ")} didn't land in the queue`);
   await api("POST", "/queue/jump", { index });
+  facts.undo.push(() => undoPlayTemp(api, trackIds, before));
+  if (!land) return;
   // The jump starts the track itself. A stream (a Subsonic server) takes a
   // moment to open, and a play sent before it has would resume the track
   // being replaced — so wait for it to be the current one first.
@@ -108,15 +114,17 @@ async function playTemp(api, trackId, facts) {
     if (!landed) await sleep(200);
   }
   if (!landed) console.warn(`  track ${trackId} didn't start within 10s — the take shows whatever is playing`);
-  facts.undo.push(async () => {
-    const q = await api("GET", "/queue");
-    const at = q.tracks.findIndex((t) => t.libraryId === trackId);
-    if (at >= 0) await api("DELETE", "/queue/tracks", { indices: [at] });
-    if (before.queueIndex !== undefined && before.queueIndex !== null) {
-      await api("POST", "/queue/jump", { index: before.queueIndex });
-      if (before.positionSecs) await api("POST", "/playback", { seekSecs: before.positionSecs });
-    }
-  });
+}
+
+/** Take a `playTemp` insert out again and go back to what was playing. */
+async function undoPlayTemp(api, trackIds, before) {
+  const q = await api("GET", "/queue");
+  const at = findRun(q.tracks.map((t) => t.libraryId), trackIds);
+  if (at >= 0) await api("DELETE", "/queue/tracks", { indices: trackIds.map((_, k) => at + k) });
+  if (before.queueIndex !== undefined && before.queueIndex !== null) {
+    await api("POST", "/queue/jump", { index: before.queueIndex });
+    if (before.positionSecs) await api("POST", "/playback", { seekSecs: before.positionSecs });
+  }
 }
 
 /** Move the pointer to the right edge of the main display. It is left over

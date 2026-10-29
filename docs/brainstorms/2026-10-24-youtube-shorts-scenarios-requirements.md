@@ -44,8 +44,8 @@ Status: draft for review (2026-10-24; revised plan + Reddit targets 2026-10-27).
   https://opengameart.org/content/funk-collection), mixed with `--music` at −16 LUFS. CC0 so no
   Content ID claim and no description credit, and the sound is in the file, so it reaches Reddit.
   Kept outside the repo at `~/ViboplrShorts/music/holiznacc0-eat.mp3`.
-- **Library shorts use the real library (2026-10-29):** tinkerers, audiophiles and self-hosters
-  run on the profile's own collections (`needs: ["library"]`); the runner picks the artist
+- **Library shorts use the real library (2026-10-29):** tinkerers, audiophiles, self-hosters and
+  rediscoverers run on the profile's own collections (`needs: ["library"]`); the runner picks the artist
   (photo + every cover, no Greek names, studio album). ~38 s each plus the end card, each closing
   on an AI scene: staged chat bubbles, the app reacting through the real control-API verbs.
 - **Text only**, no voice-over.
@@ -155,9 +155,12 @@ for reference; this section wins where they disagree.
 3. **Info lovers #5 + #19 + AI candidate 5 → "Every song has a story", all on Glass Harbour.**
    Synced lyrics → cue cards fading in → the Meaning tab. Removes #5's empty-About caveat and
    needs nothing cleared (the lyrics are invented). #15 (Genius, third-party text) is dropped.
-4. **Rediscoverers #4 + #13 + #14 → one short**, ending on "the music never stops". Mixes and
-   auto-continue show almost nothing on their own. A second rediscoverers short can be AI
-   candidate 3 ("Which songs did I love and forget?").
+4. **Rediscoverers #4 + #13 + AI candidate 3 → one short** (`rediscoverers-forgotten`, built
+   2026-10-29): Home's shelves and the History view by hand, then the assistant answering
+   "What did I love, then forget?" — the songs come from a real history query at run time
+   (Home's forgotten-favorites pool with a five-play floor, none in 30 days; `needs: "history"`) and
+   are played next, not as a new queue. #14 (auto-continue) is dropped: it shows nothing on its
+   own, and the AI act is the stronger close.
 5. **Coders #17 + AI #18 → one split screen: "a player your tools can drive".** curl first, then
    an assistant doing the same. #18 needs a person to record, so the curl half can ship alone.
 6. **Audiophiles #3 + #12 → "Pure, or shaped".** Bit-perfect on, then off and an EQ preset.
@@ -174,7 +177,7 @@ for reference; this section wins where they disagree.
 
 ### Buildable today
 
-Tinkerers (fix), info lovers, rediscoverers, audiophiles — audiophiles built 2026-10-28
+Tinkerers (fix), info lovers, rediscoverers (built 2026-10-29, `rediscoverers-forgotten`), audiophiles — audiophiles built 2026-10-28
 (`audiophiles-pure-or-shaped`). Self-hosters built the same day on the owner's real Navidrome
 (`self-hosters-server`, see the exception above) instead of a demo server;
 collectors and the AI shorts need the real-vs-scripted model decision. So the "primary audiences
@@ -191,7 +194,7 @@ macOS and Windows only.
 | **Collectors** | "100 badly tagged files": edit once by hand → or just ask | r/musichoarder, r/DataHoarder, r/foobar2000, r/MusicBrainz, r/macapps, r/software |
 | **Self-hosters** | "Your server, built in" (blocked on a demo Navidrome) | r/navidrome, r/selfhosted, r/subsonic, r/homelab, r/DataHoarder |
 | **Audiophiles** | "Pure, or shaped": bit-perfect, then EQ | r/audiophile, r/headphones, r/HeadphoneAdvice, r/musichoarder, r/macapps |
-| Rediscoverers | Home → Forgotten favorites → radio → the music never stops | r/musichoarder, r/lastfm, r/truespotify, r/software, r/macapps, r/windowsapps |
+| Rediscoverers | Home → Forgotten favorites → History → "What did I love, then forget?" | r/musichoarder, r/lastfm, r/truespotify, r/software, r/macapps, r/windowsapps |
 | Info lovers | Glass Harbour: synced lyrics → cue cards → Meaning tab | r/lastfm, r/MusicBrainz, r/software, r/macapps, r/LovingOpenSourceAI |
 | Tinkerers | Skins over the artist page and Now Playing fullscreen | r/tauri, r/reactjs (Showoff Saturday), r/javascript, r/web_design, r/opensource, r/foss |
 | Coders | Mini player over the editor + curl driving the app | r/rust, r/tauri, r/programming, r/commandline, r/macapps, r/SideProject |

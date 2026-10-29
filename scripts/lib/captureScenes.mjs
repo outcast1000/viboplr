@@ -373,6 +373,16 @@ export function resolveRefs(value, facts) {
   return value;
 }
 
+/** Where `ids` sit as one run in a queue's library ids (`playTemp` inserts a
+ *  list that way and takes it out again), searching from
+ *  `from`; -1 when they don't. */
+export function findRun(libraryIds, ids, from = 0) {
+  for (let i = Math.max(0, from); i + ids.length <= libraryIds.length; i++) {
+    if (ids.every((id, k) => libraryIds[i + k] === id)) return i;
+  }
+  return -1;
+}
+
 /** Which preconditions a scene is missing, given what the app reported. */
 export function missingNeeds(scene, { hasTrack, hasLyricsTrack = false, hasFlacTrack = false, pluginIds }) {
   const missing = [];

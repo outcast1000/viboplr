@@ -6,6 +6,7 @@ import {
   SCREENSHOT_SCENES,
   checkExpect,
   cropRect,
+  findRun,
   encodeArgs,
   gridComposeArgs,
   gridLayout,
@@ -129,6 +130,15 @@ describe("resolveRefs", () => {
   it("substitutes nested references and refuses unknown ones", () => {
     expect(resolveRefs({ navigate: { artist: "$artist" } }, { artist: "Kyuss" })).toEqual({ navigate: { artist: "Kyuss" } });
     expect(() => resolveRefs({ a: "$missing" }, {})).toThrow(/no value/);
+  });
+});
+
+describe("findRun", () => {
+  it("finds an inserted list as one run, after the playing entry", () => {
+    expect(findRun([10, 7, 1, 2, 3, 7], [1, 2, 3])).toBe(2);
+    expect(findRun([7, 1, 7, 1], [7], 1)).toBe(2);
+    expect(findRun([1, 3, 2], [1, 2])).toBe(-1);
+    expect(findRun([null, 5], [5])).toBe(1);
   });
 });
 
