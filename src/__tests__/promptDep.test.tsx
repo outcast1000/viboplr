@@ -117,7 +117,7 @@ describe("promptDep", () => {
   // the hook's not-yet-loaded registry copy.
   it("asks consent first, then reads the state again and opens the dialog", async () => {
     let consented = false;
-    mockBackend(() => (consented ? { kind: "active" } : { kind: "pendingConsent", item: PENDING_FFMPEG }));
+    mockBackend(() => (consented ? { kind: "active" } : { kind: "pendingConsent", items: [PENDING_FFMPEG] }));
     const { result } = renderHook(() => useDependencies([plugin(false)]));
     let answer: Promise<boolean> | undefined;
     await act(async () => {
@@ -134,7 +134,7 @@ describe("promptDep", () => {
   });
 
   it("treats a declined consent as the user's answer: no dialog, no error", async () => {
-    mockBackend({ kind: "pendingConsent", item: PENDING_FFMPEG });
+    mockBackend({ kind: "pendingConsent", items: [PENDING_FFMPEG] });
     const { result } = renderHook(() => useDependencies([plugin(false)]));
     let answer: Promise<boolean> | undefined;
     await act(async () => {
@@ -145,6 +145,52 @@ describe("promptDep", () => {
     });
     await expect(answer).resolves.toBe(false);
     expect(result.current.modalState).toBeNull();
+  });
+
+  it("says a disabled plugin isn't running", async () => {
+    mockBackend();
+    const { result } = renderHook(() => useDependencies([{ ...plugin(false), status: "disabled", enabled: false } as PluginState]));
+    expect(await rejectionOf(result.current.promptDep("ffmpeg", undefined, "ytdlp"))).toMatch(/isn't running/);
+  });
+
+  it("says a tool already on the machine is there, not that it couldn't be installed", async () => {
+    mockBackend({ kind: "devFolderIgnored", present: true });
+    const { result } = renderHook(() => useDependencies([plugin(false)]));
+    const message = await rejectionOf(result.current.promptDep("ffmpeg", undefined, "ytdlp"));
+    expect(message).toMatch(/ffmpeg is on this machine, but Vibo can't let this plugin use it/);
+    expect(message).not.toMatch(/Couldn't install/);
+  });
+
+  // Not a decline: the user said yes and the OK was lost.
+  it("rejects with a reason when the consent can't be recorded", async () => {
+    vi.mocked(invoke).mockImplementation(async (cmd: string) => {
+      if (cmd === "dependency_definition_state") return { kind: "pendingConsent", items: [PENDING_FFMPEG] };
+      if (cmd === "dependency_definitions_consent") throw new Error("disk full");
+      if (cmd === "dependency_registry_status") return { conflicts: [], pendingConsent: [], refused: [], unused: [], ignored: [] };
+      return null;
+    });
+    const { result } = renderHook(() => useDependencies([plugin(false)]));
+    let answer: Promise<boolean> | undefined;
+    await act(async () => {
+      answer = result.current.promptDep("ffmpeg", undefined, "ytdlp");
+    });
+    const message = rejectionOf(answer!);
+    await act(async () => {
+      result.current.answerConsent(true);
+    });
+    expect(await message).toMatch(/couldn't record your OK \(disk full\)/);
+  });
+
+  it("rejects with a reason while another consent dialog is open", async () => {
+    mockBackend({ kind: "pendingConsent", items: [PENDING_FFMPEG] });
+    const { result } = renderHook(() => useDependencies([plugin(false)]));
+    await act(async () => {
+      void result.current.promptDep("ffmpeg", undefined, "ytdlp");
+    });
+    expect(await rejectionOf(result.current.promptDep("ffmpeg", undefined, "ytdlp"))).toMatch(/another tool permission dialog is open/);
+    await act(async () => {
+      result.current.answerConsent(false);
+    });
   });
 
   it("names a failed check as one, not as a missing definition", async () => {

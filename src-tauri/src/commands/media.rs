@@ -591,11 +591,26 @@ pub async fn dependency_registry_status() -> Result<DependencyRegistryStatus, St
 pub async fn dependency_definition_state(
     plugin_id: String,
     name: String,
-) -> Result<crate::dependency_registry::DefinitionState, String> {
+) -> Result<DefinitionStateReply, String> {
     run_blocking(move || {
-        Ok::<_, std::convert::Infallible>(crate::dependency_registry::definition_state(&plugin_id, &name))
+        let state = crate::dependency_registry::definition_state(&plugin_id, &name);
+        // Without a definition in force a copy already here still can't be
+        // used, but the user should hear that it's there rather than "couldn't
+        // install" about a tool they have.
+        let present = !matches!(state, crate::dependency_registry::DefinitionState::Active)
+            && dependencies::found_on_machine(&name);
+        Ok::<_, std::convert::Infallible>(DefinitionStateReply { state, present })
     })
     .await
+}
+
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DefinitionStateReply {
+    #[serde(flatten)]
+    state: crate::dependency_registry::DefinitionState,
+    /// No definition in force, yet a copy of the tool is on this machine.
+    present: bool,
 }
 
 /// The user agreed, in the host's warning dialog, to let an unsigned plugin's

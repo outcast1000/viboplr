@@ -97,10 +97,11 @@ pub struct RegistryStatus {
 #[derive(Debug, Clone, Serialize, PartialEq)]
 #[serde(tag = "kind", rename_all = "camelCase", rename_all_fields = "camelCase")]
 pub enum DefinitionState {
-    /// A definition is in force (this plugin's or another's).
+    /// A definition is in force: Vibo's own, this plugin's or another's.
     Active,
-    /// This plugin's unsigned definition waits for the user's consent.
-    PendingConsent { item: PendingConsent },
+    /// This plugin's unsigned definitions of it wait for the user's consent —
+    /// every waiting fingerprint, so one Allow covers them all.
+    PendingConsent { items: Vec<PendingConsent> },
     /// This plugin's definition was refused.
     Refused { reason: String },
     /// This plugin runs from the dev folder, whose definitions this build ignores.
@@ -184,12 +185,16 @@ pub fn status() -> RegistryStatus {
 
 /// Where `name` stands for `plugin_id`, read from the registry as it is now.
 pub fn definition_state(plugin_id: &str, name: &str) -> DefinitionState {
-    if active_def(name).is_some() {
+    // Built-ins first: a plugin's definition under a built-in's name is refused,
+    // yet Vibo's own definition is in force and can install it.
+    if dependencies::get_def(name).is_some() {
         return DefinitionState::Active;
     }
     let status = status();
-    if let Some(item) = status.pending_consent.into_iter().find(|p| p.plugin_id == plugin_id && p.name == name) {
-        return DefinitionState::PendingConsent { item };
+    let items: Vec<PendingConsent> =
+        status.pending_consent.into_iter().filter(|p| p.plugin_id == plugin_id && p.name == name).collect();
+    if !items.is_empty() {
+        return DefinitionState::PendingConsent { items };
     }
     if let Some(r) = status.refused.into_iter().find(|r| r.plugin_id == plugin_id && r.name == name) {
         return DefinitionState::Refused { reason: r.reason };
@@ -732,25 +737,6 @@ struct ReadPlugin {
     uses: Vec<String>,
 }
 
-/// A plugin folder's id and the tools it defines, read without validating or
-/// trusting anything — only to name what was left out (`Ignored`).
-fn defined_names(dir: &Path) -> Option<(String, Vec<String>)> {
-    let text = std::fs::read_to_string(dir.join("manifest.json")).ok()?;
-    let manifest: serde_json::Value = serde_json::from_str(&text).ok()?;
-    let id = manifest.get("id").and_then(|v| v.as_str())?.to_string();
-    let names = manifest
-        .get("binaryDependencies")
-        .and_then(|v| v.as_array())
-        .map(|all| {
-            all.iter()
-                .filter(|e| e.get("definition").is_some())
-                .filter_map(|e| e.get("name").and_then(|v| v.as_str()).map(str::to_string))
-                .collect()
-        })
-        .unwrap_or_default();
-    Some((id, names))
-}
-
 fn collect(
     roots: &[PluginRoot],
     refused: &mut Vec<Refused>,
@@ -762,9 +748,12 @@ fn collect(
     for root in roots {
         if root.definitions_ignored {
             // Not part of the precedence: the copies behind it keep counting,
-            // exactly as when this root wasn't scanned at all.
-            if let Some((plugin_id, names)) = defined_names(&root.dir) {
-                ignored.extend(names.into_iter().map(|name| Ignored { plugin_id: plugin_id.clone(), name }));
+            // exactly as when this root wasn't scanned at all. Read the same way
+            // as a counted root, so an entry any build would refuse (a
+            // built-in's name, an invalid definition) is reported as refused,
+            // and only what this build alone leaves out as ignored.
+            if let Some(read) = read_plugin(&root.dir, None, root.builtin, refused) {
+                ignored.extend(read.parsed.into_iter().map(|p| Ignored { plugin_id: read.id.clone(), name: p.name }));
             }
             continue;
         }
@@ -1242,19 +1231,26 @@ mod tests {
         let plugins = tempfile::tempdir().unwrap();
         let mut entry = rqbit_entry();
         entry["name"] = json!("demo-state");
-        write_plugin(plugins.path(), "torrents", json!([entry.clone()]));
+        let mut builtin = rqbit_entry();
+        builtin["name"] = json!("ffmpeg");
+        write_plugin(plugins.path(), "torrents", json!([entry.clone(), builtin]));
         let dev = PluginRoot { dir: plugins.path().join("torrents"), builtin: false, single: true, definitions_ignored: true };
 
         rebuild(profile.path(), vec![dev.clone()]);
         assert_eq!(definition_state("torrents", "demo-state"), DefinitionState::DevFolderIgnored);
+        let s = status();
+        assert!(s.ignored.iter().all(|i| i.name != "ffmpeg"), "a built-in's name is refused by any build, not ignored");
+        assert!(s.refused.iter().any(|r| r.plugin_id == "torrents" && r.name == "ffmpeg"));
+        assert_eq!(definition_state("torrents", "ffmpeg"), DefinitionState::Active, "Vibo's own definition is in force");
+        assert_eq!(definition_state("someone-else", "ffmpeg"), DefinitionState::Active);
         assert!(active_def("demo-state").is_none() && status().pending_consent.is_empty(), "ignored, not waiting");
         assert_eq!(definition_state("someone-else", "demo-state"), DefinitionState::Undefined, "only the plugin it came from");
 
         rebuild(profile.path(), vec![PluginRoot { definitions_ignored: false, ..dev.clone() }]);
-        let DefinitionState::PendingConsent { item } = definition_state("torrents", "demo-state") else {
+        let DefinitionState::PendingConsent { items } = definition_state("torrents", "demo-state") else {
             panic!("an unsigned definition in a counted root waits for consent");
         };
-        grant_consent(profile.path(), "torrents", &[item.fingerprint]).unwrap();
+        grant_consent(profile.path(), "torrents", &items.into_iter().map(|i| i.fingerprint).collect::<Vec<_>>()).unwrap();
         assert_eq!(definition_state("torrents", "demo-state"), DefinitionState::Active);
         assert_eq!(definition_state("someone-else", "demo-state"), DefinitionState::Active, "in force for everyone");
 

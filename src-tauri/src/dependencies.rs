@@ -786,6 +786,12 @@ fn resolve_binary(name: &str) -> Option<(PathBuf, DepOrigin)> {
         .map(|path| (path, DepOrigin::System))
 }
 
+/// Is there a copy of `name` here (managed or on the augmented PATH), whether
+/// or not any definition is in force — no probe, just the file.
+pub fn found_on_machine(name: &str) -> bool {
+    resolve_binary(name).is_some()
+}
+
 fn run_probe(def: &DependencyDef) -> DepStatus {
     let resolved = resolve_binary(def.name);
 

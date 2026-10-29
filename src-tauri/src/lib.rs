@@ -1680,12 +1680,27 @@ pub fn run() {
             let checker_native_dir = native_plugins_dir.clone();
             // The tools plugins define (dependency_registry.rs), read before
             // anything asks for one: the auto-updater below and the frontend's
-            // first dependency check. The plugin listing rebuilds it again with
-            // the dev folder the frontend knows about.
+            // first dependency check. The dev folder is the one the frontend
+            // will name (usePlugins: `devPluginPath`, only with `debugMode` on),
+            // so a dev plugin asking for a tool before the plugin listing
+            // rebuilds again is told the real reason (`DevFolderIgnored`).
+            let startup_dev_plugin_dir = {
+                let store = std::fs::read_to_string(app_dir.join("app-state.json"))
+                    .ok()
+                    .and_then(|c| serde_json::from_str::<serde_json::Value>(&c).ok());
+                store
+                    .as_ref()
+                    .filter(|j| j.get("debugMode").and_then(|v| v.as_bool()) == Some(true))
+                    .and_then(|j| j.get("devPluginPath").and_then(|v| v.as_str()).map(str::to_string))
+            };
             timer.time("dependency_registry", || {
                 dependency_registry::rebuild(
                     &app_dir,
-                    dependency_registry::roots_for(&app_dir, native_plugins_dir.as_deref(), None),
+                    dependency_registry::roots_for(
+                        &app_dir,
+                        native_plugins_dir.as_deref(),
+                        startup_dev_plugin_dir.as_deref(),
+                    ),
                 )
             });
             let dep_cache = Arc::new(dependencies::DepCache::new());

@@ -78,12 +78,16 @@ export interface UndefinedTool {
  * backend's `dependency_definition_state`, read when the plugin asks so it is
  * the registry's answer now (`dependency_registry::DefinitionState`).
  */
-export type DefinitionState =
+export type DefinitionState = (
   | { kind: "active" }
-  | { kind: "pendingConsent"; item: PendingDefinition }
+  | { kind: "pendingConsent"; items: PendingDefinition[] }
   | { kind: "refused"; reason: string }
   | { kind: "devFolderIgnored" }
-  | { kind: "undefined" };
+  | { kind: "undefined" }
+) & {
+  /** No definition in force, yet a copy of the tool is on this machine. */
+  present?: boolean;
+};
 
 /**
  * Why a plugin's `require-dependency` can't open an install dialog. Shown to
@@ -94,13 +98,18 @@ export function noDefinitionReason(
   name: string,
   state: Exclude<DefinitionState, { kind: "active" } | { kind: "pendingConsent" }>,
 ): string {
+  // A copy already here: installing isn't the problem, letting the plugin use
+  // it is (without a definition in force nothing may run it).
+  const lead = state.present
+    ? `${name} is on this machine, but Vibo can't let this plugin use it`
+    : `Couldn't install ${name}`;
   switch (state.kind) {
     case "refused":
-      return `Couldn't install ${name}: Vibo refused this plugin's definition of it (${state.reason}).`;
+      return `${lead}: Vibo refused this plugin's definition of it (${state.reason}).`;
     case "devFolderIgnored":
-      return `Couldn't install ${name}: this plugin runs from your dev plugin folder, and a release build of Vibo ignores tool definitions there. Run a development build, or install the plugin normally.`;
+      return `${lead}: this plugin runs from your dev plugin folder, and a release build of Vibo ignores tool definitions there. Run a development build, or install the plugin normally.`;
     case "undefined":
-      return `Couldn't install ${name}: no installed plugin tells Vibo where to get it.`;
+      return `${lead}: no installed plugin tells Vibo where to get it.`;
   }
 }
 
@@ -507,8 +516,13 @@ export function useDependencies(pluginStates: PluginState[]) {
 
   /** Ask the user to let an unsigned plugin's definitions be used. Resolves
    *  true when they agreed and the consent was recorded. */
+  // Resolves with the user's answer; rejects when no answer could be asked for
+  // or kept (another consent dialog is open, or recording it failed), so a
+  // caller never mistakes that for a decline.
   const askConsent = useCallback(async (request: DefinitionConsentRequest): Promise<boolean> => {
-    if (consentAnswerRef.current) return false; // one dialog at a time
+    if (consentAnswerRef.current) {
+      throw new Error("another tool permission dialog is open. Answer it first, then try again.");
+    }
     const ok = await new Promise<boolean>((resolve) => {
       consentAnswerRef.current = resolve;
       setConsentRequest(request);
@@ -517,16 +531,18 @@ export function useDependencies(pluginStates: PluginState[]) {
     setConsentRequest(null);
     for (const item of request.items) answeredRef.current.add(`${item.pluginId}:${item.fingerprint}`);
     if (!ok) return false;
-    try {
-      await invoke("dependency_definitions_consent", {
-        pluginId: request.pluginId,
-        fingerprints: request.items.map((i) => i.fingerprint),
-      });
-      return true;
-    } catch (e) {
-      console.error("Failed to record consent for a plugin's tools:", e);
-      return false;
-    }
+    const recorded = await invoke("dependency_definitions_consent", {
+      pluginId: request.pluginId,
+      fingerprints: request.items.map((i) => i.fingerprint),
+    }).then(
+      () => null,
+      (e: unknown) => {
+        console.error("Failed to record consent for a plugin's tools:", e);
+        return e instanceof Error ? e.message : String(e);
+      },
+    );
+    if (recorded !== null) throw new Error(`Vibo couldn't record your OK (${recorded}).`);
+    return true;
   }, []);
 
   const answerConsent = useCallback((ok: boolean) => consentAnswerRef.current?.(ok), []);
@@ -657,7 +673,7 @@ export function useDependencies(pluginStates: PluginState[]) {
       let label = feature;
       let required = true;
       if (pluginId) {
-        const plugin = pluginStatesRef.current.find((p) => p.id === pluginId);
+        const plugin = pluginStatesRef.current.find((p) => p.id === pluginId && p.status === "active");
         if (!plugin) throw new Error(`Couldn't install ${name}: the plugin that asked for it isn't running.`);
         const entry = plugin.manifest.binaryDependencies?.find((b) => b.name === name);
         if (!entry) throw new Error(`Couldn't install ${name}: this plugin doesn't list it among the tools it uses.`);
@@ -668,7 +684,11 @@ export function useDependencies(pluginStates: PluginState[]) {
         const definitionState = () => invoke<DefinitionState>("dependency_definition_state", { pluginId, name });
         let state = await definitionState();
         if (state.kind === "pendingConsent") {
-          const ok = await askConsent({ pluginId, pluginName: state.item.pluginName, items: [state.item] });
+          // Every waiting fingerprint for this tool, so one Allow settles it.
+          const ok = await askConsent({ pluginId, pluginName: state.items[0].pluginName, items: state.items }).catch(
+            (e: unknown) => new Error(`Couldn't install ${name}: ${e instanceof Error ? e.message : String(e)}`),
+          );
+          if (ok instanceof Error) throw ok;
           if (!ok) return false;
           await checkAll();
           state = await definitionState();
