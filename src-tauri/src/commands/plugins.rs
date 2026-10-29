@@ -896,10 +896,18 @@ mod tests {
     async fn test_a_refused_connection_says_so() {
         // The slskd plugin picks a free port by looking for "refused"; reqwest's
         // Display alone says only "error sending request".
-        let (listener, url) = silent_server();
-        drop(listener);
-        let err = plugin_fetch(url, None, None, None, None, Some(2000), None, None).await.unwrap_err();
-        assert!(err.to_lowercase().contains("refused"), "{err}");
+        // A freed port can be taken by a parallel test's listener before we
+        // connect (that answers with a reset), so try a few fresh ports.
+        let mut err = String::new();
+        for _ in 0..5 {
+            let (listener, url) = silent_server();
+            drop(listener);
+            err = plugin_fetch(url, None, None, None, None, Some(2000), None, None).await.unwrap_err();
+            if err.to_lowercase().contains("refused") {
+                return;
+            }
+        }
+        panic!("no attempt was refused; last error: {err}");
     }
     use reqwest::header::{HeaderMap, HeaderValue, SET_COOKIE};
 
