@@ -27,7 +27,7 @@ import { subscribeTrackEvents } from "./trackEvents";
 import { track as trackTelemetry, setTelemetryEnabled as syncTelemetryEnabled, bucketCount, sourceClass } from "./telemetry";
 import { buildManifest, tracksFromManifest, contextFromManifest, contextToExportMetadata, contextFromMixtapeMetadata, playlistContextTitle, type Manifest, type MainPlaylistState } from "./mainPlaylist";
 import { collectionAlert } from "./utils/collectionAlert";
-import { buildPlaySession, buildMixtapeSession, bumpPlaySession, recordPlaySession, sessionKey, snapshotFor, newSnapshotId, snapshotIdsOf, droppedSnapshotIds, replaysFromSnapshot, type RecentPlaySession } from "./utils/recentPlays";
+import { buildPlaySession, buildMixtapeSession, bumpPlaySession, recordPlaySession, sessionKey, snapshotFor, newSnapshotId, snapshotIdsOf, droppedSnapshotIds, replaysFromSnapshot, replayTrack, cleanStoredSession, type RecentPlaySession } from "./utils/recentPlays";
 import { resolveImageUrl, resolveImageSrc, stripImageVersion } from "./utils/resolveImageUrl";
 import { resolveNowPlayingArt } from "./utils/nowPlayingArt";
 import { pickEntityImagePath } from "./utils/trackImage";
@@ -2870,6 +2870,25 @@ function App() {
   // mixtape opens its file again, library entities play fresh from the current
   // library, and a lone/unresolved track replays itself. A replay moves the
   // card to the front without re-recording it (`latestPlayDirectiveRef`).
+  // A replayed card's tracks come from storage, which holds no library ids (a
+  // stored rowid may since name another track), so look them up by path — the
+  // same one call queue restore makes. Without them the now-playing menu has
+  // no Delete / Show in folder until the next scan. Best-effort.
+  const withLibraryIds = useCallback(async (tracks: QueueTrack[]): Promise<QueueTrack[]> => {
+    const paths = [...new Set(tracks.map((t) => t.path).filter((p): p is string => !!p))];
+    if (paths.length === 0) return tracks;
+    try {
+      const idByPath = new Map(await invoke<[string, number][]>("find_track_ids_by_paths", { paths }));
+      return tracks.map((t) => {
+        const id = t.path ? idByPath.get(t.path) : undefined;
+        return id != null ? { ...t, libraryId: id } : t;
+      });
+    } catch (e) {
+      console.error("Failed to resolve library ids for a Latest play replay:", e);
+      return tracks;
+    }
+  }, []);
+
   const handleReplayLatestPlay = useCallback(async (clicked: RecentPlaySession) => {
     // The live entry for this card wins over the shelf's copy, which may be older.
     const session = recentPlaysRef.current.find((e) => sessionKey(e) === sessionKey(clicked)) ?? clicked;
@@ -2889,7 +2908,7 @@ function App() {
       if (replaysFromSnapshot(session) && session.snapshotId) {
         try {
           const manifest = await invoke<Manifest>("recent_play_read", { id: session.snapshotId });
-          let tracks = tracksFromManifest(manifest);
+          let tracks = await withLibraryIds(tracksFromManifest(manifest));
           if (tracks.length > 0) {
             try {
               const byId = await fetchLikeStates(tracks);
@@ -2933,14 +2952,16 @@ function App() {
       }
       // track / playlist / unresolved library entity → replay the captured lead
       // track. Still a replay of this card, not a new single-track card.
-      const lead = session.track;
+      // A new queue entry, so a fresh key — the stored one belonged to the
+      // session that recorded the card (see `replayTrack`).
+      const lead = session.track ? (await withLibraryIds([replayTrack(session.track)]))[0] : null;
       if (lead) { playAsReplay(() => queueHook.playTracks([lead], 0), snapshotFailed); return; }
       notify(`Couldn't replay “${session.name}”.`, { kind: "error" });
     } catch (e) {
       console.error("Failed to replay latest-play session:", e);
       notify(`Couldn't replay “${session.name}”.`, { kind: "error" });
     }
-  }, [playActions, queueHook, notify]);
+  }, [playActions, queueHook, notify, withLibraryIds]);
 
   // The sidebar's list reshaped for the surfaces that offer plugin views as a
   // way out of an empty library (Home's empty state, the caption-bar search's
@@ -4126,7 +4147,13 @@ function App() {
 
   useEffect(() => {
     (async () => {
-      const plays = (await store.get<RecentPlaySession[]>("recentPlaySessions")) ?? [];
+      const stored = (await store.get<RecentPlaySession[]>("recentPlaySessions")) ?? [];
+      // Cards saved before leads were stored without their queue key / rowid
+      // still carry both; strip them once, and write back only if any did.
+      const plays = stored.map(cleanStoredSession);
+      if (plays.some((p, i) => p !== stored[i])) {
+        store.set("recentPlaySessions", plays).catch((e) => console.error("Failed to persist cleaned recentPlaySessions:", e));
+      }
       recentPlaysRef.current = plays;
       setRecentPlays(plays);
       // Sweep snapshot files no session names: crash orphans, a reset store.

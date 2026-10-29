@@ -38,9 +38,15 @@ const RESOLVE_CACHE_MAX = 64;
  *  never reads it. */
 const RESOLVE_FAILURE_TTL_MS = 15000;
 
-/** Identity of a failed resolve: the queue key plus the metadata the resolvers
- *  search by, so an "Edit info…" fix to the entry earns a fresh try at once. */
-function resolveFailureId(track: QueueTrack): string {
+/** Identity of a cached resolve — success, failure or in flight: the queue key
+ *  plus the metadata the resolvers search by. The key alone is not enough: a
+ *  key that comes back on a *different* song (it happened — a Latest play card
+ *  stored one across launches) would otherwise be handed the other song's
+ *  source, and the engine played Hurricane under King Park's title. The
+ *  metadata half also makes an "Edit info…" fix earn a fresh try at once.
+ *  `path` is deliberately left out: a resolve may patch it (a metadata-only
+ *  entry resolving to a local file), and the retry that follows must still hit. */
+function resolveIdentity(track: QueueTrack): string {
   return [track.key, track.title, track.artist_name ?? "", track.album_title ?? ""].join("\u0000");
 }
 
@@ -278,8 +284,10 @@ export function useStreamResolution({
   // otherwise fire for the SAME track when several paths resolve it at once or
   // in quick succession (a play, the per-tick video pre-resolve, and the
   // engine-error → handlePlay retry).
-  const inFlightResolvesRef = useRef<Map<string, Promise<ResolvedTrackSource>>>(new Map());
-  const resolveCacheRef = useRef<Map<string, { at: number; resolved: ResolvedTrackSource; meta: ResolvedSource | null }>>(new Map());
+  // Every entry carries `id` (resolveIdentity) and is only reused for a track
+  // with the same one — never on the key alone.
+  const inFlightResolvesRef = useRef<Map<string, { id: string; promise: Promise<ResolvedTrackSource> }>>(new Map());
+  const resolveCacheRef = useRef<Map<string, { at: number; id: string; resolved: ResolvedTrackSource; meta: ResolvedSource | null }>>(new Map());
   // Negative counterpart, read by preloads only — see RESOLVE_FAILURE_TTL_MS.
   // Keyed by QueueTrack.key; the entry's `id` carries the metadata it failed with.
   const resolveFailedRef = useRef<Map<string, { at: number; id: string }>>(new Map());
@@ -721,6 +729,7 @@ export function useStreamResolution({
     resolveTrackSrcRef.current = async (track, opts) => {
       const preload = !!opts?.preload;
       const key = track.key;
+      const id = resolveIdentity(track);
 
       // One-shot: consumed here so the retry re-resolves and a third attempt
       // (which would be re-answering an error we never saw) doesn't.
@@ -732,7 +741,7 @@ export function useStreamResolution({
 
       if (preload) {
         const failed = resolveFailedRef.current.get(key);
-        if (failed && failed.id === resolveFailureId(track) && Date.now() - failed.at < RESOLVE_FAILURE_TTL_MS) {
+        if (failed && failed.id === id && Date.now() - failed.at < RESOLVE_FAILURE_TTL_MS) {
           // Empty src, not a throw: every preload caller already treats it as
           // "nothing to arm" quietly, and this answers ~4×/s for the whole TTL.
           return { src: "" };
@@ -741,7 +750,7 @@ export function useStreamResolution({
 
       const cached = fresh ? undefined : resolveCacheRef.current.get(key);
       if (cached) {
-        if (Date.now() - cached.at < RESOLVE_CACHE_TTL_MS && cached.resolved.src) {
+        if (cached.id === id && Date.now() - cached.at < RESOLVE_CACHE_TTL_MS && cached.resolved.src) {
           // A cache hit skips doResolve, which is what normally writes the
           // now-playing source UI — replay those side effects for a real play so
           // the source/quality label still updates. Preload must not touch the
@@ -759,7 +768,7 @@ export function useStreamResolution({
       // A retry must not join the in-flight resolve it is retrying — that promise
       // is the answer that just failed.
       const existing = fresh ? undefined : inFlightResolvesRef.current.get(key);
-      if (existing) return existing;
+      if (existing && existing.id === id) return existing.promise;
 
       const promise = (async () => {
         let out: Awaited<ReturnType<typeof doResolve>>;
@@ -767,7 +776,7 @@ export function useStreamResolution({
           out = await doResolve(track, preload, fresh);
         } catch (e) {
           if (resolveFailedRef.current.size >= RESOLVE_CACHE_MAX) resolveFailedRef.current.clear();
-          resolveFailedRef.current.set(key, { at: Date.now(), id: resolveFailureId(track) });
+          resolveFailedRef.current.set(key, { at: Date.now(), id });
           throw e;
         }
         resolveFailedRef.current.delete(key);
@@ -783,15 +792,18 @@ export function useStreamResolution({
           if (resolveCacheRef.current.size >= RESOLVE_CACHE_MAX) resolveCacheRef.current.clear();
           resolveCacheRef.current.set(key, {
             at: Date.now(),
+            id,
             resolved: { src: out.src, patch: out.patch, engineSource: out.engineSource },
             meta: out.meta ?? null,
           });
         }
         return { src: out.src, patch: out.patch, engineSource: out.engineSource };
       })().finally(() => {
-        inFlightResolvesRef.current.delete(key);
+        // Only this resolve's own entry: a different song under the same key
+        // may have replaced it since.
+        if (inFlightResolvesRef.current.get(key)?.promise === promise) inFlightResolvesRef.current.delete(key);
       });
-      inFlightResolvesRef.current.set(key, promise);
+      inFlightResolvesRef.current.set(key, { id, promise });
       return promise;
     };
   }, [resolveTrackSrcRef, resolveStreamByUriRef, streamResolversRef, preferVideoRef, clearResolveStageFailure]);

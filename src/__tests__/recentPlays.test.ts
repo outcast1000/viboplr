@@ -12,6 +12,8 @@ import {
   SNAPSHOT_TRACK_CAP,
   bumpPlaySession,
   buildMixtapeSession,
+  replayTrack,
+  cleanStoredSession,
   type RecentPlaySession,
 } from "../utils/recentPlays";
 import type { QueueTrack } from "../types";
@@ -228,7 +230,8 @@ describe("mixtape cards", () => {
 
   it("point at the file, store no cover and take no snapshot", () => {
     const s = buildMixtapeSession("/m/Road Trip.mixtape", "Road Trip", lead, 7);
-    expect(s).toEqual({ source: "mixtape", name: "Road Trip", mixtapePath: "/m/Road Trip.mixtape", track: lead, ts: 7 });
+    const { key: _key, ...stored } = lead;
+    expect(s).toEqual({ source: "mixtape", name: "Road Trip", mixtapePath: "/m/Road Trip.mixtape", track: stored, ts: 7 });
     expect(snapshotFor([lead, lead, lead], 0, "mixtape")).toBeNull();
     expect(replaysFromSnapshot(s)).toBe(false);
     expect(sessionSubtitle(s)).toBe("Mixtape");
@@ -240,5 +243,60 @@ describe("mixtape cards", () => {
     expect(sessionKey(a)).not.toBe(sessionKey(b));
     expect(recordPlaySession([a], b)).toHaveLength(2);
     expect(recordPlaySession([a], { ...a, ts: 3 })).toHaveLength(1);
+  });
+});
+
+// The lead track is a fallback replay, persisted in the store across launches.
+// Its queue key named one entry of the session that recorded it; the counter
+// restarts every launch, so a stored key comes back as another live entry's —
+// and the resolver cache (keyed by it) then played THAT entry's file under
+// this card's title. The rowid is reusable too. Neither may be stored.
+describe("session lead track identity", () => {
+  const lead = track({ key: "q:4", libraryId: 12856, title: "King Park" });
+
+  it("stores neither the queue key nor the library id", () => {
+    const sessions = [
+      buildPlaySession([lead], 0, null, 1),
+      buildPlaySession([lead, track()], 0, { name: "Mix", source: "playlist" }, 1),
+      buildPlaySession([lead], 0, { name: "Wildlife", source: "album" }, 1),
+      buildMixtapeSession("/m/x.mixtape", "X", lead, 1),
+    ];
+    for (const s of sessions) {
+      expect(s?.track?.title).toBe("King Park");
+      expect(s?.track).not.toHaveProperty("key");
+      expect(s?.track).not.toHaveProperty("libraryId");
+    }
+  });
+
+  it("replays as a new entry with a fresh key, even from a card saved with one", () => {
+    // A card recorded before keys were stripped still holds `q:4`.
+    const legacy = { ...lead } as unknown as Parameters<typeof replayTrack>[0];
+    const a = replayTrack(legacy);
+    const b = replayTrack(legacy);
+    expect(a.key).not.toBe("q:4");
+    expect(a.key).not.toBe(b.key);
+    expect(a).not.toHaveProperty("libraryId");
+    expect(a.title).toBe("King Park");
+    expect(a.path).toBe(lead.path);
+  });
+});
+
+describe("cleanStoredSession", () => {
+  it("strips the key and rowid a card saved before stripping existed still holds", () => {
+    const legacy = { ...session({ source: "track", name: "King Park" }), track: track({ key: "q:4", libraryId: 12856, file_size: 9_000_000 }) } as unknown as RecentPlaySession;
+    const cleaned = cleanStoredSession(legacy);
+    expect(cleaned.track).not.toHaveProperty("key");
+    expect(cleaned.track).not.toHaveProperty("libraryId");
+    // Everything a card shows survives.
+    expect(cleaned.track?.file_size).toBe(9_000_000);
+    expect(cleaned.track?.title).toBe("Song");
+    expect(cleaned.name).toBe("King Park");
+  });
+
+  it("returns the same object when there is nothing to strip", () => {
+    const clean = buildPlaySession([track()], 0, null, 1)!;
+    expect(cleanStoredSession(clean)).toBe(clean);
+    const none = session();
+    expect(cleanStoredSession(none)).toBe(none);
   });
 });

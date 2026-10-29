@@ -526,6 +526,9 @@ pub struct PlayableTrack {
     /// compressed (another tool's archive), which had to be unpacked.
     pub path: Option<String>,
     pub thumb_path: Option<String>,
+    /// The audio's size in bytes (the entry's uncompressed size), so a track
+    /// played from a mixtape shows its size in the queue like any file.
+    pub file_size: Option<u64>,
 }
 
 /// Open a `.mixtape` to play it without unpacking the audio. Only the images
@@ -552,16 +555,20 @@ pub fn open_for_play(path: &Path, art_dir: &Path) -> Result<PlayableMixtape, Str
         // One broken entry (missing from the zip, or deflated under an unsafe
         // name) costs that track its audio, not the whole mixtape — it is
         // left metadata-only, for the stream resolvers to find.
-        let path = track.file.as_ref().and_then(|name| {
-            playable_entry(&mut archive, path, name, art_dir)
-                .map_err(|e| log::warn!("Mixtape: {}", e))
-                .ok()
-        });
+        let (path, file_size) = track
+            .file
+            .as_ref()
+            .and_then(|name| {
+                playable_entry(&mut archive, path, name, art_dir)
+                    .map_err(|e| log::warn!("Mixtape: {}", e))
+                    .ok()
+            })
+            .map_or((None, None), |(p, size)| (Some(p), Some(size)));
         let thumb_path = track
             .thumb
             .as_ref()
             .and_then(|name| copy_entry_out(&mut archive, name, art_dir));
-        tracks.push(PlayableTrack { path, thumb_path });
+        tracks.push(PlayableTrack { path, thumb_path, file_size });
     }
     Ok(PlayableMixtape { manifest, tracks, cover_path })
 }
@@ -630,20 +637,21 @@ fn playable_entry(
     mixtape: &Path,
     name: &str,
     art_dir: &Path,
-) -> Result<String, String> {
-    {
+) -> Result<(String, u64), String> {
+    let size = {
         let entry = archive
             .by_name(name)
             .map_err(|_| format!("Track file not found: {}", name))?;
         if entry.compression() == zip::CompressionMethod::Stored && !entry.encrypted() {
             if let Some(start) = entry.data_start() {
-                return Ok(entry_uri(mixtape, start, entry.compressed_size()));
+                return Ok((entry_uri(mixtape, start, entry.compressed_size()), entry.size()));
             }
         }
-    }
+        entry.size()
+    };
     let dest = copy_entry_out(archive, name, art_dir)
         .ok_or_else(|| format!("Failed to unpack track: {}", name))?;
-    Ok(format!("file://{}", dest))
+    Ok((format!("file://{}", dest), size))
 }
 
 /// Copy one entry into `dir` under its own in-archive path, which must stay
@@ -1033,6 +1041,8 @@ mod tests {
             b"fake mp3 data for testing",
             "the range must be exactly the stored track"
         );
+        // Its size rides along, so the queue row shows it like any file's.
+        assert_eq!(opened.tracks[0].file_size, Some(length));
         // No audio is written anywhere; only the images are copied out.
         let thumb = opened.tracks[0].thumb_path.as_deref().unwrap();
         assert!(Path::new(thumb).starts_with(&art) && Path::new(thumb).exists());
@@ -1119,6 +1129,7 @@ mod tests {
         let file = path.strip_prefix("file://").expect("an unpacked file");
         assert!(Path::new(file).starts_with(&art));
         assert_eq!(std::fs::read(file).unwrap(), vec![7u8; 4096]);
+        assert_eq!(opened.tracks[0].file_size, Some(4096), "the audio's size, not the deflated entry's");
         assert_eq!(opened.tracks[0].thumb_path, None);
         assert!(!tmp.path().join("play").join("escape.jpg").exists());
     }

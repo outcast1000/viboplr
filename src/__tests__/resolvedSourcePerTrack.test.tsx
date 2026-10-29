@@ -45,7 +45,7 @@ function mount() {
       }),
     { initialProps: { currentTrack: A as QueueTrack | null } },
   );
-  return { hook, resolve: (t: QueueTrack, opts?: { preload?: boolean }) => resolveTrackSrcRef.current(t, opts) };
+  return { hook, resolveStreamByUri, resolve: (t: QueueTrack, opts?: { preload?: boolean }) => resolveTrackSrcRef.current(t, opts) };
 }
 
 beforeEach(() => { invoke.mockReset(); });
@@ -75,5 +75,49 @@ describe("resolvedSource follows the current track", () => {
     await act(async () => { await resolve(A); });
     hook.rerender({ currentTrack: B });
     expect(hook.result.current.resolvedSource).toBeNull();
+  });
+});
+
+// The resolve cache is keyed by queue key, so it must also check WHICH song it
+// holds: a Latest play card brought back a key from an earlier launch, the
+// same key a mixtape track had just been given, and the 12s success cache
+// handed King Park Hurricane's file — the engine played one song under the
+// other's title.
+describe("the resolve cache never serves another song under a reused key", () => {
+  it("a different song under the same key resolves its own source", async () => {
+    const { resolve } = mount();
+    const hurricane = { ...track("q:4", "hurricane"), title: "Hurricane", artist_name: "Kyuss" };
+    const kingPark = { ...track("q:4", "king-park"), title: "King Park", artist_name: "La Dispute" };
+    let first!: ResolvedTrackSource;
+    let second!: ResolvedTrackSource;
+    await act(async () => { first = await resolve(hurricane); });
+    await act(async () => { second = await resolve(kingPark); });
+    expect(first.src).toBe("https://cdn.example/hurricane.mp3");
+    expect(second.src).toBe("https://cdn.example/king-park.mp3");
+  });
+
+  it("a different song doesn't join a resolve still in flight under its key", async () => {
+    // A preload of one song is still out when a play of another arrives under
+    // the same key. (Two overlapping *plays* are a different rule: the newer
+    // supersedes the older, which then answers an empty src.)
+    const { resolve } = mount();
+    const a = { ...track("q:4", "one"), title: "One" };
+    const b = { ...track("q:4", "two"), title: "Two" };
+    let ra!: ResolvedTrackSource;
+    let rb!: ResolvedTrackSource;
+    await act(async () => { [ra, rb] = await Promise.all([resolve(a, { preload: true }), resolve(b)]); });
+    expect(ra.src).toBe("https://cdn.example/one.mp3");
+    expect(rb.src).toBe("https://cdn.example/two.mp3");
+  });
+
+  it("the same entry asked again still hits the cache", async () => {
+    // What the cache is for: the engine-error retry and the per-tick preload
+    // re-asking for the entry that is already resolved.
+    const { resolve, resolveStreamByUri } = mount();
+    await act(async () => { await resolve(A); });
+    const after = resolveStreamByUri.mock.calls.length;
+    await act(async () => { await resolve({ ...A }); });
+    expect(after).toBeGreaterThan(0);
+    expect(resolveStreamByUri.mock.calls.length).toBe(after);
   });
 });

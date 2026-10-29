@@ -251,7 +251,7 @@ describe("resolveSessionCover", () => {
   it("falls back to the lead track's album/artist for non-entity sources", async () => {
     const resolve = vi.fn(async (album: string | null | undefined) => (album === "Tape Album" ? "/track-album.jpg" : null));
     const cover = await resolveSessionCover(
-      session({ source: "tag", name: "chill", track: { key: "ext:1", path: null, title: "Song", artist_name: "Artie", album_title: "Tape Album", duration_secs: null, format: null, liked: 0 } }),
+      session({ source: "tag", name: "chill", track: { path: null, title: "Song", artist_name: "Artie", album_title: "Tape Album", duration_secs: null, format: null, liked: 0 } }),
       resolve,
     );
     expect(cover).toBe("/track-album.jpg");
@@ -282,7 +282,7 @@ describe("resolveSessionCover", () => {
     const cover = await resolveSessionCover(
       session({
         source: "mixtape", name: "Road Trip", mixtapePath: "/m/x.mixtape",
-        track: { key: "q:1", path: null, title: "Song", artist_name: "Artie", album_title: "LP", duration_secs: null, format: null, liked: 0 },
+        track: { path: null, title: "Song", artist_name: "Artie", album_title: "LP", duration_secs: null, format: null, liked: 0 },
       }),
       resolve,
       async () => null,

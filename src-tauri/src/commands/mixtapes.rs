@@ -411,6 +411,7 @@ pub async fn open_mixtape_for_play(
                     "duration_secs": t.duration_secs,
                     "path": playable.path,
                     "image_url": playable.thumb_path,
+                    "file_size": playable.file_size,
                 })
             })
             .collect();

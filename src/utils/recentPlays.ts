@@ -1,5 +1,43 @@
 import type { QueueTrack } from "../types";
 import type { PlaylistContext } from "../hooks/useQueue";
+import { nextQueueKey } from "../queueEntry";
+
+/** A session's lead track as stored: a QueueTrack minus its session-only
+ *  identity. `key` names one entry of one live queue (a stored one comes back
+ *  as a *different* entry's key next launch — the counter restarts — and the
+ *  resolver cache, keyed by it, then played that entry's file under this
+ *  card's title); `libraryId` is a reusable SQLite rowid. Neither is persisted
+ *  anywhere else, so neither is here. */
+export type SessionTrack = Omit<QueueTrack, "key" | "libraryId">;
+
+/** A track minus its session-only identity. Takes a stored track too: a
+ *  session saved before this existed still holds `key` / `libraryId`. */
+function stripSessionIdentity(t: SessionTrack & { key?: unknown; libraryId?: unknown }): SessionTrack {
+  const { key: _key, libraryId: _libraryId, ...rest } = t;
+  return rest;
+}
+
+/** Strip a lead track down to what a session may store. */
+export function sessionTrack(t: QueueTrack | null): SessionTrack | null {
+  return t ? stripSessionIdentity(t) : null;
+}
+
+/** A stored session as it should be held: a session restored from the store
+ *  may predate `sessionTrack`, so its lead still carries an old key and rowid,
+ *  and every replay would write them back (`bumpPlaySession` keeps the entry
+ *  as it is). Returns the same object when there is nothing to strip. */
+export function cleanStoredSession(s: RecentPlaySession): RecentPlaySession {
+  const t = s.track as (SessionTrack & { key?: unknown; libraryId?: unknown }) | null | undefined;
+  if (!t || (!("key" in t) && !("libraryId" in t))) return s;
+  return { ...s, track: stripSessionIdentity(t) };
+}
+
+/** A stored lead track as a NEW queue entry, with a fresh key. `libraryId`
+ *  is the caller's to look up again (by path — see App's replay), since a
+ *  stored rowid may since name another track. */
+export function replayTrack(t: SessionTrack): QueueTrack {
+  return { ...stripSessionIdentity(t), key: nextQueueKey() };
+}
 
 // How a captured play session is replayed (see App.tsx handleReplayLatestPlay).
 export type RecentPlaySource = "album" | "artist" | "tag" | "radio" | "playlist" | "track" | "mixtape";
@@ -20,7 +58,7 @@ export interface RecentPlaySession {
   imagePath?: string | null; // cover for the card (from the play context)
   seedTitle?: string; // radio: seed, for the fallback when the snapshot is gone
   seedArtist?: string | null; // radio: seed artist, when known
-  track?: QueueTrack | null; // fallback replay for track/playlist/unresolved sources
+  track?: SessionTrack | null; // fallback replay for track/playlist/unresolved sources — replay via `replayTrack`
   /** mixtape: the `.mixtape` file the play opened — replayed by opening it
    *  again, and where the card's cover is read from. */
   mixtapePath?: string;
@@ -133,7 +171,7 @@ export function buildMixtapeSession(
   lead: QueueTrack | null,
   now: number,
 ): RecentPlaySession {
-  return { source: "mixtape", name: title, mixtapePath, track: lead, ts: now };
+  return { source: "mixtape", name: title, mixtapePath, track: sessionTrack(lead), ts: now };
 }
 
 // Strip the "Radio: " prefix the radio context adds, recovering the seed title.
@@ -152,7 +190,7 @@ export function buildPlaySession(
   context: PlaylistContext | null,
   now: number,
 ): RecentPlaySession | null {
-  const lead = tracks[startIndex] ?? tracks[0] ?? null;
+  const lead = sessionTrack(tracks[startIndex] ?? tracks[0] ?? null);
   const source = context?.source ?? null;
 
   if (context && source === "album") {
