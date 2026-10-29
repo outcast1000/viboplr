@@ -20,10 +20,6 @@
   background: var(--bg-hover);
   color: var(--text-primary);
 }
-.notification-bell:focus-visible {
-  outline: 2px solid var(--accent);
-  outline-offset: 1px;
-}
 .notification-bell-dot {
   position: absolute;
   top: 5px;
@@ -82,7 +78,6 @@
   cursor: pointer;
 }
 .notifications-link:hover { text-decoration: underline; }
-.notifications-link:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
 .notifications-empty {
   padding: 22px 16px;
   color: var(--text-secondary);

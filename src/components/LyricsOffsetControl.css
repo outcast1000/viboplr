@@ -73,8 +73,3 @@
   color: var(--accent);
 }
 
-.lyric-offset-btn:focus-visible,
-.lyric-offset-value:focus-visible {
-  outline: 2px solid var(--accent);
-  outline-offset: -2px;
-}

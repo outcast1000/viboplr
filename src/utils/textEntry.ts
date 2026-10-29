@@ -5,8 +5,7 @@
 // test used to be `tagName === "INPUT" || tagName === "TEXTAREA"`, which counts
 // every slider and checkbox as typing — so clicking the volume slider left
 // focus on it and silently killed the arrow keys app-wide, with no focus ring
-// to explain it (`*:focus { outline: none }` in base.css draws a ring for
-// `:focus-visible` only, i.e. never for a mouse click).
+// to explain it (base.css draws no focus ring at all).
 //
 // A control is not a text field. Only these are:
 //   - <textarea>

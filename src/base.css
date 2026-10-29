@@ -155,16 +155,12 @@ input, textarea, [contenteditable],
   user-select: text;
 }
 
-*:focus {
-  outline: none;
-}
-
-/* Keyboard-only focus ring. Mouse clicks stay ring-free (:focus-visible only
-   matches keyboard / assistive-tech focus). Baseline so every native control
-   shows where keyboard focus lands. */
+/* No focus rings, keyboard focus included (owner decision, 2026-10-29): a
+   rectangle around whatever was last focused read as UI noise. Don't add
+   per-component :focus-visible outlines or box-shadow rings back. */
+*:focus,
 *:focus-visible {
-  outline: 2px solid var(--accent);
-  outline-offset: 2px;
+  outline: none;
 }
 
 html, body, #root {
@@ -229,10 +225,6 @@ body.window-transparent {
   background: rgba(var(--overlay-base), 0.1);
   color: var(--text-primary);
   border-color: rgba(var(--overlay-base), 0.15);
-}
-.g-btn:focus-visible {
-  outline: 2px solid var(--accent);
-  outline-offset: 2px;
 }
 .g-btn svg {
   display: block;

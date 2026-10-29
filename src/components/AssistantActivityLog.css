@@ -26,7 +26,6 @@
 }
 .aal-chip:hover { border-color: var(--accent); }
 .aal-chip.is-on { border-color: var(--accent); color: var(--text-primary); }
-.aal-chip:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 
 .aal-empty { padding: 18px 4px; color: var(--text-secondary); font-size: var(--fs-sm); }
 .aal-note { color: var(--text-secondary); font-size: var(--fs-xs); }

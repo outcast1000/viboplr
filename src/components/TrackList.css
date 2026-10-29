@@ -56,11 +56,6 @@
 
 /* Listbox keyboard focus: subtle inset ring on the container — the active-row
    ring (below) is the primary cursor indicator. */
-.track-list:focus-visible {
-  outline: 2px solid rgba(var(--accent-rgb), 0.5);
-  outline-offset: -2px;
-  border-radius: var(--ds-radius);
-}
 
 /* Long lists (see `useCv` in TrackList.tsx): let the browser skip layout/paint
    for off-screen rows. `contain-intrinsic-size: auto <h>` reserves a row-height

@@ -325,8 +325,6 @@
 }
 
 .now-source-icon:focus-visible {
-  outline: 2px solid var(--accent);
-  outline-offset: 2px;
   color: var(--text-secondary);
 }
 
@@ -751,9 +749,6 @@
   color: var(--text-primary);
 }
 
-.now-playing-mini .g-btn:focus-visible {
-  outline: none;
-}
 
 
 /* Always-present rail behind the fill. A fill-only line has no visual weight
