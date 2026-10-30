@@ -7,7 +7,7 @@
 import { describe, expect, it, vi } from "vitest";
 import {
   GUIDES, INSTRUCTIONS, TOOLS, TOOL_CATEGORIES, PROXY_SEP, SHEET_FILE_MAX_BYTES, argProblems, buildPluginProxies, isReadOnlyCall,
-  parseSheetFile, runTool, toolsFor,
+  parseSheetFile, runTool, schemaFor, toolsFor,
 } from "../../mcp/tools.mjs";
 import { inProcessContext, invokeHostTool, listHostTools } from "../utils/hostAssistantTools";
 import { checkPermission, describePermission, PermissionError } from "../pluginWorker/permissions";
@@ -85,6 +85,45 @@ describe("tool catalog metadata", () => {
       ["slskd__download", false],
     ]);
     for (const p of proxies) expect(p.categories).toEqual(["plugins"]);
+  });
+
+  it("plugin proxies take the categories their plugin declared, known names only", () => {
+    const tool = (name: string, categories?: unknown) => ({ name, description: name, readOnly: true, categories });
+    const proxies = buildPluginProxies({
+      plugins: [{
+        pluginId: "lyrics",
+        tools: [
+          tool("search_lyrics", ["info", "library", "info"]),
+          tool("odd", ["info", "nonsense"]),
+          tool("unknown_only", ["nonsense"]),
+          tool("not_a_list", "info"),
+          tool("none"),
+        ] as never,
+      }],
+    });
+    expect(Object.fromEntries(proxies.map((p) => [p.tool, p.categories]))).toEqual({
+      search_lyrics: ["info", "library"],
+      odd: ["info"],
+      unknown_only: ["plugins"],
+      not_a_list: ["plugins"],
+      none: ["plugins"],
+    });
+  });
+
+  it("shows each transport's model only the parameters it can use", () => {
+    const cue = TOOLS.find((t) => t.name === "cue_sheet")!;
+    const props = (s: Record<string, unknown>) => Object.keys(s.properties as object);
+    expect(props(schemaFor(cue, "mcp"))).toContain("sheetFile");
+    expect(props(schemaFor(cue, "app"))).not.toContain("sheetFile");
+    expect(props(schemaFor(cue, "app"))).toContain("cues");
+    // The catalog itself is untouched: the MCP server lists it as-is.
+    expect(Object.keys(cue.inputSchema.properties as object)).toContain("sheetFile");
+    // A hidden parameter leaves `required` too, or the model is told to send it.
+    const fake = { ...cue, paramTransports: { action: ["mcp"] } };
+    expect(cue.inputSchema.required).toContain("action");
+    expect(schemaFor(fake, "app").required).not.toContain("action");
+    const plain = TOOLS.find((t) => t.name === "search_library")!;
+    expect(schemaFor(plain, "app")).toBe(plain.inputSchema);
   });
 });
 

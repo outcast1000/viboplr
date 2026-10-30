@@ -69,6 +69,7 @@ import {
   describeContributes,
   annotateGalleryPlugins,
   annotateGallerySkins,
+  describeProviderChain,
   selectSearchTracks,
   serializeCatalogTracks,
   resolveHomeShelf,
@@ -91,6 +92,7 @@ import {
   searchCatalog, webSearch,
 } from "../utils/hostOps";
 import { addToQueue, playNow, playWithBackfill, type DuplicatePolicy, type QueueOpsDeps } from "../utils/queueOps";
+import { isCoreImageProvider } from "../utils/coreImageProviders";
 import { permissionReasons } from "../pluginWorker/permissions";
 import type { DeleteTracksResult } from "./useContextMenuActions";
 
@@ -817,14 +819,30 @@ export function useControlApi(deps: ControlApiDeps) {
         const cacheMap = new Map(cached.map(([integerId, typeId, value, status, fetchedAt]) =>
           [typeId, { integerId, value, status, fetchedAt }]));
         const now = Math.floor(Date.now() / 1000);
+        const names = d.plugins.pluginNames ?? new Map<string, string>();
+        // The image chain for this kind too, so "which sources do I have?" is
+        // one call. Built-in rows (folder, embedded, server) run in the chain
+        // but a pin can't reach them, so only plugin providers are listed.
+        const kind = entity.kind;
+        const imageProviders = kind === "artist" || kind === "album" || kind === "tag"
+          ? describeProviderChain(
+              (await invoke<Array<[string, number, number]>>("get_image_providers", { entity: kind }))
+                .map(([id]) => id)
+                .filter((id) => !isCoreImageProvider(id)),
+              names,
+            )
+          : undefined;
         return {
           entityKey,
+          ...(imageProviders ? { imageProviders } : {}),
           sections: types.map(([typeId, name, displayKind, ttl, , providers]) => {
             const c = cacheMap.get(typeId);
             return {
               typeId,
               name,
               displayKind,
+              // In the user's order: the ids a pluginId pin takes for this type.
+              providers: describeProviderChain(providers.map(([id]) => id), names),
               status: c?.status ?? null,
               fetchedAt: c?.fetchedAt ?? null,
               fresh: c

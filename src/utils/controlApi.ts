@@ -19,6 +19,8 @@ import { resolveShelfPlayAction } from "./homeShelfPlay";
 import { validateSkin } from "../skinUtils";
 import { SKIN_COLOR_KEYS } from "../types/skin";
 import { stabilityTier } from "./pluginStability";
+import { imageProviderName } from "./coreImageProviders";
+import { TOOL_CATEGORIES } from "../../mcp/tools.mjs";
 
 /** Payload of the `control-api-request` Tauri event. */
 export interface ControlApiRequest {
@@ -507,7 +509,7 @@ export function buildAssistantRoster(
   pluginId: string;
   name: string;
   instructions: string | null;
-  tools: Array<{ name: string; description: string; inputSchema: Record<string, unknown> | null; readOnly: boolean }>;
+  tools: Array<{ name: string; description: string; inputSchema: Record<string, unknown> | null; readOnly: boolean; categories?: string[] }>;
 }> {
   const byPlugin = new Map<string, PluginAssistantTool[]>();
   for (const t of tools) {
@@ -527,8 +529,28 @@ export function buildAssistantRoster(
       // Rust's /v1/assistant/invoke gate reads this: anything not exactly
       // `true` needs the "Plugin actions" scope.
       readOnly: t.readOnly === true,
+      ...knownCategories(t.categories),
     })),
   }));
+}
+
+/** A tool's declared categories, known names only — every reader of the
+ *  roster (other plugins, the MCP proxies) gets the same clean list. None
+ *  known → no field, which files the tool under "plugins". */
+function knownCategories(declared: unknown): { categories?: string[] } {
+  if (!Array.isArray(declared)) return {};
+  const known = [...new Set(declared.filter((c): c is string => (TOOL_CATEGORIES as readonly unknown[]).includes(c)))];
+  return known.length ? { categories: known } : {};
+}
+
+/** A provider chain as an assistant sees it: the ids a `pluginId` pin
+ *  accepts, in the user's order, each with the name Settings → Providers
+ *  shows. */
+export function describeProviderChain(
+  ids: readonly string[],
+  names: Map<string, string>,
+): Array<{ id: string; name: string }> {
+  return ids.map((id) => ({ id, name: imageProviderName(id, names) }));
 }
 
 /** Gallery plugin entries annotated against the installed set — what an

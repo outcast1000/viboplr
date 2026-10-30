@@ -199,6 +199,8 @@ export interface PluginManifestAssistant {
     inputSchema?: Record<string, unknown>;
     /** See `PluginAssistantToolDescriptor.readOnly`. */
     readOnly?: boolean;
+    /** See `PluginAssistantToolDescriptor.categories`. */
+    categories?: string[];
   }>;
 }
 
@@ -1835,6 +1837,15 @@ export interface PluginAssistantToolDescriptor {
    * every tool it is true for. Plugin-to-plugin calls are not gated.
    */
   readOnly?: boolean;
+  /**
+   * What the tool is about, from the app catalog's categories (library,
+   * playback, queue, playlists, likes, tags, info, catalog, web, download,
+   * files, plugins, app). An in-app agent picks tools by category, so a lyrics
+   * search declaring `["info"]` is offered with the app's own info tools.
+   * Unknown names are ignored; omitted (or none known) files it under
+   * `plugins`. Older hosts ignore the field.
+   */
+  categories?: string[];
 }
 
 /** A registered assistant tool as the host tracks it (manifest + runtime merged). */
@@ -1876,7 +1887,7 @@ export interface PluginAssistantAPI {
     pluginId: string;
     name: string;
     instructions: string | null;
-    tools: Array<{ name: string; description: string; inputSchema: Record<string, unknown> | null; readOnly: boolean }>;
+    tools: Array<{ name: string; description: string; inputSchema: Record<string, unknown> | null; readOnly: boolean; categories?: string[] }>;
   }>;
   /**
    * Call ANOTHER plugin's assistant tool and get its return value — the
@@ -1919,7 +1930,9 @@ export interface PluginHostTool {
   readOnlyWhen?: Record<string, unknown[]>;
   /** What the tool is about — pick tools by category, never by name, so new
    *  tools join a feature automatically: library, playback, queue, playlists,
-   *  likes, tags, info, catalog, download, files, plugins, app. */
+   *  likes, tags, info, catalog, web, download, files, plugins, app. A plugin
+   *  tool carries the categories its plugin declared; `plugins` holds only the
+   *  plugin tools that declared none. */
   categories: string[];
   /** Set for a plugin-published tool. */
   pluginId?: string;

@@ -1,7 +1,7 @@
 {
   "id": "lyrics",
   "name": "Lyrics",
-  "version": "1.1.0",
+  "version": "1.1.1",
   "author": "Vibo",
   "description": "Synced and plain lyrics from LRCLIB, with Lyrics.ovh as a plain-text fallback. Order or switch off each source in Settings → Providers.",
   "icon": "M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z",
@@ -18,12 +18,13 @@
       { "id": "lyrics-ovh", "name": "Lyrics.ovh" }
     ],
     "assistant": {
-      "instructions": "Web lyrics from two sources: LRCLIB (synced and plain, plus a free-text search) and Lyrics.ovh (plain text only, exact artist+title, no search). LRCLIB is asked for the exact artist+title (and the song's length when known), and on a miss searches its catalog itself, accepting only the same title and artist within 2 seconds of the length. For a KNOWN track use GET /v1/lyrics; add pluginId=lyrics/lrclib or pluginId=lyrics/lyrics-ovh (the bare source name also works) to force one source over local files. search_lyrics is for when exact metadata fails or is unknown: a free-text LRCLIB search returning candidate matches to disambiguate from.",
+      "instructions": "Web lyrics from two sources: LRCLIB (synced and plain, plus a free-text search) and Lyrics.ovh (plain text only, exact artist+title, no search). LRCLIB is asked for the exact artist+title (and the song's length when known), and on a miss searches its catalog itself, accepting only the same title and artist within 2 seconds of the length. For a KNOWN track use get_lyrics; add pluginId=lyrics/lrclib or pluginId=lyrics/lyrics-ovh (the bare source name also works) to force one source over local files. search_lyrics is for when exact metadata fails or is unknown: a free-text LRCLIB search returning candidate matches to disambiguate from.",
       "tools": [
         {
           "name": "search_lyrics",
           "readOnly": true,
           "description": "Free-text search of the LRCLIB catalog (title/artist keywords) — returns candidate tracks with whether synced lyrics exist. Use when an exact title+artist lookup came back empty",
+          "categories": ["info"],
           "inputSchema": { "type": "object", "properties": { "query": { "type": "string" }, "limit": { "type": "number", "description": "1-20, default 10" } }, "required": ["query"] }
         }
       ]

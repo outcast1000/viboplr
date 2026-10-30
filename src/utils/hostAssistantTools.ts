@@ -14,7 +14,7 @@
 
 import { invoke } from "@tauri-apps/api/core";
 import {
-  INSTRUCTIONS, PROXY_SEP, buildPluginProxies, runTool, toolsFor,
+  INSTRUCTIONS, PROXY_SEP, buildPluginProxies, runTool, schemaFor, toolsFor,
   type AssistantRoster, type CatalogTool, type ToolCategory, type ToolContext,
 } from "../../mcp/tools.mjs";
 
@@ -65,7 +65,7 @@ function describeCatalogTool(t: CatalogTool): HostToolInfo {
   return {
     name: t.name,
     description: t.description,
-    inputSchema: t.inputSchema,
+    inputSchema: schemaFor(t, TRANSPORT),
     readOnly: t.readOnly === true,
     ...(t.readOnlyWhen ? { readOnlyWhen: t.readOnlyWhen } : {}),
     categories: t.categories,

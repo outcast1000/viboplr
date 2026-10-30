@@ -27,6 +27,9 @@
 //                 pick tools by category, never by name, so a new tool joins
 //                 every feature that uses its category without a plugin release.
 //   transports    optional; omitted = everywhere. ["mcp"] = Node-only.
+//   paramTransports optional { argName: [transports] } — a parameter only
+//                 those transports can use; others' models don't see it
+//                 (schemaFor). The run must still refuse it elsewhere.
 
 export const SLOW_MS = 95_000; // plugin catalogs / info chains can shell out to yt-dlp
 export const DEFAULT_MS = 30_000;
@@ -518,7 +521,7 @@ export const TOOLS = [
     inputSchema: obj({
       title: str("Track title (omit to use the playing track)"),
       artistName: str("Artist (with title)"),
-      pluginId: str("Pin the fetch to one provider plugin (bypasses the cache and the chain)"),
+      pluginId: str("Pin the fetch to one provider (bypasses the cache and the chain) — the lyrics providers are listed by get_entity_info without typeId"),
     }),
     run: (args, ctx) => ctx.request("GET", `/v1/lyrics${qs(args)}`, undefined, { timeoutMs: SLOW_MS }),
   },
@@ -527,7 +530,7 @@ export const TOOLS = [
     readOnly: true,
     categories: ["info"],
     description:
-      "Info about a track/artist/album/tag (bio, similar, reviews, top tracks…). Without typeId: instant, lists the registered info types plus every cached value. With typeId (e.g. artist_bio, similar_artists): fetches that one live through the plugin provider chain (can take a while).",
+      "Info about a track/artist/album/tag (bio, similar, reviews, top tracks…). Without typeId: instant, lists the registered info types — each with its providers in the user's order (the ids pluginId takes) — plus every cached value, and for an artist/album/tag the plugin image providers get_entity_image's pluginId takes. With typeId (e.g. artist_bio, similar_artists): fetches that one live through the plugin provider chain (can take a while).",
     inputSchema: obj(
       {
         kind: en(["track", "artist", "album", "tag"], "Entity kind"),
@@ -535,7 +538,7 @@ export const TOOLS = [
         title: str("Track/album title (kind=track|album)"),
         artistName: str("Artist (for track/album)"),
         typeId: str("Fetch this one info type live (ids come from the no-typeId call)"),
-        pluginId: str("With typeId: pin the fetch to one provider plugin (bypasses the cache and the chain)"),
+        pluginId: str("With typeId: pin the fetch to one provider (a provider id from the no-typeId call, or a plugin id for all its providers; bypasses the cache and the chain)"),
       },
       ["kind"],
     ),
@@ -562,8 +565,9 @@ export const TOOLS = [
     readOnly: false,
     readOnlyWhen: { action: ["get"] },
     categories: ["info"],
+    paramTransports: { sheetFile: ["mcp"] },
     description:
-      "Read, save or delete a song's Now Playing cue sheet, played on the song's own clock; an open Now Playing view picks a save up immediately. Two modes: `cards` (default) — one captioned card at a time over the album art (facts, lyric meanings, images); `clip` — a text-and-image video clip over the whole Now Playing view: positioned, overlapping elements with sizes in percent of the view, colours, enter/exit/during motion presets and keyframes, able to cover the art entirely. Omit title/artistName to address what's playing. action=set replaces any earlier sheet and returns the normalized sheet (sorted, unknown fields dropped); a 400 names the offending cue and field. Build it from get_cue_context, whose `guide` (cards) and `clipGuide` (clip) are the format. A sheet too large to pass inline (a busy clip runs to tens of KB) can be written to a JSON file and passed as `sheetFile` instead of `cues`. Saved in the app's profile — no music file is touched and no permission switch is needed; the user can hide cards or the clip with a button on the Now Playing view.",
+      "Read, save or delete a song's Now Playing cue sheet, played on the song's own clock; an open Now Playing view picks a save up immediately. Two modes: `cards` (default) — one captioned card at a time over the album art (facts, lyric meanings, images); `clip` — a text-and-image video clip over the whole Now Playing view: positioned, overlapping elements with sizes in percent of the view, colours, enter/exit/during motion presets and keyframes, able to cover the art entirely. Omit title/artistName to address what's playing. action=set replaces any earlier sheet and returns the normalized sheet (sorted, unknown fields dropped); a 400 names the offending cue and field. Build it from get_cue_context, whose `guide` (cards) and `clipGuide` (clip) are the format. Saved in the app's profile — no music file is touched and no permission switch is needed; the user can hide cards or the clip with a button on the Now Playing view.",
     inputSchema: obj(
       {
         action: en(["get", "set", "delete"], "get / set (replace) / delete"),
@@ -703,7 +707,7 @@ export const TOOLS = [
     readOnly: true,
     categories: ["app"],
     description:
-      "The running Vibo's version and profile, which assistant permission switches are on (writeScopes), and this MCP server's own version. With checkLatest=true, also looks up the newest stable release of outcast1000/viboplr on GitHub (releases/latest — betas excluded) and reports whether the app is up to date. Report-only: updates are installed from inside the app (Settings → General), never from here.",
+      "The running Vibo's version and profile, which assistant permission switches are on (writeScopes), and (over MCP) the server's own version. With checkLatest=true, also looks up the newest stable release of outcast1000/viboplr on GitHub (releases/latest — betas excluded) and reports whether the app is up to date. Report-only: updates are installed from inside the app (Settings → General), never from here.",
     inputSchema: obj({
       checkLatest: bool("Also fetch the latest GitHub release and compare"),
     }),
@@ -1276,7 +1280,7 @@ export const TOOLS = [
         name: str("Entity name (album title for kind=album)"),
         artistName: str("Album artist (kind=album only)"),
         resolve: bool("Start an async resolve instead of reading the cache"),
-        pluginId: str("With resolve: fetch from this one plugin directly (synchronous, uncached)"),
+        pluginId: str("With resolve: fetch from this one provider directly (synchronous, uncached) — ids are listed by get_entity_info without typeId (imageProviders)"),
       },
       ["kind", "name"],
     ),
@@ -1381,6 +1385,20 @@ export function toolsFor(transport) {
   return TOOLS.filter((t) => !t.transports || t.transports.includes(transport));
 }
 
+/** The input schema a transport's model is shown: parameters listed in
+ *  `paramTransports` for other transports are left out. Display only — calls
+ *  still run against the full schema, so a stray argument gets the tool's own
+ *  "only available through …" answer. */
+export function schemaFor(tool, transport) {
+  const only = tool.paramTransports;
+  const props = tool.inputSchema?.properties;
+  if (!only || !props) return tool.inputSchema;
+  const shown = (key) => !only[key] || only[key].includes(transport);
+  const out = { ...tool.inputSchema, properties: Object.fromEntries(Object.entries(props).filter(([key]) => shown(key))) };
+  if (Array.isArray(out.required)) out.required = out.required.filter(shown);
+  return out;
+}
+
 
 // ---------------------------------------------------------------------------
 // Plugin tools as first-class MCP tools
@@ -1424,6 +1442,15 @@ export function mergeProxyRoster(prev, next, missingSince, now, graceMs = PROXY_
   return { tools: [...next, ...kept], missingSince: missing };
 }
 
+/** A plugin tool's declared categories, known names only. They REPLACE
+ *  "plugins" rather than add to it, so a feature routing by category gets a
+ *  plugin's lyrics search under "info" instead of one bucket of every plugin
+ *  tool; "plugins" is what a tool that declared nothing usable lands in. */
+function proxyCategories(declared) {
+  const known = Array.isArray(declared) ? [...new Set(declared.filter((c) => TOOL_CATEGORIES.includes(c)))] : [];
+  return known.length ? known : ["plugins"];
+}
+
 /** Pure: roster (GET /v1/assistant/tools) → MCP tool entries. Exported for tests. */
 export function buildPluginProxies(roster) {
   const out = [];
@@ -1453,7 +1480,7 @@ export function buildPluginProxies(roster) {
         inputSchema: { ...schema, type: "object", properties: schema.properties ?? {} },
         annotations: { readOnlyHint: readOnly },
         readOnly,
-        categories: ["plugins"],
+        categories: proxyCategories(t.categories),
         pluginId: p.pluginId,
         tool: t.name,
       });

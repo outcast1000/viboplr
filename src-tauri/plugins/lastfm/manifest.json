@@ -1,7 +1,7 @@
 {
   "id": "lastfm",
   "name": "Last.fm",
-  "version": "1.11.0",
+  "version": "1.11.2",
   "author": "Vibo",
   "description": "Scrobbling, now playing, history import, and metadata from Last.fm",
   "icon": "M17.5 19H9a7 7 0 1 1 6.71-9h1.79a4.5 4.5 0 1 1 0 9z",
@@ -33,17 +33,19 @@
   },
   "contributes": {
     "assistant": {
-      "instructions": "Last.fm scrobbling + account data. Public data (artist bios, similar artists/tracks, top tracks, tags) is served through the info types — use POST /v1/info/fetch (or the get_entity_info tool), optionally with pluginId=lastfm. These tools cover the ACCOUNT half the local library can't know: cross-device listening from the user's Last.fm profile. All of them need the user to be connected (check account_status first).",
+      "instructions": "Last.fm scrobbling + account data. Public data (artist bios, similar artists/tracks, top tracks, tags) is served through the info types — use get_entity_info, optionally with pluginId=lastfm. These tools cover the ACCOUNT half the local library can't know: cross-device listening from the user's Last.fm profile. All of them need the user to be connected (check account_status first).",
       "tools": [
         {
           "name": "account_status",
           "readOnly": true,
-          "description": "Whether Last.fm is connected, and as which username"
+          "description": "Whether Last.fm is connected, and as which username",
+          "categories": ["info"]
         },
         {
           "name": "recent_scrobbles",
           "readOnly": true,
           "description": "The user's latest scrobbles from their Last.fm account — includes plays from OTHER devices/apps, unlike the local history",
+          "categories": ["info"],
           "inputSchema": {
             "type": "object",
             "properties": {
@@ -58,6 +60,7 @@
           "name": "top_charts",
           "readOnly": true,
           "description": "The user's personal Last.fm charts (account-wide, cross-device)",
+          "categories": ["info"],
           "inputSchema": {
             "type": "object",
             "properties": {

@@ -848,10 +848,12 @@ Plugins expose their own callable surface to **AI assistants driving the control
 
 Same two paths as Home Shelves / Global Search:
 
-- **Static (manifest):** `contributes.assistant: { instructions?, tools: [{ name, description, inputSchema?, readOnly? }] }` — each tool still needs a handler via `api.assistant.onTool(name, handler)`.
-- **Runtime:** `api.assistant.registerTool({ name, description, inputSchema?, readOnly? })` when the capability is conditional (a missing binary means the tool can't answer and must not be offered); `api.assistant.setInstructions(text)` overrides the manifest prose while active (e.g. to reflect logged-in state).
+- **Static (manifest):** `contributes.assistant: { instructions?, tools: [{ name, description, inputSchema?, readOnly?, categories? }] }` — each tool still needs a handler via `api.assistant.onTool(name, handler)`.
+- **Runtime:** `api.assistant.registerTool({ name, description, inputSchema?, readOnly?, categories? })` when the capability is conditional (a missing binary means the tool can't answer and must not be offered); `api.assistant.setInstructions(text)` overrides the manifest prose while active (e.g. to reflect logged-in state).
 
 **Handler contract:** `handler(args: object) => Promise<any JSON-serializable value>`. The host never validates `args` against `inputSchema` — the schema is documentation passed through to the model; **the handler validates its own arguments** and should `throw new Error("readable message")` for bad input, since a throw becomes the assistant's error body verbatim. Handlers may run for tens of seconds (same 60s host budget as catalog search) — shelling out or hitting a network is fine. Everything is dropped on deactivate/reload; re-register in `activate`, and guard the whole namespace (`if (api.assistant)`) for older hosts.
+
+**Declare `categories` on every tool** — the app catalog's names (`TOOL_CATEGORIES` in `mcp/tools.mjs`: library, playback, queue, playlists, likes, tags, info, catalog, web, download, files, plugins, app). An in-app agent picks tools by category, never by name (cheap models can't take the whole roster at once), so a lyrics search declaring `["info"]` is offered beside `get_lyrics`. Declared categories **replace** `plugins`; unknown names are dropped (`buildPluginProxies`), and a tool with none left lands in `plugins`, which therefore means "plugin tools that didn't say". Older hosts ignore the field, so declaring it needs no `minAppVersion` bump.
 
 **Design the tools for a model, not a UI:** small, composable verbs with results a model can reason over (structured JSON, ids it can pass back), and instructions that say when *not* to use a tool. Don't duplicate what the host API already serves (library search, playback, info values) — expose what only the plugin knows or can do.
 

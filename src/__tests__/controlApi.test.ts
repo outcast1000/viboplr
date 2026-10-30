@@ -30,6 +30,7 @@ import {
   annotateGalleryPlugins,
   annotateGallerySkins,
   buildAssistantRoster,
+  describeProviderChain,
   parseAssistantSkin,
   resolveDeletableSkin,
 } from "../utils/controlApi";
@@ -495,6 +496,44 @@ describe("buildAssistantRoster", () => {
       ["search", true],
       ["download", false],
       ["legacy", false],
+    ]);
+  });
+
+  it("passes a tool's declared categories through, and adds none when it declared none", () => {
+    const roster = buildAssistantRoster(
+      [
+        { pluginId: "lyrics", name: "search_lyrics", description: "Search", readOnly: true, categories: ["info"] },
+        { pluginId: "lyrics", name: "plain", description: "Declares nothing", readOnly: true },
+      ],
+      new Map(),
+      new Map(),
+    );
+    expect(roster[0].tools[0].categories).toEqual(["info"]);
+    expect(roster[0].tools[1]).not.toHaveProperty("categories");
+  });
+
+  it("keeps only known category names, so every reader of the roster sees the same list", () => {
+    const roster = buildAssistantRoster(
+      [
+        { pluginId: "x", name: "mixed", description: "", categories: ["info", "nonsense", "info", 1 as never] },
+        { pluginId: "x", name: "junk", description: "", categories: ["nonsense"] },
+      ],
+      new Map(),
+      new Map(),
+    );
+    expect(roster[0].tools[0].categories).toEqual(["info"]);
+    expect(roster[0].tools[1]).not.toHaveProperty("categories");
+  });
+});
+
+describe("describeProviderChain", () => {
+  it("names plugin providers, provider keys and built-in rows, in the order given", () => {
+    const names = new Map([["genius", "Genius"], ["lyrics/lrclib", "LRCLIB"]]);
+    expect(describeProviderChain(["core:local-lyrics", "lyrics/lrclib", "genius", "gone"], names)).toEqual([
+      { id: "core:local-lyrics", name: "Local files" },
+      { id: "lyrics/lrclib", name: "LRCLIB" },
+      { id: "genius", name: "Genius" },
+      { id: "gone", name: "gone" },
     ]);
   });
 });

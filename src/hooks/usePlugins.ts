@@ -2047,6 +2047,7 @@ export function usePlugins(
               description: descriptor.description,
               inputSchema: descriptor.inputSchema,
               readOnly: descriptor.readOnly === true,
+              categories: descriptor.categories,
             };
             return trackUnsubscribe(registerKeyed(dynamicAssistantToolsRef.current, key, entry, () => setAssistantVersion((v) => v + 1)));
           },
@@ -3105,6 +3106,7 @@ export function usePlugins(
                 description: tool.description,
                 inputSchema: tool.inputSchema,
                 readOnly: tool.readOnly === true,
+                categories: tool.categories,
               });
             }
             if (contrib.assistant.instructions) {

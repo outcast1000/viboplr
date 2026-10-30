@@ -18,12 +18,14 @@
         {
           "name": "search_catalog",
           "readOnly": true,
+          "categories": ["catalog"],
           "description": "Search the fake 10-track catalog by title/artist substring",
           "inputSchema": { "type": "object", "properties": { "query": { "type": "string" } }, "required": ["query"] }
         },
         {
           "name": "get_state",
           "readOnly": true,
+          "categories": ["app"],
           "description": "The mock provider's current simulation settings (fail/error rates, delay)"
         }
       ]

@@ -36,6 +36,7 @@ export interface CatalogTool {
   readOnlyWhen?: Record<string, unknown[]>;
   categories: ToolCategory[];
   transports?: string[];
+  paramTransports?: Record<string, string[]>;
   run(args: Record<string, any>, ctx: ToolContext): Promise<unknown> | unknown;
 }
 
@@ -55,7 +56,14 @@ export interface AssistantRoster {
     pluginId: string;
     name?: string;
     instructions?: string | null;
-    tools?: Array<{ name: string; description?: string; inputSchema?: Record<string, unknown> | null; readOnly?: boolean }>;
+    tools?: Array<{
+      name: string;
+      description?: string;
+      inputSchema?: Record<string, unknown> | null;
+      readOnly?: boolean;
+      /** Plugin-declared; unknown names are dropped, none left → ["plugins"]. */
+      categories?: string[];
+    }>;
   }>;
 }
 
@@ -76,6 +84,7 @@ export function isReadOnlyCall(tool: Pick<CatalogTool, "readOnly" | "readOnlyWhe
 export function argProblems(schema: Record<string, any> | null | undefined, args: Record<string, unknown>): string[];
 export function runTool(tool: CatalogTool, args: Record<string, any> | null | undefined, ctx: ToolContext): Promise<unknown>;
 export function toolsFor(transport: string): CatalogTool[];
+export function schemaFor(tool: CatalogTool, transport: string): Record<string, unknown>;
 export function buildPluginProxies(roster: AssistantRoster | null | undefined): PluginProxyTool[];
 export function mergeProxyRoster(
   prev: PluginProxyTool[],
