@@ -27,6 +27,8 @@
     "short": "node scripts/make-short.mjs",
     "demo:library": "node scripts/make-demo-library.mjs",
     "demo:setup": "node scripts/setup-demo-profile.mjs",
+    "eval:setup": "node scripts/assistant-eval.mjs setup",
+    "eval:assistant": "node scripts/assistant-eval.mjs run",
     "screenshots": "playwright test --config tests/e2e/playwright.config.js tests/e2e/specs/screenshots.test.js && node scripts/convert-screenshots.mjs"
   },
   "dependencies": {

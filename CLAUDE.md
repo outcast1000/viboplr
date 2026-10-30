@@ -31,6 +31,8 @@ npm run perf:probe -- save --note "..."   # append the last probe run to benchma
 npm run app:smoke -- --expect-version 1.0.38 --save  # smoke-test the INSTALLED build + record startup (see below)
 npm run capture:media -- --list          # website persona media from the RUNNING app, macOS or Windows (control API UI verbs; see site.md)
 npm run short -- --demo ~/ViboplrDemo    # YouTube Shorts from the RUNNING demo profile (needs Settings → AI control → Click and type; see site.md)
+npm run eval:setup -- --music ~/ViboplrDemo  # once: the perf-eval profile + its snapshot, for the assistant eval
+npm run eval:assistant -- --repeat 3 --save  # Claude drives the installed app through MCP on tests/assistant-eval/cases.json; pass rate + cost (quits the running app; see testing.md)
 npm run loc                               # code size now vs the last release (see below); `npm run bump` runs this
 npm run loc -- save --ref v1.0.21         # back-fill one past release into benchmarks/loc-history.json
 ```

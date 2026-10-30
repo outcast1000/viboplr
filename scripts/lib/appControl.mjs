@@ -15,7 +15,7 @@
 // see appControlWin.mjs, dispatched to below on process.platform === "win32").
 
 import { spawnSync } from "node:child_process";
-import { existsSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import {
@@ -251,4 +251,27 @@ export function probeDumpPath(profile = PROBE_PROFILE) {
     profile,
     "probe-dump.json",
   );
+}
+
+/* ---------------------------------------------------------- control API */
+
+/**
+ * A client for the running app's control API, read from the discovery file
+ * in `profileDir` on every call — a relaunch writes a new port and token.
+ * `api(method, path, body?)` takes paths without the `/v1` prefix and
+ * resolves to the parsed JSON, or throws with the status and the app's error.
+ */
+export function controlApiClient(profileDir) {
+  const file = join(profileDir, "control-api.json");
+  return async (method, path, body) => {
+    const { port, token } = JSON.parse(readFileSync(file, "utf8"));
+    const res = await fetch(`http://127.0.0.1:${port}/v1${path}`, {
+      method,
+      headers: { Authorization: `Bearer ${token}`, ...(body !== undefined ? { "Content-Type": "application/json" } : {}) },
+      body: body !== undefined ? JSON.stringify(body) : undefined,
+    });
+    const text = await res.text();
+    if (!res.ok) throw new Error(`${method} ${path} → ${res.status}: ${text}`);
+    return text ? JSON.parse(text) : null;
+  };
 }
