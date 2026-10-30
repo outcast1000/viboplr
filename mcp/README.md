@@ -17,6 +17,12 @@ each tool through the control API in-process — so **add tools to `tools.mjs`**
 (each declares `readOnly` and `categories`), and both an outside MCP client and
 an in-app agent get them. Both files ship in the bundle side by side.
 
+**Adding or changing a tool:** add its calls to `tests/mcp/scenarios.json`,
+one per action, with the request each sends and the verb the route bridges.
+`npm run test:mcp` then checks the tool, the Rust route and the app's handler
+against each other (see `.claude/rules/testing.md` → "MCP / control API
+contract").
+
 ## Setup
 
 1. In Vibo: **Settings → AI control** — switch it on.

@@ -20,6 +20,7 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "test:rust": "cd src-tauri && cargo test",
+    "test:mcp": "vitest run src/__tests__/mcpContract.test.ts src/__tests__/mcpServer.test.ts src/__tests__/assistantTools.test.ts src/__tests__/controlApi.test.ts && cd src-tauri && cargo test --lib control_api::",
     "test:e2e": "playwright test --config tests/e2e/playwright.config.js",
     "test:all": "npm run lint && npm run test:rust && npm test && npm run test:e2e",
     "capture:media": "node scripts/capture-site-media.mjs",

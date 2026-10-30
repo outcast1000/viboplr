@@ -34,6 +34,15 @@ Commands live in `package.json` scripts (`test`, `test:rust`, `test:e2e`, `test:
 
 **Native menus:** every menu is a native OS menu with no DOM, so its items can't be clicked from any test layer. Build the specs in a pure `build*MenuSpecs()` function (`src/contextMenu/`) and assert *that* — item set, ordering, check state, and that each action fires the right callback. `buildContextMenuSpecs` and `buildQueueHeaderMenuSpecs` are the two examples; a new native menu should follow suit rather than shipping untestable.
 
+## MCP / control API contract
+
+The assistant surface is three layers that are each tested alone: the tool catalog (`mcp/tools.mjs`, which both the MCP server and in-app plugins run), the Rust router (`control_api.rs`), and the webview dispatcher (`useControlApi.ts`). **`tests/mcp/scenarios.json` is what keeps them in agreement.** Each entry is one tool call: its `args`, the exact `requests` it sends (method, path with query string, JSON body), and the bridge `verb` the route hands the webview (no `verb` = Rust answers it alone). Two tests read the same file:
+
+- `src/__tests__/mcpContract.test.ts` runs every call through `runTool` against a recording ctx and asserts the requests match exactly. It also fails when a tool, a value of a tool's `action` enum, or a `browse` kind has no scenario; when a declared verb has no `case` in `useControlApi.ts`'s `dispatch` (it would answer "unknown verb"); and when a `case` is reached by no scenario. That last check has one named exception, `tracks.delete`: only the second, hash-carrying call of a two-phase delete bridges it, and its own Rust test pins that bridge.
+- `control_api.rs` → `test_mcp_contract_scenarios` sends every request through the real `build_router` with all write scopes on and a fake webview that answers at once, and asserts each one reaches a route (not axum's empty 404, not 405) and bridges exactly its `verb`.
+
+So adding a tool or an action means adding its scenario; renaming a route or a verb fails one side or the other with the scenario named. The router's DB is empty. Today that matters only for `delete_tracks`, whose planning call never bridges. Every other write reaches its bridge, so a missing `verb` is a claim that the route answers in Rust. `npm run test:mcp` runs this plus the other assistant tests (`mcpServer`, `assistantTools`, `controlApi`, the Rust `control_api::` module); `test:all` already includes all of them.
+
 ## End-to-End (Playwright)
 
 **Config:** `tests/e2e/playwright.config.js`. **Test location:** `tests/e2e/specs/`.

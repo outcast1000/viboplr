@@ -3698,4 +3698,67 @@ mod tests {
         let err = api.call_in_process("GET", "/v1/health", None).await.unwrap_err();
         assert!(err.contains("AI control"), "{err}");
     }
+
+    /// The assistant tool contract, Rust half: every request in
+    /// tests/mcp/scenarios.json (what each MCP tool call sends — pinned by
+    /// src/__tests__/mcpContract.test.ts) must reach a real route, and bridge
+    /// exactly the scenario's `verb` (none when it has no `verb`). The
+    /// webview's half — that useControlApi.ts handles each verb — is checked
+    /// on the TypeScript side. All scopes are on, so a write reaches its
+    /// handler rather than stopping at the 403 (the scope sweep above covers
+    /// that); the fake webview answers every bridge at once with `{}`.
+    #[tokio::test]
+    async fn test_mcp_contract_scenarios() {
+        let doc: Value = serde_json::from_str(include_str!("../../tests/mcp/scenarios.json")).unwrap();
+        let dir = tempfile::tempdir().unwrap();
+        grant_scopes(dir.path(), WriteScopes { modify_tags: true, manage_files: true, downloads: true, plugin_actions: true, delete_tracks: true, ui_input: true });
+
+        let api_slot: Arc<std::sync::OnceLock<Arc<ControlApi>>> = Arc::new(std::sync::OnceLock::new());
+        let seen: Arc<Mutex<Vec<String>>> = Arc::new(Mutex::new(Vec::new()));
+        let emit: Arc<dyn Fn(&ControlRequest) + Send + Sync> = {
+            let (api_slot, seen) = (api_slot.clone(), seen.clone());
+            Arc::new(move |req: &ControlRequest| {
+                seen.lock().unwrap().push(req.verb.clone());
+                if let Some(api) = api_slot.get() {
+                    api.respond(req.id, true, json!({}));
+                }
+            })
+        };
+        let state = test_state_in(emit, dir.path().to_path_buf());
+        api_slot.set(state.api.clone()).ok();
+        let router = build_router(state);
+
+        let mut failures = Vec::new();
+        for scenario in doc["scenarios"].as_array().unwrap() {
+            let Some(requests) = scenario["requests"].as_array() else { continue };
+            let expected_verb = scenario["verb"].as_str();
+            let name = format!("{} {}", scenario["tool"].as_str().unwrap(), scenario["args"]);
+            seen.lock().unwrap().clear();
+            for r in requests {
+                let (method, path) = (r["method"].as_str().unwrap(), r["path"].as_str().unwrap());
+                let req = match r.get("body") {
+                    Some(body) => request_json(method, path, TEST_TOKEN, &body.to_string()),
+                    None => request(method, path, Some(TEST_TOKEN)),
+                };
+                let res = router.clone().oneshot(req).await.unwrap();
+                let status = res.status();
+                // A handler's own 404 ("no such track") carries a JSON error;
+                // axum's unmatched-route 404 has an empty body.
+                let unrouted = status == StatusCode::METHOD_NOT_ALLOWED
+                    || (status == StatusCode::NOT_FOUND && {
+                        let bytes = axum::body::to_bytes(res.into_body(), usize::MAX).await.unwrap();
+                        serde_json::from_slice::<Value>(&bytes).ok().and_then(|v| v.get("error").cloned()).is_none()
+                    });
+                if unrouted {
+                    failures.push(format!("{name}: {method} {path} matches no route ({status})"));
+                }
+            }
+            let bridged = seen.lock().unwrap().clone();
+            let want: Vec<String> = expected_verb.map(|v| vec![v.to_string()]).unwrap_or_default();
+            if bridged != want {
+                failures.push(format!("{name}: bridged {bridged:?}, scenarios.json says {want:?}"));
+            }
+        }
+        assert!(failures.is_empty(), "MCP contract broken:\n  {}", failures.join("\n  "));
+    }
 }
