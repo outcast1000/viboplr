@@ -10,6 +10,7 @@ import { TrackArtFallback } from "./TrackArtFallback";
 import { EntityArtFallback } from "./EntityArtFallback";
 import { firstUsableImage, type ImageCandidate } from "../utils/imageCandidates";
 import "./HomeView.css";
+import { VinylArt } from "./PlaceholderArt";
 
 // First track's album image, falling back to its artist image — the on-demand
 // (fetch + refresh) cover for a playlist card with no explicit coverUrl. Used for
@@ -32,12 +33,17 @@ function playlistFallbackImage(
 // have pruned that file (a rotated Spotify mix) — so it is only the first
 // candidate: then the lead track's own image, then its album/artist image. A
 // Latest play card ships no tracks; its lead is the session's track.
+/** The track a playlist card opens with — whose art stands in for the card's, and whose placeholder does when there is none. */
+function playlistLead(it: { tracks?: PluginTrack[]; __session?: { track?: PluginTrack | null } }): PluginTrack | undefined {
+  return it.tracks?.[0] ?? it.__session?.track ?? undefined;
+}
+
 export function playlistCardCandidates(
   it: { coverUrl?: string; tracks?: PluginTrack[]; __session?: { track?: PluginTrack | null } },
   albumImageFor: (name: string, artistName?: string) => string | null,
   artistImageFor: (name: string) => string | null,
 ): ImageCandidate[] {
-  const lead = it.tracks?.[0] ?? it.__session?.track ?? undefined;
+  const lead = playlistLead(it);
   const leadTracks = lead ? [lead] : undefined;
   return [
     resolveImageUrl(it.coverUrl),
@@ -49,15 +55,13 @@ export function playlistCardCandidates(
 // Renders a shelf card's art with graceful degradation. `candidates` is an
 // ordered chain of already-resolved `<img src>` values or lazy thunks (first
 // usable one wins); on a load failure that src is dropped and the next is tried. When every
-// candidate is missing or fails, the first-letter placeholder renders instead of
-// the browser's broken-image glyph. Mirrors QueueItemThumb in QueuePanel.tsx.
-function ShelfCardArt({ candidates, name, fallback }: { candidates: ImageCandidate[]; name: string; fallback?: React.ReactNode }) {
+// candidate is missing or fails, the card's `fallback` placeholder renders instead
+// of the browser's broken-image glyph. Mirrors QueueItemThumb in QueuePanel.tsx.
+function ShelfCardArt({ candidates, name, fallback }: { candidates: ImageCandidate[]; name: string; fallback: React.ReactNode }) {
   const [failedSrcs, setFailedSrcs] = useState<Set<string>>(new Set());
   const src = firstUsableImage(candidates, failedSrcs);
   if (!src) {
-    // Track-rows pass a type-aware icon, album/artist cards the disc / person;
-    // playlist cards fall back to the letter.
-    return <div className="home-shelf-card-fallback">{fallback ?? (name[0]?.toUpperCase() ?? "?")}</div>;
+    return <div className="home-shelf-card-fallback">{fallback}</div>;
   }
   return (
     <img
@@ -67,6 +71,14 @@ function ShelfCardArt({ candidates, name, fallback }: { candidates: ImageCandida
       onError={() => setFailedSrcs(prev => new Set(prev).add(src))}
     />
   );
+}
+
+// A mix, radio or Latest play card with no cover: its lead track's placeholder
+// (that artist's colour and initial), else the accent record.
+function PlaylistCardFallback({ lead }: { lead: PluginTrack | undefined }) {
+  return lead
+    ? <TrackArtFallback track={lead} size={null} className="home-shelf-card-fallback-art" />
+    : <VinylArt color="var(--accent)" className="home-shelf-card-fallback-art" />;
 }
 
 export interface HomeShelfProps {
@@ -197,7 +209,11 @@ function renderCard(shelf: ResolvedShelf, item: HomeShelfItem, idx: number, ctx:
     return (
       <div key={`${idx}-${it.id}`} className="ds-card home-shelf-card" onClick={onClick} onContextMenu={onCtx}>
         <div className="ds-card-art">
-          <ShelfCardArt candidates={playlistCardCandidates(it, ctx.albumImageFor, ctx.artistImageFor)} name={it.name} />
+          <ShelfCardArt
+            candidates={playlistCardCandidates(it, ctx.albumImageFor, ctx.artistImageFor)}
+            name={it.name}
+            fallback={<PlaylistCardFallback lead={playlistLead(it)} />}
+          />
           {playButton(shelf, item, ctx)}
         </div>
         <div className="ds-card-body">
@@ -220,7 +236,7 @@ function renderCard(shelf: ResolvedShelf, item: HomeShelfItem, idx: number, ctx:
   return (
     <div key={`${idx}-${it.track.title}`} className="ds-card home-shelf-card home-shelf-card--track" onClick={onClick} onContextMenu={onCtx}>
       <div className="ds-card-art">
-        <ShelfCardArt candidates={[src]} name={it.track.title} fallback={<TrackArtFallback track={it.track} size={40} />} />
+        <ShelfCardArt candidates={[src]} name={it.track.title} fallback={<TrackArtFallback track={it.track} size={null} className="home-shelf-card-fallback-art" />} />
         {playButton(shelf, item, ctx)}
       </div>
       <div className="ds-card-body">
