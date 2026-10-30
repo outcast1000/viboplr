@@ -740,10 +740,7 @@ function App() {
     const startsVideo = !!starting && isVideoTrack(starting);
     if (startsVideo ? openNowPlayingOnVideoPlay : openNowPlayingOnPlay) {
       library.setView("nowplaying");
-      library.setSelectedArtist(null);
-      library.setSelectedAlbum(null);
-      library.setSelectedTag(null);
-      library.setSelectedTrack(null);
+      library.clearDetailSelection();
     }
     // Commit a new list, then delete the snapshot files of sessions that just
     // left the ring (evicted, or replaced by a newer play of the same thing).
@@ -1683,10 +1680,7 @@ function App() {
       setSearchInitialQuery(query);
       setSearchQueryKey(k => k + 1);
       library.setView("search");
-      library.setSelectedArtist(null);
-      library.setSelectedAlbum(null);
-      library.setSelectedTag(null);
-      library.setSelectedTrack(null);
+      library.clearDetailSelection();
     },
     onNavigateToArtist: (artistId) => {
       library.handleArtistClick(artistId);
@@ -3018,10 +3012,7 @@ function App() {
       setPluginSearchSeed(null);
     }
     library.setView(viewKey);
-    library.setSelectedArtist(null);
-    library.setSelectedAlbum(null);
-    library.setSelectedTag(null);
-    library.setSelectedTrack(null);
+    library.clearDetailSelection();
   }, [library, plugins]);
   const handlePluginSearchSeedConsumed = useCallback((nonce: number) => {
     setPluginSearchSeed((s) => (s?.nonce === nonce ? null : s));
@@ -3176,10 +3167,7 @@ function App() {
   // Ref-held so the deep-link effect below never sees a stale closure.
   const openQuizRef = useLatestRef(() => {
     library.setView("quiz");
-    library.setSelectedArtist(null);
-    library.setSelectedAlbum(null);
-    library.setSelectedTag(null);
-    library.setSelectedTrack(null);
+    library.clearDetailSelection();
   });
 
   // viboplr://play and viboplr://open — the "Play in Vibo" / "Open in Vibo"
@@ -3242,10 +3230,7 @@ function App() {
     }
     if (cmd.view) {
       library.setView(cmd.view);
-      library.setSelectedArtist(null);
-      library.setSelectedAlbum(null);
-      library.setSelectedTag(null);
-      library.setSelectedTrack(null);
+      library.clearDetailSelection();
     }
     // After `view`, so `view=X&artist=Y` lands on the detail page rather than
     // being clobbered by the plain view switch above.
@@ -4648,17 +4633,11 @@ function App() {
   // goes through the handler a click reaches — library navigation, the queue
   // toggle, the bar's download button — so a navigated page is the page a
   // person would have opened. Validation lives in utils/uiControl.ts.
-  const clearDetailSelection = () => {
-    library.setSelectedArtist(null);
-    library.setSelectedAlbum(null);
-    library.setSelectedTag(null);
-    library.setSelectedTrack(null);
-  };
   const uiNavigate = async (target: NavigateTarget) => {
     switch (target.kind) {
       case "view":
         library.setView(target.view);
-        clearDetailSelection();
+        library.clearDetailSelection();
         return;
       case "artist":
         await library.navigateToArtistByName(target.name);
@@ -4677,7 +4656,7 @@ function App() {
         return;
       case "settings":
         library.setView("settings");
-        clearDetailSelection();
+        library.clearDetailSelection();
         if (target.section) setSettingsScrollTarget(target.section);
         return;
       case "plugin": {
@@ -5991,59 +5970,35 @@ function App() {
         collapsed={sidebarCollapsed}
         onShowHome={() => {
           library.setView("home");
-          library.setSelectedArtist(null);
-          library.setSelectedAlbum(null);
-          library.setSelectedTag(null);
-          library.setSelectedTrack(null);
+          library.clearDetailSelection();
         }}
         onShowSearch={() => {
           library.setView("search");
-          library.setSelectedArtist(null);
-          library.setSelectedAlbum(null);
-          library.setSelectedTag(null);
-          library.setSelectedTrack(null);
+          library.clearDetailSelection();
         }}
         onShowHistory={() => {
           library.setView("history");
-          library.setSelectedArtist(null);
-          library.setSelectedAlbum(null);
-          library.setSelectedTag(null);
-          library.setSelectedTrack(null);
+          library.clearDetailSelection();
         }}
         onShowNowPlaying={() => {
           library.setView("nowplaying");
-          library.setSelectedArtist(null);
-          library.setSelectedAlbum(null);
-          library.setSelectedTag(null);
-          library.setSelectedTrack(null);
+          library.clearDetailSelection();
         }}
         onShowPlaylists={() => {
           library.setView("playlists");
-          library.setSelectedArtist(null);
-          library.setSelectedAlbum(null);
-          library.setSelectedTag(null);
-          library.setSelectedTrack(null);
+          library.clearDetailSelection();
         }}
         onShowCollections={() => {
           library.setView("collections");
-          library.setSelectedArtist(null);
-          library.setSelectedAlbum(null);
-          library.setSelectedTag(null);
-          library.setSelectedTrack(null);
+          library.clearDetailSelection();
         }}
         onShowSettings={() => {
           library.setView("settings");
-          library.setSelectedArtist(null);
-          library.setSelectedAlbum(null);
-          library.setSelectedTag(null);
-          library.setSelectedTrack(null);
+          library.clearDetailSelection();
         }}
         onShowExtensions={() => {
           library.setView("extensions");
-          library.setSelectedArtist(null);
-          library.setSelectedAlbum(null);
-          library.setSelectedTag(null);
-          library.setSelectedTrack(null);
+          library.clearDetailSelection();
         }}
         updateBadge={updateBadgeFor(updater.updateState)}
         collectionAlertLabel={collectionAlert(library.collections)}
@@ -6898,10 +6853,7 @@ function App() {
                 className="video-dock-btn"
                 onClick={() => {
                   library.setView("nowplaying");
-                  library.setSelectedArtist(null);
-                  library.setSelectedAlbum(null);
-                  library.setSelectedTag(null);
-                  library.setSelectedTrack(null);
+                  library.clearDetailSelection();
                 }}
                 title="Now Playing"
                 aria-label="Switch to Now Playing"

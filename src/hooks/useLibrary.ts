@@ -401,6 +401,21 @@ export function useLibrary(restoredRef: React.RefObject<boolean>, onBeforeNaviga
     setFallbackTrackName(null);
   }
 
+  /**
+   * Close whatever detail page is open: the selected library artist / album /
+   * tag / track **and** the name-only pages. Every switch to a top-level view
+   * goes through this — a name-only track page renders over any view, so a
+   * switch that cleared only the selections left it on screen (the sidebar and
+   * the control API's `navigate {view}` both did).
+   */
+  function clearDetailSelection() {
+    setSelectedArtist(null);
+    setSelectedAlbum(null);
+    setSelectedTag(null);
+    setSelectedTrack(null);
+    clearFallback();
+  }
+
   async function navigateToArtistByName(name: string) {
     const result = await invoke<Artist | null>("find_artist_by_name", { name });
     if (result && artists.some(a => a.id === result.id)) {
@@ -524,6 +539,7 @@ export function useLibrary(restoredRef: React.RefObject<boolean>, onBeforeNaviga
     fallbackArtistName, setFallbackArtistName,
     fallbackAlbumName, setFallbackAlbumName,
     fallbackTrackName, setFallbackTrackName,
+    clearDetailSelection,
     navigateToArtistByName, navigateToAlbumByName, navigateToTagByName, navigateToTrackByName,
     loadLibrary, loadTracks,
     hasMore, loadingMore, loadMore,
