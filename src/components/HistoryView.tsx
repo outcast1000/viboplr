@@ -9,6 +9,7 @@ import { useImageCache } from "../hooks/useImageCache";
 import { pickEntityImagePath, resolveTrackImage } from "../utils/trackImage";
 import { useQueueVideoFrames, shelfVideoKey } from "../hooks/useShelfVideoFrames";
 import { TrackRow } from "./TrackRow";
+import type { FallbackArtTrack } from "./TrackArtFallback";
 // Index-based multi-select over the currently-visible rows (string keys so
 // tracks and artists can share one ordered list). The prefixed keys are built
 // by the parent; the algorithm itself is the shared generic.
@@ -46,7 +47,7 @@ interface HistoryViewProps {
 // already resolved by the caller — track rows run the shared album→artist chain,
 // artist rows a plain artist lookup.
 function HistoryRow({
-  selected, active, dataIndex, rank, kind = "track", imageUrl, title, subtitle,
+  selected, active, dataIndex, rank, kind = "track", imageUrl, artTrack, title, subtitle,
   onClick, onContextMenu, onDoubleClick, onPlay, onEnqueue, onStartRadio, onDetails,
 }: {
   selected: boolean;
@@ -55,6 +56,8 @@ function HistoryRow({
   dataIndex?: number;
   rank?: number;
   imageUrl: string | null;
+  /** What a track row's no-art placeholder reads (audio vs video, artist colour). */
+  artTrack?: FallbackArtTrack;
   title: string;
   subtitle: React.ReactNode;
   onClick: (e: React.MouseEvent) => void;
@@ -71,7 +74,9 @@ function HistoryRow({
       active={active}
       dataAttrs={dataIndex != null ? { "data-history-index": dataIndex } : undefined}
       leading={rank != null ? <span className="history-rank">{rank}</span> : undefined}
-      thumb={imageUrl ? { kind: "image", url: imageUrl } : { kind: kind === "artist" ? "artist" : "disc" }}
+      thumb={kind === "artist"
+        ? (imageUrl ? { kind: "image", url: imageUrl, fallback: { kind: "artist" } } : { kind: "artist" })
+        : (imageUrl ? { kind: "image", url: imageUrl, track: artTrack } : { kind: "disc", track: artTrack })}
       title={title}
       subtitle={subtitle}
       onClick={onClick}
@@ -550,6 +555,7 @@ export const HistoryView = forwardRef<HistoryViewHandle, HistoryViewProps>(
                     dataIndex={idx}
                     rank={t.rank}
                     imageUrl={trackImageUrl(t)}
+                    artTrack={{ artist_name: t.display_artist, path: t.display_path }}
                     title={t.display_title}
                     subtitle={<>{t.display_artist ?? "Unknown"} &middot; {t.play_count} play{t.play_count !== 1 ? "s" : ""}</>}
                     onClick={(e) => handleRowClick(e, selKey)}
@@ -580,6 +586,7 @@ export const HistoryView = forwardRef<HistoryViewHandle, HistoryViewProps>(
                     active={idx === highlightedIndex}
                     dataIndex={idx}
                     imageUrl={trackImageUrl(entry)}
+                    artTrack={{ artist_name: entry.display_artist, path: entry.display_path }}
                     title={entry.display_title}
                     subtitle={<>{entry.display_artist ?? "Unknown"} &middot; {formatRelativeTime(entry.played_at)}</>}
                     onClick={(e) => handleRowClick(e, selKey)}
@@ -614,6 +621,7 @@ export const HistoryView = forwardRef<HistoryViewHandle, HistoryViewProps>(
                     dataIndex={idx}
                     rank={t.rank}
                     imageUrl={trackImageUrl(t)}
+                    artTrack={{ artist_name: t.display_artist, path: t.display_path }}
                     title={t.display_title}
                     subtitle={<>{t.display_artist ?? "Unknown"} &middot; {t.play_count} play{t.play_count !== 1 ? "s" : ""}</>}
                     onClick={(e) => handleRowClick(e, selKey)}

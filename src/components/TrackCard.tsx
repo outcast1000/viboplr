@@ -7,16 +7,17 @@ import type { ReactNode } from "react";
 import type { Album } from "../types";
 import { AlbumCardArt } from "./AlbumCardArt";
 import { VideoRowThumb } from "./VideoRowThumb";
+import { TrackArtFallback, type FallbackArtTrack } from "./TrackArtFallback";
 import { LikeDislikeButtons } from "./LikeDislikeButtons";
 
 // Art is resolved by the caller into one of four shapes (mirrors TrackRowThumb).
 // "image" takes a ready-to-render URL (already converted/resolved by the caller,
 // e.g. resolveTrackImage) — for surfaces without a library Album row to hand over.
 export type TrackCardArt =
-  | { kind: "video"; trackId: number; trackPath?: string | null; alt: string }
+  | { kind: "video"; trackId: number; trackPath?: string | null; alt: string; artistName?: string | null }
   | { kind: "album"; album: Album; imagePath: string | null }
   | { kind: "image"; url: string; alt: string }
-  | { kind: "letter"; text: string };
+  | { kind: "placeholder"; track: FallbackArtTrack };   // no art: TrackArtFallback
 
 export interface TrackCardProps {
   art: TrackCardArt;
@@ -37,7 +38,7 @@ export interface TrackCardProps {
 
 function CardArt({ art }: { art: TrackCardArt }) {
   if (art.kind === "video") {
-    return <VideoRowThumb trackId={art.trackId} trackPath={art.trackPath} alt={art.alt} className="album-card-art" />;
+    return <VideoRowThumb trackId={art.trackId} trackPath={art.trackPath} alt={art.alt} artistName={art.artistName} className="album-card-art" />;
   }
   if (art.kind === "album") {
     return <AlbumCardArt album={art.album} imagePath={art.imagePath} />;
@@ -49,7 +50,7 @@ function CardArt({ art }: { art: TrackCardArt }) {
       </div>
     );
   }
-  return <div className="album-card-art">{art.text}</div>;
+  return <div className="album-card-art track-card-art--placeholder"><TrackArtFallback track={art.track} size={null} className="track-card-art-fallback" /></div>;
 }
 
 export function TrackCard({

@@ -7,7 +7,7 @@ import { invoke } from "@tauri-apps/api/core";
 import type { Track, QueueTrack } from "../../types";
 import type { CardGridItem, StatItem, TrackRowItem, BarChartDatum, LineSeries, PluginMenuItem, PluginContextMenuTarget } from "../../types/plugin";
 import { showNativeMenu, type MenuItemSpec } from "../../nativeMenu";
-import { formatDuration, getInitials } from "../../utils";
+import { formatDuration } from "../../utils";
 import { computeSelection as computeSelectionGeneric } from "../../utils/rowSelection";
 import { ViewSearchBar } from "../ViewSearchBar";
 import { TrackRow } from "../TrackRow";
@@ -1035,7 +1035,7 @@ function PluginTrackRowsSelectable({
       >
         {items.map((item, i) => {
           // Consistent thumbnail (image_url → album → artist by name), with a
-          // first-letter placeholder on a miss — same chain as the library list.
+          // the track placeholder on a miss — same chain as the library list.
           const art = imageForRow(item);
           return (
             <TrackRow
@@ -1050,7 +1050,9 @@ function PluginTrackRowsSelectable({
               id={optionId(i)}
               ariaSelected={selected.has(item.id)}
               leading={numbered ? <span className="ptr-num">{i + 1}</span> : undefined}
-              thumb={art ? { kind: "image", url: art } : { kind: "initials", text: getInitials(item.title) }}
+              // A plugin row has no artist field; its subtitle is the closest thing
+              // (the artist on most views), so it colours the placeholder.
+              thumb={art ? { kind: "image", url: art, track: { artist_name: item.subtitle } } : { kind: "disc", track: { artist_name: item.subtitle } }}
               title={item.title}
               subtitle={rowSubtitle(item)}
               belowSubtitle={<RowProgress item={item} />}

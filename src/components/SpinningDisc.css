@@ -36,7 +36,7 @@
 /* Own compositing layer while spinning, so WebKit runs the rotation on the
    compositor. Without it the Web Animation could stall in WKWebView until
    something else repainted (it advanced only while the mouse moved). Scoped to
-   .playing: TrackArtFallback draws an idle disc on every art-less row. */
+   .playing: a track list draws an idle disc beside every row that isn't playing. */
 .spinning-disc.playing .spinning-disc-svg {
   will-change: transform;
 }

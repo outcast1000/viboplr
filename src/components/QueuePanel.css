@@ -624,7 +624,9 @@ button.queue-item-status-failed:focus-visible .queue-resolving-error {
   display: flex;
   align-items: center;
   justify-content: center;
-  background: var(--bg-secondary);
+  /* A soft spotlight behind the TrackArtFallback record, so the tile reads as a
+     lit surface rather than an empty grey box. */
+  background: radial-gradient(circle at 50% 40%, var(--bg-primary), var(--bg-secondary) 75%);
   color: var(--text-tertiary);
 }
 

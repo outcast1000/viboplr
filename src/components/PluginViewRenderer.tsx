@@ -29,6 +29,7 @@ import { DetailHero } from "./DetailHero";
 import { PluginChat } from "./pluginViews/PluginChat";
 import { mapDetailHeaderToHeroProps } from "./pluginViews/mapDetailHeader";
 import { resolveImageUrl } from "../utils/resolveImageUrl";
+import { EntityArtFallback } from "./EntityArtFallback";
 
 interface PluginViewRendererProps {
   pluginName: string;
@@ -491,10 +492,8 @@ function PluginViewNode({
           }}
         />
       ) : (
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-          <circle cx="12" cy="12" r="10" />
-          <circle cx="12" cy="12" r="3" />
-        </svg>
+        // The album page's placeholder: same record, accent and size.
+        <EntityArtFallback kind="album" />
       );
       return (
         <DetailHero

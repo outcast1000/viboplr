@@ -999,14 +999,14 @@ export function SearchView({
             <div className="entity-list">
               {results.tracks.map((t, i) => {
                 // Thumbnail priority: local video frame → album image → artist
-                // image → default disc. No first-letter fallback (matches prior).
+                // image → the track's placeholder. No first-letter fallback.
                 let thumb: TrackRowThumb;
                 if (isLocalVideo(t)) {
-                  thumb = { kind: "video", trackId: t.id!, trackPath: t.path, alt: t.title };
+                  thumb = { kind: "video", trackId: t.id!, trackPath: t.path, alt: t.title, artistName: t.artist_name };
                 } else {
                   const img = (t.album_title ? getAlbumImage(t.album_title, t.album_artist_name ?? t.artist_name) : null)
                     ?? (t.artist_name ? getArtistImage(t.artist_name) : null);
-                  thumb = img ? { kind: "image", url: resolveImageUrl(img) ?? "" } : { kind: "disc" };
+                  thumb = img ? { kind: "image", url: resolveImageUrl(img) ?? "", track: t } : { kind: "disc", track: t };
                 }
                 return (
                   <TrackRow
@@ -1060,10 +1060,10 @@ export function SearchView({
               <div className="entity-grid">
                 {results.tracks.map((t, i) => {
                   const art: TrackCardArt = isLocalVideo(t)
-                    ? { kind: "video", trackId: t.id!, trackPath: t.path, alt: t.title }
+                    ? { kind: "video", trackId: t.id!, trackPath: t.path, alt: t.title, artistName: t.artist_name }
                     : t.album_title
                     ? { kind: "album", album: { id: t.album_id ?? 0, title: t.album_title, artist_name: t.album_artist_name ?? t.artist_name } as Album, imagePath: getAlbumImage(t.album_title, t.album_artist_name ?? t.artist_name) }
-                    : { kind: "letter", text: t.title[0]?.toUpperCase() ?? "?" };
+                    : { kind: "placeholder", track: t };
                   return (
                     <TrackCard
                       key={t.id}

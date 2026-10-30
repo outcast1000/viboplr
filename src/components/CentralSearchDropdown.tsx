@@ -256,10 +256,10 @@ function PluginSection({
               {track.image_url ? (
                 <img className="result-img" src={track.image_url} alt="" />
               ) : (
-                // First-letter placeholder, same fallback the library rows use
-                // when no artwork resolves. A plugin result has no library row
-                // to look an image up from, so there's no image chain to run.
-                <span className="result-img-fallback">{track.title.charAt(0).toUpperCase()}</span>
+                // The track placeholder, as on the library rows. A plugin result
+                // has no library row to look an image up from, so there's no
+                // image chain to run.
+                <span className="result-img-fallback"><TrackArtFallback track={track} size={18} /></span>
               )}
             </div>
             <div className="result-info">

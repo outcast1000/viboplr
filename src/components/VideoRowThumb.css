@@ -41,10 +41,9 @@
    color wins; % sizing overrides FilmReel's px width/height so it scales with the
    thumb (row thumb vs. card art). */
 .video-row-thumb .video-row-thumb-icon {
-  width: 40%;
-  height: 40%;
-  color: var(--text-secondary);
-  opacity: 0.5;
+  width: 72%;
+  height: auto;
+  aspect-ratio: 1;
 }
 
 /* Sprite tiles during hover cycling. Cover-cropped in JS (CSS can't crop a sprite),

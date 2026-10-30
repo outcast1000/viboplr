@@ -1,11 +1,23 @@
-/* A share of the placeholder box, with a floor so the disc's centre ring
-   survives in a 24px thumb and a ceiling so a 240px hero doesn't get a
-   poster-sized glyph. The box is a centred flex container everywhere this is
-   used. */
+/* Most of the placeholder box — the record stands in for a cover, so it fills
+   the frame the way the queue's does (26px in 36) — with a floor so the label
+   survives in a 24px thumb. The box is a centred flex container everywhere. */
 .entity-art-fallback {
-  width: clamp(14px, 42%, 72px);
+  width: clamp(14px, 72%, 240px);
   height: auto;
   aspect-ratio: 1;
   flex: none;
-  opacity: 0.85;
+}
+
+/* The band spans the whole drawing, so it gets more of the frame than the
+   record does or the side figures would shrink to nothing. */
+.entity-art-fallback.placeholder-art--person {
+  width: clamp(14px, 86%, 240px);
+}
+
+/* The box behind it gets the soft spotlight the track placeholders sit on
+   (queue thumbs, list rows), instead of each surface's flat fill — the album
+   and artist frames too, so every placeholder reads as one family. The element
+   qualifier is there to outrank those surfaces' single-class backgrounds. */
+:is(div, span):has(> .entity-art-fallback) {
+  background: radial-gradient(circle at 50% 40%, var(--bg-primary), var(--bg-secondary) 75%);
 }

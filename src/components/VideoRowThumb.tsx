@@ -2,7 +2,8 @@ import { useEffect, useRef, useState } from "react";
 import { invoke, convertFileSrc } from "@tauri-apps/api/core";
 import { useVideoFrameQueue, useVideoFrameEntry } from "../hooks/useVideoFrameQueueContext";
 import { HOVER_FRAME_INTERVAL_MS } from "../videoFrameQueue";
-import { FilmReel } from "./FilmReel";
+import { ReelArt } from "./PlaceholderArt";
+import { labelHue } from "./TrackArtFallback";
 import { StoryboardTile } from "./StoryboardTile";
 import { spreadTileIndices, type Storyboard } from "../utils/storyboard";
 import "./VideoRowThumb.css";
@@ -15,10 +16,12 @@ interface Props {
   /** Track path — the storyboard cache key. Omit to disable hover cycling. */
   trackPath?: string | null;
   alt: string;
+  /** Colours the reel shown until a frame exists, as TrackArtFallback does. */
+  artistName?: string | null;
   className?: string;
 }
 
-export function VideoRowThumb({ trackId, trackPath, alt, className }: Props) {
+export function VideoRowThumb({ trackId, trackPath, alt, artistName, className }: Props) {
   const queue = useVideoFrameQueue();
   const entry = useVideoFrameEntry(trackId);
   const elRef = useRef<HTMLDivElement | null>(null);
@@ -133,7 +136,7 @@ export function VideoRowThumb({ trackId, trackPath, alt, className }: Props) {
         />
       )}
       {showShimmer && <div className="video-row-thumb-shimmer" />}
-      {showIcon && <FilmReel className="video-row-thumb-icon" />}
+      {showIcon && <ReelArt className="video-row-thumb-icon" color={`hsl(${labelHue(artistName)} 62% 56%)`} />}
     </div>
   );
 }

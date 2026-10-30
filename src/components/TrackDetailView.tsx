@@ -21,6 +21,7 @@ import { VideoFrameCard } from "./VideoFrameCard";
 import { useDetailHeroImages } from "../hooks/useDetailHeroImages";
 import { resolveImageUrl } from "../utils/resolveImageUrl";
 import { DetailHero } from "./DetailHero";
+import { EntityArtFallback } from "./EntityArtFallback";
 import { EntityTagPanel } from "./EntityTagPanel";
 import { buildHeroOverflowItems, type HeroOverflowItem } from "../utils/heroOverflow";
 import "./TrackDetailView.css";
@@ -342,10 +343,8 @@ export function TrackDetailView({
           ) : (albumImagePath || artistImagePath) ? (
             <img src={resolveImageUrl(albumImagePath ?? artistImagePath)} alt={track.album_title ?? track.artist_name ?? ""} />
           ) : (
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" style={{ width: 48, height: 48, opacity: 0.5 }}>
-              <circle cx="12" cy="12" r="10" />
-              <circle cx="12" cy="12" r="3" />
-            </svg>
+            // The album page's placeholder: same record, accent and size.
+            <EntityArtFallback kind="album" />
           )
         }
         artShape="square"

@@ -361,7 +361,7 @@ function QueueItemThumb({ localThumb, fallback, track }: { localThumb: string | 
   if (!src) {
     return (
       <div className="queue-item-thumb queue-item-thumb-placeholder">
-        <TrackArtFallback track={track} size={14} />
+        <TrackArtFallback track={track} size={26} />
       </div>
     );
   }

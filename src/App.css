@@ -493,6 +493,17 @@
   overflow: hidden;
 }
 
+/* A track tile with no art (TrackCard `placeholder`): the record sized like the
+   album cards' own placeholder (EntityArtFallback), on the list rows' spotlight. */
+.track-card-art--placeholder {
+  background: radial-gradient(circle at 50% 40%, var(--bg-primary), var(--bg-secondary) 75%);
+}
+.track-card-art-fallback {
+  width: clamp(14px, 72%, 240px);
+  height: auto;
+  aspect-ratio: 1;
+}
+
 .album-card-art-wrapper {
   position: relative;
   cursor: pointer;
@@ -930,9 +941,10 @@
   border-radius: 50%;
 }
 
-/* Default disc placeholder (track rows with no album/artist art) — dimmed so it
-   reads as a fallback, not real artwork. */
+/* No-art placeholder tile (TrackArtFallback / EntityArtFallback): a soft
+   spotlight behind the drawing, as on the queue's placeholder thumbs. */
 .entity-list-img--disc {
+  background: radial-gradient(circle at 50% 40%, var(--bg-primary), var(--bg-secondary) 75%);
   color: var(--text-tertiary);
 }
 

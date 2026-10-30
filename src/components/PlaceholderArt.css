@@ -1,0 +1,29 @@
+/* Drawn as artwork, so its colours are the record's own (see PlaceholderArt.tsx).
+   The drop shadow lifts it off the placeholder box; it is static, never animated. */
+.placeholder-art {
+  display: block;
+  flex: none;
+  overflow: visible;
+  filter: drop-shadow(0 1px 1.5px rgba(var(--scrim-rgb), 0.35));
+}
+
+/* A portrait sits on the bottom of its box, so the frame crops the shoulders
+   (every box it's drawn in is a flex container). */
+.placeholder-art--person {
+  align-self: flex-end;
+}
+
+/* The ring that separates the band's front figure from the two behind it:
+   the frame's own colour, so it reads as a gap. */
+.placeholder-art-cut {
+  stroke: var(--bg-secondary);
+}
+
+/* On the label, which is a mid-tone colour on every skin — always light ink. */
+.placeholder-art-initial {
+  font-family: inherit;
+  font-size: 9px;
+  font-weight: 700;
+  fill: rgb(var(--on-image-rgb));
+  fill-opacity: 0.92;
+}

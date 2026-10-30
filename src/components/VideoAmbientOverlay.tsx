@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { resolveImageSrc } from "../utils/resolveImageUrl";
 import type { QueueTrack } from "../types";
-import { getInitials } from "../utils";
+import { TrackArtFallback } from "./TrackArtFallback";
 import { nextQueueTrack } from "../utils/videoOverlay";
 import { useIdleVisibility } from "../hooks/useIdleVisibility";
 import { LyricsOffsetControl } from "./LyricsOffsetControl";
@@ -187,7 +187,7 @@ export function VideoAmbientOverlay({
             {nextSrc ? (
               <img className="video-ambient-chip-art" src={nextSrc} alt="" />
             ) : (
-              <span className="video-ambient-chip-art">{getInitials(nextTrack.title)}</span>
+              <span className="video-ambient-chip-art"><TrackArtFallback track={nextTrack} size={30} /></span>
             )}
             <span className="video-ambient-chip-info">
               <span className="video-ambient-chip-title">{nextTrack.title}</span>

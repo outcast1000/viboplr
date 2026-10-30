@@ -27,8 +27,7 @@ import { isWindowHidden, subscribeWindowHidden } from "../utils/windowVisibility
  *    `data-window-hidden` (base.css) can't reach `element.animate()` either,
  *    so the steady spin pauses itself and resumes at the same angle.
  *  - **Nothing is allocated until the first play** — no animation and no
- *    reduce-motion subscription. `TrackArtFallback` renders a never-playing disc
- *    on every art-less row.
+ *    reduce-motion subscription — a track list can show many idle discs at once.
  */
 export const SPIN_RAMP_MS = 600;
 const BLIP_MS = 150;

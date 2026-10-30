@@ -846,12 +846,13 @@ export function PlaylistsView({ searchQuery, onSearchChange, onPlayTracks, onEnq
     ),
   [videoFrames, albumImages, artistImages]);
 
-  // Per-row thumbnail. Falls back to the shared disc placeholder (the same
+  // Per-row thumbnail. Falls back to the shared track placeholder (the same
   // default every other track surface uses — Library list, queue, history) when
   // no art resolves, rather than the playlist cover image.
   const trackThumb = useCallback((t: PlaylistTrack): TrackRowThumb => {
     const url = resolvedTrackImage(t);
-    return url ? { kind: "image", url } : { kind: "disc" };
+    const art = { artist_name: t.artist_name, path: t.source };
+    return url ? { kind: "image", url, track: art } : { kind: "disc", track: art };
   }, [resolvedTrackImage]);
 
   // Raw (unconverted) entity-image path for the radio seed's coverPath: startRadio
@@ -1022,10 +1023,10 @@ export function PlaylistsView({ searchQuery, onSearchChange, onPlayTracks, onEnq
     const enqueueOne = (t: PlaylistTrack) => onEnqueueTracks([playlistTrackToMinimalTrack(t)]);
     // Tile art: the shared render-time chain already yields a ready-to-render
     // URL (explicit image → video frame → album → artist), so hand it to the
-    // card's direct-url shape; first letter when nothing resolves.
+    // card's direct-url shape; the track's placeholder when nothing resolves.
     const cardArt = (t: PlaylistTrack): TrackCardArt => {
       const url = resolvedTrackImage(t);
-      return url ? { kind: "image", url, alt: t.title } : { kind: "letter", text: t.title[0]?.toUpperCase() ?? "?" };
+      return url ? { kind: "image", url, alt: t.title } : { kind: "placeholder", track: { artist_name: t.artist_name, path: t.source } };
     };
     const tracksEmptyMessage = tracks.length === 0 ? "This playlist is empty." : "No matching tracks.";
 

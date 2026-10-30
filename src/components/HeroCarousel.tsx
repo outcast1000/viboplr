@@ -7,12 +7,17 @@ import { shouldPauseEffect } from "./DetailHeroEffect";
 import { playlistCardCandidates } from "./HomeShelf";
 import { resolveImageSrc, resolveImageUrl } from "../utils/resolveImageUrl";
 import { firstUsableImage, type ImageCandidate } from "../utils/imageCandidates";
+import { PersonArt, VinylArt } from "./PlaceholderArt";
+import { TrackArtFallback, type FallbackArtTrack } from "./TrackArtFallback";
 
 const ROTATE_MS = 8_000;
 
 interface Slide {
   // Ordered cover chain; the first that is present and hasn't failed to load wins.
   covers: ImageCandidate[];
+  // Drawn when no cover loads: a track's own placeholder (its artist's colour),
+  // or the album / artist one.
+  placeholder: { kind: "track"; track: FallbackArtTrack } | { kind: "album" } | { kind: "artist" };
   title: string;
   subtitle: string | null;
 }
@@ -39,6 +44,7 @@ function slideFor(
       ],
       title: it.name,
       subtitle: it.artistName ?? null,
+      placeholder: { kind: "album" },
     };
   }
   if (shelf.displayKind === "artist-cards") {
@@ -47,13 +53,20 @@ function slideFor(
       covers: [resolveImageUrl(it.imageUrl), () => resolveImageUrl(artistImageFor(it.name))],
       title: it.name,
       subtitle: null,
+      placeholder: { kind: "artist" },
     };
   }
   if (shelf.displayKind === "playlist-cards") {
     // Radio stations and mixes: the station's cover, then the seed track's
     // album/artist image, which fetches on demand.
     const it = item as { name: string; coverUrl?: string; subtitle?: string; tracks?: PluginTrack[] };
-    return { covers: playlistCardCandidates(it, albumImageFor, artistImageFor), title: it.name, subtitle: it.subtitle ?? null };
+    const seed = it.tracks?.[0];
+    return {
+      covers: playlistCardCandidates(it, albumImageFor, artistImageFor),
+      title: it.name,
+      subtitle: it.subtitle ?? null,
+      placeholder: seed ? { kind: "track", track: seed } : { kind: "album" },
+    };
   }
   // track-rows — video frame URLs are already converted and used verbatim.
   const it = item as { track: { title: string; artist_name?: string; album_artist_name?: string; album_title?: string; path?: string | null; image_url?: string } };
@@ -67,7 +80,15 @@ function slideFor(
     ],
     title: t.title,
     subtitle: t.artist_name ?? null,
+    placeholder: { kind: "track", track: t },
   };
+}
+
+function HeroPlaceholder({ placeholder }: { placeholder: Slide["placeholder"] }) {
+  if (placeholder.kind === "track") return <TrackArtFallback track={placeholder.track} size={null} className="home-hero-art-fallback-art" />;
+  return placeholder.kind === "artist"
+    ? <PersonArt className="home-hero-art-fallback-art" color="var(--accent)" />
+    : <VinylArt className="home-hero-art-fallback-art" color="var(--accent)" />;
 }
 
 export interface HeroCarouselProps {
@@ -215,7 +236,7 @@ export function HeroCarousel({ shelf, albumImageFor, artistImageFor, onItemClick
                 alt={slide.title}
                 onError={() => setFailedSrcs((prev) => new Set(prev).add(coverSrc))}
               />
-            : <div className="home-hero-art-fallback">{slide.title[0]?.toUpperCase() ?? "?"}</div>}
+            : <div className="home-hero-art-fallback"><HeroPlaceholder placeholder={slide.placeholder} /></div>}
         </div>
         <div className="home-hero-info">
           <div className="home-hero-eyebrow">{shelf.title.toUpperCase()}</div>

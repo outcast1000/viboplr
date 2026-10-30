@@ -14,15 +14,17 @@ import { useEffect, useState } from "react";
 import { VideoRowThumb } from "./VideoRowThumb";
 import { RowHoverActions, type RowHoverActionsProps } from "./RowHoverActions";
 import { EntityArtFallback } from "./EntityArtFallback";
+import { TrackArtFallback, type FallbackArtTrack } from "./TrackArtFallback";
 
 // The thumbnail is resolved by the CALLER into one of three shapes; TrackRow
 // owns only the markup branch, never the image-cache lookups.
+// `track` on the image / disc / video shapes is what the no-art placeholder
+// (TrackArtFallback) reads: audio vs video, and the artist for its colour.
 export type TrackRowThumb =
-  | { kind: "video"; trackId: number; trackPath?: string | null; alt: string }   // local video → VideoRowThumb
-  | { kind: "image"; url: string; alt?: string; fallback?: TrackRowThumb }  // pre-resolved album/artist/image_url; swaps to `fallback` (default: disc) if the src fails to load
-  | { kind: "initials"; text: string }                  // first-letter placeholder (plugin rows)
+  | { kind: "video"; trackId: number; trackPath?: string | null; alt: string; artistName?: string | null }   // local video → VideoRowThumb
+  | { kind: "image"; url: string; alt?: string; fallback?: TrackRowThumb; track?: FallbackArtTrack }  // pre-resolved album/artist/image_url; swaps to `fallback` (default: the track's placeholder) if the src fails to load
   | { kind: "artist" }                                   // person placeholder (e.g. history artist with no image)
-  | { kind: "disc" };                                    // default disc SVG fallback
+  | { kind: "disc"; track?: FallbackArtTrack };          // the track's no-art placeholder
 
 export interface TrackRowProps {
   // --- content ---
@@ -57,30 +59,24 @@ export interface TrackRowProps {
 
 function Thumb({ thumb, className }: { thumb: TrackRowThumb; className: string }) {
   if (thumb.kind === "video") {
-    return <VideoRowThumb trackId={thumb.trackId} trackPath={thumb.trackPath} alt={thumb.alt} className={className} />;
+    return <VideoRowThumb trackId={thumb.trackId} trackPath={thumb.trackPath} alt={thumb.alt} artistName={thumb.artistName} className={className} />;
   }
   if (thumb.kind === "image") {
-    return <ImageThumb url={thumb.url} alt={thumb.alt} className={className} fallback={thumb.fallback ?? { kind: "disc" }} />;
-  }
-  if (thumb.kind === "initials") {
-    return <div className={className}>{thumb.text}</div>;
+    return <ImageThumb url={thumb.url} alt={thumb.alt} className={className} fallback={thumb.fallback ?? { kind: "disc", track: thumb.track }} />;
   }
   if (thumb.kind === "artist") {
     return <div className={`${className} entity-list-img--disc`}><EntityArtFallback kind="artist" /></div>;
   }
   return (
     <div className={`${className} entity-list-img--disc`}>
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" width="22" height="22">
-        <circle cx="12" cy="12" r="10" />
-        <circle cx="12" cy="12" r="3" />
-      </svg>
+      <TrackArtFallback track={thumb.track ?? {}} size={28} />
     </div>
   );
 }
 
 // A remote/plugin thumbnail URL can 404 or fail to decode (e.g. yt-dlp guesses a
 // per-video YouTube thumb for a non-YouTube link). When it does, swap in the
-// caller's `fallback` (default: the disc placeholder) instead of leaving the
+// caller's `fallback` (default: the track's placeholder) instead of leaving the
 // browser's broken-image glyph. Resets on a url change so a fresh, possibly
 // good, image always gets a clean attempt.
 function ImageThumb({ url, alt, className, fallback }: { url: string; alt?: string; className: string; fallback: TrackRowThumb }) {

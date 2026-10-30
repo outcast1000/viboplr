@@ -10,10 +10,11 @@ import "./FilmReel.css";
  *
  * Same 12×12 viewBox / `currentColor` body / `--bg-primary`-punched holes contract
  * as SpinningDisc. Renders a bare `<svg>` (no wrapper) so it can be either a
- * fixed-size indicator (`size` in px — sidebar Now Playing, art fallback, frame
- * badge) or CSS-sized via `className` (the `.video-row-thumb-icon` % placeholder).
+ * fixed-size indicator (`size` in px — sidebar Now Playing, frame
+ * badge) or CSS-sized via `className`.
  * This is the single video glyph for the whole app — do not reintroduce a second
- * "video" icon elsewhere. Like SpinningDisc it turns only when given `spin`.
+ * "video" icon elsewhere. (`TrackArtFallback`'s reel is placeholder *artwork*,
+ * the same reel drawn in detail, not an indicator.) Like SpinningDisc it turns only when given `spin`.
  */
 export function FilmReel({
   size = 14,
