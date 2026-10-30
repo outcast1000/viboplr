@@ -92,6 +92,13 @@ function need(args, keys, context) {
   }
 }
 
+/** A queue play/add names its tracks one way: `trackIds` or `tracks`. */
+function needTracks(args, context) {
+  if (args.trackIds === undefined && args.tracks === undefined) {
+    throw new Error(`"trackIds" or "tracks" is required for ${context}`);
+  }
+}
+
 /** Cap on a cue_sheet `sheetFile`: roomy for any real sheet (200 fully loaded
  *  cues are ~0.5 MB) and under the control API's 2 MB body limit, so a wrong
  *  path can't ship a large file to the app. */
@@ -152,6 +159,20 @@ const obj = (properties, required = []) => ({ type: "object", properties, requir
 // and the caller ends up sending the text "null" instead — which wrote an
 // album literally named "null" into nine files.
 const nullable = (prop) => ({ ...prop, type: [prop.type, "null"] });
+// A queue play/add entry: a library row, or a song by name that the app's
+// stream resolvers find at play time (its library copy wins when it has one).
+const queueTracksArg = {
+  type: "array",
+  items: obj({
+    trackId: num("A library track id — or leave it out and name the song"),
+    title: str("Song title (when there's no trackId)"),
+    artistName: str("Artist"),
+    albumTitle: str("Album"),
+    durationSecs: num("Length in seconds, when known"),
+  }),
+  description:
+    "Tracks in order, instead of trackIds: each {trackId} or {title, artistName?, albumTitle?, durationSecs?}, freely mixed. A named song with a library copy plays that copy; one without is queued metadata-only and found by the app's stream resolvers (Settings → Providers) at play time — tens of seconds; the response counts these as `external`.",
+};
 
 export const TOOLS = [
   {
@@ -302,28 +323,29 @@ export const TOOLS = [
     readOnly: false,
     categories: ["playback", "queue"],
     description:
-      "Replace the queue with these library track ids and start playing. Waits for the first track to actually play (see `wait`) and reports landed / nowPlaying / loading / error. Library ids only: external results from catalog_search play through catalog_play, a saved playlist through play_playlist.",
-    inputSchema: obj(
-      {
-        trackIds: numArr("Library track ids, in play order"),
-        contextName: str("Optional context label shown in the queue banner"),
-        wait: num(PLAY_WAIT_DESCRIPTION),
-      },
-      ["trackIds"],
-    ),
-    run: ({ wait = DEFAULT_PLAY_WAIT_SECS, ...args }, ctx) =>
-      ctx.request("POST", "/v1/queue/play", { ...args, wait }, { timeoutMs: playWaitTimeout(wait) }),
+      "Replace the queue with these tracks and start playing: library ids (trackIds), or `tracks`, which may also name songs that aren't in the library — the app's stream resolvers find those at play time. Waits for the first track to actually play (see `wait`) and reports landed / nowPlaying / loading / error. A catalog_search result plays through catalog_play (it carries its own source), a saved playlist through play_playlist.",
+    inputSchema: obj({
+      trackIds: numArr("Library track ids, in play order"),
+      tracks: queueTracksArg,
+      contextName: str("Optional context label shown in the queue banner"),
+      wait: num(PLAY_WAIT_DESCRIPTION),
+    }),
+    run: ({ wait = DEFAULT_PLAY_WAIT_SECS, ...args }, ctx) => {
+      needTracks(args, "play_tracks");
+      return ctx.request("POST", "/v1/queue/play", { ...args, wait }, { timeoutMs: playWaitTimeout(wait) });
+    },
   },
   {
     name: "edit_queue",
     readOnly: false,
     categories: ["queue"],
     description:
-      "Edit the live queue without replacing it: add (to end) / add_next, remove by queue positions, clear, one-shot randomize, or jump to a position. Positions come from get_queue. Duplicates are skipped and counted unless allowDuplicates. jump waits for the track to actually play (see `wait`) and reports landed / nowPlaying / loading / error.",
+      "Edit the live queue without replacing it: add (to end) / add_next — library ids, or `tracks`, which may also name songs that aren't in the library (the app's stream resolvers find those at play time) — remove by queue positions, clear, one-shot randomize, or jump to a position. Positions come from get_queue. Duplicates are skipped and counted unless allowDuplicates. jump waits for the track to actually play (see `wait`) and reports landed / nowPlaying / loading / error.",
     inputSchema: obj(
       {
         action: en(["add", "add_next", "remove", "clear", "randomize", "jump"], "What to do"),
         trackIds: numArr("Library track ids (add / add_next)"),
+        tracks: { ...queueTracksArg, description: `add / add_next: ${queueTracksArg.description}` },
         indices: numArr("Queue positions (remove)"),
         index: num("Queue position (jump)"),
         allowDuplicates: bool("Add tracks already in the queue instead of skipping them"),
@@ -331,13 +353,14 @@ export const TOOLS = [
       },
       ["action"],
     ),
-    run: ({ action, trackIds, indices, index, allowDuplicates, wait = DEFAULT_PLAY_WAIT_SECS }, ctx) => {
+    run: ({ action, trackIds, tracks, indices, index, allowDuplicates, wait = DEFAULT_PLAY_WAIT_SECS }, ctx) => {
       switch (action) {
         case "add":
         case "add_next":
-          need({ trackIds }, ["trackIds"], `action=${action}`);
+          needTracks({ trackIds, tracks }, `action=${action}`);
           return ctx.request("POST", "/v1/queue/tracks", {
             trackIds,
+            tracks,
             mode: action === "add_next" ? "next" : "end",
             allowDuplicates,
           });

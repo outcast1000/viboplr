@@ -9,6 +9,7 @@ import { stripImageVersion } from "../utils/resolveImageUrl";
 import { track as trackTelemetry } from "../telemetry";
 import { nextIndex, prevIndex, randomizeOrder } from "../queueNav";
 import { sameSong } from "./useLikeActions";
+import { trackLikeId } from "../utils/likeReconcile";
 
 import { useAssignRef } from "./useLatestRef";
 import { isMixtapePath } from "./useFileDrop";
@@ -351,10 +352,23 @@ export function useQueue(
     return true;
   }
 
-  function findDuplicates<T extends { path: string | null }>(newTracks: T[]): { duplicates: T[]; unique: T[] } {
-    const existing = new Set(queueRef.current.map(t => t.path));
-    const duplicates = newTracks.filter(t => existing.has(t.path));
-    const unique = newTracks.filter(t => !existing.has(t.path));
+  // By path; a metadata-only entry (no path yet — the stream resolvers find
+  // one at play time) has none to compare, so it matches another path-less
+  // entry by its song identity. Comparing nulls as paths made every such
+  // entry a "duplicate" of every other.
+  function findDuplicates<T extends { path: string | null; title: string; artist_name?: string | null }>(
+    newTracks: T[],
+  ): { duplicates: T[]; unique: T[] } {
+    const existingPaths = new Set<string>();
+    const existingSongs = new Set<string>();
+    for (const t of queueRef.current) {
+      if (t.path) existingPaths.add(t.path);
+      else existingSongs.add(trackLikeId(t.title, t.artist_name));
+    }
+    const isDuplicate = (t: T) =>
+      t.path ? existingPaths.has(t.path) : existingSongs.has(trackLikeId(t.title, t.artist_name));
+    const duplicates = newTracks.filter(isDuplicate);
+    const unique = newTracks.filter(t => !isDuplicate(t));
     return { duplicates, unique };
   }
 

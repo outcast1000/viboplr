@@ -10,6 +10,8 @@ import {
   asNumberArray,
   asStringArray,
   orderTracksByIds,
+  parseQueueItems,
+  MAX_QUEUE_ITEMS,
   partitionEnqueue,
   serializeQueue,
   serializeStatus,
@@ -115,6 +117,35 @@ describe("asNumberArray / asStringArray", () => {
   it("asStringArray keeps only non-empty strings", () => {
     expect(asStringArray(["a", "", 1, "b"])).toEqual(["a", "b"]);
     expect(asStringArray(undefined)).toEqual([]);
+  });
+});
+
+describe("parseQueueItems", () => {
+  it("mixes library ids and songs named by metadata, in request order", () => {
+    expect(parseQueueItems([
+      { title: "  So What ", artistName: "Miles Davis", albumTitle: "Kind of Blue", durationSecs: 562 },
+      { trackId: 7 },
+      { title: "Untitled", artistName: " " },
+    ])).toEqual([
+      { kind: "metadata", title: "So What", artistName: "Miles Davis", albumTitle: "Kind of Blue", durationSecs: 562 },
+      { kind: "library", trackId: 7 },
+      { kind: "metadata", title: "Untitled", artistName: null, albumTitle: null, durationSecs: null },
+    ]);
+  });
+
+  it("refuses empty or malformed lists, naming the entry", () => {
+    expect(parseQueueItems(undefined)).toMatch(/non-empty/);
+    expect(parseQueueItems([])).toMatch(/non-empty/);
+    expect(parseQueueItems([{ trackId: 1 }, { artistName: "X" }])).toMatch(/tracks\[1\] needs a trackId or a title/);
+    expect(parseQueueItems(["So What"])).toMatch(/tracks\[0\] must be an object/);
+    expect(parseQueueItems([{ trackId: "7" }])).toMatch(/tracks\[0\]\.trackId/);
+    expect(parseQueueItems([{ title: "A", durationSecs: -1 }])).toMatch(/durationSecs/);
+  });
+
+  it("caps the tracks list, which costs a lookup per song", () => {
+    const at = Array.from({ length: MAX_QUEUE_ITEMS }, (_, i) => ({ trackId: i }));
+    expect(parseQueueItems(at)).toHaveLength(MAX_QUEUE_ITEMS);
+    expect(parseQueueItems([...at, { trackId: -1 }])).toMatch(/at most/);
   });
 });
 

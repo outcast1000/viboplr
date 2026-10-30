@@ -326,10 +326,9 @@ export function usePlayActions({
       trackTelemetry("radio_started");
       // A seed the library lacks carries its album along (when the caller
       // knows it), so its queue thumbnail and the banner cover are its own.
-      const externalSeed: QueueTrack | null = station?.seedInLibrary ? null : {
-        ...buildExternalQueueTrack(seed.title, seed.artistName),
-        album_title: seed.albumTitle ?? null,
-      };
+      const externalSeed: QueueTrack | null = station?.seedInLibrary
+        ? null
+        : buildExternalQueueTrack(seed.title, seed.artistName, { albumTitle: seed.albumTitle });
       const queueTracks: QueueTrack[] = externalSeed
         ? [externalSeed, ...tracks.map(trackToQueueTrack)]
         : tracks.map(trackToQueueTrack);

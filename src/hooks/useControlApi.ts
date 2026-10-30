@@ -81,6 +81,7 @@ import {
   serializeQueue,
   serializeStatus,
   parsePlayWait,
+  parseQueueItems,
   playbackLanded,
   type BitPerfectStatusInput,
   type ControlApiRequest,
@@ -340,6 +341,56 @@ async function resolveTracks(payload: Record<string, unknown>): Promise<Track[]>
   const ordered = orderTracksByIds(tracks, ids);
   if (ordered.length === 0) bad("no library tracks found for the given trackIds");
   return ordered;
+}
+
+/** Resolve a queue play/add request to queue entries, in request order.
+ *  Library ids batch through `get_tracks_by_ids` (missing ids are dropped,
+ *  as before); a song named by metadata takes its library copy when there is
+ *  one (`find_track_by_metadata`, the same lookup a `viboplr://play` link
+ *  makes) and otherwise goes in metadata-only, for the stream resolvers to
+ *  find at play time. `external` counts those — they take a lookup to start. */
+async function resolveQueueItems(
+  payload: Record<string, unknown>,
+): Promise<{ tracks: QueueTrack[]; external: number }> {
+  if (payload.trackIds !== undefined && payload.tracks !== undefined) bad("send trackIds or tracks, not both");
+  if (payload.tracks === undefined) {
+    if (payload.trackIds === undefined) bad("trackIds or tracks is required");
+    // Library ids alone: the original shape, through the shared id path.
+    return { tracks: (await resolveTracks(payload)).map(trackToQueueTrack), external: 0 };
+  }
+  const items = parseQueueItems(payload.tracks);
+  if (typeof items === "string") bad(items);
+  const ids = items.flatMap((it) => (it.kind === "library" ? [it.trackId] : []));
+  const rows = ids.length > 0 ? await invoke<Track[]>("get_tracks_by_ids", { ids }) : [];
+  const byId = new Map(rows.map((t) => [t.id, t]));
+  // All lookups at once: a long list asked one by one could outlast the bridge.
+  const matches = await Promise.all(items.map((it) => it.kind === "metadata"
+    ? invoke<Track | null>("find_track_by_metadata", {
+      title: it.title, artistName: it.artistName, albumName: it.albumTitle,
+    }).catch((e) => {
+      console.error("Control API: failed to look up a named track in the library:", e);
+      return null;
+    })
+    : null));
+  let external = 0;
+  const tracks: QueueTrack[] = [];
+  for (const [i, it] of items.entries()) {
+    if (it.kind === "library") {
+      const row = byId.get(it.trackId);
+      if (row) tracks.push(trackToQueueTrack(row));
+      continue;
+    }
+    const row = matches[i];
+    if (row) {
+      tracks.push(trackToQueueTrack(row));
+    } else {
+      external++;
+      tracks.push(buildExternalQueueTrack(it.title, it.artistName, it));
+    }
+  }
+  // Only an id can fail to resolve, so an empty result means every entry was one.
+  if (tracks.length === 0) bad("none of the given tracks resolved — no library track has any of those trackIds");
+  return { tracks, external };
 }
 
 /** Build an InfoEntity from verb payload fields, resolving the library id
@@ -641,23 +692,23 @@ export function useControlApi(deps: ControlApiDeps) {
       case "queue.play": {
         const wait = parsePlayWait(payload.wait);
         if (typeof wait === "string") bad(wait);
-        const tracks = (await resolveTracks(payload)).map(trackToQueueTrack);
+        const { tracks, external } = await resolveQueueItems(payload);
         playNow(d.queueOps, tracks, {
           context: { name: optionalString(payload.contextName) ?? "Control API", source: "control-api" },
         });
-        return { queued: tracks.length, ...(tracks.length ? await playOutcome(tracks[0], wait) : {}) };
+        return { queued: tracks.length, external, ...(await playOutcome(tracks[0], wait)) };
       }
 
       case "queue.add": {
         const mode = payload.mode ?? "end";
         if (mode !== "end" && mode !== "next") bad('mode must be "end" or "next"');
-        const tracks = (await resolveTracks(payload)).map(trackToQueueTrack);
+        const { tracks, external } = await resolveQueueItems(payload);
         // The API answers the duplicate banner's question programmatically
         // instead of popping it over a user who didn't act — skips are reported.
         const { added, skippedDuplicates } = addToQueue(d.queueOps, tracks, {
           position: mode, duplicates: duplicatePolicy(payload),
         });
-        return { added, skippedDuplicates };
+        return { added, skippedDuplicates, external };
       }
 
       case "queue.remove": {

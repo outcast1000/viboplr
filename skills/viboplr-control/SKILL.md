@@ -74,8 +74,10 @@ A healthy answer is `{"ok":true, "version":…, "profile":…}`. Multiple files 
 |---|---|
 | `POST /playback` | `{play?: bool, action?: "next"\|"prev"\|"stop", seekSecs?: n, volume?: 0..1, mode?: "normal"\|"repeat-all"\|"repeat-one"}` — `play` is idempotent (true = playing, false = paused); `mode` sets the repeat mode |
 | `POST /queue/jump` | `{index, wait?}` — play that queue position (indices from `GET /queue`). `wait` (seconds, ≤ 60, default 0) holds the answer until the track actually plays → `{landed, nowPlaying, loading, error}`; without it the answer comes before playback changes (a plugin track can take tens of seconds to resolve) |
-| `POST /queue/play` | `{trackIds: [..], contextName?: "…", wait?}` — replaces the queue and plays; `wait` as for `/queue/jump`, for the first track |
-| `POST /queue/tracks` | `{trackIds, mode?: "end"\|"next", allowDuplicates?: bool}` → `{added, skippedDuplicates}` (duplicates are skipped and counted unless allowed) |
+| `POST /queue/play` | `{trackIds: [..] \| tracks: [..], contextName?: "…", wait?}` → `{queued, external, …}` — replaces the queue and plays; `wait` as for `/queue/jump`, for the first track |
+| `POST /queue/tracks` | `{trackIds \| tracks, mode?: "end"\|"next", allowDuplicates?: bool}` → `{added, skippedDuplicates, external}` (duplicates are skipped and counted unless allowed) |
+
+Both take `trackIds` (library ids) **or** `tracks` — up to 500 per request, in order, each `{trackId}` or `{title, artistName?, albumTitle?, durationSecs?}`, freely mixed. A named song with a library copy plays that copy; one without goes in metadata-only and the app's stream resolvers (Settings → Providers) find it at play time, which takes tens of seconds — `external` counts the requested songs that had no library copy (before duplicate skipping, so on `/queue/tracks` it can exceed `added`). Use this for songs the library lacks (a setlist, a chart, a recommendation); a `catalog_search` result still goes through `/queue/play-search`, since it already carries its source.
 | `DELETE /queue/tracks` | `{indices: [..]}` — queue positions from `GET /queue` |
 | `POST /queue/clear` | — |
 | `POST /queue/randomize` | — one-shot shuffle around the playing track (refused in repeat-one or under 2 tracks) |

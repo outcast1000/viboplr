@@ -66,6 +66,11 @@ fn path_name<'a>(path: &'a str, collection: &str) -> Option<&'a str> {
 /// Which ids to resolve to names for this call.
 pub fn subjects(path: &str, req: &Value) -> Subjects {
     let mut track_ids: Vec<i64> = as_i64_list(&req["trackIds"]);
+    // A queue play/add's `tracks` mixes library ids with songs named by
+    // metadata; only the ids need a lookup.
+    if let Some(entries) = req["tracks"].as_array() {
+        track_ids.extend(entries.iter().filter_map(|e| e["trackId"].as_i64()));
+    }
     if let Some(id) = req["trackId"].as_i64() {
         track_ids.push(id);
     }
@@ -111,6 +116,9 @@ fn plural(n: usize, one: &str, many: &str) -> String {
 
 /// "“A” – X, “B” – Y +1 more", or "3 tracks" when names are unavailable.
 fn tracks_phrase(req: &Value, path: &str, names: &Names) -> Option<String> {
+    if let Some(entries) = req["tracks"].as_array().filter(|a| !a.is_empty()) {
+        return Some(entries_phrase(entries, names));
+    }
     let all = as_i64_list(&req["trackIds"]);
     let total = if !all.is_empty() {
         all.len()
@@ -135,6 +143,29 @@ fn tracks_phrase(req: &Value, path: &str, names: &Names) -> Option<String> {
     } else {
         list
     })
+}
+
+/// The `tracks` form of [`tracks_phrase`]: a named song is shown from its own
+/// fields, a library id from its looked-up name; the first few, in order.
+fn entries_phrase(entries: &[Value], names: &Names) -> String {
+    let named: Vec<String> = entries
+        .iter()
+        .filter_map(|e| match e["trackId"].as_i64() {
+            Some(id) => names.tracks.get(&id).map(|n| trunc_name(n)),
+            None => titled(e, "title"),
+        })
+        .take(NAMED_TRACKS)
+        .collect();
+    if named.is_empty() {
+        return plural(entries.len(), "track", "tracks");
+    }
+    let more = entries.len().saturating_sub(named.len());
+    let list = named.join(", ");
+    if more > 0 {
+        format!("{} +{} more", list, more)
+    } else {
+        list
+    }
 }
 
 /// A looked-up `Title – Artist` becomes `“Title” – Artist`.
@@ -464,6 +495,22 @@ mod tests {
         // Without names it still says how many.
         let d = describe("/v1/queue/tracks", "/v1/queue/tracks", &req, &Names::default()).unwrap();
         assert_eq!(d, "5 tracks (next)");
+    }
+
+    #[test]
+    fn test_queue_add_names_songs_given_by_metadata() {
+        let n = names(&[(7, "A – X")]);
+        let req = json!({"tracks":[
+            {"trackId":7},
+            {"title":"So What","artistName":"Miles Davis"},
+            {"title":"Untitled"},
+            {"title":"Fourth","artistName":"Y"},
+        ]});
+        assert_eq!(subjects("/v1/queue/tracks", &req).track_ids, vec![7]);
+        let d = describe("/v1/queue/tracks", "/v1/queue/tracks", &req, &n).unwrap();
+        assert_eq!(d, "“A” – X, “So What” – Miles Davis, “Untitled” +1 more (at the end)");
+        let d = describe("/v1/queue/play", "/v1/queue/play", &json!({"tracks":[{"trackId":9}]}), &Names::default()).unwrap();
+        assert_eq!(d, "1 track");
     }
 
     #[test]

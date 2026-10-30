@@ -6,14 +6,18 @@ import { nextQueueKey } from "../queueEntry";
  * stream-resolver chain resolves a playable source by title/artist (preferring
  * a local library copy when one exists).
  */
-export function buildExternalQueueTrack(name: string, artist?: string | null): QueueTrack {
+export function buildExternalQueueTrack(
+  name: string,
+  artist?: string | null,
+  extra: { albumTitle?: string | null; durationSecs?: number | null } = {},
+): QueueTrack {
   return {
     key: nextQueueKey(),
     path: null,
     title: name,
     artist_name: artist ? artist : null,
-    album_title: null,
-    duration_secs: null,
+    album_title: extra.albumTitle ?? null,
+    duration_secs: extra.durationSecs ?? null,
     format: null,
     liked: 0,
   };

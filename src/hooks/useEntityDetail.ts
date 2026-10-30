@@ -277,8 +277,7 @@ export function useEntityDetail({ kind, name, artistName, invokeInfoFetch, onEnt
       return rankedItems.map(item => buildExternalQueueTrack(item.name, item.subtitle ?? entityName ?? name));
     }
     return rankedItems.map(item => ({
-      ...buildExternalQueueTrack(item.name, item.subtitle ?? artistName),
-      album_title: entityName ?? name,
+      ...buildExternalQueueTrack(item.name, item.subtitle ?? artistName, { albumTitle: entityName ?? name }),
       album_artist_name: entityArtist ?? artistName ?? null,
     }));
   }, [kind, rankedItems, name, artistName, entityName, entityArtist]);

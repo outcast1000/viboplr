@@ -200,7 +200,7 @@ How the app prevents accidental duplicate enqueues.
 **Detection:** `findDuplicates(newTracks)` compares incoming tracks against current queue by `track.path`. Returns `{ duplicates, unique }`. Path-based comparison means:
 - Same file from different collections = duplicate (same path)
 - Different formats of the same song = NOT detected (different paths)
-- External tracks with `path: null` can be falsely flagged as duplicates of each other (all null-path tracks match via `Set.has(null)`). In practice, most external tracks carry a scheme-based path (`custom://`, `external://`) so this rarely triggers.
+- A metadata-only entry (`path: null` — a "Not in library" row, a control-API `tracks` entry named by title/artist) has no path to compare, so it matches only another path-less entry, by song identity (`trackLikeId`: normalized title + artist). Comparing the nulls as paths used to flag every such entry as a duplicate of every other.
 
 **UX flow:**
 1. Caller (typically `useContextMenuActions`) calls `findDuplicates()` before enqueueing

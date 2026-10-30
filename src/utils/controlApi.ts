@@ -84,6 +84,51 @@ export function orderTracksByIds(tracks: Track[], ids: number[]): Track[] {
   return ids.map((id) => byId.get(id)).filter((t): t is Track => t !== undefined);
 }
 
+/** One entry of a queue play/add request: a library row, or a song named by
+ *  its metadata — the same `title` / `artistName` / `albumTitle` spelling
+ *  `radio.start` and `likes.set` take. */
+export type QueueItemRequest =
+  | { kind: "library"; trackId: number }
+  | { kind: "metadata"; title: string; artistName: string | null; albumTitle: string | null; durationSecs: number | null };
+
+/** The most one request's `tracks` may carry — each named song is a library
+ *  lookup. (`trackIds` stays uncapped, as it always was: one batch read.) */
+export const MAX_QUEUE_ITEMS = 500;
+
+const trimmedOrNull = (v: unknown) => (typeof v === "string" && v.trim() ? v.trim() : null);
+
+/** Pure: the `tracks` field of a `queue.play` / `queue.add` request, in
+ *  request order — each `{trackId}` or `{title, artistName?, albumTitle?,
+ *  durationSecs?}`, freely mixed. (The `trackIds` form skips this.) */
+export function parseQueueItems(raw: unknown): QueueItemRequest[] | string {
+  if (!Array.isArray(raw) || raw.length === 0) return "tracks must be a non-empty array";
+  if (raw.length > MAX_QUEUE_ITEMS) return `at most ${MAX_QUEUE_ITEMS} tracks per request`;
+  const items: QueueItemRequest[] = [];
+  for (const [i, entry] of raw.entries()) {
+    if (!entry || typeof entry !== "object" || Array.isArray(entry)) return `tracks[${i}] must be an object`;
+    const e = entry as Record<string, unknown>;
+    if (e.trackId !== undefined) {
+      if (typeof e.trackId !== "number" || !Number.isFinite(e.trackId)) return `tracks[${i}].trackId must be a number`;
+      items.push({ kind: "library", trackId: e.trackId });
+      continue;
+    }
+    const title = typeof e.title === "string" ? e.title.trim() : "";
+    if (!title) return `tracks[${i}] needs a trackId or a title`;
+    const duration = e.durationSecs;
+    if (duration !== undefined && (typeof duration !== "number" || !Number.isFinite(duration) || duration <= 0)) {
+      return `tracks[${i}].durationSecs must be a positive number`;
+    }
+    items.push({
+      kind: "metadata",
+      title,
+      artistName: trimmedOrNull(e.artistName),
+      albumTitle: trimmedOrNull(e.albumTitle),
+      durationSecs: typeof duration === "number" ? duration : null,
+    });
+  }
+  return items;
+}
+
 /** How an API enqueue resolves the duplicate question that the UI resolves
  *  with the banner: the caller answered in the request (`allowDuplicates`),
  *  and skips are *reported* instead of silently dropped. The findDuplicates

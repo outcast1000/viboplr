@@ -3197,7 +3197,7 @@ function App() {
     });
     const track = row
       ? trackToQueueTrack(row)
-      : { ...buildExternalQueueTrack(link.title, link.artistName), album_title: link.albumTitle };
+      : buildExternalQueueTrack(link.title, link.artistName, { albumTitle: link.albumTitle });
     const inserted = queueHook.insertNextAndPlay(track);
     reconcileAddedLikeStates([inserted]);
   });
