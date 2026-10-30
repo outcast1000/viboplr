@@ -2,7 +2,7 @@ import { useRef, useState } from "react";
 import type { ResolvedShelf } from "../hooks/useHome";
 import { shelfDescriptionFor } from "../hooks/useHome";
 import type { HomeShelfItem, PluginTrack } from "../types/plugin";
-import { useShelfVideoFrames, shelfVideoKey } from "../hooks/useShelfVideoFrames";
+import { useShelfVideoFrames, shelfVideoKey, playlistLead, isLocalVideo } from "../hooks/useShelfVideoFrames";
 import { resolveShelfPlayAction } from "../utils/homeShelfPlay";
 import { resolveImageSrc, resolveImageUrl } from "../utils/resolveImageUrl";
 import { resolveTrackImage } from "../utils/trackImage";
@@ -31,22 +31,21 @@ function playlistFallbackImage(
 // Cover chain for a playlist card. The explicit cover can go stale — a Latest
 // play session keeps the path it captured at play time, and a plugin may since
 // have pruned that file (a rotated Spotify mix) — so it is only the first
-// candidate: then the lead track's own image, then its album/artist image. A
-// Latest play card ships no tracks; its lead is the session's track.
-/** The track a playlist card opens with — whose art stands in for the card's, and whose placeholder does when there is none. */
-function playlistLead(it: { tracks?: PluginTrack[]; __session?: { track?: PluginTrack | null } }): PluginTrack | undefined {
-  return it.tracks?.[0] ?? it.__session?.track ?? undefined;
-}
-
+// candidate: then, for a local-video lead, that video's own frame (ahead of the
+// lead's image, which for a video is borrowed album/artist art — the same order
+// as a track row), then the lead track's own image, then its album/artist
+// image. `videoFrames` is useShelfVideoFrames' map, already converted.
 export function playlistCardCandidates(
   it: { coverUrl?: string; tracks?: PluginTrack[]; __session?: { track?: PluginTrack | null } },
   albumImageFor: (name: string, artistName?: string) => string | null,
   artistImageFor: (name: string) => string | null,
+  videoFrames: Record<string, string>,
 ): ImageCandidate[] {
   const lead = playlistLead(it);
   const leadTracks = lead ? [lead] : undefined;
   return [
     resolveImageUrl(it.coverUrl),
+    lead && isLocalVideo(lead) ? videoFrames[shelfVideoKey(lead.path)] ?? null : null,
     () => resolveImageSrc(lead?.image_url),
     () => resolveImageUrl(playlistFallbackImage(leadTracks, albumImageFor, artistImageFor)),
   ];
@@ -141,7 +140,7 @@ interface RenderCtx {
   onItemClick: (shelf: ResolvedShelf, item: HomeShelfItem) => void;
   onItemContextMenu: (shelf: ResolvedShelf, item: HomeShelfItem, e: React.MouseEvent) => void;
   onItemPlay: (shelf: ResolvedShelf, item: HomeShelfItem) => void;
-  // key (artist::title) -> already-converted file URL (from VideoFrameQueue)
+  // shelfVideoKey(path) -> already-converted file URL (from VideoFrameQueue)
   videoFrames: Record<string, string>;
 }
 
@@ -210,7 +209,7 @@ function renderCard(shelf: ResolvedShelf, item: HomeShelfItem, idx: number, ctx:
       <div key={`${idx}-${it.id}`} className="ds-card home-shelf-card" onClick={onClick} onContextMenu={onCtx}>
         <div className="ds-card-art">
           <ShelfCardArt
-            candidates={playlistCardCandidates(it, ctx.albumImageFor, ctx.artistImageFor)}
+            candidates={playlistCardCandidates(it, ctx.albumImageFor, ctx.artistImageFor, ctx.videoFrames)}
             name={it.name}
             fallback={<PlaylistCardFallback lead={playlistLead(it)} />}
           />

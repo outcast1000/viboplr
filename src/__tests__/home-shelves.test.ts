@@ -258,6 +258,19 @@ describe("resolveSessionCover", () => {
     expect(resolve).toHaveBeenCalledWith("Tape Album", "Artie");
   });
 
+  it("leaves a local-video radio or track card to its video frame", async () => {
+    const video = { path: "file:///m/clip.mp4", title: "Clip", artist_name: "Artie", album_title: "LP", duration_secs: null, format: "mp4", liked: 0 };
+    const resolve = vi.fn(async () => "/artist.jpg");
+    for (const source of ["radio", "track"] as const) {
+      const cover = await resolveSessionCover(session({ source, name: "Clip", imagePath: "/captured-artist.jpg", track: video }), resolve);
+      expect(cover).toBeNull();
+    }
+    expect(resolve).not.toHaveBeenCalled();
+    // A playlist that opens with a video keeps its own cover.
+    const playlist = await resolveSessionCover(session({ source: "playlist", name: "Mix", imagePath: "/mix.jpg", track: video }), resolve);
+    expect(playlist).toBe("/mix.jpg");
+  });
+
   it("returns null when nothing resolves (placeholder territory)", async () => {
     const resolve = vi.fn(async () => null);
     const cover = await resolveSessionCover(session({ source: "playlist", name: "Mix" }), resolve);

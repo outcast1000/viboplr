@@ -57,12 +57,12 @@ function slideFor(
     };
   }
   if (shelf.displayKind === "playlist-cards") {
-    // Radio stations and mixes: the station's cover, then the seed track's
-    // album/artist image, which fetches on demand.
+    // Radio stations and mixes: the station's cover, then a video seed's own
+    // frame, then the seed track's album/artist image, which fetches on demand.
     const it = item as { name: string; coverUrl?: string; subtitle?: string; tracks?: PluginTrack[] };
     const seed = it.tracks?.[0];
     return {
-      covers: playlistCardCandidates(it, albumImageFor, artistImageFor),
+      covers: playlistCardCandidates(it, albumImageFor, artistImageFor, videoFrames),
       title: it.name,
       subtitle: it.subtitle ?? null,
       placeholder: seed ? { kind: "track", track: seed } : { kind: "album" },

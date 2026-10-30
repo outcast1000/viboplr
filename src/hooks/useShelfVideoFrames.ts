@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import type { ResolvedShelf } from "./useHome";
+import type { PluginTrack } from "../types/plugin";
 import { isVideoTrack } from "../utils";
 import { isLocalTrack } from "../queueEntry";
 import { useVideoFrameQueue } from "./useVideoFrameQueueContext";
@@ -14,6 +15,19 @@ import type { VideoFrameQueue } from "../videoFrameQueue";
 // same-titled videos from sharing — and swapping — one frame.
 export function shelfVideoKey(path: string | null | undefined): string {
   return path ?? "";
+}
+
+/** The track a playlist card opens with — whose art stands in for the card's,
+ *  and whose placeholder does when there is none. A Latest play card ships no
+ *  tracks; its lead is the session's track. */
+export function playlistLead(it: { tracks?: PluginTrack[]; __session?: { track?: PluginTrack | null } }): PluginTrack | undefined {
+  return it.tracks?.[0] ?? it.__session?.track ?? undefined;
+}
+
+/** A row the backend can pull a frame from: a video file on this disk. Remote
+ *  videos are excluded — frame extraction rejects them. */
+export function isLocalVideo(t: { path?: string | null; format?: string | null }): t is { path: string; format?: string | null } {
+  return !!t.path && isVideoTrack({ format: t.format ?? null, path: t.path }) && isLocalTrack({ path: t.path });
 }
 
 // Read the queue's stable ready-frame snapshot and project it onto a
@@ -84,8 +98,25 @@ function useVideoFrameMap(candidates: VideoFrameCandidate[]): Record<string, str
 // path. Non track-rows shelves — and rows without a path (history-backed) — produce
 // no candidates. Shared by HomeShelf (row cards) and HeroCarousel (the promoted
 // shelf) so both surfaces get video thumbnails.
+//
+// A `playlist-cards` shelf (Radio, Latest play) gets a frame for each card whose
+// lead track is a local video — a station seeded by a video, a replayed video —
+// keyed the same way, so the card can show it before its album/artist art.
 export function useShelfVideoFrames(shelf: ResolvedShelf): Record<string, string> {
   const candidates = useMemo<VideoFrameCandidate[]>(() => {
+    if (shelf.displayKind === "playlist-cards") {
+      const out: VideoFrameCandidate[] = [];
+      for (const item of shelf.items) {
+        const lead = playlistLead(item as { tracks?: PluginTrack[]; __session?: { track?: PluginTrack | null } });
+        if (!lead || !isLocalVideo(lead)) continue;
+        const path = lead.path;
+        out.push({
+          key: shelfVideoKey(path),
+          resolveId: () => invoke<number | null>("find_track_id_by_path", { path }),
+        });
+      }
+      return out;
+    }
     if (shelf.displayKind !== "track-rows") return [];
     const out: VideoFrameCandidate[] = [];
     for (const item of shelf.items) {

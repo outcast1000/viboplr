@@ -15,6 +15,7 @@ import { isLocalTrack, type PlaylistTrackRow } from "../queueEntry";
 import { isAuto, firstArtist, featuredArtistsFromMetadata, featuredArtistsLabel } from "../utils/autoPlaylist";
 
 import { useAssignRef } from "./useLatestRef";
+import { isLocalVideo } from "./useShelfVideoFrames";
 import { coerceSeedCooldown, rememberShownSeeds } from "../utils/radioSeedCooldown";
 const STALE_MS = 24 * 60 * 60 * 1000;
 const PLUGIN_TIMEOUT_MS = 5_000;
@@ -255,6 +256,9 @@ interface RadioSeedLike {
   title: string;
   artist_name?: string | null;
   album_title?: string | null;
+  // Kept so a video seed's card can show the video's own frame.
+  path?: string | null;
+  format?: string | null;
 }
 
 // Build one radio-station card (a playlist-cards item) carrying the `__radioSeed`
@@ -272,6 +276,8 @@ function radioStationItem(id: string, seed: RadioSeedLike, coverUrl: string | nu
         title: seed.title,
         artist_name: seed.artist_name ?? undefined,
         album_title: seed.album_title ?? undefined,
+        path: seed.path ?? undefined,
+        format: seed.format ?? undefined,
         image_url: coverUrl ?? undefined,
         __radioSeed: {
           title: seed.title,
@@ -381,7 +387,11 @@ async function readMixtapeCover(path: string): Promise<string | null> {
 //   4. the lead track's album → artist image (the session keeps `s.track`
 //      precisely so we can re-resolve imagery without snapshotting tracks).
 // `resolve` / `mixtapeCover` are injectable so this stays unit-testable.
-// Returns null → the shelf renders the first-letter placeholder.
+// A radio station or a lone track whose lead is a local video returns null
+// after the mixtape step: the card shows the video's own frame instead
+// (useShelfVideoFrames), and anything captured or resolved here would be
+// borrowed album/artist art ranked ahead of it.
+// Returns null → the shelf renders the lead track's placeholder.
 export async function resolveSessionCover(
   s: RecentPlaySession,
   resolve: (albumTitle: string | null | undefined, artistName: string | null | undefined) => Promise<string | null> = resolveCover,
@@ -391,6 +401,7 @@ export async function resolveSessionCover(
     const c = await mixtapeCover(s.mixtapePath);
     if (c) return c;
   }
+  if ((s.source === "radio" || s.source === "track") && s.track && isLocalVideo(s.track)) return null;
   if (s.imagePath) return s.imagePath;
   if (s.source === "album") {
     const c = await resolve(s.name, s.artistName);
@@ -666,7 +677,10 @@ export function useHome(opts: UseHomeOptions) {
       store
         .set(RADIO_SEED_COOLDOWN_KEY, rememberShownSeeds(exclude, seeds.map((s) => s.id).filter((id): id is number => id != null), RADIO_STATION_COUNT))
         .catch((e) => console.error("Failed to persist radio seed cooldown:", e));
-      const covers = await Promise.all(seeds.map((seed) => resolveCover(seed.album_title, seed.album_artist_name ?? seed.artist_name)));
+      // A local video seed shows its own frame (useShelfVideoFrames) — an
+      // album/artist cover here would sit ahead of it in the card's chain.
+      const covers = await Promise.all(seeds.map((seed) =>
+        isLocalVideo(seed) ? null : resolveCover(seed.album_title, seed.album_artist_name ?? seed.artist_name)));
       return seeds.map((seed, i) => ({ seed, coverUrl: covers[i] }));
     } catch (e) {
       console.error("Failed to pick radio stations:", e);
