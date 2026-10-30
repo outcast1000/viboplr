@@ -129,6 +129,7 @@ in a hand-edited config, it silently differed between clients: the same
 question worked in one and dead-ended in the other.
 
 What an assistant may *change* is now decided where the user can see it — the
+AI access level (Off / Low / Full / Custom) and, under Custom, the
 per-category switches below, enforced in Rust on every request. `--tier` is
 still accepted and ignored, so existing configs keep starting.
 
@@ -151,11 +152,17 @@ keeping the library row; two-step: stage + compare, then confirm or discard;
 needs both the Downloads and Manage files switches, and the old file goes to
 the Trash).
 
-Their authorization is a **per-category switch in Vibo → Settings →
-AI control**, all off by default, enforced in Rust on
-every request and re-read from disk each time (flipping a switch applies
-immediately; a missing/corrupt permissions file means *no*). A refused call is
-a 403 naming the switch.
+Their authorization is the **AI access level in Vibo → Settings →
+AI control**: **Low** allows none of the six permissions below, **Full** all of
+them, **Custom** shows one switch each. The level is derived from the six
+switches (none on = Low, all on = Full, a mix = Custom), so there is still one
+file — enforced in Rust on every request and re-read from disk each time
+(changes apply immediately; a missing/corrupt permissions file means *no*,
+i.e. Low). A refused call is a 403 whose `error` names the missing permission,
+the current level and what the user must change ("set … to Full, or to Custom
+with "X" switched on") — relay it — and whose `required` carries the same
+facts as fields (`permission`, `permissionLabel`, `accessLevel`, `allowedAt`,
+`fix`).
 
 A fourth switch, **Plugin actions**, covers the plugin surfaces, because a
 plugin's code can do anything the app can: invoking a context-menu action
@@ -196,7 +203,7 @@ says the user paused it. Reads, search and page navigation keep working. A 423
 means *stop and tell the user*; retrying will not help until they press Resume.
 `app_version` reports `paused`.
 
-`app_version` reports the current switches (`writeScopes`), and every applied write is recorded in the app log as an
+`app_version` reports the level (`accessLevel`) and the permissions it allows (`writeScopes`), and every applied write is recorded in the app log as an
 `Assistant change [...]` line (the `logs` tool and problem reports, while
 logging is on).
 

@@ -24,6 +24,13 @@
 //!   and the consent dialogs (installs, permissions, programs) refuse it, so
 //!   it can never grant itself more; see `src/utils/uiInput.ts`.
 //!
+//! Settings shows these as one **access level** — Off / Low / Full / Custom —
+//! rather than six switches. The level is *derived*, never stored: Off is the
+//! control API being off (`controlApiEnabled`), Low is every scope off, Full
+//! every scope on, Custom anything else (`WriteScopes::access_level`). So this
+//! file stays the only authorization, and a refusal can tell the caller
+//! exactly what the user has to change (`scope_refusal_message`).
+//!
 //! Scopes live in `assistant-permissions.json` in the profile dir, owned and
 //! read by **Rust** (never the frontend store): the HTTP handlers re-read the
 //! file per request and fail closed on anything missing or malformed — the
@@ -79,7 +86,60 @@ impl Scope {
     }
 }
 
+impl Scope {
+    /// The camelCase key of this scope in `writeScopes`.
+    pub fn key(self) -> &'static str {
+        match self {
+            Scope::ModifyTags => "modifyTags",
+            Scope::ManageFiles => "manageFiles",
+            Scope::Downloads => "downloads",
+            Scope::PluginActions => "pluginActions",
+            Scope::DeleteTracks => "deleteTracks",
+            Scope::UiInput => "uiInput",
+        }
+    }
+}
+
+/// The Settings → AI control level the scopes amount to while the API is on
+/// (Off is `controlApiEnabled`, which this file knows nothing about).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub enum AccessLevel {
+    Low,
+    Full,
+    Custom,
+}
+
+impl AccessLevel {
+    pub fn label(self) -> &'static str {
+        match self {
+            AccessLevel::Low => "Low",
+            AccessLevel::Full => "Full",
+            AccessLevel::Custom => "Custom",
+        }
+    }
+}
+
 impl WriteScopes {
+    pub const ALL: WriteScopes = WriteScopes {
+        modify_tags: true,
+        manage_files: true,
+        downloads: true,
+        plugin_actions: true,
+        delete_tracks: true,
+        ui_input: true,
+    };
+
+    pub fn access_level(&self) -> AccessLevel {
+        if *self == WriteScopes::default() {
+            AccessLevel::Low
+        } else if *self == WriteScopes::ALL {
+            AccessLevel::Full
+        } else {
+            AccessLevel::Custom
+        }
+    }
+
     pub fn allows(&self, scope: Scope) -> bool {
         match scope {
             Scope::ModifyTags => self.modify_tags,
@@ -110,6 +170,41 @@ pub fn save_scopes(app_dir: &Path, scopes: &WriteScopes) -> Result<(), String> {
     let contents = serde_json::to_string_pretty(scopes).map_err(|e| e.to_string())?;
     std::fs::write(&path, contents)
         .map_err(|e| format!("Failed to write {}: {}", path.display(), e))
+}
+
+/// Why a call was refused and what the user has to change, as one sentence a
+/// caller can relay as-is. Every scope refusal — the HTTP 403s and the Tauri
+/// commands the control API reaches — is worded here.
+pub fn scope_refusal_message(scope: Scope, level: AccessLevel) -> String {
+    format!(
+        "this needs the \"{}\" assistant permission, which the current AI access level ({}) doesn't include — ask the user to set Vibo → Settings → AI control to Full, or to Custom with \"{}\" switched on",
+        scope.label(),
+        level.label(),
+        scope.label()
+    )
+}
+
+/// The machine-readable half of a refusal, sent as `required` beside `error`
+/// in the 403 body.
+pub fn scope_refusal_details(scope: Scope, level: AccessLevel) -> Value {
+    serde_json::json!({
+        "permission": scope.key(),
+        "permissionLabel": scope.label(),
+        "accessLevel": level,
+        "allowedAt": ["full", "custom"],
+        "fix": format!("Settings → AI control → Full, or Custom with \"{}\" on", scope.label()),
+    })
+}
+
+/// `Err(message)` when `scope` is off — for code paths that answer with a
+/// plain string (Tauri commands).
+pub fn require_scope(app_dir: &Path, scope: Scope) -> Result<(), String> {
+    let scopes = load_scopes(app_dir);
+    if scopes.allows(scope) {
+        Ok(())
+    } else {
+        Err(scope_refusal_message(scope, scopes.access_level()))
+    }
 }
 
 // --- Change log ---
@@ -1381,6 +1476,35 @@ mod tests {
         assert!(loaded.allows(Scope::Downloads));
         assert!(loaded.allows(Scope::PluginActions));
         assert!(loaded.allows(Scope::UiInput));
+    }
+
+    /// Low = nothing, Full = everything, Custom = any mix — derived, so a
+    /// file written by the old six-switch UI lands on the right level.
+    #[test]
+    fn test_access_level_is_derived_from_the_scopes() {
+        assert_eq!(WriteScopes::default().access_level(), AccessLevel::Low);
+        assert_eq!(WriteScopes::ALL.access_level(), AccessLevel::Full);
+        assert_eq!(WriteScopes { ui_input: true, ..Default::default() }.access_level(), AccessLevel::Custom);
+        assert_eq!(WriteScopes { ui_input: false, ..WriteScopes::ALL }.access_level(), AccessLevel::Custom);
+        let dir = tempfile::tempdir().unwrap();
+        assert_eq!(load_scopes(dir.path()).access_level(), AccessLevel::Low, "no file is Low");
+    }
+
+    /// A refusal names the missing switch, the level the user is on, and both
+    /// ways to fix it — the caller relays it, so it must be actionable alone.
+    #[test]
+    fn test_scope_refusal_tells_the_caller_what_to_change() {
+        let dir = tempfile::tempdir().unwrap();
+        let err = require_scope(dir.path(), Scope::DeleteTracks).unwrap_err();
+        assert!(err.contains("\"Delete tracks\""), "{}", err);
+        assert!(err.contains("(Low)"), "{}", err);
+        assert!(err.contains("Settings → AI control"), "{}", err);
+        assert!(err.contains("Full") && err.contains("Custom"), "{}", err);
+        let details = scope_refusal_details(Scope::DeleteTracks, AccessLevel::Custom);
+        assert_eq!(details["permission"], "deleteTracks");
+        assert_eq!(details["accessLevel"], "custom");
+        save_scopes(dir.path(), &WriteScopes::ALL).unwrap();
+        assert!(require_scope(dir.path(), Scope::DeleteTracks).is_ok());
     }
 
     #[test]

@@ -195,12 +195,7 @@ pub async fn assistant_land_download(
     metadata: Option<crate::assistant_write::LandTags>,
 ) -> Result<serde_json::Value, String> {
     use crate::assistant_write::{self, DownloadSource, LandName, Scope};
-    if !assistant_write::load_scopes(&state.app_dir).allows(Scope::Downloads) {
-        return Err(format!(
-            "the \"{}\" assistant permission is off — enable it in Settings → AI control",
-            Scope::Downloads.label()
-        ));
-    }
+    assistant_write::require_scope(&state.app_dir, Scope::Downloads)?;
     let layout = assistant_write::assistant_download_layout(&state.app_dir, subdir.as_deref().unwrap_or(""));
     with_db(&state, move |db| -> Result<_, String> {
         let source = match (source_url, source_path) {
@@ -255,14 +250,8 @@ fn resolved_file_path(path: &str) -> Result<std::path::PathBuf, String> {
 /// reason as `assistant_land_download`.
 fn require_replace_scopes(app_dir: &std::path::Path) -> Result<(), String> {
     use crate::assistant_write::{self, Scope};
-    let scopes = assistant_write::load_scopes(app_dir);
     for scope in [Scope::Downloads, Scope::ManageFiles] {
-        if !scopes.allows(scope) {
-            return Err(format!(
-                "the \"{}\" assistant permission is off — enable it in Settings → AI control",
-                scope.label()
-            ));
-        }
+        assistant_write::require_scope(app_dir, scope)?;
     }
     Ok(())
 }

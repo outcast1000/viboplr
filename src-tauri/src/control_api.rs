@@ -899,6 +899,7 @@ async fn handle_health(AxumState(state): AxumState<ServerState>) -> Response {
         "version": state.version,
         "profile": state.profile,
         "pid": std::process::id(),
+        "accessLevel": scopes.access_level(),
         "writeScopes": scopes,
         "paused": assistant_activity::is_paused(&state.app_dir),
     }))
@@ -1644,17 +1645,31 @@ use crate::assistant_write::{self, Scope};
 /// user flipping a Settings switch takes effect immediately, and there is no
 /// cached authorization to go stale. Fails closed.
 fn check_scope(state: &ServerState, scope: Scope) -> Result<(), Response> {
-    if assistant_write::load_scopes(&state.app_dir).allows(scope) {
+    let scopes = assistant_write::load_scopes(&state.app_dir);
+    if scopes.allows(scope) {
         Ok(())
     } else {
-        Err(error_response(
-            StatusCode::FORBIDDEN,
-            format!(
-                "the \"{}\" assistant permission is off — the user can enable it in Vibo → Settings → AI control",
-                scope.label()
-            ),
-        ))
+        Err(scope_forbidden(scope, scopes.access_level(), None))
     }
+}
+
+/// The 403 for a missing scope: `error` is the sentence to relay to the user
+/// (what to change in Settings), `required` the same facts as fields.
+/// `subject` names what was refused when it isn't the route itself.
+fn scope_forbidden(scope: Scope, level: assistant_write::AccessLevel, subject: Option<String>) -> Response {
+    let message = assistant_write::scope_refusal_message(scope, level);
+    let error = match subject {
+        Some(subject) => format!("{}: {}", subject, message),
+        None => message,
+    };
+    (
+        StatusCode::FORBIDDEN,
+        axum::Json(json!({
+            "error": error,
+            "required": assistant_write::scope_refusal_details(scope, level),
+        })),
+    )
+        .into_response()
 }
 
 // --- Plugin actions (scope-gated) ---
@@ -1760,21 +1775,18 @@ async fn handle_assistant_invoke(state: AxumState<ServerState>, body: Bytes) -> 
         Ok(payload) => payload,
         Err(e) => return error_response(StatusCode::BAD_REQUEST, e),
     };
-    if !assistant_write::load_scopes(&state.0.app_dir).allows(Scope::PluginActions) {
+    let scopes = assistant_write::load_scopes(&state.0.app_dir);
+    if !scopes.allows(Scope::PluginActions) {
         if let (Some(plugin_id), Some(tool)) = (payload["pluginId"].as_str(), payload["tool"].as_str()) {
             let roster = match bridge_value(&state.0, "assistant.tools", json!({}), state.0.bridge_timeout).await {
                 Ok(roster) => roster,
                 Err(resp) => return resp,
             };
             if roster_tool_read_only(&roster, plugin_id, tool) == Some(false) {
-                return error_response(
-                    StatusCode::FORBIDDEN,
-                    format!(
-                        "\"{}\" is not a read-only tool of plugin \"{}\", so it needs the \"{}\" assistant permission, which is off — the user can enable it in Vibo → Settings → AI control",
-                        tool,
-                        plugin_id,
-                        Scope::PluginActions.label()
-                    ),
+                return scope_forbidden(
+                    Scope::PluginActions,
+                    scopes.access_level(),
+                    Some(format!("\"{}\" is not a read-only tool of plugin \"{}\"", tool, plugin_id)),
                 );
             }
         }
@@ -2777,6 +2789,8 @@ mod tests {
                 json["error"].as_str().unwrap().contains("Settings"),
                 "the 403 must name where to enable the permission"
             );
+            assert_eq!(json["required"]["accessLevel"], json!("low"), "{}", path);
+            assert!(json["required"]["permission"].is_string(), "{}", path);
         }
     }
 
@@ -3161,6 +3175,7 @@ mod tests {
         assert_eq!(json["writeScopes"]["manageFiles"], json!(false));
         assert_eq!(json["writeScopes"]["downloads"], json!(false));
         assert_eq!(json["writeScopes"]["pluginActions"], json!(false));
+        assert_eq!(json["accessLevel"], json!("custom"));
     }
 
     /// Seed one local track whose file really exists under a temp collection

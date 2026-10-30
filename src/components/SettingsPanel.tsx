@@ -44,6 +44,7 @@ import { HelpLink } from "./HelpLink";
 import { AppLogoMark } from "./AppLogoMark";
 import { getPlatform } from "./DependencyModal";
 import { ToggleSwitch } from "./ToggleSwitch";
+import { AI_ACCESS_LEVELS, aiAccessLevel, scopesForLevel, type AiAccessLevel, type AssistantScopes } from "../utils/aiAccess";
 import { NowPlayingInfoSettings, type NowPlayingInfoSettingsProps } from "./NowPlayingInfoSettings";
 import { UpdateProgress } from "./UpdateProgress";
 import { startRowDrag } from "../utils/rowDrag";
@@ -743,18 +744,9 @@ interface ControlApiStatus {
   discoveryPath: string;
 }
 
-// Shape of `assistant_scopes_get`/`_set` (assistant_write.rs WriteScopes). The
-// authoritative copy lives in the profile dir and is enforced in Rust on every
-// control-API write — this UI is only the switch panel over that file.
-interface AssistantScopes {
-  modifyTags: boolean;
-  manageFiles: boolean;
-  downloads: boolean;
-  pluginActions: boolean;
-  deleteTracks: boolean;
-  uiInput: boolean;
-}
-
+// The scopes' authoritative copy lives in the profile dir and is enforced in
+// Rust on every control-API write — this UI only edits that file, through a
+// derived access level (utils/aiAccess.ts).
 const ASSISTANT_SCOPE_ROWS: Array<{ key: keyof AssistantScopes; label: string; description: string }> = [
   {
     key: "modifyTags",
@@ -795,42 +787,19 @@ const ASSISTANT_SCOPE_ROWS: Array<{ key: keyof AssistantScopes; label: string; d
 ];
 
 /**
- * Per-category write permissions for the AI assistant, shown while AI control
- * is enabled. All off by default; every applied write lands in the assistant
- * change log (Settings → Debug).
+ * The per-category write permissions, shown only at the Custom access level.
  */
-function AssistantPermissions() {
-  const [scopes, setScopes] = useState<AssistantScopes | null>(null);
-  const [error, setError] = useState<string | null>(null);
-
-  useEffect(() => {
-    invoke<AssistantScopes>("assistant_scopes_get")
-      .then(setScopes)
-      .catch((e) => {
-        console.error("Failed to read assistant permissions:", e);
-        setError(String(e));
-      });
-  }, []);
-
-  async function toggle(key: keyof AssistantScopes, on: boolean) {
-    if (!scopes) return;
-    const previous = scopes;
-    const next = { ...scopes, [key]: on };
-    setScopes(next);
-    try {
-      setScopes(await invoke<AssistantScopes>("assistant_scopes_set", { scopes: next }));
-      setError(null);
-    } catch (e) {
-      console.error("Failed to save assistant permissions:", e);
-      setScopes(previous);
-      setError(String(e));
-    }
-  }
-
+function AssistantPermissions({
+  scopes,
+  onToggle,
+}: {
+  scopes: AssistantScopes | null;
+  onToggle: (key: keyof AssistantScopes, on: boolean) => void;
+}) {
   return (
     <>
       {ASSISTANT_SCOPE_ROWS.map((row) => (
-        <div className="settings-row" key={row.key}>
+        <div className="settings-row settings-row--nested" key={row.key}>
           <div className="settings-row-info">
             <span className="settings-label">
               {row.label}
@@ -840,24 +809,16 @@ function AssistantPermissions() {
           </div>
           <ToggleSwitch
             checked={scopes?.[row.key] ?? false}
-            onChange={(on) => toggle(row.key, on)}
+            onChange={(on) => onToggle(row.key, on)}
           />
         </div>
       ))}
-      {error && (
-        <div className="settings-row">
-          <div className="settings-row-info">
-            <span className="settings-label" style={{ color: "var(--error)" }}>Couldn't save permissions</span>
-            <span className="settings-description">{error}</span>
-          </div>
-        </div>
-      )}
     </>
   );
 }
 
 /**
- * Settings → "AI control": the toggle plus, while running,
+ * Settings → "AI control": the access level (Off / Low / Full / Custom) plus, while running,
  * the address / token / discovery-file rows an assistant needs to connect.
  * Failures render inline in the card (persistent), not as a toast.
  */
@@ -876,6 +837,71 @@ function ControlApiSection({
   // The in-flight (or settled) probe, so rapid clicks on different buttons
   // share one backend call. Cleared on failure so the next click retries.
   const mcpProbeRef = useRef<Promise<McpSetupInfo> | null>(null);
+  const [scopes, setScopes] = useState<AssistantScopes | null>(null);
+  // Picking Custom keeps the switches on screen even while they happen to
+  // match a preset (all off reads as Low otherwise, and the rows would vanish
+  // under the pointer).
+  const [customOpen, setCustomOpen] = useState(false);
+
+  useEffect(() => {
+    invoke<AssistantScopes>("assistant_scopes_get")
+      .then((loaded) => {
+        setScopes(loaded);
+        setCustomOpen(aiAccessLevel(true, loaded) === "custom");
+      })
+      .catch((e) => {
+        console.error("Failed to read assistant permissions:", e);
+        setError(`Couldn't read the assistant permissions: ${e}`);
+      });
+  }, []);
+
+  const derivedLevel = scopes ? aiAccessLevel(enabled, scopes) : enabled ? null : "off";
+  const level: AiAccessLevel | null = enabled && customOpen ? "custom" : derivedLevel;
+
+  async function saveScopes(next: AssistantScopes): Promise<boolean> {
+    const previous = scopes;
+    setScopes(next);
+    try {
+      setScopes(await invoke<AssistantScopes>("assistant_scopes_set", { scopes: next }));
+      return true;
+    } catch (e) {
+      console.error("Failed to save assistant permissions:", e);
+      setScopes(previous);
+      setError(`Couldn't save the assistant permissions: ${e}`);
+      return false;
+    }
+  }
+
+  async function handleLevel(next: AiAccessLevel) {
+    if (busy || next === level) return;
+    setBusy(true);
+    setError(null);
+    // Scopes are written before the server starts, so it never comes up
+    // with the previous level's permissions.
+    const preset = scopesForLevel(next);
+    if (preset && !(await saveScopes(preset))) {
+      setBusy(false);
+      return;
+    }
+    setCustomOpen(next === "custom");
+    const wantEnabled = next !== "off";
+    if (wantEnabled !== enabled) {
+      try {
+        await onEnabledChange(wantEnabled);
+      } catch (e) {
+        console.error("Failed to toggle the control API:", e);
+        setError(String(e));
+      }
+      await refresh();
+    }
+    setBusy(false);
+  }
+
+  function handleScopeToggle(key: keyof AssistantScopes, on: boolean) {
+    if (!scopes) return;
+    setError(null);
+    void saveScopes({ ...scopes, [key]: on });
+  }
 
   const refresh = useCallback(async () => {
     try {
@@ -943,20 +969,6 @@ function ControlApiSection({
       .catch((e) => console.error("Failed to inspect the MCP setup:", e));
   }
 
-  async function handleToggle(on: boolean) {
-    if (busy) return;
-    setBusy(true);
-    setError(null);
-    try {
-      await onEnabledChange(on);
-    } catch (e) {
-      console.error("Failed to toggle the control API:", e);
-      setError(String(e));
-    }
-    await refresh();
-    setBusy(false);
-  }
-
   async function handleRegenerate() {
     if (busy) return;
     setBusy(true);
@@ -991,18 +1003,35 @@ function ControlApiSection({
     <div className="settings-group" id="control-api" data-ui-input-protected="">
       <div className="settings-group-title">AI control</div>
       <div className="settings-card">
-        <div className="settings-row">
+        <div className="settings-row settings-row--stacked">
           <div className="settings-row-info">
-            <span className="settings-label">Allow AI assistants to control Vibo<HelpLink anchor="control-api" topic="AI control" /></span>
+            <span className="settings-label">AI access<HelpLink anchor="control-api" topic="AI control" /></span>
             <span className="settings-description">
-              Runs a private control server on this computer only (127.0.0.1, token-protected).
-              Assistants like Claude can then search your library, control playback, and edit
-              playlists, tags and likes. Off by default; nothing leaves your machine.
+              Lets assistants like Claude control Vibo through a private server on this computer
+              only (127.0.0.1, token-protected). Nothing leaves your machine.
             </span>
           </div>
-          <ToggleSwitch checked={enabled} onChange={handleToggle} />
+          <div className="settings-seg" role="radiogroup" aria-label="AI access">
+            {AI_ACCESS_LEVELS.map((option) => (
+              <button
+                key={option.level}
+                className={`settings-seg-btn${level === option.level ? " active" : ""}`}
+                role="radio"
+                aria-checked={level === option.level}
+                disabled={busy || (scopes === null && option.level !== "off")}
+                onClick={() => handleLevel(option.level)}
+              >
+                {option.label}
+              </button>
+            ))}
+          </div>
+          {level && (
+            <span className="settings-description">
+              {AI_ACCESS_LEVELS.find((o) => o.level === level)?.description}
+            </span>
+          )}
         </div>
-        {enabled && <AssistantPermissions />}
+        {level === "custom" && <AssistantPermissions scopes={scopes} onToggle={handleScopeToggle} />}
         {serverRunning && status && (
           <>
             <div className="settings-row">
