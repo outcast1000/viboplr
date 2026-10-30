@@ -2516,6 +2516,29 @@ function App() {
   // render that opened the dialog may be long gone by then.
   const replaceLiveRef = useLatestRef({ playback, queueHook, tagOpsDeps, pluginStates: plugins.pluginStates });
 
+  // The second half of every replace (the plugin dialog's yes, the control
+  // API's confirm): run `confirm` — the command that swaps the staged file in
+  // under the row — through the player's swapCurrentFile when it is the track
+  // playing, repoint queue entries at the new path (the extension may have
+  // changed), and refresh the library. `row` is the track as it was before.
+  const swapInReplacement = useCallback(async <R,>(trackId: number, row: Track, confirm: () => Promise<R>): Promise<R> => {
+    const apply = async () => {
+      const result = await confirm();
+      const [updated] = await invoke<Track[]>("get_tracks_by_ids", { ids: [trackId] });
+      return { result, updated: updated ?? null };
+    };
+    const { playback: player, queueHook: queue, tagOpsDeps: refresh } = replaceLiveRef.current;
+    const playing = currentTrackRef.current;
+    const { result, updated } = playing && isTrackBeingReplaced(playing, trackId, row.path)
+      ? await player.swapCurrentFile(apply, ({ updated: u }) => u
+        ? { ...playing, path: u.path, format: u.format, duration_secs: u.duration_secs ?? playing.duration_secs }
+        : playing)
+      : await apply();
+    if (row.path && updated?.path && updated.path !== row.path) queue.replaceTrackPath(row.path, updated.path, updated.format);
+    refresh.filesWritten();
+    return result;
+  }, [currentTrackRef, replaceLiveRef]);
+
   const replaceTrackFileForPlugin = useCallback((pluginId: string, request: ReplaceTrackFileRequest): Promise<ReplaceTrackFileResult> => {
     const run = async (): Promise<ReplaceTrackFileResult> => {
       const { trackId } = request;
@@ -2538,21 +2561,9 @@ function App() {
           .catch((e) => console.error("Failed to discard a declined replacement:", e));
         return { status: "declined" };
       }
-      const apply = async () => {
-        const result = await invoke<{ path: string; previousPath: string }>("confirm_track_replacement", { trackId, stageId: staged.stageId });
-        const [updated] = await invoke<Track[]>("get_tracks_by_ids", { ids: [trackId] });
-        return { result, updated: updated ?? null };
-      };
       try {
-        const { playback: player, queueHook: queue, tagOpsDeps: refresh } = replaceLiveRef.current;
-        const playing = currentTrackRef.current;
-        const { result, updated } = playing && isTrackBeingReplaced(playing, trackId, row.path)
-          ? await player.swapCurrentFile(apply, ({ updated: u }) => u
-            ? { ...playing, path: u.path, format: u.format, duration_secs: u.duration_secs ?? playing.duration_secs }
-            : playing)
-          : await apply();
-        if (row.path && updated?.path && updated.path !== row.path) queue.replaceTrackPath(row.path, updated.path, updated.format);
-        refresh.filesWritten();
+        const result = await swapInReplacement(trackId, row, () =>
+          invoke<{ path: string; previousPath: string }>("confirm_track_replacement", { trackId, stageId: staged.stageId }));
         return { status: "replaced", trackId, path: result.path, previousPath: result.previousPath };
       } catch (e) {
         console.error("Failed to replace a library file:", e);
@@ -2563,12 +2574,15 @@ function App() {
     const next = replaceChainRef.current.then(run, run);
     replaceChainRef.current = next.catch(() => undefined);
     return next;
-  }, [notify, currentTrackRef, replaceLiveRef]);
+  }, [notify, currentTrackRef, replaceLiveRef, swapInReplacement]);
 
   // Wire plugin host callbacks (uses library, contextMenuActions defined above)
   useAssignRef(pluginHostCallbacksRef, {
     getUiContext: () => uiContextRef.current,
     replaceTrackFile: replaceTrackFileForPlugin,
+    resyncCollection: (collectionId) => collectionActions.resyncCollection(collectionId),
+    applyDeletion: contextMenuActions.applyDeletion,
+    playbackDurationSecs: () => playback.durationSecs,
     // A later outcome (a queued batch landing): about the play last recorded.
     reportScrobble: (pluginId, report) => recordScrobblerStatus(pluginId, report, null),
     setSeekMarkers: (pluginId, trackKey, markers) => {
@@ -4877,6 +4891,7 @@ function App() {
     collections: { resync: collectionActions.resyncCollection },
     library: {
       refreshAfterBulkEdit: tagOpsDeps.filesWritten,
+      swapInReplacement,
     },
     tagOps: tagOpsDeps,
     deleteTracks: async (trackIds) => {

@@ -761,16 +761,42 @@ fn collection_dest_dir(db: &Arc<Database>, collection_id: i64, subdir: &str) -> 
     Ok((root_str, dest_dir))
 }
 
+/// What names a landed download and decides its folders under the
+/// destination (`downloader::download_relative_path`).
+pub struct LandName<'a> {
+    pub artist: &'a str,
+    pub title: &'a str,
+    pub album: Option<&'a str>,
+    pub track_number: Option<u32>,
+}
+
+/// The layout an assistant download lands in: the user's own
+/// `downloadFolderLayout` (the Save to menu's choice, read from the profile
+/// store) when the caller named no subdir, flat inside a subdir it did name.
+/// Unset reads as Artist › Album, the modal's default.
+pub fn assistant_download_layout(app_dir: &Path, subdir: &str) -> crate::downloader::DownloadLayout {
+    use crate::downloader::DownloadLayout;
+    if !subdir.trim().is_empty() {
+        return DownloadLayout::Flat;
+    }
+    let stored = std::fs::read_to_string(app_dir.join("app-state.json"))
+        .ok()
+        .and_then(|c| serde_json::from_str::<Value>(&c).ok())
+        .and_then(|j| j.get("downloadFolderLayout").and_then(|v| v.as_str()).map(str::to_string));
+    DownloadLayout::parse(Some(stored.as_deref().unwrap_or("artist-album")))
+}
+
 pub fn land_download(
     db: &Arc<Database>,
     collection_id: i64,
     subdir: &str,
-    artist: &str,
-    title: &str,
+    layout: crate::downloader::DownloadLayout,
+    name: &LandName,
     ext_hint: &str,
     source: DownloadSource,
     tags: Option<LandTags>,
 ) -> Result<Value, String> {
+    let LandName { artist, title, .. } = *name;
     if title.trim().is_empty() {
         return Err("title must not be empty".to_string());
     }
@@ -785,34 +811,43 @@ pub fn land_download(
     let temp = dest_dir.join(format!(".viboplr-dl-{}.tmp", std::process::id()));
     fetch_into(&source, &temp)?;
     let final_ext = settle_ext(named_ext, &source, &temp);
-    let filename = crate::downloader::download_filename(artist, title, &final_ext);
-    let dest = dest_dir.join(&filename);
+    let is_video = crate::scanner::VIDEO_EXTENSIONS.contains(&final_ext.as_str());
+    let rel = crate::downloader::download_relative_path(
+        layout, artist, title, name.album, name.track_number, is_video, &final_ext,
+    );
+    let dest = dest_dir.join(&rel);
     if dest.exists() {
         let _ = std::fs::remove_file(&temp);
         return Err(format!("{} already exists — downloads never overwrite", dest.display()));
+    }
+    if let Some(parent) = dest.parent() {
+        if let Err(e) = std::fs::create_dir_all(parent) {
+            let _ = std::fs::remove_file(&temp);
+            return Err(format!("failed to create {}: {}", parent.display(), e));
+        }
     }
     std::fs::rename(&temp, &dest).map_err(|e| {
         let _ = std::fs::remove_file(&temp);
         format!("failed to move downloaded file into place: {}", e)
     })?;
 
-    // Provider-reported metadata → file tags, best-effort (after the rename so
-    // lofty sees the real extension; a tag-write failure must not fail a
-    // completed download — same contract as the modal's download_to_path).
-    if let Some(t) = &tags {
-        if t.title.is_some() || t.artist.is_some() {
-            let _ = crate::downloader::write_tags(
-                &dest,
-                t.title.as_deref().unwrap_or("Unknown"),
-                t.artist.as_deref().unwrap_or("Unknown Artist"),
-                t.album.as_deref(),
-                t.track_number,
-                t.year,
-                t.genre.as_deref(),
-                t.cover_url.as_deref(),
-            );
-        }
-    }
+    // File tags, best-effort (after the rename so lofty sees the real
+    // extension; a tag-write failure must not fail a completed download —
+    // same contract as the modal's download_to_path). The provider's
+    // metadata wins; the names the file was placed under fill the gaps, so a
+    // download nobody tagged still indexes as what its folders say — a bare
+    // `Artist/Album/02 Title` parses as a title alone.
+    let t = tags.unwrap_or_default();
+    let _ = crate::downloader::write_tags(
+        &dest,
+        t.title.as_deref().unwrap_or(title),
+        t.artist.as_deref().unwrap_or(artist),
+        t.album.as_deref().or(name.album),
+        t.track_number.or(name.track_number),
+        t.year,
+        t.genre.as_deref(),
+        t.cover_url.as_deref(),
+    );
 
     let file_size = std::fs::metadata(&dest).map(|m| m.len()).unwrap_or(0);
     let ingested = crate::scanner::ingest_media_file(db, &dest, Some(collection_id), Some(root_str.as_str()));
@@ -1145,6 +1180,7 @@ pub fn download_track_source(
     track_id: i64,
     collection_id: i64,
     subdir: &str,
+    layout: crate::downloader::DownloadLayout,
 ) -> Result<Value, String> {
     let track = db.get_track_by_id(track_id).map_err(|e| format!("track {}: {}", track_id, e))?;
     let (url, ext) = if track.path.starts_with("subsonic://") {
@@ -1168,7 +1204,13 @@ pub fn download_track_source(
     } else {
         ext
     };
-    land_download(db, collection_id, subdir, artist, &track.title, &ext_hint, DownloadSource::Url(url, None), None)
+    let name = LandName {
+        artist,
+        title: &track.title,
+        album: track.album_title.as_deref(),
+        track_number: track.track_number.and_then(|n| u32::try_from(n).ok()),
+    };
+    land_download(db, collection_id, subdir, layout, &name, &ext_hint, DownloadSource::Url(url, None), None)
 }
 
 pub const MAX_MIXTAPE_TRACKS: usize = 200;
@@ -1277,6 +1319,7 @@ pub fn create_mixtape(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::downloader::DownloadLayout;
     use serde_json::json;
 
     #[test]
@@ -1504,13 +1547,13 @@ mod tests {
         let (db, local_id, col) = seed_local(root.path());
         let db = Arc::new(db);
 
-        let err = download_track_source(&db, local_id, col, "").unwrap_err();
+        let err = download_track_source(&db, local_id, col, "", DownloadLayout::Flat).unwrap_err();
         assert!(err.contains("already a local file"));
 
         let plugin = db
             .upsert_track("ytdlp://abc", "Plugin Track", None, None, None, None, None, None, None, None, None)
             .unwrap();
-        let err = download_track_source(&db, plugin, col, "").unwrap_err();
+        let err = download_track_source(&db, plugin, col, "", DownloadLayout::Flat).unwrap_err();
         assert!(err.contains("source-faithful"), "got: {}", err);
     }
 
@@ -1529,13 +1572,13 @@ mod tests {
             )
             .unwrap();
         // Traversal in the subdir is refused before the URL is ever fetched.
-        let err = download_track_source(&db, remote, col.id, "../evil").unwrap_err();
+        let err = download_track_source(&db, remote, col.id, "../evil", DownloadLayout::Flat).unwrap_err();
         assert!(err.contains(".."), "got: {}", err);
         // A disabled or non-local destination collection is refused too.
         let sub = db
             .add_collection("subsonic", "Navi", None, Some("https://x"), Some("u"), Some("p"), None, None)
             .unwrap();
-        let err = download_track_source(&db, remote, sub.id, "").unwrap_err();
+        let err = download_track_source(&db, remote, sub.id, "", DownloadLayout::Flat).unwrap_err();
         assert!(err.contains("not a local folder"), "got: {}", err);
     }
 
@@ -1617,8 +1660,9 @@ mod tests {
             .add_collection("local", "Dest", Some(root.path().to_str().unwrap()), None, None, None, None, None)
             .unwrap();
 
+        let name = LandName { artist: "Web Artist", title: "Web Song", album: Some("Web Album"), track_number: Some(3) };
         let out = land_download(
-            &db, col.id, "Web Artist/Singles", "Web Artist", "Web Song", "",
+            &db, col.id, "Web Artist/Singles", DownloadLayout::Flat, &name, "",
             DownloadSource::LocalFile(resolved.clone()), None,
         )
         .unwrap();
@@ -1633,11 +1677,76 @@ mod tests {
         // Landing the same name again is a conflict, never an overwrite.
         std::fs::write(&resolved, b"ID3other").unwrap();
         let err = land_download(
-            &db, col.id, "Web Artist/Singles", "Web Artist", "Web Song", "mp3",
+            &db, col.id, "Web Artist/Singles", DownloadLayout::Flat, &name, "mp3",
             DownloadSource::LocalFile(resolved), None,
         )
         .unwrap_err();
         assert!(err.contains("never overwrite"));
+    }
+
+    #[test]
+    fn test_land_download_follows_the_folder_layout() {
+        // No subdir: the user's Artist › Album layout, like the download
+        // modal's — audio under Artist/Album/NN Title, video under Videos/.
+        let root = tempfile::tempdir().unwrap();
+        let db = Arc::new(Database::new_in_memory().unwrap());
+        let col = db
+            .add_collection("local", "Dest", Some(root.path().to_str().unwrap()), None, None, None, None, None)
+            .unwrap();
+        let staging = tempfile::tempdir().unwrap();
+        let land = |file: &str, name: &LandName| {
+            let src = staging.path().join(file);
+            std::fs::write(&src, b"fakebytes").unwrap();
+            land_download(&db, col.id, "", DownloadLayout::ArtistAlbum, name, "", DownloadSource::LocalFile(src), None)
+                .unwrap()
+        };
+
+        // A real (untagged) WAV, so the tag write and the ingest both run:
+        // with no provider metadata the file must still index as the names
+        // its folders were built from, not as a bare "02 Alive".
+        let mut wav = Vec::new();
+        let data_len = 4410u32 * 2;
+        wav.extend_from_slice(b"RIFF");
+        wav.extend_from_slice(&(36 + data_len).to_le_bytes());
+        wav.extend_from_slice(b"WAVEfmt ");
+        wav.extend_from_slice(&16u32.to_le_bytes());
+        wav.extend_from_slice(&1u16.to_le_bytes()); // PCM
+        wav.extend_from_slice(&1u16.to_le_bytes()); // mono
+        wav.extend_from_slice(&44100u32.to_le_bytes());
+        wav.extend_from_slice(&88200u32.to_le_bytes());
+        wav.extend_from_slice(&2u16.to_le_bytes());
+        wav.extend_from_slice(&16u16.to_le_bytes());
+        wav.extend_from_slice(b"data");
+        wav.extend_from_slice(&data_len.to_le_bytes());
+        wav.extend(std::iter::repeat_n(0u8, data_len as usize));
+        let src = staging.path().join("a.wav");
+        std::fs::write(&src, &wav).unwrap();
+        let song = LandName { artist: "Pearl Jam", title: "Alive", album: Some("Ten"), track_number: Some(2) };
+        let out = land_download(&db, col.id, "", DownloadLayout::ArtistAlbum, &song, "", DownloadSource::LocalFile(src), None)
+            .unwrap();
+        assert!(root.path().join("Pearl Jam/Ten/02 Alive.wav").exists());
+        let row = db.get_track_by_id(out["libraryTrackId"].as_i64().unwrap()).unwrap();
+        assert_eq!(row.title, "Alive");
+        assert_eq!(row.artist_name.as_deref(), Some("Pearl Jam"));
+        assert_eq!(row.album_title.as_deref(), Some("Ten"));
+        assert_eq!(row.track_number, Some(2));
+
+        let video = LandName { artist: "Pearl Jam", title: "Alive (Live)", album: Some("Ten"), track_number: None };
+        land("v.mp4", &video);
+        assert!(root.path().join("Videos/Pearl Jam - Alive (Live).mp4").exists());
+    }
+
+    #[test]
+    fn test_assistant_download_layout_reads_the_store_unless_a_subdir_is_named() {
+        let dir = tempfile::tempdir().unwrap();
+        // No store yet: the modal's default.
+        assert_eq!(assistant_download_layout(dir.path(), ""), DownloadLayout::ArtistAlbum);
+        std::fs::write(dir.path().join("app-state.json"), r#"{"downloadFolderLayout":"flat"}"#).unwrap();
+        assert_eq!(assistant_download_layout(dir.path(), ""), DownloadLayout::Flat);
+        std::fs::write(dir.path().join("app-state.json"), r#"{"downloadFolderLayout":"artist-album"}"#).unwrap();
+        assert_eq!(assistant_download_layout(dir.path(), ""), DownloadLayout::ArtistAlbum);
+        // A named subdir is where the caller wants the file: flat inside it.
+        assert_eq!(assistant_download_layout(dir.path(), "Singles"), DownloadLayout::Flat);
     }
 
     // --- Replace ---

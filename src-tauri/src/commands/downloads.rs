@@ -186,19 +186,22 @@ pub async fn assistant_land_download(
     subdir: Option<String>,
     artist_name: String,
     title: String,
+    album_title: Option<String>,
+    track_number: Option<u32>,
     ext: Option<String>,
     source_url: Option<String>,
     source_path: Option<String>,
     headers: Option<std::collections::HashMap<String, String>>,
     metadata: Option<crate::assistant_write::LandTags>,
 ) -> Result<serde_json::Value, String> {
-    use crate::assistant_write::{self, DownloadSource, Scope};
+    use crate::assistant_write::{self, DownloadSource, LandName, Scope};
     if !assistant_write::load_scopes(&state.app_dir).allows(Scope::Downloads) {
         return Err(format!(
             "the \"{}\" assistant permission is off — enable it in Settings → AI control",
             Scope::Downloads.label()
         ));
     }
+    let layout = assistant_write::assistant_download_layout(&state.app_dir, subdir.as_deref().unwrap_or(""));
     with_db(&state, move |db| -> Result<_, String> {
         let source = match (source_url, source_path) {
             (Some(url), None) => {
@@ -210,12 +213,18 @@ pub async fn assistant_land_download(
             (None, Some(path)) => DownloadSource::LocalFile(resolved_file_path(&path)?),
             _ => return Err("pass exactly one of sourceUrl or sourcePath".to_string()),
         };
+        let name = LandName {
+            artist: &artist_name,
+            title: &title,
+            album: album_title.as_deref(),
+            track_number,
+        };
         let value = assistant_write::land_download(
             db,
             collection_id,
             subdir.as_deref().unwrap_or(""),
-            &artist_name,
-            &title,
+            layout,
+            &name,
             ext.as_deref().unwrap_or(""),
             source,
             metadata,
@@ -303,7 +312,10 @@ pub async fn assistant_confirm_replacement(
             track_id,
             &stage_id,
             keep_library_tags.unwrap_or(true),
-            &crate::assistant_write::trash_replaced,
+            // Patient for the same reason as the in-app replace: the frontend
+            // runs this through swapCurrentFile, and the engine closes the
+            // playing file's handle on its own thread a moment later.
+            &crate::assistant_write::trash_replaced_patiently,
         )
     })
     .await

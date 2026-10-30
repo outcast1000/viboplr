@@ -502,24 +502,42 @@ impl Database {
     /// a directory path **relative to the collection root** — the form local
     /// tracks store in `tracks.path` (see `PATH_EXPR`). Prefix-matched with a
     /// trailing separator, so `Album` never sweeps `Album Deluxe`. Returns the
-    /// number of rows removed.
-    pub fn delete_tracks_under_dir(&self, collection_id: i64, rel_dir: &str) -> SqlResult<usize> {
+    /// removed rows as (id, collection-relative path).
+    pub fn delete_tracks_under_dir(&self, collection_id: i64, rel_dir: &str) -> SqlResult<Vec<(i64, String)>> {
         let sep = if rel_dir.contains('\\') && !rel_dir.contains('/') { '\\' } else { std::path::MAIN_SEPARATOR };
         let mut prefix = rel_dir.trim_end_matches(['/', '\\']).to_string();
         prefix.push(sep);
         let conn = self.conn.lock().unwrap();
-        let removed_ids: Vec<i64> = {
+        let removed: Vec<(i64, String)> = {
             let mut stmt = conn.prepare(
-                "SELECT id FROM tracks WHERE collection_id = ?1 AND substr(path, 1, ?2) = ?3",
+                "SELECT id, path FROM tracks WHERE collection_id = ?1 AND substr(path, 1, ?2) = ?3",
             )?;
-            let rows = stmt.query_map(params![collection_id, prefix.chars().count() as i64, prefix], |r| r.get(0))?;
-            rows.collect::<SqlResult<Vec<i64>>>()?
+            let rows = stmt.query_map(params![collection_id, prefix.chars().count() as i64, prefix], |r| Ok((r.get(0)?, r.get(1)?)))?;
+            rows.collect::<SqlResult<Vec<_>>>()?
         };
-        for id in &removed_ids {
+        Self::delete_track_rows(&conn, &removed)?;
+        Ok(removed)
+    }
+
+    /// The single-file counterpart of `delete_tracks_under_dir`: the row (if
+    /// any) of `collection_id` stored at `rel_path`, removed and returned.
+    pub fn delete_track_at_path(&self, collection_id: i64, rel_path: &str) -> SqlResult<Option<(i64, String)>> {
+        let conn = self.conn.lock().unwrap();
+        let removed: Vec<(i64, String)> = {
+            let mut stmt = conn.prepare("SELECT id, path FROM tracks WHERE collection_id = ?1 AND path = ?2")?;
+            let rows = stmt.query_map(params![collection_id, rel_path], |r| Ok((r.get(0)?, r.get(1)?)))?;
+            rows.collect::<SqlResult<Vec<_>>>()?
+        };
+        Self::delete_track_rows(&conn, &removed)?;
+        Ok(removed.into_iter().next())
+    }
+
+    fn delete_track_rows(conn: &rusqlite::Connection, rows: &[(i64, String)]) -> SqlResult<()> {
+        for (id, _) in rows {
             conn.execute("DELETE FROM tracks_fts WHERE rowid = ?1", params![id])?;
             conn.execute("DELETE FROM tracks WHERE id = ?1", params![id])?; // track_tags cascade via FK
         }
-        Ok(removed_ids.len())
+        Ok(())
     }
 
     pub fn delete_tracks_by_ids(&self, ids: &[i64]) -> SqlResult<()> {
@@ -953,8 +971,12 @@ mod tests {
         let sibling = add("Other/01.mp3", local.id);
         let other_collection = add("Album/01.mp3", other.id);
 
-        let removed = db.delete_tracks_under_dir(local.id, "Album").unwrap();
-        assert_eq!(removed, 2);
+        let mut removed = db.delete_tracks_under_dir(local.id, "Album").unwrap();
+        removed.sort();
+        assert_eq!(removed, vec![
+            (in_album_1, "Album/01.mp3".to_string()),
+            (in_album_2, "Album/disc2/01.mp3".to_string()),
+        ]);
 
         let alive = |id: i64| db.get_tracks_by_ids(&[id]).unwrap().len() == 1;
         assert!(!alive(in_album_1));
@@ -964,6 +986,12 @@ mod tests {
         assert!(alive(other_collection), "another collection's identical relative path must survive");
 
         // A trailing separator on the input is tolerated, and a miss is zero.
-        assert_eq!(db.delete_tracks_under_dir(local.id, "Nothing/").unwrap(), 0);
+        assert!(db.delete_tracks_under_dir(local.id, "Nothing/").unwrap().is_empty());
+
+        // One file: only that collection's row, reported back.
+        assert_eq!(db.delete_track_at_path(local.id, "Other/01.mp3").unwrap(), Some((sibling, "Other/01.mp3".to_string())));
+        assert!(!alive(sibling));
+        assert!(alive(other_collection));
+        assert_eq!(db.delete_track_at_path(local.id, "Other/01.mp3").unwrap(), None);
     }
 }

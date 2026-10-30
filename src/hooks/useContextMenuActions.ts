@@ -446,6 +446,50 @@ export function useContextMenuActions(deps: UseContextMenuActionsDeps) {
    *  on-screen error modal — the requester isn't the person at the screen.
    *  `paths` are local queue files with no library row (`trashQueueFiles`);
    *  the control API never sends any — it deletes library tracks only. */
+  /** What follows a delete that already happened on disk: the rows leave the
+   *  lists, matching queue entries go, and a deleted playing track advances.
+   *  Shared by `performDelete` and a plugin's `api.collections.trashPath`,
+   *  which deletes in Rust and hands the result here. */
+  async function applyDeletion(result: DeleteTracksResult): Promise<void> {
+    const deletedPaths = new Set(result.deletedPaths as string[]);
+    if (deletedPaths.size === 0 && result.deletedIds.length === 0) return;
+    // The rows vanishing is the only success feedback, so let them fade out
+    // and the list close up visibly (160ms, then a slide) rather than snap.
+    const settleRows = await fadeOutTrackRows(result.deletedIds);
+    // settleRows arms the slide and the safety net that un-hides a row a list
+    // kept; it must run even if a step below throws, or a faded row would stay
+    // invisible.
+    try {
+      const deleted = new Set(result.deletedIds);
+      if (deleted.size > 0) {
+        library.setTracks(prev => prev.filter(t => t.id == null || !deleted.has(t.id)));
+        emitTracksDeleted(result.deletedIds);
+      }
+      const queueIndicesToRemove: number[] = [];
+      queueHook.queue.forEach((t, i) => {
+        if (t.path && deletedPaths.has(t.path)) queueIndicesToRemove.push(i);
+      });
+      const currentDeleted = !!(playback.currentTrack?.path && deletedPaths.has(playback.currentTrack.path));
+      if (currentDeleted && onCurrentTrackDeleted) {
+        // Deleting the playing track shouldn't dead-stop the player: advance to
+        // the next surviving track (or auto-continue / previous / stop) AND drop
+        // the deleted entries from the queue in one consistent step.
+        onCurrentTrackDeleted(queueIndicesToRemove);
+      } else {
+        if (currentDeleted) playback.handleStop();
+        if (queueIndicesToRemove.length > 0) {
+          queueHook.removeMultiple(queueIndicesToRemove);
+        }
+      }
+      if (deleted.size > 0) {
+        library.loadLibrary();
+        onTracksDeleted?.(result.deletedIds);
+      }
+    } finally {
+      settleRows();
+    }
+  }
+
   async function performDelete(trackIds: number[], title: string, opts: { headless?: boolean; paths?: string[] } = {}): Promise<DeleteTracksResult | null> {
     const paths = opts.paths ?? [];
     const total = trackIds.length + paths.length;
@@ -457,44 +501,7 @@ export function useContextMenuActions(deps: UseContextMenuActionsDeps) {
       const result: DeleteTracksResult = byPath
         ? { deletedIds: byId.deletedIds, deletedPaths: [...byId.deletedPaths, ...byPath.deletedPaths], failures: [...byId.failures, ...byPath.failures] }
         : byId;
-      const deletedPaths = new Set(result.deletedPaths as string[]);
-      if (deletedPaths.size > 0 || result.deletedIds.length > 0) {
-        // The rows vanishing is the only success feedback, so let them fade out
-        // and the list close up visibly (160ms, then a slide) rather than snap.
-        const settleRows = await fadeOutTrackRows(result.deletedIds);
-        // settleRows arms the slide and the safety net that un-hides a row a list
-        // kept; it must run even if a step below throws, or a faded row would stay
-        // invisible.
-        try {
-          const deleted = new Set(result.deletedIds);
-          if (deleted.size > 0) {
-            library.setTracks(prev => prev.filter(t => t.id == null || !deleted.has(t.id)));
-            emitTracksDeleted(result.deletedIds);
-          }
-          const queueIndicesToRemove: number[] = [];
-          queueHook.queue.forEach((t, i) => {
-            if (t.path && deletedPaths.has(t.path)) queueIndicesToRemove.push(i);
-          });
-          const currentDeleted = !!(playback.currentTrack?.path && deletedPaths.has(playback.currentTrack.path));
-          if (currentDeleted && onCurrentTrackDeleted) {
-            // Deleting the playing track shouldn't dead-stop the player: advance to
-            // the next surviving track (or auto-continue / previous / stop) AND drop
-            // the deleted entries from the queue in one consistent step.
-            onCurrentTrackDeleted(queueIndicesToRemove);
-          } else {
-            if (currentDeleted) playback.handleStop();
-            if (queueIndicesToRemove.length > 0) {
-              queueHook.removeMultiple(queueIndicesToRemove);
-            }
-          }
-          if (deleted.size > 0) {
-            library.loadLibrary();
-            onTracksDeleted?.(result.deletedIds);
-          }
-        } finally {
-          settleRows();
-        }
-      }
+      await applyDeletion(result);
       if (opts.headless) return result;
       if (result.failures.length === total) {
         setDeleteError({ message: `Failed to move ${title} to ${trashLabel}`, failures: result.failures });
@@ -559,6 +566,7 @@ export function useContextMenuActions(deps: UseContextMenuActionsDeps) {
     handleDeleteRequest,
     handleDeleteConfirm,
     performDelete,
+    applyDeletion,
     handleQueueRemove,
     handleQueueKeepOnly,
     handleQueueMoveToTop,

@@ -257,6 +257,10 @@ export interface ControlApiDeps {
      *  pages refetch — the same refresh `handleBulkEditSaved` runs after the
      *  BulkEditModal saves. Used by `tags.writeFiles`. */
     refreshAfterBulkEdit: () => void;
+    /** App's swapInReplacement — the second half of the plugin Replace
+     *  dialog's yes: runs `confirm` through the player's file swap when the
+     *  track is playing, repoints queue entries at the new path, refreshes. */
+    swapInReplacement: <R>(trackId: number, row: Track, confirm: () => Promise<R>) => Promise<R>;
   };
   downloads: {
     /** useDownloadOrchestration.downloadProviders — the same ordered list the
@@ -517,7 +521,10 @@ export function useControlApi(deps: ControlApiDeps) {
     // -- Address the track: searchId+index (a catalog_search result),
     //    trackId (a library row), uri, or bare metadata (+ pluginId).
     let uri = optionalString(payload.uri) ?? null;
-    let meta = {
+    let meta: {
+      title: string | null; artist: string | null; album: string | null;
+      duration: number | null; trackNumber?: number | null;
+    } = {
       title: optionalString(payload.title) ?? null,
       artist: optionalString(payload.artistName) ?? null,
       album: optionalString(payload.albumTitle) ?? null,
@@ -536,7 +543,10 @@ export function useControlApi(deps: ControlApiDeps) {
       const t = rows[0];
       if (!t) bad(`no library track with id ${payload.trackId}`);
       uri = t.path;
-      meta = { title: t.title, artist: t.artist_name ?? null, album: t.album_title ?? null, duration: t.duration_secs ?? null };
+      meta = {
+        title: t.title, artist: t.artist_name ?? null, album: t.album_title ?? null,
+        duration: t.duration_secs ?? null, trackNumber: t.track_number ?? null,
+      };
     }
 
     // -- Pick the plan.
@@ -1721,11 +1731,15 @@ export function useControlApi(deps: ControlApiDeps) {
         const isFile = resolved.url.startsWith("file://");
         const landTitle = resolved.metadata?.title ?? meta.title ?? "Unknown";
         const landArtist = resolved.metadata?.artist ?? meta.artist ?? "Unknown Artist";
+        // Album + track number place the file in the user's download layout
+        // (Artist › Album › NN Title) when no subdir was named.
         const landed = await invoke<Record<string, unknown>>("assistant_land_download", {
           collectionId,
           subdir,
           artistName: landArtist,
           title: landTitle,
+          albumTitle: resolved.metadata?.album ?? meta.album ?? null,
+          trackNumber: resolved.metadata?.trackNumber ?? meta.trackNumber ?? null,
           ext: resolved.ext ?? null,
           sourceUrl: isFile ? null : resolved.url,
           sourcePath: isFile ? resolved.url : null,
@@ -1758,18 +1772,20 @@ export function useControlApi(deps: ControlApiDeps) {
         if (payload.discard === true) {
           return await invoke("assistant_discard_replacement", { trackId, stageId });
         }
-        if (payload.confirm === true) {
-          const result = await invoke<Record<string, unknown>>("assistant_confirm_replacement", {
-            trackId,
-            stageId,
-            keepLibraryTags: payload.keepLibraryTags !== false,
-          });
-          d.library.refreshAfterBulkEdit();
-          return result;
-        }
         const rows = await invoke<Track[]>("get_tracks_by_ids", { ids: [trackId] });
         const target = rows[0];
         if (!target) bad(`no library track with id ${trackId}`);
+        if (payload.confirm === true) {
+          // The same swap-in the plugin Replace dialog runs, so a replace of
+          // the playing track lets go of the file first and resumes in place,
+          // and queue entries follow a changed extension.
+          return await d.library.swapInReplacement(trackId, target, () =>
+            invoke<Record<string, unknown>>("assistant_confirm_replacement", {
+              trackId,
+              stageId,
+              keepLibraryTags: payload.keepLibraryTags !== false,
+            }));
+        }
         if (!target.path?.startsWith("file://")) {
           bad(`track ${trackId} is not a local file (${(target.path ?? "none").split("://")[0]}://) — only local files can be replaced`);
         }

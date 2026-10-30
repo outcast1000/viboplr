@@ -20,6 +20,7 @@ import { open as openDialog } from "@tauri-apps/plugin-dialog";
 import { describeProgramDownload } from "../utils/programInstall";
 import { store } from "../store";
 import type { Track, QueueTrack, Collection } from "../types";
+import type { DeleteTracksResult } from "./useContextMenuActions";
 import { coerceToastKind, type NotifyOptions, type ToastAction } from "./useToasts";
 import type {
   InstalledPlugin,
@@ -432,6 +433,15 @@ export interface PluginHostCallbacks {
   /** `api.playback.reportScrobble`: a later outcome for this scrobbler.
    *  Already coerced; the plugin is subscribed to `track:scrobbled`. */
   reportScrobble?: (pluginId: string, report: ScrobbleReport) => void;
+  /** `api.collections.resync`: useCollectionActions.resyncCollection — the
+   *  Collections view's own rescan, so the sync toast names the collection. */
+  resyncCollection?: (collectionId: number) => Promise<unknown>;
+  /** `api.collections.trashPath` after the Rust delete: the app's own
+   *  post-delete step (lists, queue, a playing track) — see performDelete. */
+  applyDeletion?: (result: DeleteTracksResult) => Promise<void>;
+  /** The engine's length for the playing track (0 / null when unknown) —
+   *  what `api.cues.set` checks a sheet against, as the control API does. */
+  playbackDurationSecs?: () => number | null;
 }
 
 export function usePlugins(
@@ -1647,13 +1657,20 @@ export function usePlugins(
             // Returns as soon as the rescan is spawned, not when it finishes —
             // the backend guards against a second run for the same collection,
             // so calling this after every file drop is safe. Completion arrives
-            // via api.library.onScanComplete.
-            await invoke("resync_collection", { collectionId });
+            // via api.library.onScanComplete. Through the host's own rescan when
+            // it has one, so the progress toast names the collection.
+            const resync = hostCallbacksRef?.current?.resyncCollection;
+            if (resync) await resync(collectionId);
+            else await invoke("resync_collection", { collectionId });
           },
           async trashPath(collectionId: number, relativePath: string): Promise<void> {
             // The root and the traversal checks live in Rust — the frontend is
             // not the trust boundary for a delete inside the user's music.
-            await invoke("plugin_trash_collection_path", { collectionId, relativePath });
+            const result = await invoke<DeleteTracksResult>("plugin_trash_collection_path", { collectionId, relativePath });
+            // The file is gone either way; the follow-up is what keeps the
+            // Library, the queue and a playing track from pointing at it.
+            await hostCallbacksRef?.current?.applyDeletion?.(result)
+              .catch((e) => console.error("Failed to update the app after a plugin's trashPath:", e));
           },
           async requestAdd(source) {
             const open = hostCallbacksRef?.current?.requestAddCollection;
@@ -1769,7 +1786,7 @@ export function usePlugins(
             return saveCueSheet<PluginCueSheet>(
               {
                 currentTrack: () => currentTrackRef.current,
-                currentDurationSecs: () => null,
+                currentDurationSecs: () => hostCallbacksRef?.current?.playbackDurationSecs?.() ?? null,
                 queue: () => queueRef.current?.tracks ?? [],
               },
               { title, artistName: artistName ?? null },

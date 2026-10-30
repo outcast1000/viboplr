@@ -2286,9 +2286,10 @@ async fn handle_track_download(
     };
     let db = state.0.db.clone();
     let emit_track_added = Arc::clone(&state.0.emit_track_added);
+    let layout = assistant_write::assistant_download_layout(&state.0.app_dir, parsed.subdir.as_deref().unwrap_or(""));
     write_op("tracks.download", move || {
         let subdir = parsed.subdir.as_deref().unwrap_or("");
-        let value = assistant_write::download_track_source(&db, id, parsed.collection_id, subdir)?;
+        let value = assistant_write::download_track_source(&db, id, parsed.collection_id, subdir, layout)?;
         if value["newTrack"] == true {
             if let Some(new_id) = value["libraryTrackId"].as_i64() {
                 emit_track_added(new_id);

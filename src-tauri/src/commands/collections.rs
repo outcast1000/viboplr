@@ -12,10 +12,11 @@ use super::*;
 /// — symlinks resolved). The collection root itself is refused outright.
 #[tauri::command]
 pub async fn plugin_trash_collection_path(
+    app: AppHandle,
     state: State<'_, AppState>,
     collection_id: i64,
     relative_path: String,
-) -> Result<(), String> {
+) -> Result<DeleteTracksResult, String> {
     let db = state.db.clone();
     // async + spawn_blocking: trash::delete round-trips through the OS.
     run_blocking(move || -> Result<_, String> {
@@ -50,12 +51,22 @@ pub async fn plugin_trash_collection_path(
         let removed = if was_dir {
             db.delete_tracks_under_dir(collection_id, &rel_str).map_err(|e| e.to_string())?
         } else {
-            db.delete_tracks_by_paths_in_collection(collection_id, &[rel_str.clone()])
-                .map_err(|e| e.to_string())?;
-            0
+            db.delete_track_at_path(collection_id, &rel_str).map_err(|e| e.to_string())?.into_iter().collect()
         };
-        log::info!("plugin removed {} from collection {} ({} library rows dropped)", target.display(), collection_id, removed);
-        Ok(())
+        log::info!("plugin removed {} from collection {} ({} library rows dropped)", target.display(), collection_id, removed.len());
+        // Reported in `delete_tracks`' shape, with paths as the rows and the
+        // queue hold them (PATH_EXPR's `file://<root>/<rel>`), so the frontend
+        // can run the same follow-up as the app's own Delete. A trashed file no
+        // row owned (a queue entry outside the library) is reported too.
+        let uri = |rel: &str| format!("file://{}/{}", root_str, rel);
+        let mut deleted_paths: Vec<String> = removed.iter().map(|(_, p)| uri(p)).collect();
+        if !was_dir && removed.is_empty() {
+            deleted_paths.push(uri(&rel_str));
+        }
+        for (id, p) in &removed {
+            let _ = app.emit("track-removed", serde_json::json!({ "trackId": id, "path": uri(p) }));
+        }
+        Ok(DeleteTracksResult { deleted_ids: removed.into_iter().map(|(id, _)| id).collect(), deleted_paths, failures: Vec::new() })
     })
     .await
 }
