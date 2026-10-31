@@ -1093,13 +1093,6 @@ pub async fn bulk_update_tracks(
 }
 
 #[tauri::command]
-pub fn replace_track_tags(state: State<'_, AppState>, track_id: i64, tag_names: Vec<String>) -> Result<Vec<(i64, String)>, String> {
-    let result = state.db.replace_track_tags(track_id, &tag_names).map_err(|e| e.to_string())?;
-    let _ = state.db.update_fts_for_track(track_id);
-    Ok(result)
-}
-
-#[tauri::command]
 pub fn delete_tag(state: State<'_, AppState>, tag_id: i64) -> Result<(), String> {
     let affected_track_ids = state.db.delete_tag(tag_id).map_err(|e| e.to_string())?;
     for tid in &affected_track_ids {

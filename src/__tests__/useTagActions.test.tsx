@@ -41,7 +41,6 @@ describe("useTagActions", () => {
     const { deps, actions } = setup();
     await expect(actions.remove(42, ["chill", "90s"], "90s")).resolves.toEqual(["chill"]);
     expect(invokeMock).toHaveBeenCalledWith("remove_tag_from_tracks", { trackIds: [42], tagName: "90s" });
-    expect(invokeMock).not.toHaveBeenCalledWith("replace_track_tags", expect.anything());
     expect(deps.tagsChanged).toHaveBeenCalledTimes(1);
   });
 

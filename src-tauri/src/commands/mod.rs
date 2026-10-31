@@ -1127,7 +1127,7 @@ mod tests {
 
     #[test]
     fn test_sync_commands_touching_the_db_are_capped() {
-        const CAP: usize = 67;
+        const CAP: usize = 66;
         let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src/commands");
         let mut offenders = Vec::new();
         let mut files: Vec<_> = std::fs::read_dir(&dir).unwrap().flatten().map(|e| e.path()).collect();

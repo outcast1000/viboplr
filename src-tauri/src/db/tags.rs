@@ -33,34 +33,6 @@ impl Database {
         Ok(())
     }
 
-    pub fn replace_track_tags(&self, track_id: i64, tag_names: &[String]) -> SqlResult<Vec<(i64, String)>> {
-        let conn = self.conn.lock().unwrap();
-        conn.execute("DELETE FROM track_tags WHERE track_id = ?1", params![track_id])?;
-        let mut result = Vec::new();
-        for name in tag_names {
-            let existing: Option<i64> = conn.query_row(
-                "SELECT id FROM tags WHERE strip_diacritics(unicode_lower(name)) = strip_diacritics(unicode_lower(?1))",
-                params![name],
-                |row| row.get(0),
-            ).optional()?;
-            // Propagate an insert failure instead of the .unwrap() that used to
-            // hide here — a DB error on tag creation panicked the whole app.
-            let tag_id: i64 = match existing {
-                Some(id) => id,
-                None => {
-                    conn.execute("INSERT INTO tags (name) VALUES (?1)", params![name])?;
-                    conn.last_insert_rowid()
-                }
-            };
-            conn.execute(
-                "INSERT OR IGNORE INTO track_tags (track_id, tag_id) VALUES (?1, ?2)",
-                params![track_id, tag_id],
-            )?;
-            result.push((tag_id, name.clone()));
-        }
-        Ok(result)
-    }
-
     pub fn get_tag_by_id(&self, tag_id: i64) -> SqlResult<Option<Tag>> {
         let conn = self.reader();
         conn.query_row(
