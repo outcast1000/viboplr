@@ -33,11 +33,6 @@ export interface DetailViewActions {
   /** Open a track's detail page by name (the name-only page when the library
    *  has no such track). */
   navigateToTrackByName: (name: string, artistName?: string, albumTitle?: string) => void;
-  /** Open the download modal for a track known only by name, with the
-   *  downloader of the first stream resolver (in the user's order) whose plugin
-   *  can download — see `decideMetadataDownload`. Null when none can, so a
-   *  surface hides its Download affordance. */
-  downloadByName: ((track: QueueTrack) => void) | null;
 
   toggleLike: (track: Track | QueueTrack) => void;
   toggleDislike: (track: Track | QueueTrack) => void;
@@ -141,7 +136,7 @@ export function DetailViewProvider({ actions, state, children }: DetailViewProvi
     actions.goBack, actions.canGoBack,
     actions.playTracks, actions.playEntityAll, actions.playAlbum, actions.enqueueTracks,
     actions.playExternal, actions.enqueueExternal,
-    actions.startRadio, actions.locateTrack, actions.startRadioByName, actions.navigateToTrackByName, actions.downloadByName,
+    actions.startRadio, actions.locateTrack, actions.startRadioByName, actions.navigateToTrackByName,
     actions.toggleLike, actions.toggleDislike, actions.toggleEntityLike, actions.toggleEntityDislike,
     actions.setEntityLikeByName, actions.deleteTracks,
     actions.handleTrackContextMenu, actions.handleAlbumContextMenu,

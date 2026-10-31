@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from "vitest";
-import { decideDownload, decideMetadataDownload, extFromDirectUrl, BUILTIN_SUBSONIC_PROVIDER_ID, BUILTIN_DIRECT_PROVIDER_ID } from "../utils/downloadPlan";
+import { decideDownload, extFromDirectUrl, BUILTIN_SUBSONIC_PROVIDER_ID, BUILTIN_DIRECT_PROVIDER_ID } from "../utils/downloadPlan";
 import type { DownloadProvider } from "../types/plugin";
 
 const track = { title: "Song", artist_name: "Artist", album_title: "Album", duration_secs: 200 };
@@ -89,43 +89,6 @@ describe("decideDownload", () => {
   });
 });
 
-describe("decideMetadataDownload", () => {
-  it("follows the resolver order: first plugin resolver with a download provider", async () => {
-    const plan = decideMetadataDownload(["built-in", "spotify", "tidal-browse", "youtube"], track, ALL);
-    // spotify resolves but contributes no downloader → skipped; tidal is next.
-    expect(plan).toMatchObject({ providerId: "tidal-browse:tidal-dl", providerName: "TIDAL" });
-    await plan!.resolve("flac");
-    expect(tidal.resolveByMetadata).toHaveBeenCalledWith("Song", "Artist", "Album", 200, "flac", undefined);
-  });
-
-  it("respects a reordered chain", () => {
-    expect(decideMetadataDownload(["youtube", "tidal-browse"], track, ALL)?.providerId).toBe("youtube:youtube-fallback");
-  });
-
-  it("never picks the built-in Subsonic provider (no resolver owns it)", () => {
-    expect(decideMetadataDownload(["built-in", "__builtin"], track, [subsonic])).toBeNull();
-  });
-
-  it("returns null when no resolver's plugin can download", () => {
-    expect(decideMetadataDownload(["built-in", "spotify"], track, ALL)).toBeNull();
-    expect(decideMetadataDownload([], track, ALL)).toBeNull();
-  });
-
-  // Soulseek's by-name resolve only hands over a copy it already kept, so on a
-  // "Not in library" row it failed nearly every time. A provider that says it
-  // can't find tracks by name is skipped for the next one in the order.
-  it("skips a provider that can't find a track by name", () => {
-    const slskd = makeProvider({ id: "slskd:slskd-import", name: "Soulseek", source: "slskd", findsByName: false });
-    expect(decideMetadataDownload(["slskd", "youtube"], track, [slskd, youtube])?.providerId).toBe("youtube:youtube-fallback");
-    expect(decideMetadataDownload(["slskd"], track, [slskd])).toBeNull();
-  });
-
-  it("but a track Soulseek played still downloads through Soulseek", () => {
-    const slskd = makeProvider({ id: "slskd:slskd-import", name: "Soulseek", source: "slskd", findsByName: false });
-    expect(decideDownload({ kind: "plugin", pluginId: "slskd" }, track, [slskd])?.providerId).toBe("slskd:slskd-import");
-  });
-});
-
 describe("plan preview", () => {
   it("asks the provider with the track, its source and the video intent", async () => {
     const preview = vi.fn(async () => null);
@@ -133,7 +96,8 @@ describe("plan preview", () => {
     const byUri = decideDownload({ kind: "plugin", pluginId: "ytdlp", uri: "ytdlp://abc" }, track, [yt]);
     await byUri!.preview!({ isVideo: true });
     expect(preview).toHaveBeenLastCalledWith({ uri: "ytdlp://abc", title: "Song", artistName: "Artist", albumName: "Album", durationSecs: 200, isVideo: true });
-    const byName = decideMetadataDownload(["ytdlp"], track, [yt]);
+    // A stream-resolver win (no native uri) previews by metadata.
+    const byName = decideDownload({ kind: "plugin", pluginId: "ytdlp" }, track, [yt]);
     await byName!.preview!({ isVideo: false });
     expect(preview).toHaveBeenLastCalledWith(expect.objectContaining({ uri: null, isVideo: false }));
     expect(byName!.resolveMatch).toBe(yt.resolveMatch);

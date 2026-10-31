@@ -205,7 +205,7 @@ export function AlbumDetail({ name, artistName }: AlbumDetailProps) {
   const handleMissingContextMenu = useCallback((e: React.MouseEvent, t: QueueTrack) => {
     handleInfoTrackContextMenu(e, { title: t.title, artistName: t.artist_name, albumTitle: t.album_title });
   }, [handleInfoTrackContextMenu]);
-  const { startRadioByName, navigateToTrackByName, downloadByName } = actions;
+  const { startRadioByName, navigateToTrackByName } = actions;
   const startRadioMissing = useCallback((t: QueueTrack) => {
     startRadioByName(t.title, t.artist_name, t.album_title);
   }, [startRadioByName]);
@@ -322,7 +322,6 @@ export function AlbumDetail({ name, artistName }: AlbumDetailProps) {
         onEnqueueMissing={enqueueOneExternal}
         onStartRadioMissing={startRadioMissing}
         onLocateMissing={locateMissing}
-        onDownloadMissing={actions.downloadByName ?? undefined}
         onMissingContextMenu={handleMissingContextMenu}
         emptyMessage={filteredOut ? "No tracks match the filter." : "No tracks found."}
       />
@@ -358,7 +357,6 @@ export function AlbumDetail({ name, artistName }: AlbumDetailProps) {
           missingRows={visibleProviderRows}
           onPlayMissing={playProviderFrom}
           onEnqueueMissing={enqueueOneExternal}
-          onDownloadMissing={downloadByName ?? undefined}
           onMissingContextMenu={handleMissingContextMenu}
           emptyMessage="No tracks match the filter."
         />

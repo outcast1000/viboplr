@@ -22,12 +22,6 @@ export interface ContextMenuDeps {
   queueHook: ReturnType<typeof useQueue>;
   library: ReturnType<typeof useLibrary>;
   plugins: ReturnType<typeof usePlugins>;
-  /** The native downloader (if any) for a single-track target's own source
-   *  (subsonic:// → built-in Subsonic, plugin scheme → that plugin). Null when
-   *  nothing owns the source (local / direct-url / metadata-only). */
-  resolveNativeDownload: (target: ContextMenuTarget) => { providerId: string; providerName: string } | null;
-  /** Open the download modal for a single-track target using its native provider. */
-  openNativeDownload: (target: ContextMenuTarget) => void;
   artistImageCache: ReturnType<typeof useImageCache>;
   albumImageCache: ReturnType<typeof useImageCache>;
   tagImageCache: ReturnType<typeof useImageCache>;
@@ -50,15 +44,16 @@ export interface ContextMenuDeps {
   openEditTrackInfoRef: React.MutableRefObject<((queueIndex: number) => void) | null>;
 }
 
-// There are deliberately NO host-generated per-provider download entries
-// ("Download from {X}…" / "Upgrade from {X}…") and NO batch download entries
+// There are deliberately NO host download entries in any context menu: the
+// host's only download is the now-playing button, which downloads the playing
+// track from the source it is playing from. Nor are there per-provider entries
+// ("Download from {X}…" / "Upgrade from {X}…") or batch entries
 // ("Download N tracks" / "Download Album" rode the removed background download
 // queue). Download flows differ too much between providers to share one host
 // surface (a torrent hunt is nothing like a YouTube search), so a provider that
 // wants a menu presence contributes its own context-menu item (plugin-first —
 // e.g. qBittorrent's "qBittorrent: Upgrade…" opening its Music Search tab,
-// yt-dlp's "yt-dlp: Download…"). The one download entry the host owns is
-// "Download…" for a single track's OWN source (decideDownload → DownloadModal).
+// yt-dlp's "yt-dlp: Download…").
 
 /** Build the native context-menu specs for a target. Returns null if empty. */
 export function buildContextMenuSpecs(target: ContextMenuTarget, d: ContextMenuDeps): MenuItemSpec[] | null {
@@ -187,20 +182,6 @@ export function buildContextMenuSpecs(target: ContextMenuTarget, d: ContextMenuD
         }
       }
 
-      // Download — a single non-local track opens the same modal the now-playing
-      // button uses (its native provider, incl. built-in Subsonic "Source
-      // original"). Ungated so a Subsonic track is downloadable even when no
-      // download plugin is installed. No per-provider entries and no batch
-      // download — see the note above buildContextMenuSpecs.
-      {
-        const downloadable = selectedTracks.filter(t => !isLocalTrack(t));
-        const singleNative = downloadable.length === 1 ? d.resolveNativeDownload(target) : null;
-        if (singleNative) {
-          specs.push({ kind: "separator" });
-          specs.push({ kind: "item", text: "Download…", action: () => d.openNativeDownload(target) });
-        }
-      }
-
       // Plugin actions
       const pluginTargetKind = count === 1 ? "track" : "multi-track";
       const matching = d.plugins.menuItems.filter(item => item.targets.includes(pluginTargetKind as "track" | "multi-track"));
@@ -301,18 +282,6 @@ export function buildContextMenuSpecs(target: ContextMenuTarget, d: ContextMenuD
             specs.push({ kind: "separator" });
             specs.push({ kind: "item", text: `Move ${localCount} local track${localCount > 1 ? "s" : ""} to ${d.trashLabel}`, action: d.contextMenuActions.handleDeleteRequest });
           }
-        }
-      }
-      if (target.kind === "track" && !target.isLocal) {
-        // Single track: "Download…" opens the modal with the track's own native
-        // provider (Subsonic → "Source original", plugin → that plugin), exactly
-        // like the now-playing button. Ungated so Subsonic is downloadable with
-        // no plugins installed. No per-provider entries — see the note above
-        // buildContextMenuSpecs.
-        const native = d.resolveNativeDownload(target);
-        if (native) {
-          specs.push({ kind: "separator" });
-          specs.push({ kind: "item", text: "Download…", action: () => d.openNativeDownload(target) });
         }
       }
       const targetKind = target.kind as string;

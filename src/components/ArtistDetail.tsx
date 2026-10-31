@@ -325,7 +325,6 @@ export function ArtistDetail({ name }: ArtistDetailProps) {
             onEnqueueMissing={enqueueOneExternal}
             onStartRadioMissing={startRadioMissing}
             onLocateMissing={locateMissing}
-            onDownloadMissing={actions.downloadByName ?? undefined}
             onMissingContextMenu={handleMissingContextMenu}
             emptyMessage={visibleRowCount < listRowCount ? "No tracks match the filter." : "No tracks found for this artist."}
           />
@@ -365,7 +364,6 @@ export function ArtistDetail({ name }: ArtistDetailProps) {
             onEnqueueMissing={enqueueOneExternal}
             onStartRadioMissing={startRadioMissing}
             onLocateMissing={locateMissing}
-            onDownloadMissing={actions.downloadByName ?? undefined}
             onMissingContextMenu={handleMissingContextMenu}
             emptyMessage="No tracks match the filter."
           />

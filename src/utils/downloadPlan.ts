@@ -124,37 +124,6 @@ export function decideDownload(
   return metadataPlan(p, track);
 }
 
-/**
- * The downloader for a track that has **no source yet** — metadata only (a
- * detail page's "Not in library" row, an information-section track, a queue
- * entry that hasn't resolved). Its source is whichever stream resolver will
- * play it, so the downloader follows the user's resolver order (Settings →
- * Providers): the first enabled plugin resolver whose plugin also contributes
- * a download provider, resolving by metadata — the same plan `decideDownload`
- * gives a stream-resolver win once the track has played.
- *
- * Decided statically from the order, not by running the chain: if that
- * provider can't find the track the modal reports it, and nothing walks on to
- * the next provider on the user's behalf. `resolverSources` is the ordered,
- * enabled resolver list's `source` (plugin id; `"built-in"` entries skipped —
- * the Library resolver has nothing to download).
- */
-export function decideMetadataDownload(
-  resolverSources: readonly string[],
-  track: PlanTrack,
-  providers: DownloadProvider[],
-): DownloadPlan | null {
-  for (const source of resolverSources) {
-    if (source === "built-in") continue;
-    // Only a provider that can find a track by name: Subsonic downloads by URI
-    // only, and Soulseek hands over just the copy it already kept — offered
-    // here, its Download button would fail on nearly every row.
-    const p = providers.find((pr) => pr.source === source && pr.id !== BUILTIN_SUBSONIC_PROVIDER_ID && pr.findsByName !== false);
-    if (p) return metadataPlan(p, track);
-  }
-  return null;
-}
-
 /** The plan for one provider-owned URI — what `decideDownload` builds for a
  *  plugin scheme, for callers that already know the provider (a plugin's own
  *  `download-tracks` request). */

@@ -39,10 +39,6 @@ async function buildSpecTexts(page, target, dataOverrides = {}) {
       },
       plugins: { menuItems: dataOverrides.menuItems ?? [], dispatchContextMenuAction: noop },
       searchProviders: dataOverrides.searchProviders ?? [],
-      // Null = no provider owns this target's source, so the native "Download…"
-      // item is omitted. Override via dataOverrides to exercise the item.
-      resolveNativeDownload: () => dataOverrides.nativeDownload ?? null,
-      openNativeDownload: noop,
       artistImageCache: { requestFetch: noop },
       albumImageCache: { requestFetch: noop },
       tagImageCache: { requestFetch: noop },
@@ -121,10 +117,10 @@ test('artist target offers Play All / Retrieve Image', async ({ page }) => {
   expect(texts).toContain('Retrieve Image');
 });
 
-// There are deliberately NO host-generated per-provider download entries
-// ("Download from {X}…" / "Upgrade from {X}…") — providers contribute their own
-// context-menu items instead (plugin-first). These tests pin the removal: the
-// host offers only the source-owned "Download…" and the batch item.
+// There are deliberately NO host download entries in any context menu — the
+// host's only download is the now-playing button, from the source the track is
+// playing from. Providers contribute their own context-menu items instead
+// (plugin-first). These tests pin the removal.
 
 test('local library track gets no host download or upgrade entries', async ({ page }) => {
   const texts = await buildSpecTexts(page, {
@@ -134,20 +130,18 @@ test('local library track gets no host download or upgrade entries', async ({ pa
   expect(texts.some(t => t.startsWith('Upgrade'))).toBe(false);
 });
 
-test('non-local track offers only the source-owned Download…', async ({ page }) => {
-  // With a native provider (the track's own source), the single entry shows.
+test('non-local track gets no host download entry', async ({ page }) => {
   const texts = await buildSpecTexts(page, {
     kind: 'track', trackId: 5, isLocal: false, title: 'Song', artistName: 'Artist',
-  }, { nativeDownload: { providerId: '__builtin:subsonic', providerName: 'Subsonic' } });
-  expect(texts).toContain('Download…');
-  expect(texts.some(t => t.startsWith('Download from'))).toBe(false);
+  });
+  expect(texts.some(t => t.startsWith('Download'))).toBe(false);
   expect(texts.some(t => t.startsWith('Upgrade'))).toBe(false);
 
-  // Without one, no download entry at all — per-provider fallbacks are gone.
-  const bare = await buildSpecTexts(page, {
-    kind: 'track', trackId: 5, isLocal: false, title: 'Song', artistName: 'Artist',
+  // Nor a metadata-only one (a "Not in library" row).
+  const byName = await buildSpecTexts(page, {
+    kind: 'track', isLocal: false, title: 'Song', artistName: 'Artist',
   });
-  expect(bare.some(t => t.startsWith('Download'))).toBe(false);
+  expect(byName.some(t => t.startsWith('Download'))).toBe(false);
 });
 
 test('single local queue selection gets no Upgrade entries', async ({ page }) => {

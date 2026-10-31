@@ -135,10 +135,9 @@ export interface PluginManifestStreamResolver {
 export interface PluginManifestDownloadProvider {
   id: string;
   name: string;
-  /** `false` when `onResolveByMetadata` only hands over a file the plugin
-   *  already holds and never searches (Soulseek's kept fallback copy). The host
-   *  then doesn't offer this provider for a track that has no source yet — a
-   *  "Not in library" row — since it could almost never answer. Omitted = true. */
+  /** No longer read. It kept a provider that can't search by name (Soulseek)
+   *  off tracks with no source yet, and the host no longer offers a download
+   *  for those at all. Accepted so manifests that still declare it validate. */
   findsByName?: boolean;
 }
 
@@ -2146,8 +2145,6 @@ export interface DownloadProvider {
   id: string;
   name: string;
   source: string;
-  /** See `PluginManifestDownloadProvider.findsByName`. */
-  findsByName: boolean;
   /** Present when the provider can preview a download and resolve the
    *  previewed item (`onPreview` + `onInteractiveResolve`). */
   preview?: (request: DownloadPreviewRequest) => Promise<DownloadPreview | null>;

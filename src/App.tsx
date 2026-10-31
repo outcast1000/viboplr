@@ -556,9 +556,6 @@ function App() {
   });
   const streamResolversRef = useRef<StreamResolver[]>([]);
   const [streamResolverOrderVersion, setStreamResolverOrderVersion] = useState(0);
-  // The built chain's `source`s, in order — state (not just the ref) so a
-  // metadata-only track's Download affordance re-renders when it changes.
-  const [resolverSources, setResolverSources] = useState<string[]>([]);
   // How early, in seconds before a track ends, auto-continue is asked for the
   // next one — longer when a plugin may answer (utils/autoContinue.ts →
   // prefetchLeadSecs). Assigned once plugins and the library count exist.
@@ -1553,7 +1550,6 @@ function App() {
       } else {
         streamResolversRef.current = allResolvers;
       }
-      setResolverSources(streamResolversRef.current.map((r) => r.source));
     };
     buildResolvers();
   }, [plugins.pluginStates, plugins.invokeStreamResolve, streamResolverOrderVersion]);
@@ -2355,25 +2351,18 @@ function App() {
     notify,
   });
 
-  // Download-orchestration engine: ordered provider list, priorities, the backend
-  // resolve-request bridge, the download modal, and the source-owned download
-  // triggers. There are no host-generated per-provider menu entries — a provider
-  // that wants a menu presence contributes its own context-menu item, and plugin
-  // views open the modal themselves via requestAction("download-tracks").
+  // Download-orchestration engine: the provider list and the download modal.
+  // The host's only download trigger is the now-playing button (below), which
+  // downloads from the source the track is playing from. There is no host
+  // context-menu download — a provider that wants a menu presence contributes
+  // its own item, and plugin views open the modal themselves via
+  // requestAction("download-tracks").
   const {
     downloadModal,
     setDownloadModal,
     downloadProviders,
     openDownloadForCurrentTrack,
-    resolveNativeDownload,
-    openNativeDownload,
-    openDownloadByName,
-  } = useDownloadOrchestration({
-    plugins,
-    libraryTracks: library.tracks,
-    queue: queueHook.queue,
-    resolverSources,
-  });
+  } = useDownloadOrchestration({ plugins });
 
   // The single decision for the now-playing download button: whether it shows
   // (plan != null) and which downloader it opens — derived from the winning
@@ -2510,7 +2499,7 @@ function App() {
     contextMenuActions.setContextMenu(cm);
     const specs = buildContextMenuSpecs(cm.target, {
       contextMenuActions, videoLayout, queueHook, library,
-      plugins, resolveNativeDownload, openNativeDownload, artistImageCache,
+      plugins, artistImageCache,
       albumImageCache, tagImageCache, beginRetrieveImage,
       setSearchInitialQuery, setSearchQueryKey,
       setDeleteTagConfirm, trashLabel, handleExportAsMixtapeRef, openPublishMusicSourceRef, openEditTrackInfoRef,
@@ -2524,7 +2513,7 @@ function App() {
     // Returned (errors already logged, so the promise never rejects) so a caller
     // can hold UI open for the menu's lifetime — popup resolves on dismissal.
     return showNativeMenu(cm.x, cm.y, specs).catch((e) => console.error("Failed to show native menu:", e));
-  }, [contextMenuActions, videoLayout, queueHook, library, plugins, resolveNativeDownload, openNativeDownload, artistImageCache, albumImageCache, tagImageCache, beginRetrieveImage, setSearchInitialQuery, setSearchQueryKey, setDeleteTagConfirm, trashLabel, handleExportAsMixtapeRef, openPublishMusicSourceRef, openEditTrackInfoRef, userPlaylists, handleAddToPlaylist, handleAddToNewPlaylist, handleBrowsePlaylists]);
+  }, [contextMenuActions, videoLayout, queueHook, library, plugins, artistImageCache, albumImageCache, tagImageCache, beginRetrieveImage, setSearchInitialQuery, setSearchQueryKey, setDeleteTagConfirm, trashLabel, handleExportAsMixtapeRef, openPublishMusicSourceRef, openEditTrackInfoRef, userPlaylists, handleAddToPlaylist, handleAddToNewPlaylist, handleBrowsePlaylists]);
   useAssignRef(showNativeMenuRef, buildAndShowNativeMenu);
 
   // api.library.replaceTrackFile: a plugin offers a better copy of a local
@@ -5224,7 +5213,6 @@ function App() {
     navigateToTrackByName: (name, artistName, albumTitle) => {
       library.navigateToTrackByName(name, artistName, albumTitle).catch(e => console.error("Failed to open track page:", e));
     },
-    downloadByName: openDownloadByName,
     toggleLike: likeActions.handleToggleLike,
     toggleDislike: likeActions.handleToggleDislike,
     toggleEntityLike: (kind: "artist" | "album" | "tag", id: number) => {
@@ -5284,7 +5272,7 @@ function App() {
     },
   }), [
     library.handleArtistClick, library.handleAlbumClick, library.handleTagClick, library.navigateToTagByName,
-    library.handleTrackClick, library.navigateToTrackByName, contextMenuActions.startRadio, openDownloadByName,
+    library.handleTrackClick, library.navigateToTrackByName, contextMenuActions.startRadio,
     goBack, canGoBack,
     queueHook.playTracks, queueHook.enqueueTracks, handlePlayEntityAll, playActions.playAlbum, contextMenuActions.handleEnqueue,
     likeActions.handleToggleLike, likeActions.handleToggleDislike,
