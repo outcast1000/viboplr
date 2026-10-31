@@ -52,8 +52,12 @@ function Sheen({ id }: { id: string }) {
   );
 }
 
-/** A black record with a `currentColor` label; `initial` is printed on the label when given. */
-export function VinylArt({ initial, ...props }: ArtProps & { initial?: string | null }) {
+/**
+ * A black record with a plain `currentColor` label. No letter on the label: at
+ * the sizes it is drawn (a 26px queue thumb) a letter is a smudge, and the
+ * spindle hole runs through its middle.
+ */
+export function VinylArt(props: ArtProps) {
   const id = useArtId();
   return (
     <ArtSvg kind="vinyl" {...props}>
@@ -92,13 +96,7 @@ export function VinylArt({ initial, ...props }: ArtProps & { initial?: string | 
         <circle cx="20" cy="20" r="7.8" fill="currentColor" />
         <circle cx="20" cy="20" r="7.8" fill={`url(#${id}-sheen)`} opacity=".45" />
         <circle cx="20" cy="20" r="7.8" fill="none" stroke="#000" strokeOpacity=".35" strokeWidth=".5" />
-        {initial ? (
-          <text className="placeholder-art-initial" x="20" y="20" textAnchor="middle" dominantBaseline="central">
-            {initial}
-          </text>
-        ) : (
-          <circle cx="20" cy="20" r="2.4" fill="#000" fillOpacity=".18" />
-        )}
+        <circle cx="20" cy="20" r="2.4" fill="#000" fillOpacity=".18" />
       </g>
     </ArtSvg>
   );

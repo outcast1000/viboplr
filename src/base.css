@@ -90,6 +90,12 @@
      colors when a stock alpha fits; use this triple when one doesn't. */
   --on-image-rgb: 255, 255, 255;
 
+  /* The soft spotlight every no-art placeholder (PlaceholderArt) sits on: lifted
+     toward white so the black record separates from a dark frame; on a light
+     skin the lift barely shows, and the record stands out there anyway. */
+  --placeholder-spotlight: radial-gradient(circle at 50% 40%,
+    color-mix(in srgb, var(--bg-secondary), white 14%), var(--bg-secondary) 75%);
+
   /* Design tokens (skinnable) */
   --ds-radius: 6px;
   --ds-radius-pill: 20px;

@@ -36,7 +36,7 @@
   display: flex; align-items: center; justify-content: center;
   color: var(--text-secondary);
   /* The spotlight every placeholder sits on (queue, rows, album/artist frames). */
-  background: radial-gradient(circle at 50% 40%, var(--bg-primary), var(--bg-secondary) 75%);
+  background: var(--placeholder-spotlight);
 }
 /* Track and playlist placeholders, sized like EntityArtFallback's record. */
 .home-shelf-card-fallback-art { width: clamp(14px, 72%, 240px); height: auto; aspect-ratio: 1; }
@@ -105,7 +105,7 @@
 .home-hero-art-fallback {
   width: 100%; height: 100%;
   display: flex; align-items: center; justify-content: center;
-  background: radial-gradient(circle at 50% 40%, var(--bg-primary), var(--bg-secondary) 75%);
+  background: var(--placeholder-spotlight);
   color: var(--text-secondary);
 }
 .home-hero-art-fallback-art { width: 72%; height: auto; aspect-ratio: 1; }

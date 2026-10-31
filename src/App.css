@@ -496,7 +496,7 @@
 /* A track tile with no art (TrackCard `placeholder`): the record sized like the
    album cards' own placeholder (EntityArtFallback), on the list rows' spotlight. */
 .track-card-art--placeholder {
-  background: radial-gradient(circle at 50% 40%, var(--bg-primary), var(--bg-secondary) 75%);
+  background: var(--placeholder-spotlight);
 }
 .track-card-art-fallback {
   width: clamp(14px, 72%, 240px);
@@ -944,7 +944,7 @@
 /* No-art placeholder tile (TrackArtFallback / EntityArtFallback): a soft
    spotlight behind the drawing, as on the queue's placeholder thumbs. */
 .entity-list-img--disc {
-  background: radial-gradient(circle at 50% 40%, var(--bg-primary), var(--bg-secondary) 75%);
+  background: var(--placeholder-spotlight);
   color: var(--text-tertiary);
 }
 

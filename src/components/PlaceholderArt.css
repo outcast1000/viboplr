@@ -18,12 +18,3 @@
 .placeholder-art-cut {
   stroke: var(--bg-secondary);
 }
-
-/* On the label, which is a mid-tone colour on every skin — always light ink. */
-.placeholder-art-initial {
-  font-family: inherit;
-  font-size: 9px;
-  font-weight: 700;
-  fill: rgb(var(--on-image-rgb));
-  fill-opacity: 0.92;
-}

@@ -19,5 +19,5 @@
    and artist frames too, so every placeholder reads as one family. The element
    qualifier is there to outrank those surfaces' single-class backgrounds. */
 :is(div, span):has(> .entity-art-fallback) {
-  background: radial-gradient(circle at 50% 40%, var(--bg-primary), var(--bg-secondary) 75%);
+  background: var(--placeholder-spotlight);
 }
