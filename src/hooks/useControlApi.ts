@@ -494,8 +494,10 @@ export function useControlApi(deps: ControlApiDeps) {
    *  time by design — the removed background download queue is not coming back
    *  as an accidental side effect of concurrent API calls. `cancelled` is the
    *  generation guard: a resolve that completes after `downloads.cancel` must
-   *  not land its file. */
-  const pluginDownloadRef = useRef<{ pluginId: string | null; cancelled: boolean } | null>(null);
+   *  not land its file. `jobId` is the control-API job the resolve belongs to
+   *  (downloads and replace stages are jobs), so cancelling a job stops this
+   *  resolve only if it is that job's. */
+  const pluginDownloadRef = useRef<{ pluginId: string | null; cancelled: boolean; jobId: string | null } | null>(null);
   const searchCacheRef = useRef(new Map<string, { tracks: QueueTrack[]; label: string }>());
   const searchSeqRef = useRef(1);
   const shelfCacheRef = useRef(new Map<string, {
@@ -606,7 +608,7 @@ export function useControlApi(deps: ControlApiDeps) {
 
     // -- Resolve. This can BE the whole download (yt-dlp fetches + merges
     //    for minutes); the HTTP route carries the matching long budget.
-    const flight = { pluginId, cancelled: false };
+    const flight = { pluginId, cancelled: false, jobId: optionalString(payload.jobId) ?? null };
     pluginDownloadRef.current = flight;
     let resolved;
     try {
@@ -1763,6 +1765,15 @@ export function useControlApi(deps: ControlApiDeps) {
       case "downloads.cancel": {
         const flight = pluginDownloadRef.current;
         if (!flight) return { cancelled: false, note: "no plugin download resolve in flight" };
+        // A job's cancel names the job: another job's resolve is left alone,
+        // and so is this job's own file once it is past fetching and saving.
+        const jobId = optionalString(payload.jobId);
+        if (jobId && flight.jobId !== jobId) {
+          return {
+            cancelled: false,
+            note: "that job isn't fetching right now — it may already be saving its file, which can't be stopped part-way",
+          };
+        }
         flight.cancelled = true;
         if (flight.pluginId) d.downloads.cancelResolve(flight.pluginId);
         return { cancelled: true, pluginId: flight.pluginId };

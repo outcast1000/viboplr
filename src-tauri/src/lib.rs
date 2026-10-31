@@ -4,6 +4,7 @@ mod assistant_write;
 mod browse_window;
 mod commands;
 mod control_api;
+mod control_jobs;
 mod cue_sheets;
 mod db;
 pub mod dependencies;

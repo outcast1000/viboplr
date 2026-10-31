@@ -775,10 +775,10 @@ pub struct LandTags {
 /// Fetch or move a download's bytes into `temp` (a hidden name beside their
 /// destination). A local source is MOVED — a plugin's temp output shouldn't
 /// linger — falling back to copy + remove across volumes.
-fn fetch_into(source: &DownloadSource, temp: &Path) -> Result<(), String> {
+fn fetch_into(source: &DownloadSource, temp: &Path, cancel: Option<&std::sync::atomic::AtomicBool>) -> Result<(), String> {
     match source {
         DownloadSource::Url(url, headers) => {
-            if let Err(e) = crate::downloader::download_file(url, headers.as_ref(), temp, None, None) {
+            if let Err(e) = crate::downloader::download_file(url, headers.as_ref(), temp, cancel, None) {
                 let _ = std::fs::remove_file(temp);
                 return Err(format!("download failed: {}", e));
             }
@@ -891,6 +891,23 @@ pub fn land_download(
     source: DownloadSource,
     tags: Option<LandTags>,
 ) -> Result<Value, String> {
+    land_download_cancellable(db, collection_id, subdir, layout, name, ext_hint, source, tags, None)
+}
+
+/// `land_download`, stoppable mid-fetch: the source-download job passes its
+/// cancel flag (`DELETE /v1/jobs/{id}`), which the downloader polls.
+#[allow(clippy::too_many_arguments)]
+pub fn land_download_cancellable(
+    db: &Arc<Database>,
+    collection_id: i64,
+    subdir: &str,
+    layout: crate::downloader::DownloadLayout,
+    name: &LandName,
+    ext_hint: &str,
+    source: DownloadSource,
+    tags: Option<LandTags>,
+    cancel: Option<&std::sync::atomic::AtomicBool>,
+) -> Result<Value, String> {
     let LandName { artist, title, .. } = *name;
     if title.trim().is_empty() {
         return Err("title must not be empty".to_string());
@@ -904,7 +921,7 @@ pub fn land_download(
 
     std::fs::create_dir_all(&dest_dir).map_err(|e| format!("failed to create {}: {}", dest_dir.display(), e))?;
     let temp = dest_dir.join(format!(".viboplr-dl-{}.tmp", std::process::id()));
-    fetch_into(&source, &temp)?;
+    fetch_into(&source, &temp, cancel)?;
     let final_ext = settle_ext(named_ext, &source, &temp);
     let is_video = crate::scanner::VIDEO_EXTENSIONS.contains(&final_ext.as_str());
     let rel = crate::downloader::download_relative_path(
@@ -1068,7 +1085,7 @@ pub fn stage_replacement(db: &Database, track_id: i64, ext_hint: &str, source: D
     };
     let parent = target.old.parent().ok_or("track file has no parent directory")?;
     let temp = parent.join(format!(".viboplr-stage-{}.tmp", std::process::id()));
-    fetch_into(&source, &temp)?;
+    fetch_into(&source, &temp, None)?;
     let ext = settle_ext(named_ext, &source, &temp);
     let stage_id = format!("{}.{}", stage_token(), ext);
     let staged = match staged_path(&target.old, &stage_id) {
@@ -1276,6 +1293,7 @@ pub fn download_track_source(
     collection_id: i64,
     subdir: &str,
     layout: crate::downloader::DownloadLayout,
+    cancel: Option<&std::sync::atomic::AtomicBool>,
 ) -> Result<Value, String> {
     let track = db.get_track_by_id(track_id).map_err(|e| format!("track {}: {}", track_id, e))?;
     let (url, ext) = if track.path.starts_with("subsonic://") {
@@ -1305,7 +1323,7 @@ pub fn download_track_source(
         album: track.album_title.as_deref(),
         track_number: track.track_number.and_then(|n| u32::try_from(n).ok()),
     };
-    land_download(db, collection_id, subdir, layout, &name, &ext_hint, DownloadSource::Url(url, None), None)
+    land_download_cancellable(db, collection_id, subdir, layout, &name, &ext_hint, DownloadSource::Url(url, None), None, cancel)
 }
 
 pub const MAX_MIXTAPE_TRACKS: usize = 200;
@@ -1331,6 +1349,7 @@ pub fn create_mixtape(
     title: &str,
     track_ids: &[i64],
     description: Option<&str>,
+    cancel: Option<&std::sync::atomic::AtomicBool>,
 ) -> Result<Value, String> {
     let title = title.trim();
     if title.is_empty() {
@@ -1399,9 +1418,11 @@ pub fn create_mixtape(
         .map(|d| d.as_nanos())
         .unwrap_or(0);
     let temp_dir = app_dir.join(format!("temp_mixtape_export-{}", nanos));
-    let cancel = std::sync::atomic::AtomicBool::new(false);
+    // The job's flag (`DELETE /v1/jobs/{id}`) when there is one; the export
+    // polls it between tracks.
+    let never = std::sync::atomic::AtomicBool::new(false);
     let dest_str = dest.to_string_lossy().to_string();
-    let outcome = crate::commands::run_full_export(db, app_dir, &temp_dir, options, &dest_str, &cancel, &|_| {})?;
+    let outcome = crate::commands::run_full_export(db, app_dir, &temp_dir, options, &dest_str, cancel.unwrap_or(&never), &|_| {})?;
     Ok(serde_json::json!({
         "path": dest_str,
         "fileSize": outcome.file_size,
@@ -1671,13 +1692,13 @@ mod tests {
         let (db, local_id, col) = seed_local(root.path());
         let db = Arc::new(db);
 
-        let err = download_track_source(&db, local_id, col, "", DownloadLayout::Flat).unwrap_err();
+        let err = download_track_source(&db, local_id, col, "", DownloadLayout::Flat, None).unwrap_err();
         assert!(err.contains("already a local file"));
 
         let plugin = db
             .upsert_track("ytdlp://abc", "Plugin Track", None, None, None, None, None, None, None, None, None)
             .unwrap();
-        let err = download_track_source(&db, plugin, col, "", DownloadLayout::Flat).unwrap_err();
+        let err = download_track_source(&db, plugin, col, "", DownloadLayout::Flat, None).unwrap_err();
         assert!(err.contains("source-faithful"), "got: {}", err);
     }
 
@@ -1696,13 +1717,13 @@ mod tests {
             )
             .unwrap();
         // Traversal in the subdir is refused before the URL is ever fetched.
-        let err = download_track_source(&db, remote, col.id, "../evil", DownloadLayout::Flat).unwrap_err();
+        let err = download_track_source(&db, remote, col.id, "../evil", DownloadLayout::Flat, None).unwrap_err();
         assert!(err.contains(".."), "got: {}", err);
         // A disabled or non-local destination collection is refused too.
         let sub = db
             .add_collection("subsonic", "Navi", None, Some("https://x"), Some("u"), Some("p"), None, None)
             .unwrap();
-        let err = download_track_source(&db, remote, sub.id, "", DownloadLayout::Flat).unwrap_err();
+        let err = download_track_source(&db, remote, sub.id, "", DownloadLayout::Flat, None).unwrap_err();
         assert!(err.contains("not a local folder"), "got: {}", err);
     }
 
@@ -1717,7 +1738,7 @@ mod tests {
             .unwrap();
 
         let value = create_mixtape(
-            &db, app_dir.path(), col, DEFAULT_MIXTAPE_SUBDIR, "Road Trip", &[local_id, plugin], Some("for the drive"),
+            &db, app_dir.path(), col, DEFAULT_MIXTAPE_SUBDIR, "Road Trip", &[local_id, plugin], Some("for the drive"), None,
         )
         .unwrap();
         assert_eq!(value["requested"], 2);
@@ -1736,7 +1757,7 @@ mod tests {
         assert_eq!(preview.manifest.metadata.get("description").map(String::as_str), Some("for the drive"));
 
         // Never overwrites, and leaves no temp dir behind.
-        let err = create_mixtape(&db, app_dir.path(), col, DEFAULT_MIXTAPE_SUBDIR, "Road Trip", &[local_id], None)
+        let err = create_mixtape(&db, app_dir.path(), col, DEFAULT_MIXTAPE_SUBDIR, "Road Trip", &[local_id], None, None)
             .unwrap_err();
         assert!(err.contains("already exists"), "got: {}", err);
         let leftovers = std::fs::read_dir(app_dir.path())
@@ -1753,7 +1774,7 @@ mod tests {
         let app_dir = tempfile::tempdir().unwrap();
         let (db, local_id, col) = seed_local(root.path());
         let db = Arc::new(db);
-        let make = |title: &str, ids: &[i64], subdir: &str| create_mixtape(&db, app_dir.path(), col, subdir, title, ids, None);
+        let make = |title: &str, ids: &[i64], subdir: &str| create_mixtape(&db, app_dir.path(), col, subdir, title, ids, None, None);
 
         assert!(make("  ", &[local_id], "").unwrap_err().contains("title"));
         assert!(make("Empty", &[], "").unwrap_err().contains("at least one"));

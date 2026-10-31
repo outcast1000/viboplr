@@ -159,6 +159,18 @@ keeping the library row; two-step: stage + compare, then confirm or discard;
 needs both the Downloads and Manage files switches, and the old file goes to
 the Trash).
 
+**Long calls are background jobs, always.** An extension install (waiting on
+the user's dialog), `download_plugin_track`, a `replace_track_file` stage,
+`download_track` and `manage_files create_mixtape` return
+`{ jobId, status: "running" }` at once — never their result — while the work
+carries on in Vibo. One shape every time, so a model never has to tell a
+finished call from a started one. The `jobs` tool follows them: `wait` (up to
+50 s per call; the finished job's `result` is what the call produces), `list`
+(for a lost jobId), and `cancel`, which stops exactly that job — never another
+download that happens to be running. Before this a long call held the
+assistant's turn for up to ten minutes, and a client that gave up on it left
+the work running while the assistant retried.
+
 Their authorization is the **AI access level in Vibo → Settings →
 AI control**: **Low** allows none of the six permissions below, **Full** all of
 them, **Custom** shows one switch each. The level is derived from the six

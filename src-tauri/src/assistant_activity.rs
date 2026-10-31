@@ -94,6 +94,10 @@ pub fn classify(method: &str, route: &str) -> Classified {
         ("POST", "/v1/assistant/invoke") => c("Run a plugin tool", Outward),
         ("POST", "/v1/downloads/plugin") => c("Download through a plugin", Outward),
         ("DELETE", "/v1/downloads/plugin") => c("Cancel a plugin download", Write),
+        // Following a long call is a read; stopping one is the same change as
+        // cancelling the download it is.
+        ("GET", "/v1/jobs") | ("GET", "/v1/jobs/{id}") => c("Check a background job", Read),
+        ("DELETE", "/v1/jobs/{id}") => c("Cancel a background job", Write),
         ("POST", "/v1/tracks/{id}/download") => c("Download a track", Outward),
         ("POST", "/v1/images/{kind}") => c("Fetch an image", Outward),
         ("POST", "/v1/extensions/check-updates") => c("Check for extension updates", Outward),

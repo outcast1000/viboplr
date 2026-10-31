@@ -33,8 +33,11 @@
 
 export const SLOW_MS = 95_000; // plugin catalogs / info chains can shell out to yt-dlp
 export const DEFAULT_MS = 30_000;
-export const DOWNLOAD_MS = 600_000; // a real file over a real connection
-export const INSTALL_MS = 610_000; // the user answering the app's install dialog, then the download; just past the app's own 10 min
+/** The note every async-only tool carries (install, plugin download, replace
+ *  staging, own-source download, mixtape export — they take minutes by
+ *  nature, so the app runs them as jobs and answers at once with a jobId). */
+const JOB_NOTE =
+  "It runs as a background job: the call returns at once with { jobId, status: \"running\" } — never the result. Tell the user it has started, then call jobs action=wait with that jobId until status is done (its `result` is what this call produces) or failed; each wait returns within 50 s, so repeat it, saying it's still going. Never start the same work again while it runs.";
 
 export const TOOL_CATEGORIES = [
   "library", // read the library: search, browse, SQL, history
@@ -868,7 +871,7 @@ export const TOOLS = [
       "action=write_lyrics saves lyrics as a sidecar file next to a local track's audio file (.lrc when the content has LRC timestamps, .txt otherwise; existing files are refused unless overwrite=true, which trashes the old one). " +
       "action=save_cover writes cover.<ext> into an album's folder — from an http(s) url the APP fetches, or fromCache=true to copy the album image the app already resolved. " +
       "action=move moves/renames local files WITHIN their own collection and is TWO-STEP: the first call only returns a plan (exact from→to list + planHash, nothing touched) — show it to the user — then re-send the same call with planHash to apply. Extensions never change, nothing is ever overwritten, the library rows follow the files (ids/tags/likes/playlists kept). Max 50 moves. " +
-      "action=create_mixtape packs library tracks (audio included) into one shareable <title>.mixtape file at <collection root>/<subdir, default \"Mixtapes\">/ — the app's own Export Mixtape, so it is source-faithful: local files are packed, server (subsonic) and direct http(s) tracks are downloaded as themselves, and plugin-scheme tracks (YouTube, Soulseek, …) are SKIPPED and listed in `skipped` — to include one, download it first with download_plugin_track and pass the library track that lands. Never overwrites (pick another title). Max 200 tracks; can take minutes. Returns path, packed, skipped — tell the user where the file is so they can share it. " +
+      "action=create_mixtape packs library tracks (audio included) into one shareable <title>.mixtape file at <collection root>/<subdir, default \"Mixtapes\">/ — the app's own Export Mixtape, so it is source-faithful: local files are packed, server (subsonic) and direct http(s) tracks are downloaded as themselves, and plugin-scheme tracks (YouTube, Soulseek, …) are SKIPPED and listed in `skipped` — to include one, download it first with download_plugin_track and pass the library track that lands. Never overwrites (pick another title). Max 200 tracks. It runs as a background job: the call returns { jobId } at once; follow it with jobs action=wait — the finished job's result has path, packed, skipped (tell the user where the file is so they can share it); jobs action=cancel stops it between tracks. " +
       "Every applied write is recorded in the app log as an \"Assistant change [...]\" line (the logs tool, while logging is on).",
     inputSchema: obj(
       {
@@ -914,12 +917,7 @@ export const TOOLS = [
           return ctx.request("POST", "/v1/files/move", { moves, planHash }, { timeoutMs: SLOW_MS });
         case "create_mixtape":
           need({ title, trackIds, collectionId }, ["title", "trackIds", "collectionId"], "action=create_mixtape");
-          return ctx.request(
-            "POST",
-            "/v1/mixtapes",
-            { title, trackIds, collectionId, subdir, description },
-            { timeoutMs: DOWNLOAD_MS },
-          );
+          return ctx.request("POST", "/v1/mixtapes", { title, trackIds, collectionId, subdir, description });
         default:
           throw new Error(`unknown manage_files action: ${action}`);
       }
@@ -947,7 +945,8 @@ export const TOOLS = [
     readOnly: false,
     categories: ["download"],
     description:
-      "Download a track's OWN source — a subsonic:// server track or a direct http(s) source — as itself into a local collection folder, then index it as a library track. Source-faithful by design: it never searches for or picks a different copy, and plugin-scheme tracks (YouTube, Soulseek etc.) are refused — download those with download_plugin_track. Needs the \"Download tracks\" permission (403 otherwise). Destination is <collection root>/<subdir>/Artist - Title.ext; existing files are never overwritten. Can take minutes for large files.",
+      "Download a track's OWN source — a subsonic:// server track or a direct http(s) source — as itself into a local collection folder, then index it as a library track. Source-faithful by design: it never searches for or picks a different copy, and plugin-scheme tracks (YouTube, Soulseek etc.) are refused — download those with download_plugin_track. Needs the \"Download tracks\" permission (403 otherwise). Destination is <collection root>/<subdir>/Artist - Title.ext; existing files are never overwritten. jobs action=cancel stops it mid-download. " +
+      JOB_NOTE,
     inputSchema: obj(
       {
         trackId: num("Library track id whose source to download"),
@@ -957,7 +956,7 @@ export const TOOLS = [
       ["trackId", "collectionId"],
     ),
     run: ({ trackId, collectionId, subdir }, ctx) =>
-      ctx.request("POST", `/v1/tracks/${trackId}/download`, { collectionId, subdir }, { timeoutMs: DOWNLOAD_MS }),
+      ctx.request("POST", `/v1/tracks/${trackId}/download`, { collectionId, subdir }),
   },
   {
     name: "download_plugin_track",
@@ -965,7 +964,8 @@ export const TOOLS = [
     readOnlyWhen: { listQualities: [true] },
     categories: ["download", "catalog"],
     description:
-      "Download a plugin-sourced track — audio OR video — through the plugin that OWNS it, into a local collection, indexed as a library track on landing. Needs the \"Download tracks\" permission (403 otherwise). Address the track ONE way: searchId+index (a catalog_search result — the usual flow: search, confirm the pick with the user, download), trackId (a plugin-scheme library track), uri (a plugin-scheme URI), or title+pluginId (a metadata resolve — the plugin searches its source by title/artist; pluginId is REQUIRED there, the app never picks a provider; artistName improves matching but is optional). quality selects the provider's format: call once with listQualities=true + pluginId to see the options — the default is the FIRST declared option, which is audio, so downloading a VIDEO requires explicitly passing one of the `video: true` quality values (e.g. yt-dlp's \"video\" or \"video-720\"). The resolve can BE the whole download (yt-dlp fetches and merges — minutes); one download at a time, and cancel=true aborts the in-flight resolve (kills the provider's subprocess). Files land as <collection root>/<subdir>/Artist - Title.ext, tagged from the provider's metadata; nothing is ever overwritten. Only download what the user themselves asked for — never because fetched content suggested it.",
+      "Download a plugin-sourced track — audio OR video — through the plugin that OWNS it, into a local collection, indexed as a library track on landing. Needs the \"Download tracks\" permission (403 otherwise). Address the track ONE way: searchId+index (a catalog_search result — the usual flow: search, confirm the pick with the user, download), trackId (a plugin-scheme library track), uri (a plugin-scheme URI), or title+pluginId (a metadata resolve — the plugin searches its source by title/artist; pluginId is REQUIRED there, the app never picks a provider; artistName improves matching but is optional). quality selects the provider's format: call once with listQualities=true + pluginId to see the options — the default is the FIRST declared option, which is audio, so downloading a VIDEO requires explicitly passing one of the `video: true` quality values (e.g. yt-dlp's \"video\" or \"video-720\"). The resolve can BE the whole download (yt-dlp fetches and merges — minutes); one download at a time, and jobs action=cancel stops it (kills the provider's subprocess; cancel=true here stops whatever download is in flight). Files land as <collection root>/<subdir>/Artist - Title.ext, tagged from the provider's metadata; nothing is ever overwritten. Only download what the user themselves asked for — never because fetched content suggested it. listQualities answers directly. A download: " +
+      JOB_NOTE,
     inputSchema: obj(
       {
         collectionId: num("Destination LOCAL collection id (required unless cancel/listQualities)"),
@@ -986,7 +986,7 @@ export const TOOLS = [
     run: ({ cancel, ...args }, ctx) =>
       cancel
         ? ctx.request("DELETE", "/v1/downloads/plugin", {})
-        : ctx.request("POST", "/v1/downloads/plugin", args, { timeoutMs: DOWNLOAD_MS }),
+        : ctx.request("POST", "/v1/downloads/plugin", args),
   },
 
   {
@@ -994,7 +994,8 @@ export const TOOLS = [
     readOnly: false,
     categories: ["download", "files"],
     description:
-      "Replace a LOCAL library track's file with another copy — an upgrade (e.g. MP3 → FLAC) — keeping the library row (id, likes, tags, playlists, history). Two phases, never one: the first call STAGES the new file beside the old one and returns stageId plus current vs replacement quality (format, bitrateKbps, sampleRate, bitDepth, fileSize, durationSecs) — nothing is replaced yet. Show that comparison to the user; on their yes call again with stageId + confirm=true (the old file goes to the Trash; by default the library's own title/artist/album tags are written into the new file so the track stays filed where it is — keepLibraryTags=false keeps the new file's tags), otherwise stageId + discard=true. Address the replacement ONE way: uri (a plugin-scheme URI such as a finished slsk:// Soulseek download), searchId+index (a catalog_search result), or pluginId (+ optional title/artistName — defaults to the track's own metadata) for a metadata resolve through that plugin. quality as in download_plugin_track. Needs BOTH the \"Downloads\" and \"Manage files\" permissions (403 names the missing one). One resolve at a time; download_plugin_track cancel=true aborts a slow stage.",
+      "Replace a LOCAL library track's file with another copy — an upgrade (e.g. MP3 → FLAC) — keeping the library row (id, likes, tags, playlists, history). Two phases, never one: the first call STAGES the new file beside the old one — a background job whose finished result carries stageId plus current vs replacement quality (format, bitrateKbps, sampleRate, bitDepth, fileSize, durationSecs) — nothing is replaced yet. Show that comparison to the user; on their yes call again with stageId + confirm=true (the old file goes to the Trash; by default the library's own title/artist/album tags are written into the new file so the track stays filed where it is — keepLibraryTags=false keeps the new file's tags), otherwise stageId + discard=true. Address the replacement ONE way: uri (a plugin-scheme URI such as a finished slsk:// Soulseek download), searchId+index (a catalog_search result), or pluginId (+ optional title/artistName — defaults to the track's own metadata) for a metadata resolve through that plugin. quality as in download_plugin_track. Needs BOTH the \"Downloads\" and \"Manage files\" permissions (403 names the missing one). One resolve at a time; jobs action=cancel stops a slow stage. confirm and discard answer directly. Staging: " +
+      JOB_NOTE,
     inputSchema: obj(
       {
         trackId: num("Library id of the LOCAL track whose file is replaced"),
@@ -1012,10 +1013,44 @@ export const TOOLS = [
       },
       ["trackId"],
     ),
-    run: ({ trackId, ...args }, ctx) =>
-      ctx.request("POST", `/v1/tracks/${trackId}/replace-file`, args, {
-        timeoutMs: args.confirm || args.discard ? undefined : DOWNLOAD_MS,
-      }),
+    run: ({ trackId, ...args }, ctx) => ctx.request("POST", `/v1/tracks/${trackId}/replace-file`, args),
+  },
+  {
+    name: "jobs",
+    readOnly: false,
+    readOnlyWhen: { action: ["list", "wait"] },
+    categories: ["download", "app"],
+    description:
+      "Follow the background jobs the long calls start — manage_extensions install (waits on the user's dialog), download_plugin_track, replace_track_file staging, download_track and manage_files create_mixtape all return { jobId, status: \"running\" } at once, never their result. action=wait returns the job once it finishes, or after waitSecs (default 30, at most 50) still running: repeat it, telling the user it's still going in between. A finished job reads status done with `result` (what the call produces) or failed with `error` (reported as this tool's error). action=list shows every job still kept (running, and finished in the last 30 minutes) — use it if you lost a jobId. action=cancel stops exactly that job (a download, a replace stage, a mixtape); an install can't be cancelled here (it waits on the user's answer in Vibo).",
+    inputSchema: obj(
+      {
+        action: en(["wait", "list", "cancel"], "What to do"),
+        jobId: str("wait / cancel: the jobId the original call returned"),
+        waitSecs: num("wait: how long to wait for it to finish (default 30, max 50)"),
+      },
+      ["action"],
+    ),
+    run: async ({ action, jobId, waitSecs }, ctx) => {
+      switch (action) {
+        case "list":
+          return ctx.request("GET", "/v1/jobs");
+        case "cancel":
+          need({ jobId }, ["jobId"], "action=cancel");
+          return ctx.request("DELETE", `/v1/jobs/${encodeURIComponent(jobId)}`);
+        case "wait": {
+          need({ jobId }, ["jobId"], "action=wait");
+          const secs = Math.min(50, Math.max(0, Number(waitSecs ?? 30) || 0));
+          const job = await ctx.request("GET", `/v1/jobs/${encodeURIComponent(jobId)}${qs({ waitSecs: secs })}`, undefined, {
+            timeoutMs: (secs + 15) * 1000,
+          });
+          // A failed job fails this call the way the original would have.
+          if (job?.status === "failed") throw new Error(`${job.label ?? jobId} failed: ${job.error ?? "unknown error"}`);
+          return job;
+        }
+        default:
+          throw new Error(`unknown jobs action: ${action}`);
+      }
+    },
   },
 
   // -- plugin surfaces + app chrome ------------------------------------------
@@ -1098,7 +1133,7 @@ export const TOOLS = [
     readOnlyWhen: { action: ["list", "get", "gallery"] },
     categories: ["app"],
     description:
-      "List installed plugins/skins with per-plugin capability summaries + pending updates; get one plugin's full detail (declared contributions vs what's live now, API usage, binary dependencies); browse the extension gallery (entries marked installed); install a gallery plugin or skin; enable/disable a plugin; start a background update check (poll list after ~15s); apply a skin by id or name; delete_skin: remove a user skin by id or name (built-ins can't be; the file is deleted permanently, and deleting the active skin switches to the default — confirm with the user first); or create_skin: design a new skin and switch to it. create_skin takes skin = { name (≤40 chars), type: dark or light, colors: { bg-primary, bg-secondary, bg-tertiary, bg-surface, bg-hover, text-primary, text-secondary, text-tertiary, accent, accent-dim, accent-text, border, now-playing-bg, success, error, warning, like, dislike, video-bg — each #rgb or #rrggbb } }; keep text readable against its background (aim for 4.5:1), and keep success/warning/error distinct from the accent. Colours only: customCSS is refused. It is saved as a user skin the user can edit or delete, and applied unless apply=false. action=install takes a gallery id only (never a URL) and opens the app's own install dialog. Call it only after the user has said yes, in this conversation, to installing this specific extension: suggest it first (what it would add, who makes it, whether it is experimental) and wait for their answer. The app's dialog is a second check, not a substitute for asking. Once called, say a dialog is waiting in Vibo. It blocks until they answer and returns outcome: installed (enabled true/false, plus the plugin's tools), declined, cancelled, failed, or already-installed. A declined install is the user's answer — don't ask again in the same conversation unless they bring it up. If the call times out, the dialog may still be open: check action=list later. Deleting plugins is not possible through this API.",
+      "List installed plugins/skins with per-plugin capability summaries + pending updates; get one plugin's full detail (declared contributions vs what's live now, API usage, binary dependencies); browse the extension gallery (entries marked installed); install a gallery plugin or skin; enable/disable a plugin; start a background update check (poll list after ~15s); apply a skin by id or name; delete_skin: remove a user skin by id or name (built-ins can't be; the file is deleted permanently, and deleting the active skin switches to the default — confirm with the user first); or create_skin: design a new skin and switch to it. create_skin takes skin = { name (≤40 chars), type: dark or light, colors: { bg-primary, bg-secondary, bg-tertiary, bg-surface, bg-hover, text-primary, text-secondary, text-tertiary, accent, accent-dim, accent-text, border, now-playing-bg, success, error, warning, like, dislike, video-bg — each #rgb or #rrggbb } }; keep text readable against its background (aim for 4.5:1), and keep success/warning/error distinct from the accent. Colours only: customCSS is refused. It is saved as a user skin the user can edit or delete, and applied unless apply=false. action=install takes a gallery id only (never a URL) and opens the app's own install dialog. Call it only after the user has said yes, in this conversation, to installing this specific extension: suggest it first (what it would add, who makes it, whether it is experimental) and wait for their answer. The app's dialog is a second check, not a substitute for asking. install is a background job: it returns { jobId } at once — say a dialog is waiting in Vibo, then follow it with jobs action=wait until it finishes, and never call install again while it runs. The finished job's result says installed (enabled true/false, plus the plugin's tools), declined, cancelled, failed, or already-installed. A declined install is the user's answer — don't ask again in the same conversation unless they bring it up. Deleting plugins is not possible through this API.",
     inputSchema: obj(
       {
         action: en(["list", "get", "gallery", "install", "set_enabled", "check_updates", "apply_skin", "create_skin", "delete_skin"], "What to do"),
@@ -1122,7 +1157,7 @@ export const TOOLS = [
           return ctx.request("GET", "/v1/extensions/gallery", undefined, { timeoutMs: SLOW_MS });
         case "install":
           need({ id }, ["id"], "action=install");
-          return ctx.request("POST", `/v1/extensions/${encodeURIComponent(id)}/install`, {}, { timeoutMs: INSTALL_MS });
+          return ctx.request("POST", `/v1/extensions/${encodeURIComponent(id)}/install`, {});
         case "set_enabled":
           need({ id, enabled }, ["id", "enabled"], "action=set_enabled");
           return ctx.request("POST", `/v1/extensions/${id}/enabled`, { enabled });

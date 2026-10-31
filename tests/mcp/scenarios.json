@@ -175,6 +175,14 @@
     { "tool": "replace_track_file", "args": { "trackId": 1, "stageId": "abcdef.flac", "confirm": true },
       "requests": [{ "method": "POST", "path": "/v1/tracks/1/replace-file", "body": { "stageId": "abcdef.flac", "confirm": true } }], "verb": "tracks.replaceFile" },
 
+    { "tool": "jobs", "args": { "action": "wait", "jobId": "j1" },
+      "requests": [{ "method": "GET", "path": "/v1/jobs/j1?waitSecs=30" }] },
+    { "tool": "jobs", "args": { "action": "wait", "jobId": "j1", "waitSecs": 80 },
+      "requests": [{ "method": "GET", "path": "/v1/jobs/j1?waitSecs=50" }] },
+    { "tool": "jobs", "args": { "action": "list" }, "requests": [{ "method": "GET", "path": "/v1/jobs" }] },
+    { "tool": "jobs", "args": { "action": "cancel", "jobId": "j1" }, "requests": [{ "method": "DELETE", "path": "/v1/jobs/j1" }] },
+    { "tool": "jobs", "args": { "action": "wait" }, "throws": "\"jobId\" is required" },
+
     { "tool": "plugin_actions", "args": { "action": "list", "target": "track" },
       "requests": [{ "method": "GET", "path": "/v1/actions?target=track" }], "verb": "actions.list" },
     { "tool": "plugin_actions", "args": { "action": "invoke", "actionId": "love", "pluginId": "lastfm", "kind": "track", "trackId": 1 },

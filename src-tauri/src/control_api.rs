@@ -201,6 +201,8 @@ pub(crate) struct ServerState {
     profile: String,
     /// Profile dir — where entity images live (`{kind}_images/`).
     app_dir: PathBuf,
+    /// The async-only long calls (`control_jobs`, `start_job`).
+    jobs: Arc<crate::control_jobs::Jobs>,
 }
 
 /// Payload of the `control-api-request` event the frontend dispatcher handles.
@@ -323,6 +325,7 @@ pub fn start(
         version: version.to_string(),
         profile: profile.to_string(),
         app_dir: app_dir.to_path_buf(),
+        jobs: Arc::new(crate::control_jobs::Jobs::default()),
     };
     let router = build_router(state);
     let in_process_router = router.clone();
@@ -556,6 +559,10 @@ pub(crate) fn build_router(state: ServerState) -> Router {
         // the webview and lands the file (`assistant_land_download`); DELETE
         // cancels the in-flight resolve (kills the provider's subprocess).
         .route("/v1/downloads/plugin", post(handle_plugin_download).delete(handle_plugin_download_cancel))
+        // The long calls (install, plugin download, replace staging) that
+        // outlived their inline wait: follow, wait on, or cancel them.
+        .route("/v1/jobs", get(handle_jobs_list))
+        .route("/v1/jobs/{id}", get(handle_job_get).delete(handle_job_cancel))
         // Extensions & skins: list / enable-disable / update check / apply skin,
         // and install of a GALLERY entry — which the app puts to the user in
         // its own dialog, so the request waits on a person (long timeout).
@@ -1587,16 +1594,133 @@ async fn handle_track_bridge(
 /// app's own dialog (the user's click there is the consent, not anything the
 /// caller sends), and only an id the curated gallery lists is accepted — the
 /// dispatcher looks the entry up itself, so no URL ever crosses this API. The
-/// wait covers the user reading the dialog plus the download.
+/// wait covers the user reading the dialog plus the download, so it is a job
+/// (`start_job`): the request answers at once with a job id to follow.
 async fn handle_extension_install(
     state: AxumState<ServerState>,
-    path: AxumPath<String>,
+    AxumPath(id): AxumPath<String>,
 ) -> Response {
-    if path.0.is_empty() || path.0.len() > 200 {
+    if id.is_empty() || id.len() > 200 {
         return error_response(StatusCode::BAD_REQUEST, "invalid extension id");
     }
     let timeout = state.0.bridge_timeout.saturating_mul(INSTALL_WAIT_FACTOR);
-    bridge(&state.0, "extensions.install", json!({ "pluginId": path.0 }), timeout).await
+    let label = format!("install {}", id);
+    let s = state.0.clone();
+    start_job(&state.0, "install", label, Cancel::Refuse(INSTALL_NOT_CANCELLABLE), move |_| async move {
+        bridge(&s, "extensions.install", json!({ "pluginId": id }), timeout).await
+    })
+}
+
+const INSTALL_NOT_CANCELLABLE: &str = "an install is waiting for the user's answer in Vibo's install dialog — it can't be cancelled from here; the user can press Cancel there";
+
+/// Register a job, start `work` in the background and answer `202 { jobId }`
+/// at once (`control_jobs` explains why these routes are async-only). The job
+/// is registered BEFORE the work starts, so a caller that hangs up can still
+/// find it; `work` gets the job id (the resolve routes pass it to the webview
+/// so a cancel stops exactly this job). The work's response — status and JSON
+/// body — becomes the job's outcome, and how it ended is written to the app
+/// log: the 202 is all the activity log sees of the request, so a failure
+/// minutes later would otherwise leave no trace.
+fn start_job<W, F>(state: &ServerState, kind: &'static str, label: String, cancel: Cancel, work: W) -> Response
+where
+    W: FnOnce(String) -> F,
+    F: std::future::Future<Output = Response> + Send + 'static,
+{
+    use crate::control_jobs::{clean_label, Outcome};
+    let label = clean_label(&label);
+    let (tx, rx) = tokio::sync::watch::channel::<Option<Outcome>>(None);
+    let started = Instant::now();
+    let id = state.jobs.insert(kind, label.clone(), started, rx, cancel);
+    let future = work(id.clone());
+    let (log_id, log_label) = (id.clone(), label.clone());
+    tokio::spawn(async move {
+        let response = future.await;
+        let status = response.status().as_u16();
+        let bytes = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap_or_default();
+        let body = serde_json::from_slice::<Value>(&bytes)
+            .unwrap_or_else(|_| json!({ "error": String::from_utf8_lossy(&bytes) }));
+        let secs = started.elapsed().as_secs();
+        if (200..300).contains(&status) {
+            log::info!("Assistant job {} done: {} ({}s)", log_id, log_label, secs);
+        } else {
+            let error = body.get("error").and_then(Value::as_str).map(str::to_string).unwrap_or_else(|| body.to_string());
+            log::warn!("Assistant job {} failed: {} — {} ({}s)", log_id, log_label, error, secs);
+        }
+        let _ = tx.send(Some(Outcome { status, body, finished: Instant::now() }));
+    });
+    log::info!("Assistant job {} started: {}", id, label);
+    (
+        StatusCode::ACCEPTED,
+        axum::Json(json!({
+            "jobId": id,
+            "status": "running",
+            "kind": kind,
+            "label": label,
+            "note": "Running in Vibo. Follow it with GET /v1/jobs/{jobId}?waitSecs=30 (MCP: jobs action=wait) until status is done or failed; don't start it again.",
+        })),
+    )
+        .into_response()
+}
+
+/// `GET /v1/jobs` — every job still kept (running, and finished in the last
+/// 30 minutes), oldest first.
+async fn handle_jobs_list(state: AxumState<ServerState>) -> Response {
+    let now = Instant::now();
+    let jobs: Vec<Value> = state.0.jobs.all().iter().map(|(id, job)| crate::control_jobs::view(id, job, now)).collect();
+    axum::Json(json!({ "jobs": jobs })).into_response()
+}
+
+/// `GET /v1/jobs/{id}?waitSecs=N` — one job, waiting up to N seconds (capped
+/// at `control_jobs::MAX_WAIT`) for it to finish first.
+async fn handle_job_get(
+    state: AxumState<ServerState>,
+    AxumPath(id): AxumPath<String>,
+    Query(params): Query<HashMap<String, String>>,
+) -> Response {
+    let Some(job) = state.0.jobs.get(&id) else {
+        return error_response(StatusCode::NOT_FOUND, format!("no job \"{}\" (finished jobs are kept for 30 minutes)", id));
+    };
+    let wait = params
+        .get("waitSecs")
+        .and_then(|s| s.parse::<f64>().ok())
+        .filter(|s| s.is_finite() && *s > 0.0)
+        .map(|s| Duration::from_secs_f64(s).min(crate::control_jobs::MAX_WAIT));
+    if let Some(wait) = wait {
+        let mut rx = job.rx.clone();
+        let _ = tokio::time::timeout(wait, crate::control_jobs::wait_done(&mut rx)).await;
+    }
+    axum::Json(crate::control_jobs::view(&id, &job, Instant::now())).into_response()
+}
+
+/// `DELETE /v1/jobs/{id}` — stop exactly that job, the way its kind allows:
+/// a plugin resolve through `downloads.cancel` naming this job (the dispatcher
+/// ignores it for any other resolve), Rust-side work through its own flag. An
+/// install is refused: it waits on the user's answer, which is theirs to give.
+async fn handle_job_cancel(state: AxumState<ServerState>, AxumPath(id): AxumPath<String>) -> Response {
+    let Some(job) = state.0.jobs.get(&id) else {
+        return error_response(StatusCode::NOT_FOUND, format!("no job \"{}\"", id));
+    };
+    if job.rx.borrow().is_some() {
+        return axum::Json(json!({ "jobId": id, "cancelled": false, "note": "the job has already finished" })).into_response();
+    }
+    match &job.cancel {
+        Cancel::Refuse(why) => error_response(StatusCode::BAD_REQUEST, *why),
+        Cancel::Flag(flag) => {
+            flag.store(true, Ordering::Relaxed);
+            log::info!("Assistant job {} cancel requested: {}", id, job.label);
+            axum::Json(json!({ "jobId": id, "cancelled": true })).into_response()
+        }
+        Cancel::Resolve => match bridge_value(&state.0, "downloads.cancel", json!({ "jobId": id }), state.0.bridge_timeout).await {
+            Ok(v) => {
+                let mut out = json!({ "jobId": id, "cancelled": v["cancelled"] == json!(true) });
+                if let Some(note) = v.get("note") {
+                    out["note"] = note.clone();
+                }
+                axum::Json(out).into_response()
+            }
+            Err(resp) => resp,
+        },
+    }
 }
 
 /// `bridge_timeout` multiples an install may wait: 10 minutes at the default.
@@ -1640,6 +1764,7 @@ async fn handle_extension_bridge(
 // --- Assistant write handlers (scope-gated; see assistant_write.rs) ---
 
 use crate::assistant_write::{self, Scope};
+use crate::control_jobs::Cancel;
 
 /// The write-scope gate. Scopes are re-read from disk on every call — the
 /// user flipping a Settings switch takes effect immediately, and there is no
@@ -1974,7 +2099,8 @@ struct MixtapeBody {
 /// (`assistant_write::create_mixtape` — the app's own full export, so the
 /// source-faithful rule holds: plugin-scheme tracks are skipped and reported).
 /// Backend-direct like the other file writes: nothing in React state mirrors
-/// a mixtape file. Blocking for as long as the export takes.
+/// a mixtape file. Packing audio (and downloading Subsonic/http tracks) takes
+/// minutes, so it is a job (`start_job`), cancellable between tracks.
 async fn handle_create_mixtape(state: AxumState<ServerState>, body: Bytes) -> Response {
     if let Err(resp) = check_scope(&state.0, Scope::ManageFiles) {
         return resp;
@@ -1985,26 +2111,31 @@ async fn handle_create_mixtape(state: AxumState<ServerState>, body: Bytes) -> Re
     };
     let db = state.0.db.clone();
     let app_dir = state.0.app_dir.clone();
-    write_op("mixtapes.create", move || {
-        let subdir = parsed.subdir.as_deref().unwrap_or(assistant_write::DEFAULT_MIXTAPE_SUBDIR);
-        let value = assistant_write::create_mixtape(
-            &db,
-            &app_dir,
-            parsed.collection_id,
-            subdir,
-            &parsed.title,
-            &parsed.track_ids,
-            parsed.description.as_deref(),
-        )?;
-        let summary = format!(
-            "packed {} of {} track(s) into mixtape → {}",
-            value["packed"].as_u64().unwrap_or(0),
-            parsed.track_ids.len(),
-            value["path"].as_str().unwrap_or("?"),
-        );
-        Ok((value, summary))
+    let flag = Arc::new(AtomicBool::new(false));
+    let job_flag = Arc::clone(&flag);
+    let label = format!("mixtape \u{201c}{}\u{201d} ({} tracks)", parsed.title, parsed.track_ids.len());
+    start_job(&state.0, "mixtape", label, Cancel::Flag(flag), move |_| {
+        write_op("mixtapes.create", move || {
+            let subdir = parsed.subdir.as_deref().unwrap_or(assistant_write::DEFAULT_MIXTAPE_SUBDIR);
+            let value = assistant_write::create_mixtape(
+                &db,
+                &app_dir,
+                parsed.collection_id,
+                subdir,
+                &parsed.title,
+                &parsed.track_ids,
+                parsed.description.as_deref(),
+                Some(&job_flag),
+            )?;
+            let summary = format!(
+                "packed {} of {} track(s) into mixtape → {}",
+                value["packed"].as_u64().unwrap_or(0),
+                parsed.track_ids.len(),
+                value["path"].as_str().unwrap_or("?"),
+            );
+            Ok((value, summary))
+        })
     })
-    .await
 }
 
 #[derive(serde::Deserialize)]
@@ -2159,41 +2290,48 @@ struct DownloadBody {
 /// then lands the file via `assistant_land_download` (which re-checks the
 /// scope in Rust). The provider is never picked by the host: the payload must
 /// name a plugin-scheme uri, a plugin-scheme library track, or an explicit
-/// pluginId for a metadata resolve.
+/// pluginId for a metadata resolve. A download is a job (`start_job`): the
+/// resolve can be the whole download. Listing qualities is a quick read on the
+/// same verb and answers in place.
 async fn handle_plugin_download(state: AxumState<ServerState>, body: Bytes) -> Response {
     if let Err(resp) = check_scope(&state.0, Scope::Downloads) {
         return resp;
     }
-    let payload = match parse_body(json!({}), &body) {
+    let mut payload = match parse_body(json!({}), &body) {
         Ok(p) => p,
         Err(e) => return error_response(StatusCode::BAD_REQUEST, e),
     };
-    // Quality discovery is a read riding the same verb: no destination, no
-    // addressing, nothing logged.
-    let listing = payload.get("listQualities") == Some(&Value::Bool(true));
-    if !listing {
-        if !payload.get("collectionId").map(|v| v.is_number()).unwrap_or(false) {
-            return error_response(StatusCode::BAD_REQUEST, "collectionId (a local collection id) is required");
-        }
-        if payload.get("uri").is_none()
-            && payload.get("trackId").is_none()
-            && payload.get("title").is_none()
-            && payload.get("searchId").is_none()
-        {
-            return error_response(
-                StatusCode::BAD_REQUEST,
-                "address the track: searchId + index, trackId (library id), uri (plugin scheme), or title (+ pluginId)",
-            );
-        }
-    }
     // 60× the base budget (10 min in production, still fast under test) — the
     // resolve step is legitimately the whole download for some providers.
     let timeout = state.0.bridge_timeout.saturating_mul(60);
-    let result = match bridge_value(&state.0, "downloads.plugin", payload, timeout).await {
-        Ok(v) => v,
-        Err(resp) => return resp,
-    };
-    if !listing {
+    // Quality discovery is a read riding the same verb: no destination, no
+    // addressing, nothing logged, no job.
+    if payload.get("listQualities") == Some(&Value::Bool(true)) {
+        return bridge(&state.0, "downloads.plugin", payload, timeout).await;
+    }
+    if !payload.get("collectionId").map(|v| v.is_number()).unwrap_or(false) {
+        return error_response(StatusCode::BAD_REQUEST, "collectionId (a local collection id) is required");
+    }
+    if payload.get("uri").is_none()
+        && payload.get("trackId").is_none()
+        && payload.get("title").is_none()
+        && payload.get("searchId").is_none()
+    {
+        return error_response(
+            StatusCode::BAD_REQUEST,
+            "address the track: searchId + index, trackId (library id), uri (plugin scheme), or title (+ pluginId)",
+        );
+    }
+    let label = format!("download {}", download_subject(&payload));
+    let s = state.0.clone();
+    start_job(&state.0, "download", label, Cancel::Resolve, move |job_id| async move {
+        // The resolve carries the job's id, so cancelling this job stops this
+        // resolve and no other.
+        payload["jobId"] = json!(job_id);
+        let result = match bridge_value(&s, "downloads.plugin", payload, timeout).await {
+            Ok(v) => v,
+            Err(resp) => return resp,
+        };
         assistant_write::log_change(
             "downloads.plugin",
             &format!(
@@ -2203,8 +2341,30 @@ async fn handle_plugin_download(state: AxumState<ServerState>, body: Bytes) -> R
             ),
             &[],
         );
+        axum::Json(result).into_response()
+    })
+}
+
+/// What a plugin download is of, for its job label: the title (and artist)
+/// when the caller named them, else the uri, the catalog result or the track.
+fn download_subject(payload: &Value) -> String {
+    let s = |k: &str| payload.get(k).and_then(Value::as_str).filter(|v| !v.trim().is_empty());
+    if let Some(title) = s("title") {
+        return match s("artistName") {
+            Some(artist) => format!("\u{201c}{}\u{201d} by {}", title, artist),
+            None => format!("\u{201c}{}\u{201d}", title),
+        };
     }
-    axum::Json(result).into_response()
+    if let Some(uri) = s("uri") {
+        return uri.to_string();
+    }
+    if let Some(search) = s("searchId") {
+        return format!("catalog result {} #{}", search, payload.get("index").and_then(Value::as_i64).unwrap_or(0));
+    }
+    match payload.get("trackId").and_then(Value::as_i64) {
+        Some(id) => format!("library track {}", id),
+        None => "a track".to_string(),
+    }
 }
 
 /// Cancel the in-flight plugin download resolve. Unscoped by design: with no
@@ -2227,6 +2387,8 @@ async fn handle_plugin_download_cancel(state: AxumState<ServerState>, body: Byte
 /// Stage and confirm need BOTH the Downloads and Manage files scopes: a replace
 /// downloads, and it sends a library file to the Trash. The webview resolves
 /// (plugins live there); `assistant_*_replacement` re-check the scopes in Rust.
+/// Staging is a job (`start_job`) — it is a download; confirm and discard are
+/// local moves that answer in place.
 async fn handle_replace_file(state: AxumState<ServerState>, AxumPath(id): AxumPath<i64>, body: Bytes) -> Response {
     let mut payload = match parse_body(json!({}), &body) {
         Ok(p) => p,
@@ -2260,9 +2422,25 @@ async fn handle_replace_file(state: AxumState<ServerState>, AxumPath(id): AxumPa
         );
     }
     payload["trackId"] = json!(id);
-    // Staging can BE the download (a provider fetching for minutes) — same
-    // budget as the plugin download route. Confirm/discard are local moves.
-    let timeout = if discard || confirm { state.0.bridge_timeout } else { state.0.bridge_timeout.saturating_mul(60) };
+    if !discard && !confirm {
+        // Staging can BE the download (a provider fetching for minutes) — same
+        // budget as the plugin download route, and like it a job whose resolve
+        // carries the job's id for cancel.
+        let timeout = state.0.bridge_timeout.saturating_mul(60);
+        let s = state.0.clone();
+        let named = ["title", "uri", "searchId"].iter().any(|k| payload.get(*k).is_some());
+        let with = if named {
+            download_subject(&payload)
+        } else {
+            format!("a copy via {}", payload.get("pluginId").and_then(Value::as_str).unwrap_or("its plugin"))
+        };
+        let label = format!("replace the file of track {} with {}", id, with);
+        return start_job(&state.0, "replace", label, Cancel::Resolve, move |job_id| async move {
+            payload["jobId"] = json!(job_id);
+            bridge(&s, "tracks.replaceFile", payload, timeout).await
+        });
+    }
+    let timeout = state.0.bridge_timeout;
     let result = match bridge_value(&state.0, "tracks.replaceFile", payload, timeout).await {
         Ok(v) => v,
         Err(resp) => return resp,
@@ -2299,18 +2477,23 @@ async fn handle_track_download(
     let db = state.0.db.clone();
     let emit_track_added = Arc::clone(&state.0.emit_track_added);
     let layout = assistant_write::assistant_download_layout(&state.0.app_dir, parsed.subdir.as_deref().unwrap_or(""));
-    write_op("tracks.download", move || {
-        let subdir = parsed.subdir.as_deref().unwrap_or("");
-        let value = assistant_write::download_track_source(&db, id, parsed.collection_id, subdir, layout)?;
-        if value["newTrack"] == true {
-            if let Some(new_id) = value["libraryTrackId"].as_i64() {
-                emit_track_added(new_id);
+    // A real download over a real connection: a job (`start_job`), stoppable
+    // through the flag the downloader polls between chunks.
+    let flag = Arc::new(AtomicBool::new(false));
+    let job_flag = Arc::clone(&flag);
+    start_job(&state.0, "source-download", format!("download library track {}", id), Cancel::Flag(flag), move |_| {
+        write_op("tracks.download", move || {
+            let subdir = parsed.subdir.as_deref().unwrap_or("");
+            let value = assistant_write::download_track_source(&db, id, parsed.collection_id, subdir, layout, Some(&job_flag))?;
+            if value["newTrack"] == true {
+                if let Some(new_id) = value["libraryTrackId"].as_i64() {
+                    emit_track_added(new_id);
+                }
             }
-        }
-        let summary = format!("downloaded track {} → {}", id, value["path"].as_str().unwrap_or("?"));
-        Ok((value, summary))
+            let summary = format!("downloaded track {} → {}", id, value["path"].as_str().unwrap_or("?"));
+            Ok((value, summary))
+        })
     })
-    .await
 }
 
 /// Round-trip one request through the webview dispatcher. `timeout` is the
@@ -2388,6 +2571,7 @@ mod tests {
             version: "0.0.0-test".to_string(),
             profile: "test".to_string(),
             app_dir,
+            jobs: Arc::new(crate::control_jobs::Jobs::default()),
         }
     }
 
@@ -2420,6 +2604,20 @@ mod tests {
     async fn body_json(response: Response) -> Value {
         let bytes = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
         serde_json::from_slice(&bytes).unwrap()
+    }
+
+    /// A job route's answer: assert it is the 202 every async-only route
+    /// gives, wait for the job and return its view (`status`, `result`, …).
+    async fn follow_job(router: &Router, response: Response) -> Value {
+        assert_eq!(response.status(), StatusCode::ACCEPTED, "a job route answers 202");
+        let started = body_json(response).await;
+        let id = started["jobId"].as_str().expect("a jobId").to_string();
+        let res = router
+            .clone()
+            .oneshot(request("GET", &format!("/v1/jobs/{id}?waitSecs=5"), Some(TEST_TOKEN)))
+            .await
+            .unwrap();
+        body_json(res).await
     }
 
     #[tokio::test]
@@ -3485,10 +3683,13 @@ mod tests {
             ))
             .await
             .unwrap();
-        assert_eq!(res.status(), StatusCode::OK);
-        let json = body_json(res).await;
-        assert_eq!(json["verb"], json!("downloads.plugin"));
-        assert_eq!(json["payload"]["collectionId"], json!(3));
+        let job = follow_job(&router, res).await;
+        assert_eq!(job["status"], json!("done"), "{job}");
+        assert_eq!(job["result"]["verb"], json!("downloads.plugin"));
+        assert_eq!(job["result"]["payload"]["collectionId"], json!(3));
+        // The resolve carries its job's id, so a cancel can name exactly it.
+        assert_eq!(job["result"]["payload"]["jobId"], job["jobId"]);
+        assert_eq!(job["label"], json!("download ytdlp://abc"));
 
         // No collectionId / no addressing never reaches the bridge.
         for body in [r#"{"uri":"ytdlp://abc"}"#, r#"{"collectionId":3}"#] {
@@ -3500,7 +3701,8 @@ mod tests {
             assert_eq!(res.status(), StatusCode::BAD_REQUEST, "body {} must be refused", body);
         }
 
-        // Quality discovery bridges with neither a destination nor addressing.
+        // Quality discovery bridges with neither a destination nor addressing,
+        // and answers in place: it is a quick read, not a job.
         let res = router
             .clone()
             .oneshot(request_json(
@@ -3559,17 +3761,24 @@ mod tests {
         assert_eq!(json["payload"]["trackId"], json!(7));
 
         grant_scopes(dir.path(), WriteScopes { downloads: true, manage_files: true, ..Default::default() });
-        for body in [
-            r#"{"uri":"slsk://abc","trackId":99}"#,
-            r#"{"pluginId":"ytdlp"}"#,
-            r#"{"stageId":"abcdef.flac","confirm":true}"#,
+        // Staging is a job; its result is what the dispatcher answered.
+        for (body, label) in [
+            (r#"{"uri":"slsk://abc","trackId":99}"#, "replace the file of track 7 with slsk://abc"),
+            (r#"{"pluginId":"ytdlp"}"#, "replace the file of track 7 with a copy via ytdlp"),
         ] {
-            let res = post(body).await.unwrap();
-            assert_eq!(res.status(), StatusCode::OK, "body {} should bridge", body);
-            let json = body_json(res).await;
-            assert_eq!(json["verb"], json!("tracks.replaceFile"));
-            assert_eq!(json["payload"]["trackId"], json!(7), "the path id names the track, never the body");
+            let job = follow_job(&router, post(body).await.unwrap()).await;
+            assert_eq!(job["status"], json!("done"), "body {} should bridge: {}", body, job);
+            assert_eq!(job["label"], json!(label));
+            assert_eq!(job["result"]["verb"], json!("tracks.replaceFile"));
+            assert_eq!(job["result"]["payload"]["trackId"], json!(7), "the path id names the track, never the body");
+            assert_eq!(job["result"]["payload"]["jobId"], job["jobId"]);
         }
+        // Confirm is a local move and answers in place.
+        let res = post(r#"{"stageId":"abcdef.flac","confirm":true}"#).await.unwrap();
+        assert_eq!(res.status(), StatusCode::OK);
+        let json = body_json(res).await;
+        assert_eq!(json["verb"], json!("tracks.replaceFile"));
+        assert_eq!(json["payload"]["trackId"], json!(7));
 
         // Unaddressed stage, confirm without a stageId, and both flags at once
         // never reach the bridge.
@@ -3757,6 +3966,12 @@ mod tests {
                 };
                 let res = router.clone().oneshot(req).await.unwrap();
                 let status = res.status();
+                if status == StatusCode::ACCEPTED {
+                    // An async-only route: its work (and its bridge) runs as a
+                    // job, so wait for that before reading what was bridged.
+                    follow_job(&router, res).await;
+                    continue;
+                }
                 // A handler's own 404 ("no such track") carries a JSON error;
                 // axum's unmatched-route 404 has an empty body.
                 let unrouted = status == StatusCode::METHOD_NOT_ALLOWED
@@ -3775,5 +3990,171 @@ mod tests {
             }
         }
         assert!(failures.is_empty(), "MCP contract broken:\n  {}", failures.join("\n  "));
+    }
+
+    // --- Background jobs (install / plugin download / replace staging) ---
+
+    /// A state whose webview answers each verb after a delay: `plan(verb)`
+    /// gives (delay ms, ok, result). Answers off-thread, the way the real
+    /// dispatcher answers whenever its work is done.
+    fn delayed_state(app_dir: PathBuf, plan: fn(&str) -> (u64, bool, Value)) -> (ServerState, Arc<Mutex<Vec<String>>>) {
+        let api_slot: Arc<std::sync::OnceLock<Arc<ControlApi>>> = Arc::new(std::sync::OnceLock::new());
+        let seen: Arc<Mutex<Vec<String>>> = Arc::new(Mutex::new(Vec::new()));
+        let emit: Arc<dyn Fn(&ControlRequest) + Send + Sync> = {
+            let (api_slot, seen) = (api_slot.clone(), seen.clone());
+            Arc::new(move |req: &ControlRequest| {
+                seen.lock().unwrap().push(req.verb.clone());
+                if req.verb == "downloads.cancel" {
+                    seen.lock().unwrap().push(format!("cancel names {}", req.payload["jobId"].as_str().unwrap_or("nothing")));
+                }
+                let (delay, ok, result) = plan(&req.verb);
+                let (api, id) = (api_slot.get().cloned(), req.id);
+                std::thread::spawn(move || {
+                    std::thread::sleep(Duration::from_millis(delay));
+                    if let Some(api) = api {
+                        api.respond(id, ok, result);
+                    }
+                });
+            })
+        };
+        let state = test_state_in(emit, app_dir);
+        api_slot.set(state.api.clone()).ok();
+        (state, seen)
+    }
+
+    #[tokio::test]
+    async fn test_an_install_is_a_job_that_reports_its_outcome() {
+        let dir = tempfile::tempdir().unwrap();
+        // The user answers after 900 ms, inside the install's 3 s test budget.
+        let (state, _) = delayed_state(dir.path().to_path_buf(), |_| (900, true, json!({ "outcome": "installed", "id": "ytdlp" })));
+        let router = build_router(state);
+
+        let res = router.clone().oneshot(request_json("POST", "/v1/extensions/ytdlp/install", TEST_TOKEN, "{}")).await.unwrap();
+        assert_eq!(res.status(), StatusCode::ACCEPTED);
+        let started = body_json(res).await;
+        assert_eq!(started["status"], json!("running"));
+        assert_eq!(started["kind"], json!("install"));
+        let id = started["jobId"].as_str().unwrap().to_string();
+
+        let res = router.clone().oneshot(request("GET", &format!("/v1/jobs/{id}"), Some(TEST_TOKEN))).await.unwrap();
+        assert_eq!(body_json(res).await["status"], json!("running"), "without waitSecs it answers at once");
+
+        let res = router.clone().oneshot(request("GET", &format!("/v1/jobs/{id}?waitSecs=5"), Some(TEST_TOKEN))).await.unwrap();
+        let done = body_json(res).await;
+        assert_eq!(done["status"], json!("done"), "{done}");
+        assert_eq!(done["result"]["outcome"], json!("installed"), "the handler's own response, unchanged");
+
+        let res = router.oneshot(request("GET", "/v1/jobs", Some(TEST_TOKEN))).await.unwrap();
+        let list = body_json(res).await;
+        assert_eq!(list["jobs"][0]["jobId"], json!(id));
+    }
+
+    /// Async-only: even an answer that is ready at once comes back as a job,
+    /// so a caller only ever handles one shape. Bad input and a missing
+    /// permission are still plain errors — nothing to start, nothing to wait for.
+    #[tokio::test]
+    async fn test_a_job_route_always_answers_with_a_job_but_refuses_bad_input_directly() {
+        let dir = tempfile::tempdir().unwrap();
+        let (state, seen) = delayed_state(dir.path().to_path_buf(), |_| (0, true, json!({ "outcome": "declined", "id": "ytdlp" })));
+        let router = build_router(state);
+        let res = router.clone().oneshot(request_json("POST", "/v1/extensions/ytdlp/install", TEST_TOKEN, "{}")).await.unwrap();
+        let job = follow_job(&router, res).await;
+        assert_eq!(job["result"], json!({ "outcome": "declined", "id": "ytdlp" }));
+
+        // A permission that's off is a 403 on the call itself, not a failed job.
+        let res = router
+            .clone()
+            .oneshot(request_json("POST", "/v1/mixtapes", TEST_TOKEN, r#"{"title":"Mix","trackIds":[1],"collectionId":1}"#))
+            .await
+            .unwrap();
+        assert_eq!(res.status(), StatusCode::FORBIDDEN);
+        let res = router
+            .clone()
+            .oneshot(request_json("POST", "/v1/tracks/1/download", TEST_TOKEN, r#"{"collectionId":1}"#))
+            .await
+            .unwrap();
+        assert_eq!(res.status(), StatusCode::FORBIDDEN);
+        assert_eq!(seen.lock().unwrap().len(), 1, "only the install reached the webview");
+
+        // With the permission on, both Rust-side routes are jobs, and their
+        // errors (the empty test library has no such track or collection)
+        // arrive as the job's.
+        grant_scopes(dir.path(), WriteScopes { downloads: true, manage_files: true, ..Default::default() });
+        for (path, body) in [
+            ("/v1/tracks/1/download", r#"{"collectionId":1}"#),
+            ("/v1/mixtapes", r#"{"title":"Mix","trackIds":[1],"collectionId":1}"#),
+        ] {
+            let res = router.clone().oneshot(request_json("POST", path, TEST_TOKEN, body)).await.unwrap();
+            let job = follow_job(&router, res).await;
+            assert_eq!(job["status"], json!("failed"), "{path}: {job}");
+            assert!(!job["error"].as_str().unwrap().is_empty(), "{path}: {job}");
+        }
+    }
+
+    /// A Rust-side job (own-source download, mixtape) stops through its own
+    /// flag: cancelling sets exactly that job's flag.
+    #[tokio::test]
+    async fn test_cancel_sets_the_flag_of_the_job_it_names() {
+        let dir = tempfile::tempdir().unwrap();
+        let state = test_state_in(noop_emit(), dir.path().to_path_buf());
+        let (flag_a, flag_b) = (Arc::new(AtomicBool::new(false)), Arc::new(AtomicBool::new(false)));
+        let (_tx_a, rx_a) = tokio::sync::watch::channel(None);
+        let (_tx_b, rx_b) = tokio::sync::watch::channel(None);
+        let a = state.jobs.insert("mixtape", "a".into(), Instant::now(), rx_a, Cancel::Flag(Arc::clone(&flag_a)));
+        state.jobs.insert("source-download", "b".into(), Instant::now(), rx_b, Cancel::Flag(Arc::clone(&flag_b)));
+        let res = build_router(state).oneshot(request("DELETE", &format!("/v1/jobs/{a}"), Some(TEST_TOKEN))).await.unwrap();
+        assert_eq!(body_json(res).await["cancelled"], json!(true));
+        assert!(flag_a.load(Ordering::Relaxed));
+        assert!(!flag_b.load(Ordering::Relaxed), "the other job is untouched");
+    }
+
+    #[tokio::test]
+    async fn test_a_job_that_fails_reads_as_failed_with_the_error() {
+        let dir = tempfile::tempdir().unwrap();
+        grant_scopes(dir.path(), WriteScopes { downloads: true, ..Default::default() });
+        let (state, _) = delayed_state(dir.path().to_path_buf(), |_| (900, false, json!("the provider found nothing")));
+        let router = build_router(state);
+        let res = router
+            .clone()
+            .oneshot(request_json("POST", "/v1/downloads/plugin", TEST_TOKEN, r#"{"collectionId":1,"uri":"ytdlp://abc"}"#))
+            .await
+            .unwrap();
+        assert_eq!(res.status(), StatusCode::ACCEPTED);
+        let id = body_json(res).await["jobId"].as_str().unwrap().to_string();
+        let res = router.oneshot(request("GET", &format!("/v1/jobs/{id}?waitSecs=5"), Some(TEST_TOKEN))).await.unwrap();
+        let job = body_json(res).await;
+        assert_eq!(job["status"], json!("failed"), "{job}");
+        assert_eq!(job["error"], json!("the provider found nothing"));
+    }
+
+    #[tokio::test]
+    async fn test_cancel_stops_a_download_job_but_not_an_install() {
+        let dir = tempfile::tempdir().unwrap();
+        grant_scopes(dir.path(), WriteScopes { downloads: true, ..Default::default() });
+        let (state, seen) = delayed_state(dir.path().to_path_buf(), |verb| match verb {
+            "downloads.cancel" => (0, true, json!({ "cancelled": true, "pluginId": "ytdlp" })),
+            _ => (2500, true, json!({ "outcome": "installed" })),
+        });
+        let router = build_router(state);
+
+        let res = router
+            .clone()
+            .oneshot(request_json("POST", "/v1/downloads/plugin", TEST_TOKEN, r#"{"collectionId":1,"uri":"ytdlp://abc"}"#))
+            .await
+            .unwrap();
+        let download = body_json(res).await["jobId"].as_str().unwrap().to_string();
+        let res = router.clone().oneshot(request("DELETE", &format!("/v1/jobs/{download}"), Some(TEST_TOKEN))).await.unwrap();
+        assert_eq!(res.status(), StatusCode::OK);
+        assert_eq!(body_json(res).await["cancelled"], json!(true));
+        assert!(seen.lock().unwrap().contains(&format!("cancel names {download}")), "the cancel names this job, so no other resolve is stopped");
+
+        let res = router.clone().oneshot(request_json("POST", "/v1/extensions/ytdlp/install", TEST_TOKEN, "{}")).await.unwrap();
+        let install = body_json(res).await["jobId"].as_str().unwrap().to_string();
+        let res = router.clone().oneshot(request("DELETE", &format!("/v1/jobs/{install}"), Some(TEST_TOKEN))).await.unwrap();
+        assert_eq!(res.status(), StatusCode::BAD_REQUEST);
+        assert!(body_json(res).await["error"].as_str().unwrap().contains("install dialog"));
+
+        let res = router.oneshot(request("GET", "/v1/jobs/j999", Some(TEST_TOKEN))).await.unwrap();
+        assert_eq!(res.status(), StatusCode::NOT_FOUND);
     }
 }

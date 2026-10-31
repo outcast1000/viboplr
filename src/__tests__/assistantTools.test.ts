@@ -359,3 +359,39 @@ describe("cue_sheet sheetFile", () => {
     );
   });
 });
+
+// Install, plugin download and replace staging answer within ~20 s with either
+// the result or { jobId, status: "running" }; `jobs` follows the rest. A failed
+// job must fail the `jobs` call, or the model would read "done" into it.
+describe("jobs tool", () => {
+  const jobs = TOOLS.find((t) => t.name === "jobs")!;
+  const ctxAnswering = (job: unknown) => ({ request: vi.fn(async () => job) });
+
+  it("returns a finished job with the original call's result", async () => {
+    const ctx = ctxAnswering({ jobId: "j1", status: "done", result: { path: "/m/a.flac" } });
+    await expect(runTool(jobs, { action: "wait", jobId: "j1" }, ctx)).resolves.toMatchObject({ status: "done", result: { path: "/m/a.flac" } });
+    expect(ctx.request).toHaveBeenCalledWith("GET", "/v1/jobs/j1?waitSecs=30", undefined, { timeoutMs: 45_000 });
+  });
+
+  it("returns a still-running job so the model waits again", async () => {
+    const ctx = ctxAnswering({ jobId: "j1", status: "running", elapsedSecs: 61 });
+    await expect(runTool(jobs, { action: "wait", jobId: "j1", waitSecs: 5 }, ctx)).resolves.toMatchObject({ status: "running" });
+  });
+
+  it("fails the call when the job failed, with the job's error", async () => {
+    const ctx = ctxAnswering({ jobId: "j2", label: "plugin download", status: "failed", error: "the provider found nothing" });
+    await expect(runTool(jobs, { action: "wait", jobId: "j2" }, ctx)).rejects.toThrow("plugin download failed: the provider found nothing");
+  });
+
+  it("is read-only to wait on or list, not to cancel", () => {
+    expect(isReadOnlyCall(jobs, { action: "wait", jobId: "j1" })).toBe(true);
+    expect(isReadOnlyCall(jobs, { action: "list" })).toBe(true);
+    expect(isReadOnlyCall(jobs, { action: "cancel", jobId: "j1" })).toBe(false);
+  });
+
+  it("is the follow-up every async-only tool points to", () => {
+    for (const name of ["download_plugin_track", "replace_track_file", "manage_extensions", "download_track", "manage_files"]) {
+      expect(TOOLS.find((t) => t.name === name)!.description, name).toMatch(/jobs action=wait/);
+    }
+  });
+});

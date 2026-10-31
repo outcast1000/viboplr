@@ -69,8 +69,6 @@ export interface AssistantRoster {
 
 export const SLOW_MS: number;
 export const DEFAULT_MS: number;
-export const DOWNLOAD_MS: number;
-export const INSTALL_MS: number;
 export const TOOL_CATEGORIES: ToolCategory[];
 export const INSTRUCTIONS: string;
 export const GUIDES: Record<"renaming" | "tagging" | "upgrade" | "extensions" | "capabilities", string>;
