@@ -72,6 +72,32 @@ export function parseStream(lines) {
   return turn;
 }
 
+/** The live progress lines one stream event deserves while a turn runs: a
+ *  tool call as it is made, and a tool error as it comes back. Everything
+ *  else (text, thinking, hooks, the result) prints nothing until the case
+ *  is graded. */
+export function liveLines(line) {
+  let m;
+  try {
+    m = typeof line === "string" ? JSON.parse(line) : line;
+  } catch {
+    return [];
+  }
+  const out = [];
+  if (m?.type === "assistant") {
+    for (const c of m.message?.content ?? []) {
+      if (c.type === "tool_use") out.push(`→ ${toolName(c.name)} ${shorten(JSON.stringify(c.input ?? {}), 110)}`);
+    }
+  } else if (m?.type === "user") {
+    for (const c of m.message?.content ?? []) {
+      if (c.type === "tool_result" && c.is_error === true) out.push(`  ✗ ${shorten(resultText(c.content).replace(/\s+/g, " "), 110)}`);
+    }
+  }
+  return out;
+}
+
+const shorten = (s, n) => (s.length > n ? `${s.slice(0, n - 1)}…` : s);
+
 /** `mcp__viboplr__browse` → `browse`; a plugin proxy keeps its own `__`. */
 export function toolName(name) {
   return name?.startsWith(MCP_PREFIX) ? name.slice(MCP_PREFIX.length) : name ?? "";

@@ -1,6 +1,6 @@
 // @vitest-environment node
 import { describe, expect, it } from "vitest";
-import { readFileSync } from "node:fs";
+import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 // @ts-expect-error — plain .mjs script, no type declarations
 import * as ev from "../../scripts/lib/assistantEval.mjs";
@@ -70,6 +70,32 @@ describe("parseStream (a real claude -p stream, trimmed)", () => {
       JSON.stringify({ type: "system", subtype: "init", model: "m", tools: [], mcp_servers: [{ name: "viboplr", status: "failed" }] }),
     ]);
     expect(t.mcpConnected).toBe(false);
+  });
+});
+
+describe("liveLines (progress while a turn runs)", () => {
+  const events = fixture("stream-tool-error.jsonl").filter(Boolean);
+
+  it("shows each tool call as it is made, and each tool error as it returns", () => {
+    const shown = events.flatMap((l) => ev.liveLines(l));
+    expect(shown).toEqual([
+      '→ app_version {"checkLatest":true}',
+      expect.stringMatching(/^ {2}✗ No control API for profile/),
+      "→ app_version {}",
+      expect.stringMatching(/^ {2}✗ No control API/),
+    ]);
+  });
+
+  it("prints nothing for text, hooks, the result or a non-JSON line", () => {
+    expect(ev.liveLines("not json")).toEqual([]);
+    expect(ev.liveLines(JSON.stringify({ type: "result", result: "done" }))).toEqual([]);
+    expect(ev.liveLines(JSON.stringify({ type: "assistant", message: { content: [{ type: "text", text: "hi" }] } }))).toEqual([]);
+  });
+
+  it("cuts long arguments short", () => {
+    const line = JSON.stringify({ type: "assistant", message: { content: [{ type: "tool_use", name: "mcp__viboplr__query_library", input: { sql: "x".repeat(300) } }] } });
+    expect(ev.liveLines(line)[0].length).toBeLessThanOrEqual(130);
+    expect(ev.liveLines(line)[0]).toMatch(/…$/);
   });
 });
 
@@ -235,9 +261,14 @@ describe("cases.json", () => {
 
   it("has unique ids and names only real tools", () => {
     expect(new Set(cases.map((c: { id: string }) => c.id)).size).toBe(cases.length);
+    // A plugin's own tool (`lastfm__top_charts`) comes from the running app's
+    // roster, not the catalog; it must name a plugin bundled with the app.
+    const bundled = new Set(readdirSync(join(ROOT, "src-tauri", "plugins")));
     for (const c of cases) {
       for (const s of [...(c.expect?.calls ?? []), ...(c.expect?.forbidden ?? [])]) {
-        expect(names.has(toolOf(s)), `${c.id}: unknown tool ${toolOf(s)}`).toBe(true);
+        const name = toolOf(s);
+        const known = name.includes("__") ? bundled.has(name.split("__")[0]) : names.has(name);
+        expect(known, `${c.id}: unknown tool ${name}`).toBe(true);
       }
     }
   });

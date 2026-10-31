@@ -198,8 +198,18 @@ function runTurn({ work, mcpConfig, prompt, sessionId, resume, model, budget, lo
     const child = spawn("claude", args, { cwd: work, stdio: ["ignore", "pipe", "pipe"] });
     let out = "";
     let err = "";
+    let pending = "";
     const timer = setTimeout(() => child.kill("SIGTERM"), TURN_TIMEOUT_MS);
-    child.stdout.on("data", (d) => (out += d));
+    child.stdout.on("data", (d) => {
+      out += d;
+      // Print each tool call as it streams in, so a long case isn't silent.
+      pending += d;
+      let nl;
+      while ((nl = pending.indexOf("\n")) !== -1) {
+        for (const l of ev.liveLines(pending.slice(0, nl))) console.log(`    ${l}`);
+        pending = pending.slice(nl + 1);
+      }
+    });
     child.stderr.on("data", (d) => (err += d));
     child.on("close", (code) => {
       clearTimeout(timer);
@@ -236,12 +246,12 @@ function leftDirty(spec, calls) {
 // ------------------------------------------------------------------ run
 
 function printRun(r) {
-  const mark = r.status === "pass" ? "✓" : r.status === "fail" ? "✗" : "?";
+  const mark = r.status === "pass" ? "✓ pass" : r.status === "fail" ? "✗ FAIL" : "? invalid";
   console.log(
-    `${mark} ${r.case} #${r.repeat}  $${r.costUsd.toFixed(4)}  ${(r.durationMs / 1000).toFixed(1)}s  ` +
-      `${r.calls.length} call${r.calls.length === 1 ? "" : "s"}: ${r.calls.map((c) => c.tool + (c.isError ? "!" : "")).join(" → ") || "none"}`,
+    `  ${mark}  $${r.costUsd.toFixed(4)}  ${(r.durationMs / 1000).toFixed(1)}s  ` +
+      `${r.calls.length} call${r.calls.length === 1 ? "" : "s"}`,
   );
-  for (const f of r.failures) console.log(`    ${f}`);
+  for (const f of r.failures) console.log(`    · ${f}`);
 }
 
 async function runEval() {
@@ -272,26 +282,43 @@ async function runEval() {
   console.log(`Assistant eval — ${cases.length} case${cases.length === 1 ? "" : "s"} × ${repeat}, ${version}, model ${model ?? "(CLI default)"}`);
   console.log(`MCP server ${serverPath}\nTranscripts ${runDir}\n`);
 
+  console.log("↺ restoring the eval profile and launching the app…");
   let health = await reset();
   let dirty = false;
   const runs = [];
   let spent = 0;
+  const total = cases.length * repeat;
+  const started = Date.now();
   outer: for (let rep = 1; rep <= repeat; rep++) {
     for (const spec of cases) {
       if (spent >= maxTotal) {
         console.log(`\n! stopped: spent $${spent.toFixed(2)}, the --max-total cap is $${maxTotal}`);
         break outer;
       }
-      if (dirty || spec.files?.length) health = await reset(spec.files);
+      const elapsed = Math.round((Date.now() - started) / 1000);
+      console.log(
+        `\n▶ [${runs.length + 1}/${total}] ${spec.id}${repeat > 1 ? ` #${rep}` : ""}  ` +
+          `($${spent.toFixed(4)} spent, ${Math.floor(elapsed / 60)}m${String(elapsed % 60).padStart(2, "0")}s)`,
+      );
+      console.log(`  you: ${spec.prompt}`);
+      if (dirty || spec.files?.length) {
+        console.log("  ↺ restoring the profile (the last case changed it)…");
+        health = await reset(spec.files);
+      }
       setPaused(false);
       writeScopes(spec.scopes);
       for (const s of spec.setup ?? []) await api(s.method, s.path, s.body);
       if (spec.paused) setPaused(true);
+      if (spec.appStopped) {
+        console.log("  ■ quitting the app (this case starts with it stopped)…");
+        await ac.quitApp();
+      }
 
       const sessionId = randomUUID();
       const turns = [];
       const prompts = [spec.prompt, ...(spec.followUps ?? [])];
       for (let i = 0; i < prompts.length; i++) {
+        if (i > 0) console.log(`  you: ${prompts[i]}`);
         const logFile = join(runDir, `${spec.id}.${rep}.turn${i + 1}.jsonl`);
         const { turn, code, stderr } = await runTurn({ work, mcpConfig, prompt: prompts[i], sessionId, resume: i > 0, model, budget, logFile });
         turns.push(turn);
@@ -309,7 +336,9 @@ async function runEval() {
       runs.push(run);
       spent += run.costUsd;
       printRun(run);
-      dirty = leftDirty(spec, merged.calls);
+      // A case that started with the app stopped may leave it stopped (or
+      // launched by the model): either way the next case starts from a reset.
+      dirty = spec.appStopped || leftDirty(spec, merged.calls);
     }
     if (rep === 1 && repeat > 1) {
       console.log(`\n  first pass cost $${spent.toFixed(4)} → about $${(spent * repeat).toFixed(2)} for all ${repeat}\n`);
