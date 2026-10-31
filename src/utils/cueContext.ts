@@ -7,6 +7,11 @@
 // styles (`utils/cueStyles.ts`) with their fit to this song. Everything
 // comes through the same provider chain + cache the detail pages use, so a
 // value fetched here is free on the next page visit and vice versa.
+//
+// The gather answers by a deadline (`CUE_CONTEXT_DEADLINE_MS`) rather than
+// waiting on the slowest provider: whatever hasn't arrived by then is listed
+// in `pending` for the assistant to fetch on its own, and keeps running so it
+// lands in the cache for the next ask.
 
 import { invoke } from "@tauri-apps/api/core";
 import type { QueueTrack } from "../types";
@@ -34,6 +39,21 @@ export const CONTEXT_IMAGE_DISPLAY_KINDS: DisplayKind[] = ["image_gallery"];
 /** Per-gallery cap — enough to choose from, small enough to keep the context
  *  one tool result. */
 export const CONTEXT_IMAGE_CAP = 12;
+
+/** How long the gather waits for providers before answering with what it
+ *  has. The control API gives `/v1/cues/context` 70s (`handle_bridge_query_slow`,
+ *  7 × the 10s bridge timeout) and answers 504 with nothing past that, so this
+ *  stays well inside it — one slow provider (an LLM "Meaning", a stalled
+ *  lyrics site) must cost its own value, not the whole context. */
+export const CUE_CONTEXT_DEADLINE_MS = 25_000;
+
+const TIMED_OUT = Symbol("timed out");
+
+/** `p`'s value, or `TIMED_OUT` if `deadline` settles first. `p` is not
+ *  cancelled: an info fetch still finishes and fills the shared cache. */
+function settleBy<T>(p: Promise<T>, deadline: Promise<void>): Promise<T | typeof TIMED_OUT> {
+  return Promise.race([p, deadline.then((): typeof TIMED_OUT => TIMED_OUT)]);
+}
 
 function htmlToText(html: string): string {
   return html
@@ -187,6 +207,15 @@ export interface CueContextImages {
   images: CueContextImageItem[];
 }
 
+/** An info value that didn't arrive by the deadline: what it is, and the
+ *  `get_entity_info` arguments that fetch it. */
+export interface CueContextPending {
+  about: "song" | "artist" | "album";
+  typeId: string;
+  name: string;
+  fetch: { kind: "track" | "artist" | "album"; name?: string; title?: string; artistName?: string; typeId: string };
+}
+
 export interface CueContext {
   track: {
     title: string;
@@ -211,7 +240,15 @@ export interface CueContext {
   styles: CueStyleOffer[];
   /** How to use `styles`. */
   styleGuide: string;
+  /** Values still on their way when the deadline passed — empty when
+   *  everything arrived. */
+  pending: CueContextPending[];
+  /** Set with a non-empty `pending`: what to do about it. */
+  pendingNote?: string;
 }
+
+export const CUE_PENDING_NOTE =
+  "Some providers were still answering when this context was put together; `pending` lists what is missing. It keeps loading in the background: fetch what you need with get_entity_info (each entry's `fetch` is the arguments), or call get_cue_context again in a little while. If what is here is enough for the chosen style, write from it.";
 
 interface GatherOpts {
   track: QueueTrack;
@@ -219,31 +256,42 @@ interface GatherOpts {
   isPlaying: boolean;
   invokeInfoFetch: InvokeInfoFetch;
   pluginNames?: Map<string, string>;
+  /** Overrides `CUE_CONTEXT_DEADLINE_MS` (tests). */
+  deadlineMs?: number;
 }
 
 interface EntityMaterial {
   prose: CueContextProse[];
   images: CueContextImages[];
+  pending: CueContextPending[];
+}
+
+/** The `get_entity_info` arguments naming `entity`. */
+function fetchArgs(entity: InfoEntity, typeId: string): CueContextPending["fetch"] {
+  if (entity.kind === "artist") return { kind: "artist", name: entity.name, typeId };
+  const kind = entity.kind === "album" ? "album" : "track";
+  return { kind, title: entity.name, ...(entity.artistName ? { artistName: entity.artistName } : {}), typeId };
 }
 
 /** Every prose and gallery info value for one entity, through the provider
- *  chain. One type listing serves both. */
+ *  chain, as far as it got by `deadline`. One type listing serves both. */
 async function materialFor(
   about: CueContextProse["about"],
   entity: InfoEntity,
   opts: GatherOpts,
+  deadline: Promise<void>,
 ): Promise<EntityMaterial> {
   let types: InfoTypeRow[];
   try {
     types = await invoke<InfoTypeRow[]>("info_get_types_for_entity", { entity: entity.kind });
   } catch (e) {
     console.error(`Failed to list ${entity.kind} info types for cue context:`, e);
-    return { prose: [], images: [] };
+    return NO_MATERIAL;
   }
   const wanted = types.filter(([, , displayKind]) =>
     CONTEXT_DISPLAY_KINDS.includes(displayKind as DisplayKind)
     || CONTEXT_IMAGE_DISPLAY_KINDS.includes(displayKind as DisplayKind));
-  const results = await Promise.all(wanted.map(async ([typeId]) => {
+  const results = await Promise.all(wanted.map(([typeId, name]) => settleBy((async () => {
     try {
       const out = await fetchInfoValue({
         typeId, entity, invokeInfoFetch: opts.invokeInfoFetch, pluginNames: opts.pluginNames,
@@ -259,18 +307,34 @@ async function materialFor(
       console.error(`Failed to fetch ${typeId} for cue context:`, e);
       return null;
     }
-  }));
-  const material: EntityMaterial = { prose: [], images: [] };
+  })(), deadline).then((r) => (r === TIMED_OUT
+    ? { pending: { about, typeId, name, fetch: fetchArgs(entity, typeId) } }
+    : r))));
+  const material: EntityMaterial = { prose: [], images: [], pending: [] };
   for (const r of results) {
-    if (r?.prose) material.prose.push(r.prose);
-    if (r?.images) material.images.push(r.images);
+    if (!r) continue;
+    if ("pending" in r) material.pending.push(r.pending);
+    else if (r.prose) material.prose.push(r.prose);
+    else if (r.images) material.images.push(r.images);
   }
   return material;
 }
 
-const NO_MATERIAL: EntityMaterial = { prose: [], images: [] };
+const NO_MATERIAL: EntityMaterial = { prose: [], images: [], pending: [] };
 
 export async function gatherCueContext(opts: GatherOpts): Promise<CueContext> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const deadline = new Promise<void>((resolve) => {
+    timer = setTimeout(resolve, opts.deadlineMs ?? CUE_CONTEXT_DEADLINE_MS);
+  });
+  try {
+    return await gatherBy(opts, deadline);
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+async function gatherBy(opts: GatherOpts, deadline: Promise<void>): Promise<CueContext> {
   const { track } = opts;
   const title = track.title;
   const artistName = track.artist_name ?? null;
@@ -289,11 +353,11 @@ export async function gatherCueContext(opts: GatherOpts): Promise<CueContext> {
     }
     : null;
 
-  const lyricsP = fetchInfoValue({
+  const lyricsP = settleBy(fetchInfoValue({
     typeId: "lyrics", entity: songEntity, invokeInfoFetch: opts.invokeInfoFetch, pluginNames: opts.pluginNames,
   })
     .then((out) => (out.status === "ok" ? lyricsForContext(out.value) : null))
-    .catch((e) => { console.error("Failed to fetch lyrics for cue context:", e); return null; });
+    .catch((e) => { console.error("Failed to fetch lyrics for cue context:", e); return null; }), deadline);
 
   const tagsP = (async () => {
     if (!songEntity.id) return [];
@@ -309,16 +373,28 @@ export async function gatherCueContext(opts: GatherOpts): Promise<CueContext> {
   const existingP = invoke<CueSheetRow | null>("cue_sheet_get", { title, artistName })
     .catch((e) => { console.error("Failed to read cue sheet for cue context:", e); return null; });
 
-  const [lyrics, song, artist, album, tags, quality, existingSheet] = await Promise.all([
+  // The local reads and the quality probe race the deadline too, falling
+  // back to their empty answer — a hung probe must not hold the context.
+  const orElse = <T,>(p: Promise<T>, fallback: T) =>
+    settleBy(p, deadline).then((r) => (r === TIMED_OUT ? fallback : r));
+
+  const [lyricsOut, song, artist, album, tags, quality, existingSheet] = await Promise.all([
     lyricsP,
-    materialFor("song", songEntity, opts),
-    artistEntity ? materialFor("artist", artistEntity, opts) : Promise.resolve(NO_MATERIAL),
-    albumEntity ? materialFor("album", albumEntity, opts) : Promise.resolve(NO_MATERIAL),
-    tagsP,
-    resolveTrackQuality(track, { playing: opts.isPlaying }),
-    existingP,
+    materialFor("song", songEntity, opts, deadline),
+    artistEntity ? materialFor("artist", artistEntity, opts, deadline) : Promise.resolve(NO_MATERIAL),
+    albumEntity ? materialFor("album", albumEntity, opts, deadline) : Promise.resolve(NO_MATERIAL),
+    orElse(tagsP, [] as string[]),
+    orElse(resolveTrackQuality(track, { playing: opts.isPlaying }), null),
+    orElse(existingP, null),
   ]);
 
+  const lyrics = lyricsOut === TIMED_OUT ? null : lyricsOut;
+  const pending: CueContextPending[] = [
+    ...(lyricsOut === TIMED_OUT
+      ? [{ about: "song" as const, typeId: "lyrics", name: "Lyrics", fetch: fetchArgs(songEntity, "lyrics") }]
+      : []),
+    ...song.pending, ...artist.pending, ...album.pending,
+  ];
   const lyricsNote = lyricsTimingNote(lyrics, track.duration_secs ?? null);
   const prose = [...song.prose, ...artist.prose, ...album.prose];
   const images = [...song.images, ...artist.images, ...album.images];
@@ -341,5 +417,7 @@ export async function gatherCueContext(opts: GatherOpts): Promise<CueContext> {
     clipGuide: CUE_CLIP_GUIDE,
     styles: cueStylesFor({ lyrics, prose, imageCount: images.reduce((n, g) => n + g.images.length, 0) }),
     styleGuide: CUE_STYLE_GUIDE,
+    pending,
+    ...(pending.length ? { pendingNote: CUE_PENDING_NOTE } : {}),
   };
 }
