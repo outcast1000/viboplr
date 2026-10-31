@@ -10,7 +10,7 @@ import type { Notify } from "./useToasts";
 
 interface PlayActionsArgs {
   // Raw `Track`s are fine — useQueue converts at the door (`toQueueTracks`).
-  playTracks: (tracks: Array<Track | QueueTrack>, index: number, context?: PlaylistContext | null) => number;
+  playTracks: (tracks: Array<Track | QueueTrack>, index: number, context?: PlaylistContext | null, opts?: { fillsLater?: boolean }) => number;
   enqueueTracks: (tracks: Track[]) => void;
   // Guarded append for the tail of a play session — no-ops once the queue has
   // been replaced. Must be the raw queue append, NOT the duplicate-banner
@@ -270,7 +270,9 @@ export function usePlayActions({
   // can act on exactly what landed.
   const playWithBackfill = useCallback(async ({ head, context, resolveTail, tailErrorMessage }: BackfillPlay): Promise<QueueTrack[]> => {
     if (head.length === 0) return [];
-    const gen = playTracks(head, 0, context ?? null);
+    // `fillsLater`: Latest play records this session once the tail has
+    // settled, so its card holds the whole station, not the one-track head.
+    const gen = playTracks(head, 0, context ?? null, { fillsLater: true });
     // Tell the queue panel a tail is coming, so the wait is visible for its
     // whole duration rather than only for as long as a toast lives.
     markBackfillPending(gen);

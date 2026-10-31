@@ -22,12 +22,22 @@ export interface PlaylistContext {
   remote?: boolean;
 }
 
+/** The play session a queue-replacing play started (see useQueue's onPlay). */
+export interface PlaySessionInfo {
+  /** Its play generation — the token appendToPlaySession / onPlaySessionFilled carry. */
+  gen: number;
+  /** A head whose tail is still resolving; its full contents come later. */
+  fillsLater: boolean;
+}
+
 export function useQueue(
   restoredRef: React.RefObject<boolean>,
   handlePlay: (track: QueueTrack, source?: "user" | "auto") => void,
   // Fired whenever a play *replaces* the queue (the "Latest play" capture point).
   // Not fired by enqueue / play-next / auto-continue, which extend the queue.
-  onPlay?: (tracks: QueueTrack[], startIndex: number, context: PlaylistContext | null) => void,
+  // `session.fillsLater`: the play is a head whose tail is still resolving
+  // (playWithBackfill) — its full contents arrive via `onPlaySessionFilled`.
+  onPlay?: (tracks: QueueTrack[], startIndex: number, context: PlaylistContext | null, session: PlaySessionInfo) => void,
   // The track that's audibly playing right now (null when paused or stopped),
   // read at call time. Lets playTracks keep the music running when the
   // replacing list opens on the same song — see the continuation note there.
@@ -37,6 +47,11 @@ export function useQueue(
   // Whatever the caller would have done at the end of the queue (auto-continue,
   // stop) is now due. Read at call time.
   onBackfillAbandoned?: () => void,
+  // A `fillsLater` session finished filling (its tail landed, failed, or came
+  // back empty): everything the session put in the queue — the head plus the
+  // tail that was appended. Not fired once the session was replaced or cleared.
+  // Read at call time.
+  onPlaySessionFilled?: (gen: number, tracks: QueueTrack[]) => void,
 ) {
   const [queue, setQueue] = useState<QueueTrack[]>([]);
   const [queueIndex, setQueueIndex] = useState(-1);
@@ -235,6 +250,12 @@ export function useQueue(
   const resumeOnTailRef = useRef(false);
   const onBackfillAbandonedRef = useRef(onBackfillAbandoned);
   useAssignRef(onBackfillAbandonedRef, onBackfillAbandoned);
+  const onPlaySessionFilledRef = useRef(onPlaySessionFilled);
+  useAssignRef(onPlaySessionFilledRef, onPlaySessionFilled);
+  // What the live play session itself put in the queue: the tracks playTracks
+  // started plus every tail appendToPlaySession added — never the user's own
+  // enqueues. Handed to onPlaySessionFilled when a backfill settles.
+  const sessionTracksRef = useRef<{ gen: number; tracks: QueueTrack[] }>({ gen: 0, tracks: [] });
 
   // Returns the play generation of the session it just started, for callers
   // that resolve the rest of the queue asynchronously (see appendToPlaySession).
@@ -243,7 +264,12 @@ export function useQueue(
   // `toQueueTracks`, so `libraryId` is stamped even when the caller (a list
   // double-click, context-menu Play, play-all, the control API) didn't run
   // `trackToQueueTrack` itself — see queue.md "`key` vs `libraryId`".
-  function playTracks(tracks: Array<Track | QueueTrack>, startIndex: number, context?: PlaylistContext | null): number {
+  function playTracks(
+    tracks: Array<Track | QueueTrack>,
+    startIndex: number,
+    context?: PlaylistContext | null,
+    opts?: { fillsLater?: boolean },
+  ): number {
     const incoming = toQueueTracks(tracks);
     // Anonymous: an intentional play + its origin (album/artist/tag/radio/
     // playlist/plugin/…), distinct from track_played which fires per track start.
@@ -279,8 +305,9 @@ export function useQueue(
     setQueueIndex(startIndex);
     if (!continues) handlePlay(dedupedTracks[startIndex]);
     setPlaylistContext(context ?? null);
-    onPlay?.(dedupedTracks, startIndex, context ?? null);
     playGenRef.current += 1;
+    sessionTracksRef.current = { gen: playGenRef.current, tracks: dedupedTracks };
+    onPlay?.(dedupedTracks, startIndex, context ?? null, { gen: playGenRef.current, fillsLater: !!opts?.fillsLater });
     // A fresh session owns no tail yet — and this is what retires the indicator
     // when the user plays something else mid-resolve.
     setPendingBackfillGen(null);
@@ -309,6 +336,9 @@ export function useQueue(
     if (gen === playGenRef.current && resumeOnTailRef.current) {
       resumeOnTailRef.current = false;
       onBackfillAbandonedRef.current?.();
+    }
+    if (gen === playGenRef.current && sessionTracksRef.current.gen === gen) {
+      onPlaySessionFilledRef.current?.(gen, sessionTracksRef.current.tracks);
     }
   }
 
@@ -344,6 +374,9 @@ export function useQueue(
     const prepared = withUniqueKeys(toQueueTracks(tracks));
     const firstIndex = queueRef.current.length;
     setQueue(prev => [...prev, ...prepared]);
+    if (sessionTracksRef.current.gen === gen) {
+      sessionTracksRef.current = { gen, tracks: [...sessionTracksRef.current.tracks, ...prepared] };
+    }
     if (resumeOnTailRef.current) {
       resumeOnTailRef.current = false;
       setQueueIndex(firstIndex);

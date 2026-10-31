@@ -717,7 +717,67 @@ function App() {
   // like state against the durable store.
   const reconcileReplacedQueueLikesRef = useRef<(tracks: QueueTrack[]) => void>(() => {});
 
-  const queueHook = useQueue(restoredRef, playback.handlePlay, (tracks, startIndex, context) => {
+  // Latest play recording. Commit a new list, then delete the snapshot files of
+  // sessions that just left the ring (evicted, or replaced by a newer play of
+  // the same thing).
+  const commitRecentPlays = (update: (prev: RecentPlaySession[]) => RecentPlaySession[]) => {
+    const prev = recentPlaysRef.current;
+    const next = update(prev);
+    recentPlaysRef.current = next;
+    setRecentPlays(next);
+    store.set("recentPlaySessions", next).catch((e) => console.error("Failed to persist recentPlaySessions:", e));
+    const dropped = droppedSnapshotIds(prev, next);
+    if (dropped.length > 0) {
+      invoke("recent_play_delete", { ids: dropped }).catch((e) => console.error("Failed to delete old Latest play snapshots:", e));
+    }
+  };
+  // Every recording goes through one chain, so plays can't land out of order.
+  // Each link catches its own failure: a rejected link would skip every later
+  // `.then`, and Latest play would silently stop recording for the session.
+  const enqueueRecentPlay = (step: () => void | Promise<void>) => {
+    recentPlaysChainRef.current = recentPlaysChainRef.current
+      .then(step)
+      .catch((e) => console.error("Failed to record a Latest play:", e));
+  };
+  // Record a new queue-replacing play as a card holding exactly the tracks it
+  // played: every play is snapshotted in full (see `snapshotFor`). The file is
+  // written before the session that names it is recorded, so a crash in
+  // between leaves only an orphan, which the startup sweep removes.
+  const recordNewPlay = (tracks: QueueTrack[], startIndex: number, context: PlaylistContext | null) => {
+    const session = buildPlaySession(tracks, startIndex, context, Date.now());
+    if (!session) return;
+    const record = (s: RecentPlaySession) => commitRecentPlays((prev) => recordPlaySession(prev, s));
+    const snap = snapshotFor(tracks, startIndex, session.source);
+    enqueueRecentPlay(async () => {
+      if (!snap) { record(session); return; }
+      const snapshotId = newSnapshotId(Date.now());
+      try {
+        await invoke("recent_play_write", {
+          id: snapshotId,
+          manifest: buildManifest(snap.tracks, context),
+          cover: context?.imagePath ?? null,
+        });
+        record({ ...session, snapshotId, startIndex: snap.startIndex });
+      } catch (e) {
+        // Without a snapshot the session still replays the way it used to.
+        console.error("Failed to snapshot latest play:", e);
+        record(session);
+      }
+    });
+  };
+  // A play that fills in after it starts (playWithBackfill: a one-track head,
+  // the rest still resolving) is recorded once it has filled, so its card
+  // holds the whole thing rather than the head. Held here until then.
+  const pendingFillPlayRef = useRef<{ gen: number; startIndex: number; context: PlaylistContext | null; tracks: QueueTrack[] } | null>(null);
+  // Record a held fill-later play with what it has so far — the user replaced
+  // the queue before its tail settled, and that play still happened.
+  const flushPendingFillPlay = () => {
+    const pending = pendingFillPlayRef.current;
+    pendingFillPlayRef.current = null;
+    if (pending) recordNewPlay(pending.tracks, pending.startIndex, pending.context);
+  };
+
+  const queueHook = useQueue(restoredRef, playback.handlePlay, (tracks, startIndex, context, playSession) => {
     // Taken before the restore guard, so a directive can never outlive its play.
     const directive = latestPlayDirectiveRef.current;
     latestPlayDirectiveRef.current = null;
@@ -742,60 +802,30 @@ function App() {
       library.setView("nowplaying");
       library.clearDetailSelection();
     }
-    // Commit a new list, then delete the snapshot files of sessions that just
-    // left the ring (evicted, or replaced by a newer play of the same thing).
-    const commit = (update: (prev: RecentPlaySession[]) => RecentPlaySession[]) => {
-      const prev = recentPlaysRef.current;
-      const next = update(prev);
-      recentPlaysRef.current = next;
-      setRecentPlays(next);
-      store.set("recentPlaySessions", next).catch((e) => console.error("Failed to persist recentPlaySessions:", e));
-      const dropped = droppedSnapshotIds(prev, next);
-      if (dropped.length > 0) {
-        invoke("recent_play_delete", { ids: dropped }).catch((e) => console.error("Failed to delete old Latest play snapshots:", e));
-      }
-    };
-    const record = (s: RecentPlaySession) => commit((prev) => recordPlaySession(prev, s));
-    // Every recording goes through one chain, so plays can't land out of order.
-    // Each link catches its own failure: a rejected link would skip every later
-    // `.then`, and Latest play would silently stop recording for the session.
-    const enqueue = (step: () => void | Promise<void>) => {
-      recentPlaysChainRef.current = recentPlaysChainRef.current
-        .then(step)
-        .catch((e) => console.error("Failed to record a Latest play:", e));
-    };
+    // A previous play still filling in has just been replaced: record it now,
+    // ahead of this one, so the shelf keeps the order they were played in.
+    flushPendingFillPlay();
     if (directive?.kind === "replay") {
-      enqueue(() => commit((prev) => bumpPlaySession(prev, directive.session, Date.now(), { dropSnapshot: directive.dropSnapshot })));
+      enqueueRecentPlay(() => commitRecentPlays((prev) => bumpPlaySession(prev, directive.session, Date.now(), { dropSnapshot: directive.dropSnapshot })));
       return;
     }
     if (directive?.kind === "mixtape") {
       const lead = tracks[startIndex] ?? tracks[0] ?? null;
-      enqueue(() => record(buildMixtapeSession(directive.path, directive.title, lead, Date.now())));
+      enqueueRecentPlay(() => commitRecentPlays((prev) => recordPlaySession(prev, buildMixtapeSession(directive.path, directive.title, lead, Date.now()))));
       return;
     }
-    const session = buildPlaySession(tracks, startIndex, context, Date.now());
-    if (!session) return;
-    // Plays that can't be rebuilt by name keep their tracks in a snapshot. The
-    // file is written before the session that names it is recorded, so a crash
-    // in between leaves only an orphan, which the startup sweep removes.
-    const snap = snapshotFor(tracks, startIndex, session.source);
-    enqueue(async () => {
-      if (!snap) { record(session); return; }
-      const snapshotId = newSnapshotId(Date.now());
-      try {
-        await invoke("recent_play_write", {
-          id: snapshotId,
-          manifest: buildManifest(snap.tracks, context),
-          cover: context?.imagePath ?? null,
-        });
-        record({ ...session, snapshotId, startIndex: snap.startIndex });
-      } catch (e) {
-        // Without a snapshot the session still replays the way it used to.
-        console.error("Failed to snapshot latest play:", e);
-        record(session);
-      }
-    });
-  }, () => audiblePlayingTrackRef.current, () => backfillAbandonedRef.current());
+    if (playSession.fillsLater) {
+      pendingFillPlayRef.current = { gen: playSession.gen, startIndex, context, tracks };
+      return;
+    }
+    recordNewPlay(tracks, startIndex, context);
+  }, () => audiblePlayingTrackRef.current, () => backfillAbandonedRef.current(), (gen, sessionTracks) => {
+    // A fill-later play settled: record it with everything it filled in.
+    const pending = pendingFillPlayRef.current;
+    if (!pending || pending.gen !== gen) return;
+    pendingFillPlayRef.current = null;
+    recordNewPlay(sessionTracks, pending.startIndex, pending.context);
+  });
   // Filled once usePlugins exists (below): auto-continue's plugin half.
   const autoContinueBridgeRef = useRef<AutoContinuePluginBridge | null>(null);
   const autoContinue = useAutoContinue(restoredRef, autoContinueBridgeRef);
@@ -2874,9 +2904,11 @@ function App() {
   // Assigned once playMixtapeFile exists (it's declared further down).
   const playMixtapeFileRef = useRef<(path: string) => void>(() => {});
 
-  // Replay a "Latest play" tile: a snapshot plays exactly what was heard, a
-  // mixtape opens its file again, library entities play fresh from the current
-  // library, and a lone/unresolved track replays itself. A replay moves the
+  // Replay a "Latest play" tile: a snapshot plays exactly what was heard, and
+  // a mixtape opens its file again. Without a snapshot (missing, unreadable,
+  // or a card saved before every play took one) library entities play fresh
+  // from the current library, radio rebuilds from its seed, and anything else
+  // replays its lead track. A replay moves the
   // card to the front without re-recording it (`latestPlayDirectiveRef`).
   // A replayed card's tracks come from storage, which holds no library ids (a
   // stored rowid may since name another track), so look them up by path — the
@@ -2910,9 +2942,9 @@ function App() {
         return;
       }
       let snapshotFailed = false;
-      // Radio, mixes, playlists and selections replay exactly what was heard,
-      // from the session's snapshot. A missing or unreadable snapshot falls
-      // through to the rebuild-or-lead-track paths below.
+      // Every play replays exactly what was heard, from the session's
+      // snapshot. A missing or unreadable snapshot falls through to the
+      // rebuild-or-lead-track paths below.
       if (replaysFromSnapshot(session) && session.snapshotId) {
         try {
           const manifest = await invoke<Manifest>("recent_play_read", { id: session.snapshotId });

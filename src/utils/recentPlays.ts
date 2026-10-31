@@ -43,14 +43,15 @@ export function replayTrack(t: SessionTrack): QueueTrack {
 export type RecentPlaySource = "album" | "artist" | "tag" | "radio" | "playlist" | "track" | "mixtape";
 
 // A single "Latest play" entry: a small descriptor of something that replaced
-// the queue. Albums, artists and tags replay by name from the current library
-// (that picks up music added since, and survives moved files). Everything else
-// — radio, generated mixes, saved and plugin playlists, multi-track selections —
-// can't be rebuilt by name, so its tracks are snapshotted to a playlist-only
-// mixtape (`recent_play_write`, see src-tauri/src/recent_plays.rs) and replayed
-// from it. A lone track needs no snapshot: it carries its own QueueTrack. A
-// `.mixtape` the user opened needs none either: the file already holds the
-// tracks and the cover, so its session points at the file and replays it.
+// the queue. Every play keeps the tracks it played in a snapshot — a
+// playlist-only mixtape (`recent_play_write`, see src-tauri/src/recent_plays.rs)
+// — and replays exactly those, whatever its source. A play that fills in after
+// it starts (playWithBackfill) is recorded once it has filled. The by-name
+// rebuild (albums, artists, tags), the radio seed and the lead track are only
+// fallbacks for a card whose snapshot is missing or unreadable, or one saved
+// before every play took one. A `.mixtape` the user opened is the exception:
+// the file already holds the tracks and the cover, so its session points at
+// the file and replays it.
 export interface RecentPlaySession {
   source: RecentPlaySource;
   name: string; // display title + the name we re-resolve by
@@ -77,25 +78,19 @@ const MAX_RECENT_PLAYS = 12;
  *  the user began — what they would have heard next. */
 export const SNAPSHOT_TRACK_CAP = 100;
 
-/** Sources that replay by name from the current library, never a snapshot. */
-const REBUILT_BY_NAME: ReadonlySet<RecentPlaySource> = new Set(["album", "artist", "tag"]);
-
-/** Sources that never take a snapshot: a mixtape replays its own file. */
-const NO_SNAPSHOT: ReadonlySet<RecentPlaySource> = new Set([...REBUILT_BY_NAME, "mixtape"]);
-
 /** Whether a session should replay from its snapshot. */
 export function replaysFromSnapshot(s: Pick<RecentPlaySession, "source" | "snapshotId">): boolean {
-  return !!s.snapshotId && !REBUILT_BY_NAME.has(s.source);
+  return !!s.snapshotId && s.source !== "mixtape";
 }
 
-/** The tracks to snapshot for a play, or null when this play doesn't take one:
- *  album/artist/tag sources, and a single track (its session already holds it). */
+/** The tracks to snapshot for a play: all of it, for every play but an opened
+ *  `.mixtape` (its card replays the file) and an empty one. */
 export function snapshotFor(
   tracks: QueueTrack[],
   startIndex: number,
   source: RecentPlaySource,
 ): { tracks: QueueTrack[]; startIndex: number } | null {
-  if (NO_SNAPSHOT.has(source) || tracks.length <= 1) return null;
+  if (source === "mixtape" || tracks.length === 0) return null;
   const start = Math.min(Math.max(startIndex, 0), tracks.length - 1);
   if (tracks.length <= SNAPSHOT_TRACK_CAP) return { tracks, startIndex: start };
   return { tracks: tracks.slice(start, start + SNAPSHOT_TRACK_CAP), startIndex: 0 };
@@ -183,7 +178,8 @@ function radioSeedTitle(contextName: string): string {
 // when there's nothing worth recording (empty play). Source comes from the play
 // context; a context-less play (e.g. double-clicking a single track) is captured
 // as a "track" session keyed on the lead track. Unknown/plugin contexts (saved
-// or streaming playlists) can't be cheaply re-resolved, so they replay their lead.
+// or streaming playlists) are "playlist" sessions. The tracks themselves go in
+// the session's snapshot (`snapshotFor`); the lead is kept as the fallback.
 export function buildPlaySession(
   tracks: QueueTrack[],
   startIndex: number,

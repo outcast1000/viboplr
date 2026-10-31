@@ -143,14 +143,14 @@ describe("sessionSubtitle", () => {
 describe("Latest play snapshots", () => {
   const tracks = (n: number) => Array.from({ length: n }, (_, i) => track({ key: `q:${i}`, title: `T${i}`, path: `file:///${i}.mp3` }));
 
-  it("snapshots radio, playlists and selections, never album/artist/tag or a lone track", () => {
-    for (const source of ["radio", "playlist", "track"] as const) {
-      expect(snapshotFor(tracks(3), 0, source)).not.toBeNull();
+  it("snapshots every play in full — albums, artists, tags and a lone track too", () => {
+    for (const source of ["radio", "playlist", "track", "album", "artist", "tag"] as const) {
+      expect(snapshotFor(tracks(3), 0, source)?.tracks).toHaveLength(3);
     }
-    for (const source of ["album", "artist", "tag"] as const) {
-      expect(snapshotFor(tracks(3), 0, source)).toBeNull();
-    }
-    expect(snapshotFor(tracks(1), 0, "playlist")).toBeNull();
+    // A one-track play is still the play — no special case that a one-track
+    // head of a filling play could fall into.
+    expect(snapshotFor(tracks(1), 0, "playlist")?.tracks).toHaveLength(1);
+    expect(snapshotFor([], 0, "playlist")).toBeNull();
   });
 
   it("keeps a short play whole, with its start position", () => {
@@ -167,11 +167,12 @@ describe("Latest play snapshots", () => {
     expect(snap.startIndex).toBe(0);
   });
 
-  it("replays from the snapshot only for sources that took one", () => {
+  it("replays from the snapshot whenever the card has one", () => {
     expect(replaysFromSnapshot({ source: "radio", snapshotId: "a" })).toBe(true);
+    expect(replaysFromSnapshot({ source: "album", snapshotId: "a" })).toBe(true);
+    // A card saved before every play took one falls back (by name, seed, lead).
     expect(replaysFromSnapshot({ source: "radio" })).toBe(false);
-    // An album session can't replay a snapshot even if one were named.
-    expect(replaysFromSnapshot({ source: "album", snapshotId: "a" })).toBe(false);
+    expect(replaysFromSnapshot({ source: "album" })).toBe(false);
   });
 
   it("mints ids the backend accepts as file names", () => {
