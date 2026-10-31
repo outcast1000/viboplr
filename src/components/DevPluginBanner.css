@@ -1,0 +1,39 @@
+/* Dev-folder plugin strip. Opaque (color-mix into a skin surface) like the
+   update banner, so it reads the same over the mpv hole. Skin tokens only. */
+
+.dev-plugin-banner {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 16px;
+  border-bottom: 1px solid var(--border);
+  background: color-mix(in srgb, var(--warning) 14%, var(--bg-primary));
+  font-size: var(--fs-xs);
+  color: var(--text-secondary);
+}
+
+.dev-plugin-banner-badge {
+  flex: none;
+  padding: 1px 8px;
+  border-radius: 999px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--warning);
+  background: rgba(var(--overlay-base), 0.08);
+  border: 1px solid var(--warning);
+}
+
+.dev-plugin-banner-path {
+  flex: 1 1 auto;
+  min-width: 0;
+  font-family: monospace;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.dev-plugin-banner-reload {
+  flex: none;
+}

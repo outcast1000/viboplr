@@ -184,6 +184,7 @@ import {
 import { AlertModal } from "./components/AlertModal";
 import { PluginViewRenderer } from "./components/PluginViewRenderer";
 import { PluginViewHeader } from "./components/PluginViewHeader";
+import { DevPluginBanner } from "./components/DevPluginBanner";
 import { resolvePluginViewHeader } from "./utils/pluginViewHeader";
 import type { PluginSearchSeed } from "./components/pluginViews/pluginViews";
 import { VisualizerSlot } from "./components/VisualizerSlot";
@@ -6559,6 +6560,19 @@ function App() {
               : null;
             return (
               <>
+              {pluginState?.dev && (
+                <DevPluginBanner
+                  devPath={pluginState.devPath}
+                  onReload={async () => {
+                    try {
+                      await plugins.reloadPlugin(pluginId);
+                    } catch (e) {
+                      console.error(`Failed to reload dev plugin ${pluginId}:`, e);
+                      notify(`Couldn't reload ${pluginState.manifest.name}`, { kind: "error" });
+                    }
+                  }}
+                />
+              )}
               {viewHeader && (
                 <PluginViewHeader
                   pluginId={pluginId}
