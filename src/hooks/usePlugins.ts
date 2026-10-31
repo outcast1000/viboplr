@@ -97,6 +97,11 @@ import { sanitizeSeekMarkers, type SeekMarker } from "../utils/seekMarkers";
 import { coerceScrobbleReport, type ScrobbleReport } from "../utils/scrobblers";
 import { requestDetailTab } from "../utils/pendingDetailTab";
 import {
+  importSourcePath, importTargetArgs, parseTrackQuery, sameRecordingCopies, storedDefaultCollection,
+  type ImportFileResult, type ImportPlan,
+} from "../utils/libraryImport";
+import { coerceDownloadLayout, DOWNLOAD_LAYOUT_KEY } from "../components/download/DestField";
+import {
   addTags, editTrackTags, NO_TAG_REFRESH, removeTags, writeFileMetadata,
   type FileMetadataEdit, type TagOpsDeps,
 } from "../utils/tagOps";
@@ -1141,6 +1146,30 @@ export function usePlugins(
             if (fields.tag_names !== undefined) edit.tagNames = fields.tag_names;
             if (fields.tag_mode !== undefined) edit.tagMode = fields.tag_mode;
             return writeFileMetadata(hostCallbacksRef?.current?.tagOps ?? NO_TAG_REFRESH, trackIds, edit);
+          },
+          async findTrack(query) {
+            const q = parseTrackQuery(query);
+            const rows = await invoke<Track[]>("find_tracks_by_metadata", {
+              title: q.title, artistName: q.artist, albumName: q.album,
+            });
+            return sameRecordingCopies(rows, q.durationSecs);
+          },
+          async planImport(request) {
+            const fallback = storedDefaultCollection(await store.get<unknown>("lastDownloadDest"));
+            const target = importTargetArgs(request, fallback, "planImport");
+            return invoke<ImportPlan | null>("plan_media_import", { target });
+          },
+          async importFile(request) {
+            const sourcePath = importSourcePath(request);
+            const fallback = storedDefaultCollection(await store.get<unknown>("lastDownloadDest"));
+            const target = importTargetArgs(request, fallback, "importFile");
+            const layout = coerceDownloadLayout(await store.get<unknown>(DOWNLOAD_LAYOUT_KEY));
+            const result = await invoke<ImportFileResult>("import_media_file", {
+              sourcePath, target, layout, asCopy: request?.asCopy === true,
+            });
+            // A new row: the Library lists and counts reload, like any file write.
+            if (result.status === "imported") (hostCallbacksRef?.current?.tagOps ?? NO_TAG_REFRESH).filesWritten();
+            return result;
           },
           async replaceTrackFile(request) {
             const replace = hostCallbacksRef?.current?.replaceTrackFile;

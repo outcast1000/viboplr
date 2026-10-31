@@ -186,6 +186,21 @@ pub fn download_relative_path(
     p
 }
 
+/// `path` when nothing is there yet, else the first free `name (N).ext` —
+/// the "Keep both" name, so nothing is ever written over.
+pub fn free_path(path: &Path) -> std::path::PathBuf {
+    if !path.exists() {
+        return path.to_path_buf();
+    }
+    let stem = path.file_stem().and_then(|s| s.to_str()).unwrap_or("download").to_string();
+    let ext = path.extension().and_then(|e| e.to_str()).map(|e| format!(".{}", e)).unwrap_or_default();
+    let parent = path.parent().map(|p| p.to_path_buf()).unwrap_or_default();
+    (2..1000)
+        .map(|n| parent.join(format!("{} ({}){}", stem, n, ext)))
+        .find(|p| !p.exists())
+        .unwrap_or_else(|| path.to_path_buf())
+}
+
 /// Build the flat `{Artist} - {Title}.{ext}` filename used by the download
 /// modal's conflict check and direct-to-path download. Components are sanitized.
 pub fn download_filename(artist: &str, title: &str, ext: &str) -> String {

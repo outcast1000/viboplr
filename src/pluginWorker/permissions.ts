@@ -76,6 +76,8 @@ export const PERMISSION_TABLE: Record<string, PermissionCheck | null> = {
   "library.getMostPlayed": need("library:read"),
   "library.getMostPlayedArtists": need("library:read"),
   "library.findDuplicates": need("library:read"),
+  "library.findTrack": need("library:read"),
+  "library.planImport": need("library:read"),
   "library.getTrackLikeStates": need("library:read"),
   "library.onTrackAdded": need("library:read"),
   "library.onTrackRemoved": need("library:read"),
@@ -88,6 +90,9 @@ export const PERMISSION_TABLE: Record<string, PermissionCheck | null> = {
   "library.bulkUpdateTracks": need("library:write"),
   // Gated twice: the permission, then the host's own Replace dialog per call.
   "library.replaceTrackFile": need("library:write"),
+  // Copies a file the plugin names into a collection — never over one, and
+  // never a song already there unless it asks for a copy.
+  "library.importFile": need("library:write"),
   "library.setTrackLikesBatch": need("library:write"),
 
   "playback.getCurrentTrack": need("playback:read"),

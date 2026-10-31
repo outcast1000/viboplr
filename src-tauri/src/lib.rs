@@ -30,6 +30,7 @@ mod bundle_ref;
 mod music_publish;
 mod publish_server;
 mod tag_writer;
+mod media_import;
 mod mixtape;
 mod main_playlist;
 mod recent_plays;
@@ -247,6 +248,8 @@ macro_rules! invoke_handler {
             commands::cancel_direct_download,
             commands::download_to_path,
             commands::add_downloaded_track,
+            commands::plan_media_import,
+            commands::import_media_file,
             commands::get_cached_waveform,
             commands::cache_waveform,
             commands::analyze_waveform_ffmpeg,

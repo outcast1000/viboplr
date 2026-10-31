@@ -157,6 +157,65 @@ impl Database {
         rows.collect()
     }
 
+    /// The enabled local collection holding the most tracks of `album` (by
+    /// `artist`, as track artist or album artist), else of `artist` alone —
+    /// where an imported song belongs so an album isn't split across drives.
+    /// Names match like `find_tracks_by_metadata` (accents and case ignored).
+    /// `None` when no local collection has either.
+    pub fn local_collection_holding(
+        &self,
+        artist: &str,
+        album: Option<&str>,
+    ) -> SqlResult<Option<(i64, ImportPlacement)>> {
+        let artist = artist.trim();
+        if artist.is_empty() {
+            return Ok(None);
+        }
+        let conn = self.reader();
+        let artist_v = match_variants(artist);
+        let ph = |n: usize| vec!["?"; n].join(", ");
+        let best = |sql: &str, params: Vec<String>| -> SqlResult<Option<i64>> {
+            let mut stmt = conn.prepare(sql)?;
+            let mut rows = stmt.query(rusqlite::params_from_iter(params))?;
+            match rows.next()? {
+                Some(row) => Ok(Some(row.get(0)?)),
+                None => Ok(None),
+            }
+        };
+        let local = "co.kind = 'local' AND co.enabled = 1 AND co.path IS NOT NULL";
+
+        if let Some(album) = album.map(str::trim).filter(|a| !a.is_empty()) {
+            let album_v = match_variants(album);
+            let sql = format!(
+                "SELECT t.collection_id FROM tracks t \
+                 JOIN collections co ON co.id = t.collection_id \
+                 JOIN albums al ON al.id = t.album_id \
+                 LEFT JOIN artists ta ON ta.id = t.artist_id \
+                 LEFT JOIN artists aa ON aa.id = al.artist_id \
+                 WHERE {local} \
+                 AND strip_diacritics(unicode_lower(al.title)) IN ({}) \
+                 AND (strip_diacritics(unicode_lower(ta.name)) IN ({}) \
+                      OR strip_diacritics(unicode_lower(aa.name)) IN ({})) \
+                 GROUP BY t.collection_id ORDER BY COUNT(*) DESC, t.collection_id LIMIT 1",
+                ph(album_v.len()), ph(artist_v.len()), ph(artist_v.len())
+            );
+            if let Some(id) = best(&sql, [album_v, artist_v.clone(), artist_v.clone()].concat())? {
+                return Ok(Some((id, ImportPlacement::Album)));
+            }
+        }
+
+        let sql = format!(
+            "SELECT t.collection_id FROM tracks t \
+             JOIN collections co ON co.id = t.collection_id \
+             JOIN artists ar ON ar.id = t.artist_id \
+             WHERE {local} \
+             AND strip_diacritics(unicode_lower(ar.name)) IN ({}) \
+             GROUP BY t.collection_id ORDER BY COUNT(*) DESC, t.collection_id LIMIT 1",
+            ph(artist_v.len())
+        );
+        Ok(best(&sql, artist_v)?.map(|id| (id, ImportPlacement::Artist)))
+    }
+
     pub fn get_collection_stats(&self) -> SqlResult<Vec<CollectionStats>> {
         let conn = self.reader();
         let mut stmt = conn.prepare(&format!(

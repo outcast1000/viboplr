@@ -14,6 +14,10 @@ import type { ScrobbleReport } from "../utils/scrobblers";
 import type { TrackAudioFacts } from "../waveform/types";
 // And the screen context plugins are told is the one the control API serves.
 import type { UiContext } from "../utils/uiContext";
+// The import surface's request/answer shapes live with their parsers.
+import type {
+  ImportFileRequest, ImportFileResult, ImportPlan, ImportPlanRequest, LibraryTrackQuery,
+} from "../utils/libraryImport";
 import type {
   PluginVisualizerAPI,
   PluginVisualizerDescriptor,
@@ -910,6 +914,33 @@ export interface PluginLibraryAPI {
    * swap itself fails. Feature-detect: older hosts don't have it.
    */
   replaceTrackFile?(opts: ReplaceTrackFileRequest): Promise<ReplaceTrackFileResult>;
+  /**
+   * Library copies of a song, by name — the backend's accent- and
+   * case-insensitive match (Jóga = Joga), local files first, then nearest in
+   * length. With `durationSecs`, copies more than 5s off (a live take) are left
+   * out. Empty when the library doesn't have it. Feature-detect.
+   */
+  findTrack?(query: LibraryTrackQuery): Promise<Track[]>;
+  /**
+   * Which collection `importFile` would put this song in, and why: next to
+   * the album (`"album"`), next to the artist (`"artist"`), the default, the
+   * only local collection, or the one named. `null` when there is no local
+   * collection. For showing "→ Music · next to Mezzanine" before a download
+   * finishes. Feature-detect.
+   */
+  planImport?(request: ImportPlanRequest): Promise<ImportPlan | null>;
+  /**
+   * Copy a file already on this computer into a local collection as a song:
+   * tagged with `title` / `artist` / `album` / `trackNumber`, filed by the
+   * user's download layout (Artist › Album › NN Title), never over another
+   * file ("Title (2)" instead), and added to the library. The source is copied,
+   * never moved. When the song is already in the library as a local file it
+   * copies nothing and answers `{ status: "exists", trackId }` — offer
+   * {@link replaceTrackFile} or call again with `asCopy: true`. Rejects when
+   * there is no local collection, the file isn't playable media, or the
+   * library can't read it. Needs `library:write`. Feature-detect.
+   */
+  importFile?(request: ImportFileRequest): Promise<ImportFileResult>;
   /**
    * Find duplicate tracks grouped by diacritic-normalized title + artist.
    * Optionally require copies to also match on duration and/or file size

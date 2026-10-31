@@ -807,6 +807,23 @@ pub struct ImageSource {
     pub url: Option<String>,
 }
 
+/// Why `media_import` chose the collection it did — shown to the user as
+/// "next to Mezzanine", "next to your Aphex Twin tracks", etc.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "lowercase")]
+pub enum ImportPlacement {
+    /// The caller named it.
+    Given,
+    /// The collection already holding most of the album.
+    Album,
+    /// The collection already holding most of the artist.
+    Artist,
+    /// The caller's (or the app's) default.
+    Default,
+    /// The only local collection there is.
+    Only,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

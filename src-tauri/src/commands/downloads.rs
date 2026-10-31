@@ -493,18 +493,41 @@ fn sniff_file_ext(path: &std::path::Path, video: bool) -> Option<&'static str> {
     crate::downloader::sniff_media_ext(&head[..read], video)
 }
 
-/// `path` when nothing is there yet, else the first free `name (N).ext`.
-fn free_path(path: &std::path::Path) -> std::path::PathBuf {
-    if !path.exists() {
-        return path.to_path_buf();
-    }
-    let stem = path.file_stem().and_then(|s| s.to_str()).unwrap_or("download").to_string();
-    let ext = path.extension().and_then(|e| e.to_str()).map(|e| format!(".{}", e)).unwrap_or_default();
-    let parent = path.parent().map(|p| p.to_path_buf()).unwrap_or_default();
-    (2..1000)
-        .map(|n| parent.join(format!("{} ({}){}", stem, n, ext)))
-        .find(|p| !p.exists())
-        .unwrap_or_else(|| path.to_path_buf())
+use crate::downloader::free_path;
+
+/// Where `api.library.importFile` would put a song (`media_import::plan`):
+/// the collection and why ("album" / "artist" / "default" / "only" / "given").
+/// `null` when there is no local collection to save into.
+#[tauri::command]
+pub async fn plan_media_import(
+    state: State<'_, AppState>,
+    target: crate::media_import::ImportTarget,
+) -> Result<Option<crate::media_import::ImportPlan>, String> {
+    with_db(&state, move |db| crate::media_import::plan(db, &target)).await
+}
+
+/// Copy a file already on this computer into a local collection
+/// (`media_import::import_file`) — unless the song is already there as a local
+/// file and `asCopy` is off, which answers `{ status: "exists", trackId }`.
+#[tauri::command]
+pub async fn import_media_file(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    source_path: String,
+    target: crate::media_import::ImportTarget,
+    layout: Option<String>,
+    as_copy: Option<bool>,
+) -> Result<crate::media_import::ImportResult, String> {
+    let db = state.db.clone();
+    let layout = crate::downloader::DownloadLayout::parse(layout.as_deref().or(Some("artist-album")));
+    run_blocking(move || {
+        let result = crate::media_import::import_file(&db, &source_path, &target, layout, as_copy.unwrap_or(false))?;
+        if result.is_new {
+            super::emit_track_added(&app, &db, result.track_id);
+        }
+        Ok::<_, String>(result)
+    })
+    .await
 }
 
 #[tauri::command]
