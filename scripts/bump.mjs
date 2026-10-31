@@ -102,12 +102,11 @@ await mpvMasterStep();
 //
 // Compares each platform's pinned mpv commit (the lock's mpvGitHash) with mpv
 // master: shows the commit this release ships, how many commits master has
-// after it, the newest, and the compare link. When it is ahead, offers to start the Build
-// libmpv workflow on that master commit (it builds, tests and publishes to
-// vendor-libmpv; nothing is re-pinned), and then asks whether this release
-// should go on with the mpv it already has — a "no" stops before Step 1, so
-// nothing has been changed. Never fatal: a failed lookup is reported and the
-// release goes on. With no terminal it only reports.
+// after it, the newest, and the compare link. When it is ahead, it prints how
+// to move to it (Build libmpv workflow on that master commit, then a hand
+// re-pin) and goes on with the pinned mpv. Report only: it never prompts and
+// never starts the workflow. Never fatal: a failed lookup is reported and the
+// release goes on.
 // ---------------------------------------------------------------------------
 
 async function mpvMasterStep() {
@@ -148,34 +147,17 @@ async function mpvMasterStep() {
   console.log(`  mpv ${MPV_BRANCH} has ${base.aheadBy} commit${base.aheadBy === 1 ? "" : "s"} after it; newest: ${commitLine(headCommit)}`);
   console.log(`  ${compareUrl(base.hash)}\n`);
 
-  const dispatch = `workflow run build-libmpv.yml --repo ${MIRROR_REPO} -f publish=true -f mpv_ref=${head}`;
-  if (!process.stdin.isTTY) {
-    console.log(`  To build it: gh ${dispatch}\n`);
-    return;
-  }
-  const rl = createInterface({ input: process.stdin, output: process.stdout });
-  const ask = async (q) => (await rl.question(q)).trim().toLowerCase();
-  // Each question names its mpv by commit, date and subject: a bare hash
-  // left "the current mpv" unclear right after a summary naming two of them.
-  const build = await ask(`  Run the Build libmpv workflow on mpv ${MPV_BRANCH} (${commitLine(headCommit)}) — builds, tests, publishes; re-pins nothing? [y/N] `);
-  if (build !== "y" && build !== "yes") {
-    rl.close();
-    console.log("  Not built — going on with the pinned mpv.\n");
-    return;
-  }
-  try {
-    gh(dispatch);
-    console.log(`  Started: gh run list --workflow build-libmpv.yml --repo ${MIRROR_REPO}`);
-  } catch (e) {
-    console.error(`  ⚠ Couldn't start the workflow: ${errText(e)}`);
-  }
-  const goOn = await ask(`  Go on with this release on the mpv it pins now (${commitLine(baseCommit)}), not the build just started? [Y/n] `);
-  rl.close();
-  if (goOn === "n" || goOn === "no") {
-    console.log("\nRelease stopped before any change. Re-pin to the new build once it passes, then run bump again.");
-    process.exit(0);
-  }
-  console.log("  Going on with the current mpv.\n");
+  // Report only — never prompt, never start anything. Adopting a new mpv is a
+  // build + hand re-pin that can't finish inside a release anyway, so a question
+  // here only paused the run; the steps are printed for afterwards instead.
+  console.log(`  This release goes on with the pinned mpv. To move to mpv ${MPV_BRANCH} afterwards:`);
+  console.log(`    1. Build it (builds, runs the engine tests, publishes to vendor-libmpv; re-pins nothing):`);
+  console.log(`         gh workflow run build-libmpv.yml --repo ${MIRROR_REPO} -f publish=true -f mpv_ref=${head}`);
+  console.log(`         gh run list --workflow build-libmpv.yml --repo ${MIRROR_REPO}`);
+  console.log(`    2. Once it passes, re-pin each platform in scripts/libmpv.lock.json by hand`);
+  console.log(`       (url, sha256, mpvGitHash, build) from the published vendor-libmpv assets.`);
+  console.log(`    3. node scripts/fetch-libmpv.mjs && (cd src-tauri && cargo test --lib)`);
+  console.log(`    4. Commit the lock; the next bump ships it.\n`);
 }
 
 async function vendorStep() {
