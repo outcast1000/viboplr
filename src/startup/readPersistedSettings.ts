@@ -1,15 +1,15 @@
-// Pure reader for persisted startup settings, extracted from App.tsx.
+// Pure reader for the persisted startup settings the restore applies by hand.
 //
-// Previously App.tsx restored these via a 46-element positional tuple destructure
-// (with `, , ,` gaps and dead `void` reads kept only to preserve tuple shape).
-// This collapses the reads into a single batched Promise.all returning a named
-// object, killing the positional-index footgun. It performs NO state mutation —
-// App.tsx still owns applying these values to its hooks/setters.
+// Most settings are NOT here: a `usePersistedSetting` restores itself from the
+// same snapshot (`hydratePersistedSettings`). What remains is state owned by
+// another hook (playback volume / EQ / ReplayGain, the library's sort and
+// columns, zoom, window geometry, the video layout), plain `useState` in App
+// (crossfade, last download folder), retired keys read only to migrate them,
+// and the few settings whose restore has a side effect (audio exclusive,
+// telemetry, reduce motion, debug logging). It performs NO state mutation.
 import type { AppStore } from "../store";
-import type { ViewMode, ColumnConfig } from "../types";
+import type { ColumnConfig } from "../types";
 import type { VideoLayoutState } from "../hooks/useVideoLayout";
-import type { VisualizerSlotSelection } from "../utils/visualizerSlots";
-import type { UpdateNoticeDismissals } from "../utils/updateNotice";
 
 export interface PersistedSettings {
   vol: number | undefined;
@@ -17,18 +17,12 @@ export interface PersistedSettings {
   crossfadeSecs: number | undefined;
   audioExclusive: boolean | undefined;
   betaUpdates: boolean | undefined;
-  /** Per-kind signatures of update notices the user has waved away. */
-  updateNoticeDismissed: UpdateNoticeDismissals | undefined;
   telemetryEnabled: boolean | undefined;
   /** Legacy single video switch for every scrobbler — read only to migrate
    *  into `scrobbleSettings` (utils/scrobblers.ts). */
   trackVideoHistory: boolean | undefined;
   /** Coerced by App (`coerceScrobbleSettings`). */
   scrobbleSettings: unknown;
-  /** Each scrobbler's last attempt. Coerced by App (`coerceScrobblerStatuses`). */
-  scrobblerStatus: unknown;
-  preferVideoResolution: boolean | undefined;
-  videoSubtitles: boolean | undefined;
   miniMode: boolean | undefined;
   fullWindowWidth: number | null | undefined;
   fullWindowHeight: number | null | undefined;
@@ -39,25 +33,9 @@ export interface PersistedSettings {
   trackColumns: ColumnConfig[] | null | undefined;
   trackViewMode: string | null | undefined;
   videoLayout: VideoLayoutState | null | undefined;
-  sidebarCollapsed: boolean | undefined;
-  queueCollapsed: boolean | undefined;
-  queueWidth: number | null | undefined;
   mediaTypeFilter: string | undefined;
   trackLikedFirst: boolean | undefined;
-  confirmTrashDelete: boolean | undefined;
-  bitPerfectSkipConfirm: boolean | undefined;
-  openNowPlayingOnPlay: boolean | undefined;
-  openNowPlayingOnVideoPlay: boolean | undefined;
-  videoStoryboards: boolean | undefined;
-  radioOptions: unknown;
-  /** Player-bar "Keep in bar" pins — coerced by normalizePlayerBarPins. */
-  playerBarPins: unknown;
-  /** Per-track synced-lyrics offsets — coerced by coerceLyricOffsets. */
-  lyricsOffsets: unknown;
   lastDownloadDest: string | null | undefined;
-  searchViewModes: { tracks: ViewMode; albums: ViewMode; artists: ViewMode } | null | undefined;
-  pluginViewMode: string | null | undefined;
-  minimizeToMiniPlayer: boolean | undefined;
   reduceMotion: boolean | undefined;
   scrollLongTitles: boolean | undefined;
   /** Retired mini-only predecessor of `scrollLongTitles`; written only when
@@ -71,30 +49,14 @@ export interface PersistedSettings {
   eqMode: string | undefined;
   eqPreset: string | undefined;
   eqGains: number[] | undefined;
-  eqCustomPresets: { id: string; name: string; gains: number[] }[] | undefined;
   eqPreGainDb: number | undefined;
   eqBassDb: number | undefined;
   eqTrebleDb: number | undefined;
   eqClipProtection: string | undefined;
-  eqShowBarControlSimple: boolean | undefined;
-  eqShowBarControlAdvanced: boolean | undefined;
   rgMode: string | undefined;
   rgPreampDb: number | undefined;
   rgPreventClip: boolean | undefined;
-  // Now Playing info / visualizer — previously five SEQUENTIAL awaits on the
-  // first-paint critical path.
-  nowPlayingInfoSelection: Record<string, boolean> | undefined;
-  visualizerSlots: VisualizerSlotSelection | undefined;
-  nowPlayingLyricsHidden: boolean | undefined;
-  nowPlayingCuesHidden: boolean | undefined;
-  nowPlayingInfoPersistence: Record<string, number> | undefined;
-  nowPlayingInfoOrder: string[] | undefined;
-  // Debug / logging flags.
-  loggingEnabled: boolean | undefined;
   debugLogging: boolean | undefined;
-  debugMode: boolean | undefined;
-  devPluginPath: string | null | undefined;
-  controlApiEnabled: boolean | undefined;
 }
 
 /**
@@ -111,9 +73,19 @@ export interface PersistedSettings {
  * default-seeded keys, and `undefined` for keys absent from both. See
  * tauri-plugin-store `store.rs` (`cache` seeded from defaults; `load()` extends
  * it; `get`/`entries` both read `cache`).
+ *
+ * The same snapshot feeds `persistedSettingsFrom` and `hydratePersistedSettings`.
  */
+export async function readStoreSnapshot(store: AppStore): Promise<Map<string, unknown>> {
+  return new Map<string, unknown>(await store.entries());
+}
+
 export async function readPersistedSettings(store: AppStore): Promise<PersistedSettings> {
-  const map = new Map<string, unknown>(await store.entries());
+  return persistedSettingsFrom(await readStoreSnapshot(store));
+}
+
+/** The hand-applied settings, out of a snapshot from `readStoreSnapshot`. */
+export function persistedSettingsFrom(map: ReadonlyMap<string, unknown>): PersistedSettings {
   const read = <T>(key: string): T | undefined =>
     map.has(key) ? (map.get(key) as T) : undefined;
   return {
@@ -122,15 +94,9 @@ export async function readPersistedSettings(store: AppStore): Promise<PersistedS
     crossfadeSecs: read<number>("crossfadeSecs"),
     audioExclusive: read<boolean>("audioExclusive"),
     betaUpdates: read<boolean>("betaUpdates"),
-    updateNoticeDismissed: read<UpdateNoticeDismissals>("updateNoticeDismissed"),
     telemetryEnabled: read<boolean>("telemetryEnabled"),
     trackVideoHistory: read<boolean>("trackVideoHistory"),
     scrobbleSettings: read<unknown>("scrobbleSettings"),
-    scrobblerStatus: read<unknown>("scrobblerStatus"),
-    preferVideoResolution: read<boolean>("preferVideoResolution"),
-    // Kept under the legacy `videoLyricsOverlay` key for back-compat with saved
-    // prefs (the overlay was formerly a theater-only "lyrics" toggle).
-    videoSubtitles: read<boolean>("videoLyricsOverlay"),
     miniMode: read<boolean>("miniMode"),
     fullWindowWidth: read<number | null>("fullWindowWidth"),
     fullWindowHeight: read<number | null>("fullWindowHeight"),
@@ -141,24 +107,9 @@ export async function readPersistedSettings(store: AppStore): Promise<PersistedS
     trackColumns: read<ColumnConfig[] | null>("trackColumns"),
     trackViewMode: read<string | null>("trackViewMode"),
     videoLayout: read<VideoLayoutState | null>("videoLayout"),
-    sidebarCollapsed: read<boolean>("sidebarCollapsed"),
-    queueCollapsed: read<boolean>("queueCollapsed"),
-    queueWidth: read<number | null>("queueWidth"),
     mediaTypeFilter: read<string>("mediaTypeFilter"),
     trackLikedFirst: read<boolean>("trackLikedFirst"),
-    confirmTrashDelete: read<boolean>("confirmTrashDelete"),
-    bitPerfectSkipConfirm: read<boolean>("bitPerfectSkipConfirm"),
-    openNowPlayingOnPlay: read<boolean>("openNowPlayingOnPlay"),
-    openNowPlayingOnVideoPlay: read<boolean>("openNowPlayingOnVideoPlay"),
-    videoStoryboards: read<boolean>("videoStoryboards"),
-    // Coerced by App (`coerceRadioOptions`): an older build may have written a partial object.
-    radioOptions: read<unknown>("radioOptions"),
-    playerBarPins: read<unknown>("playerBarPins"),
-    lyricsOffsets: read<unknown>("lyricsOffsets"),
     lastDownloadDest: read<string | null>("lastDownloadDest"),
-    searchViewModes: read<{ tracks: ViewMode; albums: ViewMode; artists: ViewMode } | null>("searchViewModes"),
-    pluginViewMode: read<string | null>("pluginViewMode"),
-    minimizeToMiniPlayer: read<boolean>("minimizeToMiniPlayer"),
     reduceMotion: read<boolean>("reduceMotion"),
     scrollLongTitles: read<boolean>("scrollLongTitles"),
     legacyMiniTitleScroll: read<boolean>("miniTitleScroll"),
@@ -168,26 +119,13 @@ export async function readPersistedSettings(store: AppStore): Promise<PersistedS
     eqMode: read<string>("eqMode"),
     eqPreset: read<string>("eqPreset"),
     eqGains: read<number[]>("eqGains"),
-    eqCustomPresets: read<{ id: string; name: string; gains: number[] }[]>("eqCustomPresets"),
     eqPreGainDb: read<number>("eqPreGainDb"),
     eqBassDb: read<number>("eqBassDb"),
     eqTrebleDb: read<number>("eqTrebleDb"),
     eqClipProtection: read<string>("eqClipProtection"),
-    eqShowBarControlSimple: read<boolean>("eqShowBarControlSimple"),
-    eqShowBarControlAdvanced: read<boolean>("eqShowBarControlAdvanced"),
     rgMode: read<string>("rgMode"),
     rgPreampDb: read<number>("rgPreampDb"),
     rgPreventClip: read<boolean>("rgPreventClip"),
-    nowPlayingInfoSelection: read<Record<string, boolean>>("nowPlayingInfoSelection"),
-    visualizerSlots: read<VisualizerSlotSelection>("visualizerSlots"),
-    nowPlayingLyricsHidden: read<boolean>("nowPlayingLyricsHidden"),
-    nowPlayingCuesHidden: read<boolean>("nowPlayingCuesHidden"),
-    nowPlayingInfoPersistence: read<Record<string, number>>("nowPlayingInfoPersistence"),
-    nowPlayingInfoOrder: read<string[]>("nowPlayingInfoOrder"),
-    loggingEnabled: read<boolean>("loggingEnabled"),
     debugLogging: read<boolean>("debugLogging"),
-    debugMode: read<boolean>("debugMode"),
-    devPluginPath: read<string | null>("devPluginPath"),
-    controlApiEnabled: read<boolean>("controlApiEnabled"),
   };
 }

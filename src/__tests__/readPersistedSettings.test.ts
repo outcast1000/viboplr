@@ -33,12 +33,10 @@ describe("readPersistedSettings", () => {
       ["fullWindowWidth", 1200],
       ["fullWindowHeight", 800],
       ["trackColumns", [{ key: "title", visible: true }]],
-      ["searchViewModes", { tracks: "list", albums: "tiles", artists: "tiles" }],
       ["uiZoom", 1.25],
-      ["radioOptions", { taste: "discovery" }], // passed through raw; App coerces
-      ["controlApiEnabled", true],
-      ["lyricsOffsets", { "track:a:b": 2.5 }], // passed through raw; App coerces
-      // Intentionally omitted: queueWidth, reduceMotion, lastDownloadDest, ...
+      ["scrobbleSettings", { default: { audio: true, video: false } }], // passed through raw; restore coerces
+      ["debugLogging", true],
+      // Intentionally omitted: reduceMotion, lastDownloadDest, ...
     ]);
 
     const s = await readPersistedSettings(store);
@@ -51,17 +49,14 @@ describe("readPersistedSettings", () => {
     expect(s.fullWindowWidth).toBe(1200);
     expect(s.fullWindowHeight).toBe(800);
     expect(s.trackColumns).toEqual([{ key: "title", visible: true }]);
-    expect(s.searchViewModes).toEqual({ tracks: "list", albums: "tiles", artists: "tiles" });
     expect(s.uiZoom).toBe(1.25);
-    expect(s.radioOptions).toEqual({ taste: "discovery" });
-    expect(s.controlApiEnabled).toBe(true);
-    expect(s.lyricsOffsets).toEqual({ "track:a:b": 2.5 });
+    expect(s.scrobbleSettings).toEqual({ default: { audio: true, video: false } });
+    expect(s.debugLogging).toBe(true);
 
     // Absent → undefined (exactly what per-key `get` returned before)
-    expect(s.queueWidth).toBeUndefined();
     expect(s.reduceMotion).toBeUndefined();
     expect(s.lastDownloadDest).toBeUndefined();
-    expect(s.pluginViewMode).toBeUndefined();
+    expect(s.legacyMiniTitleScroll).toBeUndefined();
   });
 
   it("preserves falsy values (0, false, empty string, null) without dropping them", async () => {

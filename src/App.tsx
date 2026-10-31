@@ -13,19 +13,18 @@ import "./base.css";
 import "./design-system.css";
 import "./App.css";
 
-import type { Track, QueueTrack, View, ViewMode, ColumnConfig, SortField, SortDir, Collection, ResolvedTrackSource, Album, Artist, Tag, TrackSelection, OpenedMixtape } from "./types";
+import type { Track, QueueTrack, View, ViewMode, Collection, ResolvedTrackSource, Album, Artist, Tag, TrackSelection, OpenedMixtape } from "./types";
 import { isVideoTrack, parseSubsonicUrl, trashLabel } from "./utils";
 import { parseLrc, syncedLyricsFitMedia, lyricOffsetKey, clampLyricOffset, coerceLyricOffsets } from "./utils/lyrics";
 
-import { store, RETIRED_STORE_KEYS } from "./store";
-import { readPersistedSettings } from "./startup/readPersistedSettings";
+import { store } from "./store";
 import { parseUrlScheme, localTrackSource, trackToQueueTrack, nextQueueKey, isLocalTrack, effectiveLocalPath, pluginTrackToQueueTrack, trackRowToQueueTrack, trackSelection, queueTrackSelection, isPlayingSelection } from "./queueEntry";
 import { partitionTrackIds, buildDeleteConfirmPayload } from "./utils/deleteTracks";
 import { fetchLikeStates, applyLikeState, applyLikeStates, trackLikeId } from "./utils/likeReconcile";
 import { resolveLibraryIds } from "./utils/resolveLibraryIds";
 import { subscribeTrackEvents } from "./trackEvents";
-import { track as trackTelemetry, setTelemetryEnabled as syncTelemetryEnabled, bucketCount, sourceClass } from "./telemetry";
-import { buildManifest, tracksFromManifest, contextFromManifest, contextToExportMetadata, contextFromMixtapeMetadata, playlistContextTitle, type Manifest, type MainPlaylistState } from "./mainPlaylist";
+import { track as trackTelemetry, setTelemetryEnabled as syncTelemetryEnabled, sourceClass } from "./telemetry";
+import { buildManifest, tracksFromManifest, contextFromManifest, contextToExportMetadata, contextFromMixtapeMetadata, playlistContextTitle, type Manifest } from "./mainPlaylist";
 import { collectionAlert } from "./utils/collectionAlert";
 import { buildPlaySession, buildMixtapeSession, bumpPlaySession, recordPlaySession, sessionKey, snapshotFor, newSnapshotId, snapshotIdsOf, droppedSnapshotIds, replaysFromSnapshot, replayTrack, cleanStoredSession, type RecentPlaySession } from "./utils/recentPlays";
 import { resolveImageUrl, resolveImageSrc, stripImageVersion } from "./utils/resolveImageUrl";
@@ -46,10 +45,12 @@ import { isEqPanelOpen, setEqPanelOpen } from "./utils/uiRemote";
 import { getHeroEffectModeSnapshot, setHeroEffectMode } from "./heroEffectMode";
 import { type StreamResolver, createLibraryStreamResolver } from "./streamResolvers";
 import { BUILTIN_PRESETS, presetForGains } from "./eqPresets";
-import { timeAsync, getTimingEntries, type TimingEntry } from "./startupTiming";
+import { getTimingEntries, type TimingEntry } from "./startupTiming";
+import { useRestoreSession } from "./startup/useRestoreSession";
+import { restoreNonEmptyString, restoreOneOf, restoreQueueWidth, restoreSearchViewModes, restoreStringList, type SearchViewModes } from "./startup/settingRestorers";
 
 import { usePlayback, type PlaybackOutcomeHandlers } from "./hooks/usePlayback";
-import { probeEngineCapabilities, nativeEngine, type EngineCapabilities } from "./playback/nativeEngine";
+import { nativeEngine, type EngineCapabilities } from "./playback/nativeEngine";
 import { useEngineComponent } from "./hooks/useEngineComponent";
 import { getPlaybackPosition, subscribePlaybackPosition } from "./playback/positionStore";
 import { useStreamResolution } from "./hooks/useStreamResolution";
@@ -75,7 +76,7 @@ import { toPlaylistTrackPayload } from "./utils/playlistPayload";
 import { useProfileSwitch } from "./hooks/useProfileSwitch";
 import ProfileSwitchOverlay from "./components/ProfileSwitchOverlay";
 import { Toasts } from "./components/Toasts";
-import { useLibrary, DEFAULT_TRACK_COLUMNS } from "./hooks/useLibrary";
+import { useLibrary } from "./hooks/useLibrary";
 import { useEventListeners, type ResyncProgress } from "./hooks/useEventListeners";
 import { useFileDrop, isMixtapePath } from "./hooks/useFileDrop";
 import { useImageCache } from "./hooks/useImageCache";
@@ -349,6 +350,8 @@ function planFields(plan: DownloadPlan) {
   };
 }
 
+const restorePluginViewMode = restoreOneOf<PluginViewMode>(["cards", "list"]);
+
 function App() {
   const restoredRef = useRef(false);
   const handleEnqueueRef = useRef<(tracks: Track[]) => void>(() => {});
@@ -374,11 +377,6 @@ function App() {
   const [showOnboarding, setShowOnboarding] = useState(false);
   const [onboardingProfile, setOnboardingProfile] = useState<OnboardingProfile>("normal");
   const [pluginLoadingMessage, setPluginLoadingMessage] = useState<string | null>(null);
-  const pendingRestoreTrackRef = useRef<QueueTrack | null>(null);
-  const pendingRestoreQueueRef = useRef<{ tracks: QueueTrack[]; index: number } | null>(null);
-  // Cached-thumb pairs (`[uri, filename]`) from main_playlist_read, seeded into
-  // thumbInfo when the deferred queue is applied so rows paint art immediately.
-  const pendingRestoreThumbsRef = useRef<Array<[string, string]>>([]);
   // "Latest play" ring buffer (things that replaced the queue). Loaded from
   // the store on mount, written on each play.
   const recentPlaysRef = useRef<RecentPlaySession[]>([]);
@@ -461,10 +459,10 @@ function App() {
   const engineComponent = useEngineComponent(applyEngineCapabilities);
   // Settings → Playback → Scrobbling: which scrobblers (local history + plugins) record
   // audio and/or video plays (utils/scrobblers.ts).
-  const [scrobbleSettings, setScrobbleSettings] = usePersistedSetting<ScrobbleSettings>("scrobbleSettings", DEFAULT_SCROBBLE_SETTINGS, restoredRef);
+  const [scrobbleSettings, setScrobbleSettings] = usePersistedSetting<ScrobbleSettings>("scrobbleSettings", DEFAULT_SCROBBLE_SETTINGS, restoredRef, { restore: (raw) => coerceScrobbleSettings(raw) });
   const scrobbleSettingsRef = useLatestRef(scrobbleSettings);
   // What happened to each scrobbler's last play — the line under its row.
-  const [scrobblerStatuses, setScrobblerStatuses] = usePersistedSetting<ScrobblerStatuses>("scrobblerStatus", {}, restoredRef);
+  const [scrobblerStatuses, setScrobblerStatuses] = usePersistedSetting<ScrobblerStatuses>("scrobblerStatus", {}, restoredRef, { restore: coerceScrobblerStatuses });
   const scrobblerStatusesRef = useLatestRef(scrobblerStatuses);
   // Filled in below `plugins` (handleScrobble); usePlayback calls it when the
   // scrobble threshold is crossed, until some scrobbler is offered the play.
@@ -513,7 +511,7 @@ function App() {
   const [openNowPlayingOnPlay, setOpenNowPlayingOnPlay] = usePersistedSetting("openNowPlayingOnPlay", false, restoredRef);
   const [openNowPlayingOnVideoPlay, setOpenNowPlayingOnVideoPlay] = usePersistedSetting("openNowPlayingOnVideoPlay", false, restoredRef);
   // Settings → Playback → Radio: how a station is filled (utils/radioOptions.ts).
-  const [radioOptions, setRadioOptions] = usePersistedSetting<RadioOptions>("radioOptions", DEFAULT_RADIO_OPTIONS, restoredRef);
+  const [radioOptions, setRadioOptions] = usePersistedSetting<RadioOptions>("radioOptions", DEFAULT_RADIO_OPTIONS, restoredRef, { restore: coerceRadioOptions });
   const [reduceMotion, setReduceMotion] = usePersistedSetting("reduceMotion", false, restoredRef);
   // Long titles in either bar scroll back and forth when on, and truncate when
   // off (the default — a marquee is a continuous animation for as long as the
@@ -525,10 +523,10 @@ function App() {
   const [eqSaveAsOpen, setEqSaveAsOpen] = useState(false);
   // Which of EQ / Bit-perfect stay on the playback bars while off
   // (utils/playerBarPins); edited from the Audio options menu and Settings.
-  const [playerBarPins, setPlayerBarPins] = usePersistedSetting<PlayerBarPins>("playerBarPins", DEFAULT_PLAYER_BAR_PINS, restoredRef);
+  const [playerBarPins, setPlayerBarPins] = usePersistedSetting<PlayerBarPins>("playerBarPins", DEFAULT_PLAYER_BAR_PINS, restoredRef, { restore: normalizePlayerBarPins });
   const [debugLogging, setDebugLogging] = usePersistedSetting("debugLogging", false, restoredRef);
   const [debugMode, setDebugMode] = usePersistedSetting("debugMode", false, restoredRef);
-  const [devPluginPath, setDevPluginPath] = usePersistedSetting<string | null>("devPluginPath", null, restoredRef);
+  const [devPluginPath, setDevPluginPath] = usePersistedSetting<string | null>("devPluginPath", null, restoredRef, { restore: restoreNonEmptyString });
   const [lastDownloadDest, setLastDownloadDest] = useState<string | null>(null);
   const [mainPlaylistDir, setMainPlaylistDir] = useState<string | null>(null);
   useAssignRef(preferVideoRef, preferVideoResolution);
@@ -577,7 +575,7 @@ function App() {
   const [nowPlayingInfoPersistence, setNowPlayingInfoPersistence] = usePersistedSetting<Record<string, number>>("nowPlayingInfoPersistence", {}, restoredRef);
   // User priority order (ordered item ids) for the same section. Empty default →
   // registration order (built-ins as declared, then plugin items).
-  const [nowPlayingInfoOrder, setNowPlayingInfoOrder] = usePersistedSetting<string[]>("nowPlayingInfoOrder", [], restoredRef);
+  const [nowPlayingInfoOrder, setNowPlayingInfoOrder] = usePersistedSetting<string[]>("nowPlayingInfoOrder", [], restoredRef, { restore: restoreStringList });
   // One-shot deep link into a Settings section (element id), consumed by
   // SettingsPanel on mount and cleared once it has scrolled.
   const [settingsScrollTarget, setSettingsScrollTarget] = useState<string | null>(null);
@@ -652,7 +650,7 @@ function App() {
   // the user re-dial it on each play would be the actual bug. Keyed by metadata
   // for the same reason likes are: a QueueTrack has no DB id, and the same
   // recording should keep its offset whichever source served it.
-  const [lyricsOffsets, setLyricsOffsets] = usePersistedSetting<Record<string, number>>("lyricsOffsets", {}, restoredRef);
+  const [lyricsOffsets, setLyricsOffsets] = usePersistedSetting<Record<string, number>>("lyricsOffsets", {}, restoredRef, { restore: coerceLyricOffsets });
 
   // The current track's offset, and the setter that stores it. Declared here
   // (rather than beside the other now-playing derivations further down) because
@@ -1782,7 +1780,7 @@ function App() {
 
   const [sidebarCollapsed, setSidebarCollapsed] = usePersistedSetting("sidebarCollapsed", false, restoredRef);
   const [queueCollapsed, setQueueCollapsed] = usePersistedSetting("queueCollapsed", false, restoredRef);
-  const [queueWidth, setQueueWidth] = usePersistedSetting("queueWidth", 300, restoredRef);
+  const [queueWidth, setQueueWidth] = usePersistedSetting("queueWidth", 300, restoredRef, { restore: restoreQueueWidth });
 
   // Queue drawer, fullscreen only — summoned by the bar's Queue button or Cmd+P,
   // and open until toggled again.
@@ -1802,8 +1800,8 @@ function App() {
     // entry asked for it.
     if (!audioFullscreen) setFsQueueOpen(false);
   }, [audioFullscreen]);
-  const [searchViewModes, setSearchViewModes] = usePersistedSetting<{ tracks: ViewMode; albums: ViewMode; artists: ViewMode; tags: ViewMode }>("searchViewModes", { tracks: "list", albums: "tiles", artists: "tiles", tags: "tiles" }, restoredRef);
-  const [pluginViewMode, setPluginViewMode] = usePersistedSetting<PluginViewMode>("pluginViewMode", "list", restoredRef);
+  const [searchViewModes, setSearchViewModes] = usePersistedSetting<SearchViewModes>("searchViewModes", { tracks: "list", albums: "tiles", artists: "tiles", tags: "tiles" }, restoredRef, { restore: restoreSearchViewModes });
+  const [pluginViewMode, setPluginViewMode] = usePersistedSetting<PluginViewMode>("pluginViewMode", "list", restoredRef, { restore: restorePluginViewMode });
   // One-shot "open Extensions on this tab" (Settings → Dependencies → Open Tools).
   const [extTabRequest, setExtTabRequest] = useState<{ tab: ExtTab; seq: number; detailId?: string } | null>(null);
   const [searchInitialQuery, setSearchInitialQuery] = useState<string | null>(null);
@@ -3626,381 +3624,37 @@ function App() {
     };
   }, [playMixtapeFile]);
 
-  // Restore persisted state on mount
-  useEffect(() => {
-    (async () => {
-      // Kick off the mpv capability probe now, in parallel with the rest of
-      // restore below — it's awaited (never rejects; probeEngineCapabilities
-      // catches internally) right before appRestoring flips false, so
-      // mpvCapable/mpvVideoCapable are guaranteed settled by the time the
-      // restored queue/track become playable. Without this, the first play
-      // after launch could read a stale mpvCapable=false and fail with
-      // "the playback engine couldn't start".
-      const engineCapabilityPromise = probeEngineCapabilities().then(applyEngineCapabilities);
-      try {
-        await timeAsync("store.init", () => store.init());
-        // Startup always lands on Home; `view` and selected-entity state are
-        // intentionally not restored (see readPersistedSettings).
-        const {
-          vol, muted: savedMuted, crossfadeSecs: cf, audioExclusive: savedAudioExclusive, betaUpdates: savedBetaUpdates, telemetryEnabled: savedTelemetryEnabled, trackVideoHistory: savedTrackVideoHistory, scrobbleSettings: savedScrobbleSettings, scrobblerStatus: savedScrobblerStatus, preferVideoResolution: savedPreferVideoResolution, videoSubtitles: savedVideoSubtitles, miniMode: wasMini,
-          fullWindowWidth: fww, fullWindowHeight: fwh, fullWindowX: fwx, fullWindowY: fwy,
-          trackSortField: tSortField, trackSortDir: tSortDir, trackColumns: tCols, trackViewMode: savedTrackViewMode,
-          videoLayout: savedVideoLayout,
-          sidebarCollapsed: savedSidebarCollapsed, queueCollapsed: savedQueueCollapsed, queueWidth: savedQueueWidth,
-          mediaTypeFilter: savedMediaTypeFilter, trackLikedFirst: savedTrackLikedFirst,
-          lastDownloadDest: savedLastDownloadDest, searchViewModes: savedSearchViewModes,
-          pluginViewMode: savedPluginViewMode,
-          minimizeToMiniPlayer: savedMinimizeToMiniPlayer,
-          confirmTrashDelete: savedConfirmTrashDelete, videoStoryboards: savedVideoStoryboards,
-          bitPerfectSkipConfirm: savedBitPerfectSkipConfirm,
-          radioOptions: savedRadioOptions, playerBarPins: savedPlayerBarPins, lyricsOffsets: savedLyricsOffsets,
-          openNowPlayingOnPlay: savedOpenNowPlayingOnPlay, openNowPlayingOnVideoPlay: savedOpenNowPlayingOnVideoPlay,
-          updateNoticeDismissed: savedUpdateNoticeDismissed,
-          reduceMotion: savedReduceMotion,
-          scrollLongTitles: savedScrollLongTitles,
-          legacyMiniTitleScroll,
-          uiZoom: savedUiZoom, miniZoom: savedMiniZoom,
-          eqEnabled: savedEqEnabled, eqMode: savedEqMode, eqPreset: savedEqPreset, eqGains: savedEqGains,
-          eqCustomPresets: savedEqCustomPresets, eqPreGainDb: savedEqPreGainDb, eqBassDb: savedEqBassDb, eqTrebleDb: savedEqTrebleDb,
-          eqClipProtection: savedEqClipProtection,
-          eqShowBarControlSimple: savedEqShowBarSimple, eqShowBarControlAdvanced: savedEqShowBarAdvanced,
-          rgMode: savedRgMode, rgPreampDb: savedRgPreampDb, rgPreventClip: savedRgPreventClip,
-          nowPlayingInfoSelection: savedNowPlayingInfo, visualizerSlots: savedVisualizerSlots,
-          nowPlayingLyricsHidden: savedLyricsHidden, nowPlayingCuesHidden: savedCuesHidden,
-          nowPlayingInfoPersistence: savedNowPlayingInfoTop,
-          nowPlayingInfoOrder: savedNowPlayingInfoOrder,
-          loggingEnabled: savedLoggingEnabled, debugLogging: savedDebugLogging, debugMode: savedDebugMode,
-          devPluginPath: savedDevPluginPath,
-          controlApiEnabled: savedControlApiEnabled,
-        } = await timeAsync("store.restore", () => readPersistedSettings(store));
-        for (const key of RETIRED_STORE_KEYS) {
-          store.delete(key).catch((e) => console.error(`Failed to drop retired store key ${key}:`, e));
-        }
-        zoom.hydrate(savedUiZoom, savedMiniZoom);
-        if (vol !== undefined && vol !== null) playback.setVolume(vol);
-        if (savedMuted !== undefined && savedMuted !== null) {
-          playback.setMuted(savedMuted);
-          // Restoring a muted state means the app starts silent — surface a
-          // non-blocking toast so the silence isn't mistaken for a playback bug.
-          if (savedMuted) notify("Audio is muted from your last session");
-        }
-        if (cf !== undefined && cf !== null) setCrossfadeSecs(cf);
-        if (savedAudioExclusive) {
-          setAudioExclusive(true);
-          // Cached engine-side until the engine exists; no-op where libmpv
-          // couldn't be loaded.
-          nativeEngine.setAudioExclusive(true).catch(console.error);
-        }
-        if (savedBetaUpdates) setBetaUpdates(true);
-        // Anonymous usage telemetry (opt-out; see telemetry.ts). Absent key ⇒
-        // on. Mirror the flag into the telemetry module, then emit the startup
-        // heartbeat + a one-time install event.
-        const telemetryOn = savedTelemetryEnabled !== false;
-        setTelemetryEnabled(telemetryOn);
-        syncTelemetryEnabled(telemetryOn);
-        if (telemetryOn) {
-          // Enriched startup heartbeat + one-time install event. Fire-and-forget;
-          // never blocks startup. All props anonymous + low-cardinality (bucketed
-          // library size, small counts, build flavor, release channel).
-          void (async () => {
-            // `probeEngineCapabilities()` is cached (the mount-time probe above
-            // shares this promise), so this resolves the same result without a
-            // second `engine_capabilities` round-trip.
-            const [trackCount, cols, enabledPlugins, installReported, caps] = await Promise.all([
-              invoke<number>("get_track_count").catch(() => null),
-              invoke<Collection[]>("get_collections").catch(() => null),
-              store.get<string[]>("enabledPlugins").catch(() => null),
-              store.get<boolean>("telemetryInstallReported").catch(() => null),
-              probeEngineCapabilities(),
-            ]);
-            // There is one build and it always bundles libmpv, so there is no
-            // flavor to report — `mpv_capable` is the only thing that actually
-            // varies per machine.
-            trackTelemetry("app_started", {
-              channel: savedBetaUpdates ? "beta" : "stable",
-              mpv_capable: caps.mpv ? "yes" : "no",
-              mpv_video: caps.video ? "yes" : "no",
-              ...(trackCount != null ? { tracks_bucket: bucketCount(trackCount) } : {}),
-              ...(cols ? { collections: cols.length } : {}),
-              ...(enabledPlugins ? { plugins_enabled: enabledPlugins.length } : {}),
-            });
-            if (!installReported) {
-              trackTelemetry("app_installed");
-              store.set("telemetryInstallReported", true).catch((e) =>
-                console.error("Failed to persist telemetryInstallReported:", e));
-            }
-          })();
-        }
-        {
-          const restoredScrobble = coerceScrobbleSettings(savedScrobbleSettings, savedTrackVideoHistory);
-          setScrobbleSettings(restoredScrobble);
-          setScrobblerStatuses(coerceScrobblerStatuses(savedScrobblerStatus));
-          // Restore doesn't persist (restoredRef is still false), so write a
-          // migrated legacy `trackVideoHistory` value once — after this the
-          // old key is never consulted again for this profile.
-          if (savedScrobbleSettings == null && typeof savedTrackVideoHistory === "boolean") {
-            store.set("scrobbleSettings", restoredScrobble)
-              .catch((e) => console.error("Failed to persist migrated scrobbleSettings:", e));
-          }
-        }
-        if (savedPreferVideoResolution !== undefined && savedPreferVideoResolution !== null) setPreferVideoResolution(savedPreferVideoResolution);
-        if (savedVideoSubtitles === false) setVideoSubtitlesOn(false);
-        if (savedMinimizeToMiniPlayer) setMinimizeToMiniPlayer(true);
-        if (savedConfirmTrashDelete === false) setConfirmTrashDelete(false);
-        if (savedBitPerfectSkipConfirm) setBitPerfectSkipConfirm(true);
-        if (savedOpenNowPlayingOnPlay) setOpenNowPlayingOnPlay(true);
-        if (savedOpenNowPlayingOnVideoPlay) setOpenNowPlayingOnVideoPlay(true);
-        if (savedVideoStoryboards === false) setVideoStoryboards(false);
-        if (savedRadioOptions !== undefined) setRadioOptions(coerceRadioOptions(savedRadioOptions));
-        if (savedPlayerBarPins !== undefined) setPlayerBarPins(normalizePlayerBarPins(savedPlayerBarPins));
-        if (savedLyricsOffsets !== undefined) setLyricsOffsets(coerceLyricOffsets(savedLyricsOffsets));
-        if (savedUpdateNoticeDismissed) setUpdateNoticeDismissed(savedUpdateNoticeDismissed);
-        if (savedReduceMotion) { setReduceMotion(true); applyReduceMotionAttr(true); }
-        if (savedScrollLongTitles) setScrollLongTitles(true);
-        // A user who explicitly turned the old mini-only scroll back on keeps
-        // it. Written here, not through usePersistedSetting: that only persists
-        // once restore has finished, and the old key is already gone by then
-        // (RETIRED_STORE_KEYS above), so the choice would be lost next launch.
-        if (savedScrollLongTitles === undefined && legacyMiniTitleScroll === true) {
-          setScrollLongTitles(true);
-          store.set("scrollLongTitles", true).catch((e) => console.error("Failed to migrate miniTitleScroll:", e));
-        }
-
-        // EQ / RG / Now Playing info / debug values all arrive from the one
-        // batched readPersistedSettings entries() read above — this used to be
-        // ~23 more store.get round-trips (5 sequential) before window.show().
-        if (typeof savedEqEnabled === "boolean") playback.setEqEnabled(savedEqEnabled);
-        if (savedEqMode === "simple" || savedEqMode === "advanced") playback.setEqMode(savedEqMode);
-
-        if (savedRgMode === "off" || savedRgMode === "track" || savedRgMode === "album") playback.setRgMode(savedRgMode);
-        if (typeof savedRgPreampDb === "number") playback.setRgPreampDb(savedRgPreampDb);
-        if (typeof savedRgPreventClip === "boolean") playback.setRgPreventClip(savedRgPreventClip);
-        if (typeof savedEqPreset === "string") playback.setEqPreset(savedEqPreset);
-        if (Array.isArray(savedEqGains) && savedEqGains.length === 10 && savedEqGains.every(n => typeof n === "number")) {
-          playback.setEqGains(savedEqGains);
-        }
-        if (Array.isArray(savedEqCustomPresets)) setEqCustomPresets(savedEqCustomPresets);
-        if (typeof savedEqPreGainDb === "number" && Number.isFinite(savedEqPreGainDb)) {
-          playback.setEqPreGainDb(savedEqPreGainDb);
-        }
-        if (typeof savedEqBassDb === "number" && Number.isFinite(savedEqBassDb)) {
-          playback.setEqBassDb(savedEqBassDb);
-        }
-        if (typeof savedEqTrebleDb === "number" && Number.isFinite(savedEqTrebleDb)) {
-          playback.setEqTrebleDb(savedEqTrebleDb);
-        }
-        if (savedEqClipProtection === "limiter" || savedEqClipProtection === "headroom") {
-          playback.setEqClipProtection(savedEqClipProtection);
-        }
-        if (typeof savedEqShowBarSimple === "boolean") setEqShowBarControlSimple(savedEqShowBarSimple);
-        if (typeof savedEqShowBarAdvanced === "boolean") setEqShowBarControlAdvanced(savedEqShowBarAdvanced);
-
-        if (savedNowPlayingInfo && typeof savedNowPlayingInfo === "object") setNowPlayingInfoSelection(savedNowPlayingInfo);
-        if (savedVisualizerSlots && typeof savedVisualizerSlots === "object") setVisualizerSlots(savedVisualizerSlots);
-        if (typeof savedLyricsHidden === "boolean") setNowPlayingLyricsHidden(savedLyricsHidden);
-        if (typeof savedCuesHidden === "boolean") setNowPlayingCuesHidden(savedCuesHidden);
-        if (savedNowPlayingInfoTop && typeof savedNowPlayingInfoTop === "object") setNowPlayingInfoPersistence(savedNowPlayingInfoTop);
-        if (Array.isArray(savedNowPlayingInfoOrder)) {
-          setNowPlayingInfoOrder(savedNowPlayingInfoOrder.filter((id): id is string => typeof id === "string"));
-        }
-
-        if (tSortField && ["num", "title", "artist", "album", "duration", "path", "year", "quality", "size", "collection", "added", "modified", "random"].includes(tSortField)) library.setSortField(tSortField as SortField);
-        if (tSortDir && ["asc", "desc"].includes(tSortDir)) library.setSortDir(tSortDir as SortDir);
-        if (tCols && Array.isArray(tCols) && tCols.length > 0) {
-          // Merge in any new columns that weren't in the saved config
-          const savedIds = new Set(tCols.map((c: ColumnConfig) => c.id));
-          const missing = DEFAULT_TRACK_COLUMNS.filter(c => !savedIds.has(c.id));
-          library.setTrackColumns([...tCols, ...missing]);
-        }
-
-        // Restore queue from main-playlist folder (replaces tauri-store queue keys)
-        await timeAsync("queue.restore", async () => {
-          try {
-            const [{ manifest, state: mpState, thumbs }, dir] = await Promise.all([
-              invoke<{ manifest: Manifest | null; state: MainPlaylistState | null; thumbs: [string, string][] }>("main_playlist_read"),
-              invoke<string>("main_playlist_dir"),
-            ]);
-            if (manifest) {
-              const tracks = tracksFromManifest(manifest);
-              const ctx = contextFromManifest(manifest, dir);
-              if (tracks.length > 0) {
-                // The two lookups below are independent (each reads only the
-                // manifest's tracks), so they run together: this block sits on
-                // the path to window.show().
-                const paths = [...new Set(tracks.map(t => t.path).filter((p): p is string => !!p))];
-                const [likes, ids] = await Promise.allSettled([
-                  fetchLikeStates(tracks),
-                  invoke<[string, number][]>("find_track_ids_by_paths", { paths }),
-                ]);
-                // tracksFromManifest seeds liked: 0 (QueueTracks carry no DB id).
-                // Reconcile against the durable entity_likes store so a like set
-                // before restart survives — keyed by metadata, works for
-                // non-library tracks too. Best-effort: on failure leave neutral.
-                if (likes.status === "fulfilled") {
-                  for (let i = 0; i < tracks.length; i++) {
-                    tracks[i] = applyLikeState(tracks[i], likes.value);
-                  }
-                } else {
-                  console.error("Failed to reconcile restored like states:", likes.reason);
-                }
-                // Re-resolve `libraryId` for the restored queue. The manifest
-                // deliberately does not persist it (SQLite reuses the rowids of
-                // deleted tracks, so a stale id would silently address the wrong
-                // row) — the durable identity is the file URI, so we ask the DB
-                // what each path maps to *now*. One bulk call, not one per track.
-                // Best-effort: on failure every entry keeps `libraryId` absent
-                // and its consumer falls back to a path/metadata lookup, exactly
-                // as an external track does.
-                if (ids.status === "fulfilled") {
-                  const pairs = ids.value;
-                  if (pairs.length > 0) {
-                    const idByPath = new Map(pairs);
-                    for (let i = 0; i < tracks.length; i++) {
-                      const id = tracks[i].path ? idByPath.get(tracks[i].path!) : undefined;
-                      if (id != null) tracks[i] = { ...tracks[i], libraryId: id };
-                    }
-                  }
-                } else {
-                  console.error("Failed to resolve restored queue library ids:", ids.reason);
-                }
-                const idx = mpState?.queueIndex != null && mpState.queueIndex >= 0 && mpState.queueIndex < tracks.length ? mpState.queueIndex : -1;
-                pendingRestoreQueueRef.current = { tracks, index: idx };
-                pendingRestoreThumbsRef.current = thumbs ?? [];
-                if (idx >= 0) {
-                  pendingRestoreTrackRef.current = tracks[idx];
-                }
-              }
-              if (ctx) queueHook.setPlaylistContext(ctx);
-            }
-            if (mpState) {
-              const raw = mpState.queueMode as string | undefined;
-              const mode = raw === "repeat-all" || raw === "repeat-one" ? raw : "normal";
-              queueHook.setQueueMode(mode);
-            }
-            // Fire-and-forget gc; not awaited so it never blocks startup.
-            invoke("main_playlist_gc").catch(e => console.error("main_playlist_gc failed:", e));
-          } catch (e) {
-            console.error("Failed to restore main playlist:", e);
-          }
-        });
-        if (savedTrackViewMode && ["basic", "list", "tiles"].includes(savedTrackViewMode)) library.setTrackViewMode(savedTrackViewMode as ViewMode);
-        if (savedMediaTypeFilter && ["all", "audio", "video"].includes(savedMediaTypeFilter)) library.setMediaTypeFilter(savedMediaTypeFilter as "all" | "audio" | "video");
-        if (savedTrackLikedFirst) library.setTrackLikedFirst(true);
-        if (savedVideoLayout) {
-          videoLayout.restoreLayout(savedVideoLayout);
-        }
-        if (savedSidebarCollapsed) setSidebarCollapsed(true);
-        if (savedQueueCollapsed) setQueueCollapsed(true);
-        if (savedQueueWidth && savedQueueWidth >= 200 && savedQueueWidth <= 600) setQueueWidth(savedQueueWidth);
-        if (savedLastDownloadDest !== undefined) setLastDownloadDest(savedLastDownloadDest ?? null);
-        if (savedSearchViewModes) {
-          const validModes = ["basic", "list", "tiles"];
-          const s = savedSearchViewModes as { tracks: ViewMode; albums: ViewMode; artists: ViewMode; tags?: ViewMode };
-          if (validModes.includes(s.tracks) && validModes.includes(s.albums) && validModes.includes(s.artists)) {
-            setSearchViewModes({ tracks: s.tracks, albums: s.albums, artists: s.artists, tags: s.tags && validModes.includes(s.tags) ? s.tags : "tiles" });
-          }
-        }
-        if (savedPluginViewMode && ["cards", "list"].includes(savedPluginViewMode)) setPluginViewMode(savedPluginViewMode as PluginViewMode);
-        if (savedLoggingEnabled) setLoggingEnabled(true);
-        // Mirror only — lib.rs already started (or failed to start) the server
-        // from this same key before the webview existed.
-        if (savedControlApiEnabled) setControlApiEnabled(true);
-        if (savedDebugLogging) { setDebugLogging(true); setDebugLoggingRef(true); }
-        if (savedDebugMode) setDebugMode(true);
-        if (savedDevPluginPath) setDevPluginPath(savedDevPluginPath);
-        // Startup always lands on Home — track detail / fallback state is intentionally not restored.
-
-        await timeAsync("window.restore", async () => {
-          // Size/position already restored by Rust setup — just set React state and show
-          if (wasMini) {
-            if (fww && fwh) mini.fullSizeRef.current = { w: fww, h: fwh, x: fwx ?? 0, y: fwy ?? 0 };
-            mini.setMiniMode(true);
-            mini.miniModeRef.current = true;
-          }
-          // Apply the saved interface zoom for the restored mode before showing,
-          // so the first paint lands at the right size (webview zoom doesn't
-          // persist across restarts). hydrate() clamped these to the ladder.
-          await applyWebviewZoom(wasMini ? zoom.miniZoomRef.current : zoom.uiZoomRef.current);
-          // Rust sized the mini window from hardcoded logical-px constants
-          // before this webview existed (lib.rs). Refit it against the page's
-          // own measured scale while still hidden, so a platform where CSS and
-          // logical pixels disagree doesn't come up clipped (issue #130).
-          if (wasMini) await mini.refitMiniWindow();
-          await getCurrentWindow().show();
-        });
-      } catch (e) {
-        console.error("Failed to restore state:", e);
-        await getCurrentWindow().show();
+  // Restore the last session: settings, saved queue, window. See
+  // startup/useRestoreSession.ts — most settings restore themselves
+  // (usePersistedSetting); what is left here is the hand-off afterwards.
+  useRestoreSession({
+    restoredRef, appRestoring, setAppRestoring,
+    playback, library, queueHook, mini, zoom, videoLayout, notify,
+    applyEngineCapabilities,
+    setCrossfadeSecs, setLastDownloadDest, setScrobbleSettings, setScrollLongTitles, setDebugLoggingRef,
+    onRestoreApplied: () => {
+      // Only now is a profile-switch flush safe: the saved queue is applied (or
+      // there was none), so flushing can no longer overwrite it with the empty
+      // default. Consume any switch request stashed during startup.
+      restoreAppliedRef.current = true;
+      consumePendingProfileSwitch();
+      // Same reasoning for a mixtape the app was launched to open, or one
+      // dropped on the window before now.
+      consumePendingMixtapeOpen();
+      const dropped = pendingDroppedMixtapeRef.current;
+      pendingDroppedMixtapeRef.current = null;
+      if (dropped) playMixtapeFile(dropped);
+      // ...and for a play/open link that launched the app.
+      for (const link of pendingAppLinksRef.current.splice(0)) {
+        runAppLinkRef.current(link).catch((e) => console.error("Failed to follow a viboplr link:", e));
       }
-      // Bounded: a slow or stalled libmpv load (native dlopen at startup) must
-      // never wedge the whole restore behind it — queue/track restoration and
-      // library load both happen after this point. On timeout, mpvCapable
-      // simply settles a moment later via the same promise's applyEngineCapabilities
-      // callback (still attached, still running) and only a play in that window
-      // fails with "the playback engine couldn't start".
-      await timeAsync("engineCapabilities", () =>
-        Promise.race([
-          engineCapabilityPromise,
-          new Promise<void>((resolve) => setTimeout(resolve, 5000)),
-        ])
-      );
-      restoredRef.current = true;
-      setAppRestoring(false);
-      await Promise.all([
-        timeAsync("loadLibrary", () => library.loadLibrary()),
-      ]);
-      // Persist the frontend startup timings to the on-disk log so every cold
-      // start leaves a cross-session record of the perceived-startup path
-      // (they otherwise live only in Settings and vanish on close). The window
-      // is already visible by now, so this never gates first paint.
-      invoke("record_frontend_startup_timings", { entries: getTimingEntries() })
-        .catch(e => console.error("Failed to log frontend startup timings:", e));
-    })();
-  }, []);
+    },
+  });
 
   // Fetch main playlist directory on mount
   useEffect(() => {
     invoke<string>("main_playlist_dir").then(setMainPlaylistDir).catch(console.error);
   }, []);
-
-  // Apply pending restore state once appRestoring flips to false
-  useEffect(() => {
-    if (appRestoring) return;
-    const track = pendingRestoreTrackRef.current;
-    const queue = pendingRestoreQueueRef.current;
-    if (track) {
-      playback.setCurrentTrack(track);
-      playback.setDurationSecs(track.duration_secs ?? 0);
-      pendingRestoreTrackRef.current = null;
-    }
-    if (queue) {
-      queueHook.setQueue(queue.tracks);
-      queueHook.setQueueIndex(queue.index);
-      pendingRestoreQueueRef.current = null;
-      // Seed thumbnails cached before restart synchronously with the queue. The
-      // backend already existence-checked each thumb and returned its
-      // canonical_slug-derived filename in main_playlist_read's `thumbs`, so
-      // rows paint cached art on the first render with no async round-trip and
-      // Rust stays the sole namer of the file.
-      queueHook.seedThumbInfo(pendingRestoreThumbsRef.current);
-      pendingRestoreThumbsRef.current = [];
-    }
-    // Only now is a profile-switch flush safe: the saved queue is applied (or
-    // there was none), so flushing can no longer overwrite it with the empty
-    // default. Consume any switch request stashed during startup.
-    restoreAppliedRef.current = true;
-    consumePendingProfileSwitch();
-    // Same reasoning for a mixtape the app was launched to open, or one
-    // dropped on the window before now.
-    consumePendingMixtapeOpen();
-    const dropped = pendingDroppedMixtapeRef.current;
-    pendingDroppedMixtapeRef.current = null;
-    if (dropped) playMixtapeFile(dropped);
-    // ...and for a play/open link that launched the app.
-    for (const link of pendingAppLinksRef.current.splice(0)) {
-      runAppLinkRef.current(link).catch((e) => console.error("Failed to follow a viboplr link:", e));
-    }
-  }, [appRestoring, consumePendingProfileSwitch, consumePendingMixtapeOpen, playMixtapeFile, runAppLinkRef]);
 
   // One-shot Collections-view hint: after the ALBUMARTIST update, local
   // libraries scanned before it keep per-track-artist album forks until a Full
