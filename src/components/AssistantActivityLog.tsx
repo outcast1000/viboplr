@@ -46,8 +46,8 @@ export function AssistantActivityLog({ activity }: { activity: AssistantActivity
             <span className="settings-label">Pause the assistant</span>
             <span className="settings-description">
               {paused
-                ? "Paused. Every change and every plugin call is refused until you resume. Reads and page navigation still work."
-                : "Refuses every change and every plugin call until you resume. Reads and page navigation still work. Stays paused after a restart."}
+                ? "Paused. Every change and every plugin call is refused until you resume. Unlike Off, assistants stay connected and can still read and navigate."
+                : "Refuses every change and every plugin call until you resume. Unlike Off, assistants stay connected and can still read and navigate. Stays paused after a restart."}
             </span>
           </div>
           <div className="settings-row-actions">

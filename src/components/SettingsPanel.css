@@ -176,43 +176,123 @@
   align-items: stretch;
   gap: 10px;
 }
-/* AI access level (Off / Low / Full / Custom): a segmented radio group, not a
-   range input — the window's arrow keys are transport keys, so a range slider
-   would be dead to the keyboard. */
-.settings-seg {
+/* AI access level (Off / Low / Full / Custom): a radio group of cards, each
+   carrying its own one-line summary so every option can be read before it is
+   picked (picking applies it at once). Buttons, not a range input — the
+   window's arrow keys are transport keys, so a slider would be dead to the
+   keyboard. Four across, wrapping to two or one as the column narrows. */
+.settings-levels {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 8px;
+}
+.settings-level {
   display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+  min-width: 0;
+  padding: 10px 12px;
+  text-align: left;
   background: var(--bg-tertiary);
   border: 1px solid var(--border);
   border-radius: var(--ds-radius);
-  padding: 2px;
-  gap: 2px;
-  max-width: 420px;
-}
-.settings-seg-btn {
-  flex: 1;
-  font-size: var(--fs-sm);
-  font-weight: 600;
-  color: var(--text-secondary);
-  background: transparent;
-  border: none;
-  border-radius: calc(var(--ds-radius) - 2px);
-  padding: 6px 12px;
-  cursor: pointer;
-  transition: background var(--dur-fast), color var(--dur-fast);
-}
-.settings-seg-btn:hover:not(:disabled) {
   color: var(--text-primary);
+  cursor: pointer;
+  transition: background var(--dur-fast), border-color var(--dur-fast);
 }
-.settings-seg-btn.active {
-  background: var(--accent);
-  color: var(--accent-text);
+.settings-level:hover:not(:disabled) {
+  background: var(--bg-hover);
 }
-.settings-seg-btn:disabled {
+.settings-level.active {
+  border-color: var(--accent);
+  background: rgba(var(--accent-rgb), 0.12);
+  box-shadow: inset 0 0 0 1px var(--accent);
+}
+.settings-level:disabled {
   cursor: default;
   opacity: 0.6;
 }
-.settings-seg-btn.active:disabled {
+.settings-level.active:disabled,
+.settings-level[aria-busy="true"] {
   opacity: 1;
+}
+.settings-level-name {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: var(--fs-sm);
+  font-weight: 600;
+}
+.settings-level.active .settings-level-name {
+  color: var(--accent);
+}
+.settings-level-summary {
+  font-size: var(--fs-xs);
+  line-height: 1.35;
+  color: var(--text-secondary);
+}
+.settings-level-spinner {
+  width: 12px;
+  height: 12px;
+  border-width: 2px;
+}
+/* Compound selector: `.settings-description` is declared later in this file
+   at the same specificity, so a bare modifier would lose to it. */
+.settings-description.settings-description--warning {
+  color: var(--warning);
+}
+/* A long path under a description: one line, truncated, full text on hover. */
+.settings-path {
+  display: block;
+  margin-top: 2px;
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: var(--fs-xs);
+  color: var(--text-tertiary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.settings-row-info:has(> .settings-path) {
+  min-width: 0;
+}
+/* "Connection details" — a disclosure row inside a settings card. */
+.settings-disclosure {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0;
+  background: none;
+  border: none;
+  color: var(--text-secondary);
+  font-size: var(--fs-sm);
+  font-weight: 600;
+  cursor: pointer;
+}
+.settings-disclosure:hover {
+  color: var(--text-primary);
+}
+.settings-disclosure-chevron {
+  transition: transform var(--dur-fast);
+}
+.settings-disclosure[aria-expanded="true"] .settings-disclosure-chevron {
+  transform: rotate(90deg);
+}
+.settings-disclosure-hint {
+  font-weight: 400;
+  color: var(--text-tertiary);
+}
+.settings-confirm-list {
+  margin: 8px 0 0;
+  padding-left: 20px;
+  color: var(--text-primary);
+  font-size: var(--fs-sm);
+  line-height: 1.6;
+}
+.settings-confirm-note {
+  margin: 10px 0 0;
+  color: var(--text-secondary);
+  font-size: var(--fs-xs);
 }
 /* Auto-continue weights: label · slider · percentage, one row per strategy. */
 .settings-ac-weights {

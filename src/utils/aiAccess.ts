@@ -57,27 +57,41 @@ export function scopesForLevel(level: AiAccessLevel): AssistantScopes | null {
   return null;
 }
 
-export const AI_ACCESS_LEVELS: ReadonlyArray<{ level: AiAccessLevel; label: string; description: string }> = [
+// `summary` is always on screen, on every level's card, so the choice can be
+// read before it is made (picking a level applies it at once); `description`
+// is shown under the selected level only and adds to its summary rather than
+// repeating it.
+export const AI_ACCESS_LEVELS: ReadonlyArray<{
+  level: AiAccessLevel;
+  label: string;
+  summary: string;
+  description: string;
+}> = [
   {
     level: "off",
     label: "Off",
-    description: "No assistant can reach Vibo. The control server isn't running.",
+    summary: "Assistants can't connect.",
+    description: "Pick Low to connect an assistant — you can allow more later.",
   },
   {
     level: "low",
     label: "Low",
+    summary: "Play, search, and edit the queue, playlists, likes and library tags. Never touches your files.",
     description:
-      "Assistants can search your library, control playback, and edit the queue, playlists, likes and library tags. It can't change your files, make plugins act, or click in the window.",
+      "It can't change your files, make plugins act, or click in the window. When you ask for one of those, the assistant tells you which setting it needs.",
   },
   {
     level: "full",
     label: "Full",
+    summary: "Everything — also your files, downloads, plugins and clicking in the window. Asks first.",
     description:
-      "Everything in Low, plus writing tags into files, managing and deleting files, downloads, plugin actions, and clicking and typing in Vibo's window. Every change is logged below; you can pause the assistant at any time.",
+      "That includes writing tags into files, moving and deleting files, and clicking anything in Vibo's window. Every change is logged below, and you can pause the assistant any time.",
   },
   {
     level: "custom",
     label: "Custom",
-    description: "Everything in Low, plus exactly the permissions you switch on below.",
+    summary: "Low, plus only the permissions you choose.",
+    description:
+      "Switch on what you want below. Picking Low or Full replaces your picks; Custom brings them back until you quit Vibo.",
   },
 ];

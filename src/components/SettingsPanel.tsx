@@ -44,6 +44,7 @@ import { HelpLink } from "./HelpLink";
 import { AppLogoMark } from "./AppLogoMark";
 import { getPlatform } from "./DependencyModal";
 import { ToggleSwitch } from "./ToggleSwitch";
+import { ConfirmModal } from "./ConfirmModal";
 import { AI_ACCESS_LEVELS, aiAccessLevel, scopesForLevel, type AiAccessLevel, type AssistantScopes } from "../utils/aiAccess";
 import { NowPlayingInfoSettings, type NowPlayingInfoSettingsProps } from "./NowPlayingInfoSettings";
 import { UpdateProgress } from "./UpdateProgress";
@@ -746,48 +747,45 @@ interface ControlApiStatus {
 
 // The scopes' authoritative copy lives in the profile dir and is enforced in
 // Rust on every control-API write — this UI only edits that file, through a
-// derived access level (utils/aiAccess.ts).
+// derived access level (utils/aiAccess.ts). The full wording of each
+// permission lives on the help page (#assistant-permissions).
 const ASSISTANT_SCOPE_ROWS: Array<{ key: keyof AssistantScopes; label: string; description: string }> = [
   {
     key: "modifyTags",
     label: "Modify tags in files",
-    description:
-      "Write tag and metadata edits (genre tags, artist, album, album artist, year) into the audio files themselves. Database-only tag edits are always allowed.",
+    description: "Write tag edits into the audio files themselves. Library-only tag edits are always allowed.",
   },
   {
     key: "manageFiles",
     label: "Manage files",
-    description:
-      "Create lyrics (.lrc/.txt) and cover files next to your music, and move or rename files inside a collection. Moves are planned first and never overwrite anything.",
+    description: "Save lyrics and covers next to your music; move or rename files inside a collection, shown to you first.",
   },
   {
     key: "downloads",
     label: "Download tracks",
-    description:
-      "Save a track's own server or web source into a local collection folder. Only the exact source — never a different copy found elsewhere.",
+    description: "Save a track into a collection folder from its own source, or through the plugin that owns it.",
   },
   {
     key: "pluginActions",
     label: "Plugin actions",
-    description:
-      "Let the assistant make plugins act: run their menu actions, send them deep links, and call plugin tools that change things (for example start a Soulseek download). Plugin tools that only read — like listing your Spotify playlists — work without this.",
+    description: "Make plugins act — run their menu actions and tools that change things. Read-only plugin tools work without it.",
   },
   {
     key: "deleteTracks",
     label: "Delete tracks",
-    description:
-      "Move local library tracks to the trash. The assistant must show you the exact list first and send it back unchanged to apply it. Network-share files (no trash, no undo) and server tracks are refused.",
+    description: "Move local tracks to the trash, after showing you the exact list.",
   },
   {
     key: "uiInput",
     label: "Click and type",
     description:
-      "Let the assistant click buttons, type into fields and press keys in Vibo's window, with a visible cursor. That covers anything you can do by clicking — saving a bulk edit or confirming a delete included, whatever the switches above say. It can't touch these AI control settings, Extensions, or any dialog that asks for your consent.",
+      "Operate Vibo's window with a visible cursor. Reaches anything you can do by clicking, whatever the switches above say — except these settings, Extensions and consent dialogs.",
   },
 ];
 
 /**
  * The per-category write permissions, shown only at the Custom access level.
+ * One help link sits on the Custom description, not one per row.
  */
 function AssistantPermissions({
   scopes,
@@ -801,15 +799,13 @@ function AssistantPermissions({
       {ASSISTANT_SCOPE_ROWS.map((row) => (
         <div className="settings-row settings-row--nested" key={row.key}>
           <div className="settings-row-info">
-            <span className="settings-label">
-              {row.label}
-              <HelpLink anchor="assistant-permissions" topic="assistant permissions" />
-            </span>
+            <span className="settings-label">{row.label}</span>
             <span className="settings-description">{row.description}</span>
           </div>
           <ToggleSwitch
             checked={scopes?.[row.key] ?? false}
             onChange={(on) => onToggle(row.key, on)}
+            label={row.label}
           />
         </div>
       ))}
@@ -817,9 +813,16 @@ function AssistantPermissions({
   );
 }
 
+// The last Custom set, so trying Low or Full and coming back to Custom gives
+// the user's own picks back instead of the preset's. Module-level so it
+// outlives leaving the Settings view; memory-only by design — the scopes file
+// holds what is in force, and this is only an undo for a preset click.
+let lastCustomScopes: AssistantScopes | null = null;
+
 /**
- * Settings → "AI control": the access level (Off / Low / Full / Custom) plus, while running,
- * the address / token / discovery-file rows an assistant needs to connect.
+ * Settings → "AI control": the access level (Off / Low / Full / Custom), then
+ * — while the server runs — how to connect an assistant, with the raw
+ * connection details (address, token, discovery file) folded away beneath it.
  * Failures render inline in the card (persistent), not as a toast.
  */
 function ControlApiSection({
@@ -842,6 +845,10 @@ function ControlApiSection({
   // match a preset (all off reads as Low otherwise, and the rows would vanish
   // under the pointer).
   const [customOpen, setCustomOpen] = useState(false);
+  // The level being applied, for the spinner in its button.
+  const [pendingLevel, setPendingLevel] = useState<AiAccessLevel | null>(null);
+  const [confirmFull, setConfirmFull] = useState(false);
+  const [detailsOpen, setDetailsOpen] = useState(false);
 
   useEffect(() => {
     invoke<AssistantScopes>("assistant_scopes_get")
@@ -858,6 +865,19 @@ function ControlApiSection({
   const derivedLevel = scopes ? aiAccessLevel(enabled, scopes) : enabled ? null : "off";
   const level: AiAccessLevel | null = enabled && customOpen ? "custom" : derivedLevel;
 
+  const refresh = useCallback(async () => {
+    try {
+      setStatus(await invoke<ControlApiStatus>("control_api_status"));
+    } catch (e) {
+      console.error("Failed to read control API status:", e);
+    }
+  }, []);
+  useEffect(() => {
+    invoke<ControlApiStatus>("control_api_status")
+      .then(setStatus)
+      .catch((e) => console.error("Failed to read control API status:", e));
+  }, []);
+
   async function saveScopes(next: AssistantScopes): Promise<boolean> {
     const previous = scopes;
     setScopes(next);
@@ -872,15 +892,29 @@ function ControlApiSection({
     }
   }
 
-  async function handleLevel(next: AiAccessLevel) {
+  function handleLevel(next: AiAccessLevel) {
     if (busy || next === level) return;
+    // Full turns on Delete tracks and Click and type, so it is confirmed
+    // every time it is picked — a rare, deliberate choice, and no "don't ask
+    // again" state to keep.
+    if (next === "full") {
+      setConfirmFull(true);
+      return;
+    }
+    void applyLevel(next);
+  }
+
+  async function applyLevel(next: AiAccessLevel) {
     setBusy(true);
+    setPendingLevel(next);
     setError(null);
+    if (level === "custom" && scopes) lastCustomScopes = scopes;
     // Scopes are written before the server starts, so it never comes up
     // with the previous level's permissions.
-    const preset = scopesForLevel(next);
+    const preset = scopesForLevel(next) ?? (next === "custom" ? lastCustomScopes : null);
     if (preset && !(await saveScopes(preset))) {
       setBusy(false);
+      setPendingLevel(null);
       return;
     }
     setCustomOpen(next === "custom");
@@ -895,6 +929,7 @@ function ControlApiSection({
       await refresh();
     }
     setBusy(false);
+    setPendingLevel(null);
   }
 
   function handleScopeToggle(key: keyof AssistantScopes, on: boolean) {
@@ -902,19 +937,6 @@ function ControlApiSection({
     setError(null);
     void saveScopes({ ...scopes, [key]: on });
   }
-
-  const refresh = useCallback(async () => {
-    try {
-      setStatus(await invoke<ControlApiStatus>("control_api_status"));
-    } catch (e) {
-      console.error("Failed to read control API status:", e);
-    }
-  }, []);
-  useEffect(() => {
-    invoke<ControlApiStatus>("control_api_status")
-      .then(setStatus)
-      .catch((e) => console.error("Failed to read control API status:", e));
-  }, []);
 
   const serverRunning = enabled && status?.running === true;
 
@@ -996,88 +1018,53 @@ function ControlApiSection({
   }
 
   const mcpProblem = mcp ? mcpSetupProblem(mcp) : null;
+  const levelInfo = level ? AI_ACCESS_LEVELS.find((o) => o.level === level) : undefined;
   return (
     // data-ui-input-protected: the control API's generic input (uiInput.ts)
-    // refuses this section, or the "Click and type" switch could turn the
-    // other switches on.
+    // refuses this section, or the "Click and type" switch could set the
+    // level to Full. The Full confirmation renders in place (no portal), so it
+    // is inside the protected region too.
     <div className="settings-group" id="control-api" data-ui-input-protected="">
       <div className="settings-group-title">AI control</div>
       <div className="settings-card">
         <div className="settings-row settings-row--stacked">
           <div className="settings-row-info">
-            <span className="settings-label">AI access<HelpLink anchor="control-api" topic="AI control" /></span>
+            <span className="settings-label">Access level<HelpLink anchor="control-api" topic="AI control" /></span>
             <span className="settings-description">
               Lets assistants like Claude control Vibo through a private server on this computer
-              only (127.0.0.1, token-protected). Nothing leaves your machine.
+              only. Nothing leaves your machine.
             </span>
           </div>
-          <div className="settings-seg" role="radiogroup" aria-label="AI access">
+          <div className="settings-levels" role="radiogroup" aria-label="AI access level">
             {AI_ACCESS_LEVELS.map((option) => (
               <button
                 key={option.level}
-                className={`settings-seg-btn${level === option.level ? " active" : ""}`}
+                type="button"
+                className={`settings-level${level === option.level ? " active" : ""}`}
                 role="radio"
                 aria-checked={level === option.level}
+                aria-busy={pendingLevel === option.level}
                 disabled={busy || (scopes === null && option.level !== "off")}
                 onClick={() => handleLevel(option.level)}
               >
-                {option.label}
+                <span className="settings-level-name">
+                  {pendingLevel === option.level && <span className="ds-spinner settings-level-spinner" aria-hidden="true" />}
+                  {option.label}
+                </span>
+                <span className="settings-level-summary">{option.summary}</span>
               </button>
             ))}
           </div>
-          {level && (
-            <span className="settings-description">
-              {AI_ACCESS_LEVELS.find((o) => o.level === level)?.description}
+          {levelInfo && (
+            <span className={`settings-description${level === "full" ? " settings-description--warning" : ""}`}>
+              {levelInfo.description}
+              {level === "custom" && <HelpLink anchor="assistant-permissions" topic="assistant permissions" />}
             </span>
           )}
         </div>
         {level === "custom" && <AssistantPermissions scopes={scopes} onToggle={handleScopeToggle} />}
         {serverRunning && status && (
           <>
-            <div className="settings-row">
-              <div className="settings-row-info">
-                <span className="settings-label">Address</span>
-                <span className="settings-description">127.0.0.1:{status.port}</span>
-              </div>
-              <div className="settings-row-actions">
-                <button className="ds-btn ds-btn--secondary ds-btn--sm" onClick={() => copyValue("address", `http://127.0.0.1:${status.port}`)}>
-                  {copied === "address" ? "Copied" : "Copy"}
-                </button>
-              </div>
-            </div>
-            <div className="settings-row">
-              <div className="settings-row-info">
-                <span className="settings-label">Access token</span>
-                <span className="settings-description">
-                  {status.token ? `••••••••${status.token.slice(-4)}` : "—"} · required as a Bearer token on every request
-                </span>
-              </div>
-              <div className="settings-row-actions">
-                <button
-                  className="ds-btn ds-btn--secondary ds-btn--sm"
-                  disabled={!status.token}
-                  onClick={() => status.token && copyValue("token", status.token)}
-                >
-                  {copied === "token" ? "Copied" : "Copy"}
-                </button>
-                <button className="ds-btn ds-btn--secondary ds-btn--sm" disabled={busy} onClick={handleRegenerate}>
-                  Regenerate
-                </button>
-              </div>
-            </div>
-            <div className="settings-row">
-              <div className="settings-row-info">
-                <span className="settings-label">Discovery file</span>
-                <span className="settings-description">
-                  Port and token for tools that connect automatically: {status.discoveryPath}
-                </span>
-              </div>
-              <div className="settings-row-actions">
-                <button className="ds-btn ds-btn--secondary ds-btn--sm" onClick={() => copyValue("path", status.discoveryPath)}>
-                  {copied === "path" ? "Copied" : "Copy"}
-                </button>
-              </div>
-            </div>
             <div className="settings-row">
               <div className="settings-row-info">
                 <span className="settings-label">
@@ -1089,12 +1076,12 @@ function ControlApiSection({
                   style={mcpProblem ? { color: "var(--warning)" } : undefined}
                 >
                   {mcpProblem ??
-                    `Copy the config into your client (Claude Desktop → Settings → Developer → Edit Config), then fully quit and relaunch it.${mcp?.scriptPath ? ` Bundled server: ${mcp.scriptPath}` : ""}`}
+                    `Copy the config into your client (Claude Desktop → Settings → Developer → Edit Config), then fully quit and relaunch it. For Claude Code, copy the command and run it in a terminal.${mcp?.scriptPath ? ` Bundled server: ${mcp.scriptPath}` : ""}`}
                 </span>
               </div>
               <div className="settings-row-actions">
                 <button
-                  className="ds-btn ds-btn--secondary ds-btn--sm"
+                  className="ds-btn ds-btn--primary ds-btn--sm"
                   disabled={mcp != null && !mcp.scriptPath}
                   onClick={() => copyMcpValue("mcp-config", buildMcpConfigSnippet)}
                 >
@@ -1117,6 +1104,68 @@ function ControlApiSection({
                 </button>
               </div>
             </div>
+            <div className="settings-row">
+              <button
+                type="button"
+                className="settings-disclosure"
+                aria-expanded={detailsOpen}
+                onClick={() => setDetailsOpen((o) => !o)}
+              >
+                <svg className="settings-disclosure-chevron" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                  <polyline points="9 6 15 12 9 18" />
+                </svg>
+                Connection details
+                <span className="settings-disclosure-hint">for tools you set up by hand</span>
+              </button>
+            </div>
+            {detailsOpen && (
+              <>
+                <div className="settings-row settings-row--nested">
+                  <div className="settings-row-info">
+                    <span className="settings-label">Address</span>
+                    <span className="settings-description">127.0.0.1:{status.port}</span>
+                  </div>
+                  <div className="settings-row-actions">
+                    <button className="ds-btn ds-btn--secondary ds-btn--sm" onClick={() => copyValue("address", `http://127.0.0.1:${status.port}`)}>
+                      {copied === "address" ? "Copied" : "Copy"}
+                    </button>
+                  </div>
+                </div>
+                <div className="settings-row settings-row--nested">
+                  <div className="settings-row-info">
+                    <span className="settings-label">Access token</span>
+                    <span className="settings-description">
+                      {status.token ? `••••••••${status.token.slice(-4)}` : "—"} · Keeps other apps out. Regenerate it if
+                      it may have leaked; assistants set up with the config above keep working.
+                    </span>
+                  </div>
+                  <div className="settings-row-actions">
+                    <button
+                      className="ds-btn ds-btn--secondary ds-btn--sm"
+                      disabled={!status.token}
+                      onClick={() => status.token && copyValue("token", status.token)}
+                    >
+                      {copied === "token" ? "Copied" : "Copy"}
+                    </button>
+                    <button className="ds-btn ds-btn--secondary ds-btn--sm" disabled={busy} onClick={handleRegenerate}>
+                      Regenerate
+                    </button>
+                  </div>
+                </div>
+                <div className="settings-row settings-row--nested">
+                  <div className="settings-row-info">
+                    <span className="settings-label">Discovery file</span>
+                    <span className="settings-description">Address and token, for tools that connect on their own.</span>
+                    <code className="settings-path" title={status.discoveryPath}>{status.discoveryPath}</code>
+                  </div>
+                  <div className="settings-row-actions">
+                    <button className="ds-btn ds-btn--secondary ds-btn--sm" onClick={() => copyValue("path", status.discoveryPath)}>
+                      {copied === "path" ? "Copied" : "Copy path"}
+                    </button>
+                  </div>
+                </div>
+              </>
+            )}
           </>
         )}
         {error && (
@@ -1128,6 +1177,32 @@ function ControlApiSection({
           </div>
         )}
       </div>
+      {confirmFull && (
+        <ConfirmModal
+          title="Give assistants full access?"
+          message="On top of Low, connected assistants will be able to:"
+          confirmLabel="Allow full access"
+          autoFocusCancel
+          role="alertdialog"
+          onCancel={() => setConfirmFull(false)}
+          onConfirm={() => {
+            setConfirmFull(false);
+            void applyLevel("full");
+          }}
+        >
+          <ul className="settings-confirm-list">
+            <li>write tags into your audio files</li>
+            <li>save, move and rename files in your collections</li>
+            <li>download tracks</li>
+            <li>make plugins act</li>
+            <li>move tracks to the trash</li>
+            <li>click and type in Vibo&rsquo;s window — anything you can do by clicking</li>
+          </ul>
+          <p className="settings-confirm-note">
+            Every change is logged below, and you can pause the assistant at any time. Choose Custom to allow only some of these.
+          </p>
+        </ConfirmModal>
+      )}
     </div>
   );
 }
