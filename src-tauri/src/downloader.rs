@@ -187,10 +187,12 @@ pub fn download_relative_path(
 }
 
 /// `path` when nothing is there yet, else the first free `name (N).ext` —
-/// the "Keep both" name, so nothing is ever written over.
-pub fn free_path(path: &Path) -> std::path::PathBuf {
+/// the "Keep both" name, so nothing is ever written over. With every name up
+/// to `(999)` taken it is an error: handing back the taken `path` would let
+/// the caller rename over the user's file.
+pub fn free_path(path: &Path) -> Result<std::path::PathBuf, String> {
     if !path.exists() {
-        return path.to_path_buf();
+        return Ok(path.to_path_buf());
     }
     let stem = path.file_stem().and_then(|s| s.to_str()).unwrap_or("download").to_string();
     let ext = path.extension().and_then(|e| e.to_str()).map(|e| format!(".{}", e)).unwrap_or_default();
@@ -198,7 +200,7 @@ pub fn free_path(path: &Path) -> std::path::PathBuf {
     (2..1000)
         .map(|n| parent.join(format!("{} ({}){}", stem, n, ext)))
         .find(|p| !p.exists())
-        .unwrap_or_else(|| path.to_path_buf())
+        .ok_or_else(|| format!("There's no free name left for {} in {}", stem, parent.display()))
 }
 
 /// Build the flat `{Artist} - {Title}.{ext}` filename used by the download
@@ -440,6 +442,19 @@ pub fn write_tags(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn test_free_path_never_hands_back_a_taken_name() {
+        let dir = tempfile::tempdir().unwrap();
+        let p = dir.path().join("Title.mp3");
+        assert_eq!(free_path(&p).unwrap(), p);
+        std::fs::write(&p, b"x").unwrap();
+        assert_eq!(free_path(&p).unwrap(), dir.path().join("Title (2).mp3"));
+        for n in 2..1000 {
+            std::fs::write(dir.path().join(format!("Title ({}).mp3", n)), b"x").unwrap();
+        }
+        assert!(free_path(&p).is_err(), "every name is taken: an error, not the original");
+    }
 
     // --- file_url_to_path tests ---
 

@@ -438,7 +438,7 @@ pub async fn download_to_path(
                 final_dest = if overwrite {
                     final_dest.with_extension(real)
                 } else {
-                    free_path(&final_dest.with_extension(real))
+                    free_path(&final_dest.with_extension(real))?
                 };
             }
         }

@@ -31,6 +31,9 @@ use crate::models::{Collection, ImportPlacement, Track};
 /// How far apart two lengths may be and still be the same recording.
 pub const SAME_RECORDING_TOLERANCE_SECS: f64 = 5.0;
 
+/// Serializes [`import_file`] (see the comment where it is taken).
+static IMPORT_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
 /// The song a file is being imported as, plus where the caller wants it.
 #[derive(Debug, Clone, Default, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -181,6 +184,12 @@ pub fn import_file(
     }
     let album = target.album_title.as_deref().map(str::trim).filter(|a| !a.is_empty());
 
+    // One import at a time, from the library check to the ingest. Both the
+    // "already there?" answer and the free name are check-then-act: two jobs
+    // landing the same song at once would otherwise both import it, or both
+    // pick `02 Jóga.wav` and rename onto it — a rename replaces silently.
+    let _guard = IMPORT_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+
     if !as_copy {
         let copies = local_copies(db, title, artist, album, file_duration(&source))?;
         if let Some(first) = copies.first() {
@@ -209,22 +218,34 @@ pub fn import_file(
         .ok_or("The file has no extension")?;
     let is_video = crate::scanner::VIDEO_EXTENSIONS.contains(&ext.as_str());
     let rel = download_relative_path(layout, artist, title, album, target.track_number, is_video, &ext);
-    let dest = free_path(&Path::new(&root).join(rel));
+    let dest = free_path(&Path::new(&root).join(rel))?;
 
     if let Some(parent) = dest.parent() {
         std::fs::create_dir_all(parent).map_err(|e| format!("Couldn't create the folder: {}", e))?;
     }
-    let temp = dest.with_extension(format!("viboplr-import.{}", ext));
-    std::fs::copy(&source, &temp).map_err(|e| format!("Couldn't copy the file: {}", e))?;
-    if !is_video {
-        if let Err(e) = write_tags(&temp, title, artist, album, target.track_number, None, None, None) {
-            // The song is still worth having; it'll show under its old tags.
-            log::warn!("Import: couldn't write tags into {}: {}", temp.display(), e);
-        }
+    // The copy in progress carries no media extension, so a scan running
+    // meanwhile — or one after a crash mid-copy — never indexes it as a track.
+    let temp = dest.with_extension(format!("{}.viboplr-import", ext));
+    if let Err(e) = std::fs::copy(&source, &temp) {
+        let _ = std::fs::remove_file(&temp);
+        return Err(format!("Couldn't copy the file: {}", e));
+    }
+    if dest.exists() {
+        // Something outside Vibo took the name since `free_path` looked.
+        let _ = std::fs::remove_file(&temp);
+        return Err(format!("{} appeared while importing; nothing was written over it", dest.display()));
     }
     if let Err(e) = std::fs::rename(&temp, &dest) {
         let _ = std::fs::remove_file(&temp);
         return Err(format!("Couldn't move the file into place: {}", e));
+    }
+    // Tags go in once the file has its real name: lofty picks the format from
+    // the extension, which the temp name deliberately doesn't have.
+    if !is_video {
+        if let Err(e) = write_tags(&dest, title, artist, album, target.track_number, None, None, None) {
+            // The song is still worth having; it'll show under its old tags.
+            log::warn!("Import: couldn't write tags into {}: {}", dest.display(), e);
+        }
     }
 
     match crate::scanner::ingest_media_file(db, &dest, Some(collection.id), Some(&root)) {
@@ -401,6 +422,74 @@ mod tests {
         assert_eq!(copy.status, "imported");
         assert_ne!(copy.track_id, r.track_id);
         assert!(copy.path.ends_with("02 Jóga (2).wav"), "{}", copy.path);
+    }
+
+    #[test]
+    fn concurrent_imports_of_one_song_never_share_a_file() {
+        let dir = tempfile::tempdir().unwrap();
+        let db = Arc::new(db());
+        let root = dir.path().join("Music");
+        std::fs::create_dir_all(&root).unwrap();
+        local(&db, "Music", root.to_str().unwrap());
+        let src = dir.path().join("in.wav");
+        write_wav(&src, 1.0);
+
+        let t = target("Jóga", "Björk", Some("Homogenic"));
+        let results: Vec<ImportResult> = std::thread::scope(|s| {
+            let jobs: Vec<_> = (0..4)
+                .map(|_| s.spawn(|| import_file(&db, src.to_str().unwrap(), &t, DownloadLayout::ArtistAlbum, true).unwrap()))
+                .collect();
+            jobs.into_iter().map(|j| j.join().unwrap()).collect()
+        });
+        let mut paths: Vec<_> = results.iter().map(|r| r.path.clone()).collect();
+        paths.sort();
+        paths.dedup();
+        assert_eq!(paths.len(), 4, "every copy got its own file: {:?}", paths);
+        let mut ids: Vec<_> = results.iter().map(|r| r.track_id).collect();
+        ids.sort();
+        ids.dedup();
+        assert_eq!(ids.len(), 4);
+    }
+
+    #[test]
+    fn concurrent_imports_without_as_copy_import_the_song_once() {
+        let dir = tempfile::tempdir().unwrap();
+        let db = Arc::new(db());
+        let root = dir.path().join("Music");
+        std::fs::create_dir_all(&root).unwrap();
+        local(&db, "Music", root.to_str().unwrap());
+        let src = dir.path().join("in.wav");
+        write_wav(&src, 1.0);
+
+        let t = target("Jóga", "Björk", Some("Homogenic"));
+        let statuses: Vec<&str> = std::thread::scope(|s| {
+            let jobs: Vec<_> = (0..4)
+                .map(|_| s.spawn(|| import_file(&db, src.to_str().unwrap(), &t, DownloadLayout::ArtistAlbum, false).unwrap().status))
+                .collect();
+            jobs.into_iter().map(|j| j.join().unwrap()).collect()
+        });
+        assert_eq!(statuses.iter().filter(|s| **s == "imported").count(), 1, "{:?}", statuses);
+        assert_eq!(statuses.iter().filter(|s| **s == "exists").count(), 3, "{:?}", statuses);
+    }
+
+    #[test]
+    fn an_import_leaves_no_temp_file_and_none_a_scan_would_take_for_media() {
+        let dir = tempfile::tempdir().unwrap();
+        let db = Arc::new(db());
+        let root = dir.path().join("Music");
+        std::fs::create_dir_all(&root).unwrap();
+        local(&db, "Music", root.to_str().unwrap());
+        let src = dir.path().join("in.wav");
+        write_wav(&src, 1.0);
+
+        let r = import_file(&db, src.to_str().unwrap(), &target("Jóga", "Björk", None), DownloadLayout::Flat, false).unwrap();
+        let dest = PathBuf::from(&r.path);
+        let files: Vec<_> = std::fs::read_dir(dest.parent().unwrap()).unwrap().map(|e| e.unwrap().path()).collect();
+        assert_eq!(files, vec![dest.clone()], "only the imported file is left");
+        // The tags were still written, after the rename.
+        assert_eq!(db.get_track_by_id(r.track_id).unwrap().title, "Jóga");
+        // And the in-progress name is not something the scanner indexes.
+        assert!(!crate::scanner::is_media_file(&dest.with_extension("wav.viboplr-import")));
     }
 
     #[test]
