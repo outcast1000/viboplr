@@ -6,7 +6,7 @@ import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 // @ts-expect-error — plain .mjs script, no type declarations
-import { TOOLS, buildPluginProxies, mergeProxyRoster, discoveryPidAlive, parseCliArgs, versionCmp, launchCommands, readTextFile } from "../../mcp/viboplr-mcp.mjs";
+import { TOOLS, buildPluginProxies, mergeProxyRoster, discoveryPidAlive, parseCliArgs, versionCmp, launchCommands, readTextFile, httpCall } from "../../mcp/viboplr-mcp.mjs";
 
 // The MCP server is the one satellite that talks to the control API on the
 // user's behalf from clients we don't control, so the protocol handshake, the
@@ -868,6 +868,68 @@ describe("MCP server started with the retired --tier=full flag", () => {
       arguments: { action: "install" },
     });
     expect((missing.result as { isError?: boolean }).isError).toBe(true);
+  });
+});
+
+// The transport under every tool call. It is node:http rather than fetch because
+// Node's fetch gives up on response headers after 300 s whatever the caller's
+// own timeout — installs and plugin downloads, allowed ~10 min, all failed at
+// 5 min as "Vibo is not reachable". These pin that the caller's timeout is the
+// limit and that a timeout and a refused connection stay distinguishable.
+describe("httpCall (the control API transport)", () => {
+  function server(handler: http.RequestListener): Promise<{ port: number; close: () => void }> {
+    const s = http.createServer(handler);
+    return new Promise((resolve) => {
+      s.listen(0, "127.0.0.1", () => resolve({ port: (s.address() as { port: number }).port, close: () => s.close() }));
+    });
+  }
+
+  it("sends the body and headers and returns status, content type and bytes", async () => {
+    const srv = await server((req, res) => {
+      let body = "";
+      req.on("data", (c) => (body += c));
+      req.on("end", () => {
+        res.writeHead(201, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ method: req.method, auth: req.headers.authorization, body: JSON.parse(body) }));
+      });
+    });
+    try {
+      const res = await httpCall({
+        port: srv.port, method: "POST", path: "/v1/x", timeoutMs: 5000,
+        headers: { Authorization: "Bearer t", "Content-Type": "application/json" }, body: JSON.stringify({ ü: 1 }),
+      });
+      expect(res.status).toBe(201);
+      expect(res.contentType).toBe("application/json");
+      expect(JSON.parse(res.body.toString("utf8"))).toEqual({ method: "POST", auth: "Bearer t", body: { ü: 1 } });
+    } finally {
+      srv.close();
+    }
+  });
+
+  it("waits for a slow answer as long as the caller's timeout allows", async () => {
+    const srv = await server((_req, res) => setTimeout(() => res.end("{}"), 600));
+    try {
+      expect((await httpCall({ port: srv.port, method: "GET", path: "/", timeoutMs: 5000 })).status).toBe(200);
+    } finally {
+      srv.close();
+    }
+  });
+
+  it("rejects with timedOut when the caller's timeout fires", async () => {
+    const srv = await server((_req, res) => setTimeout(() => res.end("{}"), 2000));
+    try {
+      await expect(httpCall({ port: srv.port, method: "GET", path: "/", timeoutMs: 200 })).rejects.toMatchObject({ timedOut: true });
+    } finally {
+      srv.close();
+    }
+  });
+
+  it("rejects a refused connection without timedOut, so it can read as 'not reachable'", async () => {
+    const srv = await server(() => {});
+    const { port } = srv;
+    srv.close();
+    await new Promise((r) => setTimeout(r, 50));
+    await expect(httpCall({ port, method: "GET", path: "/", timeoutMs: 2000 })).rejects.toMatchObject({ timedOut: false });
   });
 });
 

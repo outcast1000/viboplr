@@ -6,6 +6,7 @@ import {
   moveShelf,
   buildRadioShelf,
   isShelfVisible,
+  homeShelfRoster,
   RADIO_SHELF_ID,
   DEFAULT_SHELF_ORDER,
   type ResolvedShelf,
@@ -197,5 +198,35 @@ describe("buildRadioShelf", () => {
     // The first track carries the seed sentinel that App.tsx reads to start radio.
     expect(item.tracks[0].__radioSeed).toBeTruthy();
     expect(item.tracks[0].__radioSeed!.title).toBe("Song A");
+  });
+});
+
+// What the control API's home.shelves lists (and so what an assistant tells
+// the user their Home page holds). It listed only plugin shelves once, and an
+// assistant reported a full Home page as "one empty Last.fm shelf".
+describe("homeShelfRoster", () => {
+  const lastfm = { pluginId: "lastfm", shelfId: "lastfm-mixes", title: "From Last.fm", displayKind: "playlist-cards" as const };
+
+  it("lists every built-in and plugin shelf in Home order, with what is shown", () => {
+    const roster = homeShelfRoster([lastfm], {}, null, new Map([["lastfm", "Last.fm"]]));
+    expect(roster.map((r) => r.key)).toEqual([...DEFAULT_SHELF_ORDER, "lastfm:lastfm-mixes"]);
+    expect(roster.find((r) => r.key === RADIO_SHELF_ID)).toMatchObject({ source: "builtin", shown: true, fetchable: false });
+    expect(roster.find((r) => r.key === "builtin:recently-played")).toMatchObject({ shown: false });
+    expect(roster.at(-1)).toMatchObject({ source: "lastfm", sourceName: "Last.fm", shown: true, fetchable: true, displayKind: "playlist-cards" });
+  });
+
+  it("includes switched-off shelves and reflects the user's choices", () => {
+    const roster = homeShelfRoster([lastfm], { "builtin:recently-added": false, "builtin:recently-played": true, "lastfm:lastfm-mixes": false }, null);
+    expect(roster.find((r) => r.key === "builtin:recently-added")?.shown).toBe(false);
+    expect(roster.find((r) => r.key === "builtin:recently-played")?.shown).toBe(true);
+    expect(roster.find((r) => r.key === "lastfm:lastfm-mixes")?.shown).toBe(false);
+  });
+
+  it("follows a saved order, plugin shelves included, and skips absent plugins", () => {
+    const saved = ["lastfm:lastfm-mixes", "spotify:daily", ...DEFAULT_SHELF_ORDER];
+    const roster = homeShelfRoster([lastfm], {}, saved);
+    expect(roster[0].key).toBe("lastfm:lastfm-mixes");
+    expect(roster.some((r) => r.key === "spotify:daily")).toBe(false);
+    expect(roster).toHaveLength(DEFAULT_SHELF_ORDER.length + 1);
   });
 });

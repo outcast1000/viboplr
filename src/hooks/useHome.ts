@@ -251,6 +251,51 @@ export function moveShelf(
   return rest;
 }
 
+export interface HomeShelfRosterEntry {
+  key: string;
+  title: string;
+  /** "builtin", or the contributing plugin's id. */
+  source: string;
+  /** The plugin's display name (plugin shelves only). */
+  sourceName?: string;
+  description?: string;
+  displayKind?: HomeShelfDisplayKind;
+  /** On the Home page right now — false when switched off in Customize Home. */
+  shown: boolean;
+  /** Whether the control API's shelf fetch can load it: plugin shelves only.
+   *  Built-ins are built from the library and history, which the API reads
+   *  through its own routes. */
+  fetchable: boolean;
+}
+
+/** Every Home shelf the user can arrange — built-ins and the plugin shelves
+ *  registered now — in the order Customize Home lists them, shown or not.
+ *  The same rules the page uses: `mergeShelfOrder` + `completeShelfOrder` for
+ *  the order, `isShelfVisible` for what is on screen. */
+export function homeShelfRoster(
+  pluginShelves: Array<{ pluginId: string; shelfId: string; title: string; displayKind: HomeShelfDisplayKind }>,
+  visibility: Record<string, boolean>,
+  savedOrder: string[] | null | undefined,
+  pluginNames?: Map<string, string>,
+): HomeShelfRosterEntry[] {
+  const rows = new Map<string, HomeShelfRosterEntry>();
+  for (const d of BUILTIN_SHELF_DESCRIPTORS) {
+    rows.set(d.id, { key: d.id, title: d.title, source: "builtin", description: d.description, shown: isShelfVisible(d.id, visibility), fetchable: false });
+  }
+  for (const p of pluginShelves) {
+    const key = shelfKey(p.pluginId, p.shelfId);
+    const name = pluginNames?.get(p.pluginId);
+    rows.set(key, {
+      key, title: p.title, source: p.pluginId, ...(name ? { sourceName: name } : {}),
+      displayKind: p.displayKind, shown: isShelfVisible(key, visibility), fetchable: true,
+    });
+  }
+  const order = savedOrder?.length ? mergeShelfOrder(savedOrder) : DEFAULT_SHELF_ORDER;
+  return completeShelfOrder(order, [...rows.keys()])
+    .map((id) => rows.get(id))
+    .filter((r): r is HomeShelfRosterEntry => r !== undefined);
+}
+
 // Minimal seed metadata a radio station card needs.
 interface RadioSeedLike {
   title: string;

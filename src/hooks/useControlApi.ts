@@ -46,6 +46,8 @@ import {
   type InvokeInfoFetch, type InfoTypeRow, type InfoValueRow,
 } from "../utils/infoFetchChain";
 import { resolveShelfPlayAction } from "../utils/homeShelfPlay";
+import { homeShelfRoster, isBuiltInShelfId } from "./useHome";
+import { store } from "../store";
 import { getPlaybackPosition } from "../playback/positionStore";
 import { editTrackTags, writeFileMetadata, type FileMetadataEdit, type TagOpsDeps } from "../utils/tagOps";
 import { sameSong } from "./useLikeActions";
@@ -444,6 +446,13 @@ async function assertUserPlaylist(playlistId: number): Promise<void> {
  *  cache is what lets results be played WITHOUT the API ever accepting
  *  arbitrary track URIs off the wire. */
 const SEARCH_CACHE_CAP = 8;
+
+/** How to read what the roster lists. Built-ins are library-derived, so the
+ *  shelf fetch (a plugin round-trip) doesn't serve them. */
+const HOME_SHELVES_NOTE =
+  "shown=false means switched off in Customize Home. Only fetchable (plugin) shelves load with fetch/play; " +
+  "a built-in shelf is read from the library: browse kind=recent / most_played / liked / never_played / " +
+  "forgotten_favorites, browse kind=playlists for the Made for you and decade mixes, or query_library.";
 
 /** Window snapshot for `window.get` / `window.set`. Adds the OS window id and
  *  two logical rectangles. `frame` is what `window.set` takes back (outer
@@ -1222,22 +1231,23 @@ export function useControlApi(deps: ControlApiDeps) {
 
       // --- Plugin home shelves (e.g. Spotify sections) ---
 
-      case "home.shelves":
-        // Plugin shelves only — the library-derived built-ins are covered by
-        // /v1/history and /v1/picks.
+      case "home.shelves": {
+        // Every shelf the Home page can show, shown or switched off, in its
+        // order. Read from the store HomeView persists to: listing only the
+        // plugin shelves had an assistant tell the user their Home page was
+        // one empty Last.fm shelf.
+        const visibility = (await store.get<Record<string, boolean>>("homeShelfVisibility")) ?? {};
+        const order = await store.get<string[]>("homeShelfOrder");
         return {
-          shelves: d.plugins.homeShelves.map((s) => ({
-            key: `${s.pluginId}:${s.shelfId}`,
-            pluginId: s.pluginId,
-            shelfId: s.shelfId,
-            title: s.title,
-            displayKind: s.displayKind,
-          })),
+          shelves: homeShelfRoster(d.plugins.homeShelves, visibility, order, d.plugins.pluginNames),
+          note: HOME_SHELVES_NOTE,
         };
+      }
 
       case "home.shelf": {
         const key = optionalString(payload.shelf)
           ?? bad('shelf is required (a key from GET /v1/home/shelves)');
+        if (isBuiltInShelfId(key)) bad(`"${key}" is a built-in shelf. ${HOME_SHELVES_NOTE}`);
         const shelf = resolveHomeShelf(d.plugins.homeShelves, key);
         if (typeof shelf === "string") bad(shelf);
         const limit = typeof payload.limit === "number"

@@ -27,6 +27,7 @@
 
 import { spawn } from "node:child_process";
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
+import http from "node:http";
 import { homedir } from "node:os";
 import { isAbsolute, join, win32 } from "node:path";
 import { pathToFileURL } from "node:url";
@@ -137,31 +138,77 @@ function readDiscovery() {
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
+/**
+ * One request to the control API, with `timeoutMs` as the ONLY limit.
+ *
+ * Deliberately `node:http`, not `fetch`: Node's fetch stops waiting for the
+ * response headers after 300 s (undici's `headersTimeout`, not settable
+ * without the undici package), so every call allowed longer — an install
+ * waiting on the user's dialog, a plugin download — failed at 5 minutes, and
+ * that failure read as "Vibo is not reachable" while the app was fine.
+ * Resolves `{ status, contentType, body }` (body a Buffer); rejects with
+ * `timedOut: true` when our own limit fires, otherwise with the socket error.
+ */
+export function httpCall({ port, method, path, headers = {}, body, timeoutMs }) {
+  return new Promise((resolve, reject) => {
+    const payload = body === undefined ? undefined : Buffer.from(body);
+    let timedOut = false;
+    const req = http.request(
+      {
+        host: "127.0.0.1",
+        port,
+        method,
+        path,
+        headers: payload ? { ...headers, "Content-Length": payload.length } : headers,
+      },
+      (res) => {
+        const chunks = [];
+        res.on("data", (c) => chunks.push(c));
+        res.on("end", () => {
+          clearTimeout(timer);
+          resolve({ status: res.statusCode ?? 0, contentType: res.headers["content-type"] ?? null, body: Buffer.concat(chunks) });
+        });
+        res.on("error", fail);
+      },
+    );
+    const timer = setTimeout(() => {
+      timedOut = true;
+      req.destroy(new Error(`timed out after ${timeoutMs} ms`));
+    }, timeoutMs);
+    function fail(e) {
+      clearTimeout(timer);
+      reject(Object.assign(e instanceof Error ? e : new Error(String(e)), { timedOut }));
+    }
+    req.on("error", fail);
+    if (payload) req.write(payload);
+    req.end();
+  });
+}
+
 async function apiRequest(method, path, body, { timeoutMs = DEFAULT_MS, raw = false } = {}) {
   let retries503 = 5;
   let retried504 = false;
   for (;;) {
     const { port, token } = readDiscovery();
-    const ctrl = new AbortController();
-    const timer = setTimeout(() => ctrl.abort(), timeoutMs);
     let res;
     try {
-      res = await fetch(`http://127.0.0.1:${port}${path}`, {
+      res = await httpCall({
+        port,
         method,
+        path,
         headers: {
           Authorization: `Bearer ${token}`,
           ...(body !== undefined ? { "Content-Type": "application/json" } : {}),
         },
         body: body !== undefined ? JSON.stringify(body) : undefined,
-        signal: ctrl.signal,
+        timeoutMs,
       });
     } catch (e) {
-      clearTimeout(timer);
-      if (ctrl.signal.aborted) throw new Error(`Timed out after ${timeoutMs / 1000}s: ${method} ${path}`);
+      if (e?.timedOut) throw new Error(`Timed out after ${timeoutMs / 1000}s: ${method} ${path}`, { cause: e });
       console.error(`viboplr-mcp: ${method} ${path} failed:`, e?.message ?? e);
-      throw new Error(NOT_RUNNING); // stale discovery file after a crash lands here too
+      throw new Error(NOT_RUNNING, { cause: e }); // stale discovery file after a crash lands here too
     }
-    clearTimeout(timer);
+    const ok = res.status >= 200 && res.status < 300;
     if (res.status === 503 && retries503-- > 0) {
       await sleep(1000); // app still starting
       continue;
@@ -170,20 +217,20 @@ async function apiRequest(method, path, body, { timeoutMs = DEFAULT_MS, raw = fa
       retried504 = true; // webview busy — the API's own guidance is retry once
       continue;
     }
-    if (raw && res.ok) {
+    if (raw && ok) {
       return {
-        base64: Buffer.from(await res.arrayBuffer()).toString("base64"),
-        mimeType: res.headers.get("content-type") ?? "application/octet-stream",
+        base64: res.body.toString("base64"),
+        mimeType: res.contentType ?? "application/octet-stream",
       };
     }
-    const text = await res.text();
+    const text = res.body.toString("utf8");
     let json;
     try {
       json = text ? JSON.parse(text) : {};
     } catch {
       json = { raw: text };
     }
-    if (!res.ok) throw new Error(`HTTP ${res.status}: ${json.error ?? (text || res.statusText)}`);
+    if (!ok) throw new Error(`HTTP ${res.status}: ${json.error ?? (text || http.STATUS_CODES[res.status] || "")}`);
     return json;
   }
 }

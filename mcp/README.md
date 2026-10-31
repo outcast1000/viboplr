@@ -10,6 +10,12 @@ never reaches the model or the client transcript.
 
 Requires Node ≥ 18. No `npm install` — the script is self-contained.
 
+It talks to the app with `node:http`, not `fetch`, on purpose: Node's `fetch`
+stops waiting for response headers after 300 s whatever timeout the caller set,
+so an install waiting on the user's dialog or a long plugin download failed at
+5 minutes and was reported as "Vibo is not reachable". Keep long calls on
+`httpCall` (pinned in `src/__tests__/mcpServer.test.ts`).
+
 Two files: `viboplr-mcp.mjs` is the stdio transport (discovery, token, HTTP),
 and `tools.mjs` is the tool catalog itself. The app imports the same
 `tools.mjs` and offers it to in-app plugins as `api.assistant.host`, running
@@ -84,8 +90,9 @@ switch; a sheet too large to pass inline can be written to a JSON file and
 passed as `sheetFile`, an absolute path ≤ 1 MB the MCP server reads itself, and
 can name its own song with a `track: { title, artistName }` block; each saved
 sheet records its author, a version that counts up on every save, its dates,
-and the album and length of the copy it was timed to), plugin catalogs (YouTube/Spotify search + play), plugin
-home shelves, collections (list + rescan — never add/remove), ad-hoc read-only
+and the album and length of the copy it was timed to), plugin catalogs (YouTube/Spotify search + play), the
+Home page's shelves (every built-in and plugin shelf with whether it's shown;
+plugin shelves load and play), collections (list + rescan — never add/remove), ad-hoc read-only
 SQL over the library database (`query_library` — writes and the credential
 tables are refused server-side), the app version (`app_version` — with
 `checkLatest` it also reads the newest stable release from GitHub's

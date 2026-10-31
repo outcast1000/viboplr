@@ -105,12 +105,12 @@ Both take `trackIds` (library ids) **or** `tracks` — up to 500 per request, in
 
 External results have no library ids — they are addressed only via `searchId` + `index`. Playback rides the plugin's own stream resolver (e.g. a Spotify result typically plays through yt-dlp).
 
-**Plugin home shelves** (curated collections plugins contribute — e.g. Spotify's Daily Mixes / Made For You)
+**Home shelves** (the built-ins, plus curated collections plugins contribute — e.g. Spotify's Daily Mixes / Made For You)
 
 | Endpoint | Body / notes |
 |---|---|
-| `GET /home/shelves` | → `{shelves: [{key, pluginId, shelfId, title, displayKind}]}` — plugin shelves only (library shelves are covered by /history and /picks) |
-| `POST /home/shelf` | `{shelf: "<key>", limit?}` → `{fetchId, items: [{index, name, subtitle, playable, shippedTracks, partial}]}`. Cached per session like plugin searches |
+| `GET /home/shelves` | → `{shelves: [{key, title, source, sourceName?, description?, displayKind?, shown, fetchable}], note}` — every shelf in Home order, built-ins (`source: "builtin"`) and plugin ones (`source` = plugin id). `shown: false` = switched off in Customize Home. Only `fetchable` (plugin) shelves load through `/home/shelf`; a built-in's content is read from the library (`/history`, `/picks`, `/playlists`, `/query` — the `note` says which) |
+| `POST /home/shelf` | `{shelf: "<key>", limit?}` → `{fetchId, items: [{index, name, subtitle, playable, shippedTracks, partial}]}`. Plugin shelves only — a built-in key answers 400 with where to read it instead. Cached per session like plugin searches |
 | `POST /home/play` | `{fetchId, index}` — play that card exactly as the Home page's play button would: full lists play at once, lazy cards resolve first (slow — 90s timeout), partial cards start immediately and backfill behind the music |
 
 **Plugin actions** (context-menu verbs plugins contribute — e.g. yt-dlp's "Watch YouTube video")
