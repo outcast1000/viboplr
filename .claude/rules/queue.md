@@ -88,9 +88,11 @@ Operations that need a library ID (delete, show in folder, audio properties) use
 
 ### Navigation from QueueTracks
 
-Artist/album clicks in NowPlayingBar and FullscreenControls navigate by name, not ID:
+Artist/album clicks in NowPlayingBar, FullscreenControls and the queue rows navigate by name, not ID:
 - `onNavigateToArtistByName(artist_name)` — searches library artists by name
-- `onNavigateToAlbumByName(album_title, artist_name)` — searches library albums by title + artist
+- `onNavigateToAlbumByName(album_title, album_artist_name ?? artist_name)` — searches library albums by title + **album artist** (a compilation is filed under "Various Artists", not the track's performer)
+
+**Queue row links** (`QueuePanel` → `rowOpenEntity`): the artist and album names on each row's second line are links — `cursor: pointer` and a thin underline on the hovered name only, no colour change (the line is deliberately muted). A **plain** click navigates and stops the row's click; a Cmd/Ctrl/Shift-click or the mouseup that ends a drag (`didDragRef`) falls through to the row, so selection and drag-from-the-text still work (mousedown is never stopped). A double-click on a name is a navigation, not a play — the rest of the row still double-clicks to play. A row with no artist shows plain "Unknown".
 
 ## Track Entry
 

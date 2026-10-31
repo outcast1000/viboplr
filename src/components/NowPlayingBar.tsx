@@ -640,7 +640,7 @@ export const NowPlayingBar = memo(function NowPlayingBar({
                         <span className="now-sep"> · </span>
                         <span
                           className="now-link"
-                          onClick={() => onNavigateToAlbumByName?.(currentTrack.album_title!, currentTrack.artist_name ?? undefined)}
+                          onClick={() => onNavigateToAlbumByName?.(currentTrack.album_title!, currentTrack.album_artist_name ?? currentTrack.artist_name ?? undefined)}
                         >{currentTrack.album_title}</span>
                       </>
                     )}

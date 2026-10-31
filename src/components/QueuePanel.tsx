@@ -85,6 +85,10 @@ interface QueueRowProps {
   onLocateTrack: (track: QueueTrack) => void;
   onToggleLike: (track: QueueTrack) => void;
   onToggleDislike: (track: QueueTrack) => void;
+  /** Opens the artist / album page for a name click. Returns false when the
+   *  click belongs to the row instead (a modifier-click selection, or the
+   *  mouseup that ends a drag), so the row's own click handler still runs. */
+  onOpenEntity: ((e: React.MouseEvent, track: QueueTrack, kind: "artist" | "album") => boolean) | null;
 }
 
 // Memoized so panel-level state changes (drag drop-target, selection, tooltip)
@@ -95,7 +99,7 @@ const QueueRow = memo(function QueueRow({
   localThumb, resolving, failure, onShowFailure, showRadio, showLocate, showLikes, showDislike,
   getTrackImage, observeVisible,
   onRowMouseDown, onRowClick, onRowContextMenu, onRowInfoEnter, onRowInfoLeave,
-  onPlay, onTogglePlayPause, onStartRadio, onLocateTrack, onToggleLike, onToggleDislike,
+  onPlay, onTogglePlayPause, onStartRadio, onLocateTrack, onToggleLike, onToggleDislike, onOpenEntity,
 }: QueueRowProps) {
   const rowRef = useRef<HTMLDivElement>(null);
   // Entity-image lookups invoke the backend (and can trigger a provider fetch)
@@ -162,11 +166,30 @@ const QueueRow = memo(function QueueRow({
           </div>
           <div className="queue-item-line2">
             <span className="queue-item-artist-album">
-              <span className="queue-item-artist">{t.artist_name || "Unknown"}</span>
+              {/* The names are links (a plain click opens the page). Mousedown is
+                  left to bubble so a drag can still start on the text; a
+                  double-click on a name stays a navigation, not a play. */}
+              {t.artist_name && onOpenEntity ? (
+                <span
+                  className="queue-item-artist queue-item-link"
+                  onClick={(e) => { if (onOpenEntity(e, t, "artist")) e.stopPropagation(); }}
+                  onDoubleClick={(e) => e.stopPropagation()}
+                >{t.artist_name}</span>
+              ) : (
+                <span className="queue-item-artist">{t.artist_name || "Unknown"}</span>
+              )}
               {t.album_title && (
                 <>
                   <span className="queue-item-sep"> · </span>
-                  <span className="queue-item-album">{t.album_title}</span>
+                  {onOpenEntity ? (
+                    <span
+                      className="queue-item-album queue-item-link"
+                      onClick={(e) => { if (onOpenEntity(e, t, "album")) e.stopPropagation(); }}
+                      onDoubleClick={(e) => e.stopPropagation()}
+                    >{t.album_title}</span>
+                  ) : (
+                    <span className="queue-item-album">{t.album_title}</span>
+                  )}
                 </>
               )}
             </span>
@@ -250,6 +273,8 @@ interface QueuePanelProps {
   onRemove: (index: number) => void;
   onLocateTrack?: (track: QueueTrack) => void;
   onStartRadio?: (track: QueueTrack) => void;
+  onNavigateToArtist?: (name: string) => void;
+  onNavigateToAlbum?: (title: string, artistName?: string) => void;
   onMoveMultiple: (indices: number[], targetIndex: number) => void;
   onClear: () => void;
   onSaveAsM3U: () => void;
@@ -380,7 +405,7 @@ function QueueItemThumb({ localThumb, fallback, track }: { localThumb: string | 
 export function QueuePanel({
   queue, queueIndex, queuePanelRef, playlistContext,
   pendingEnqueue, onAllowAll, onSkipDuplicates, onCancelEnqueue,
-  onPlay, onTogglePlayPause, onRemove: _onRemove, onLocateTrack, onStartRadio, onMoveMultiple, onClear, onSaveAsM3U, onSaveToPlaylists, onExportAsMixtape, onLoadPlaylist, onPublishQueue, preferVideoResolution, onPreferVideoResolutionChange, onRandomize, queueMode, onToggleQueueMode, autoContinueEnabled, onToggleAutoContinue, onOpenAutoContinueSettings, onContextMenu, onToggleLike, onToggleDislike,
+  onPlay, onTogglePlayPause, onRemove: _onRemove, onLocateTrack, onStartRadio, onNavigateToArtist, onNavigateToAlbum, onMoveMultiple, onClear, onSaveAsM3U, onSaveToPlaylists, onExportAsMixtape, onLoadPlaylist, onPublishQueue, preferVideoResolution, onPreferVideoResolutionChange, onRandomize, queueMode, onToggleQueueMode, autoContinueEnabled, onToggleAutoContinue, onOpenAutoContinueSettings, onContextMenu, onToggleLike, onToggleDislike,
   externalDropTarget,
   collapsed, fsRevealed, onToggleCollapsed, onResizeWidth, isPlaying, debugMode,
   mainPlaylistDir, thumbInfo, resolvingStatus, trackFailures, onShowFailure, backfillPending,
@@ -546,8 +571,8 @@ export function QueuePanel({
   // Latest props/state for the stable row handlers below (queue.md "Ref-Based
   // State Access") — the handlers keep one identity across renders so the
   // memoized rows don't re-render whenever the panel does.
-  const latestRef = useRef({ selectedIndices, onPlay, onTogglePlayPause, onStartRadio, onLocateTrack, onToggleLike, onToggleDislike, onMoveMultiple, onContextMenu, onShowFailure });
-  useAssignRef(latestRef, { selectedIndices, onPlay, onTogglePlayPause, onStartRadio, onLocateTrack, onToggleLike, onToggleDislike, onMoveMultiple, onContextMenu, onShowFailure });
+  const latestRef = useRef({ selectedIndices, onPlay, onTogglePlayPause, onStartRadio, onLocateTrack, onToggleLike, onToggleDislike, onMoveMultiple, onContextMenu, onShowFailure, onNavigateToArtist, onNavigateToAlbum });
+  useAssignRef(latestRef, { selectedIndices, onPlay, onTogglePlayPause, onStartRadio, onLocateTrack, onToggleLike, onToggleDislike, onMoveMultiple, onContextMenu, onShowFailure, onNavigateToArtist, onNavigateToAlbum });
 
   const rowPlay = useCallback((t: QueueTrack, i: number) => latestRef.current.onPlay(t, i), []);
   const rowTogglePlayPause = useCallback(() => latestRef.current.onTogglePlayPause(), []);
@@ -556,6 +581,23 @@ export function QueuePanel({
   const rowShowFailure = useCallback((t: QueueTrack) => latestRef.current.onShowFailure?.(t), []);
   const rowToggleLike = useCallback((t: QueueTrack) => latestRef.current.onToggleLike?.(t), []);
   const rowToggleDislike = useCallback((t: QueueTrack) => latestRef.current.onToggleDislike?.(t), []);
+  const canOpenEntity = !!(onNavigateToArtist && onNavigateToAlbum);
+  const rowOpenEntity = useCallback((e: React.MouseEvent, t: QueueTrack, kind: "artist" | "album"): boolean => {
+    // A modifier-click is a selection gesture and the mouseup ending a drag is
+    // not a click on the name — both stay with the row.
+    if (didDragRef.current || e.metaKey || e.ctrlKey || e.shiftKey) return false;
+    const { onNavigateToArtist: toArtist, onNavigateToAlbum: toAlbum } = latestRef.current;
+    if (kind === "artist") {
+      if (!t.artist_name || !toArtist) return false;
+      toArtist(t.artist_name);
+    } else {
+      if (!t.album_title || !toAlbum) return false;
+      // An album is keyed by its album artist (a compilation is owned by
+      // "Various Artists", not by this track's performer).
+      toAlbum(t.album_title, t.album_artist_name ?? t.artist_name ?? undefined);
+    }
+    return true;
+  }, []);
 
   // Scroll to currently playing track when panel opens, un-collapses, or the
   // fullscreen drawer reveals (each reveal, not just the first — the parked
@@ -944,6 +986,7 @@ export function QueuePanel({
             onLocateTrack={rowLocateTrack}
             onToggleLike={rowToggleLike}
             onToggleDislike={rowToggleDislike}
+            onOpenEntity={canOpenEntity ? rowOpenEntity : null}
           />
         ))}
         {queue.length === 0 && (

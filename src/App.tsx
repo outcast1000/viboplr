@@ -6999,6 +6999,8 @@ function App() {
             library.handleTrackClick(queueTrackSelection(track));
           }}
           onStartRadio={(track) => contextMenuActions.startRadio({ title: track.title, artistName: track.artist_name, coverPath: track.image_url ?? null })}
+          onNavigateToArtist={(name) => { library.navigateToArtistByName(name).catch((e) => console.error("Failed to open artist from the queue:", e)); }}
+          onNavigateToAlbum={(title, artistName) => { library.navigateToAlbumByName(title, artistName).catch((e) => console.error("Failed to open album from the queue:", e)); }}
           onMoveMultiple={queueHook.moveMultiple}
           onClear={queueHook.clearQueue}
           onSaveAsM3U={queueHook.savePlaylist}

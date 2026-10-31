@@ -575,6 +575,18 @@ button.queue-item-status-failed:focus-visible .queue-resolving-error {
   display: none;
 }
 
+/* Artist / album names open their page. Deliberately quiet: no colour
+   change, just a thin underline under the hovered name. */
+.queue-item-link {
+  cursor: pointer;
+}
+
+.queue-item-link:hover {
+  text-decoration: underline;
+  text-decoration-thickness: 1px;
+  text-underline-offset: 2px;
+}
+
 .queue-item-album {
   color: var(--text-secondary);
   display: none;
