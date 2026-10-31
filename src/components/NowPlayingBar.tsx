@@ -65,6 +65,12 @@ function CrossfadeArt({ src, className }: { src: string | undefined; className: 
 // backdrop-filter) changes only when the line visibly grows.
 const MINI_PROGRESS_STEPS = 2560;
 
+// What a mousedown / double-click on the mini player leaves alone instead of
+// dragging the window (or leaving mini mode): its buttons, and the artist /
+// album links on the info line — on macOS the drag starts on mousedown, so a
+// link would otherwise never see its click.
+const MINI_NO_DRAG = "button, .now-link";
+
 function SlideText({ text, className }: { text: string; className?: string }) {
   const [key, setKey] = useState(0);
   const prevRef = useRef(text);
@@ -289,12 +295,12 @@ export const NowPlayingBar = memo(function NowPlayingBar({
     const handleDrag = isMac
       ? (e: React.MouseEvent) => {
           // macOS: startDragging doesn't enter a modal loop, so dblclick fires normally
-          if ((e.target as HTMLElement).closest("button")) return;
+          if ((e.target as HTMLElement).closest(MINI_NO_DRAG)) return;
           if (e.buttons === 1) { onBeginMiniDrag?.(); getCurrentWindow().startDragging(); }
         }
       : (e: React.MouseEvent) => {
           // Windows: delay startDragging so the OS modal drag loop doesn't swallow the second click
-          if ((e.target as HTMLElement).closest("button")) return;
+          if ((e.target as HTMLElement).closest(MINI_NO_DRAG)) return;
           if (e.buttons !== 1) return;
           e.preventDefault();
           if (e.detail === 2) {
@@ -324,7 +330,7 @@ export const NowPlayingBar = memo(function NowPlayingBar({
           if (miniVolumeTimerRef.current) clearTimeout(miniVolumeTimerRef.current);
           miniVolumeTimerRef.current = setTimeout(() => setShowMiniVolume(false), 1000);
         }} onDoubleClick={isMac ? (e) => {
-          if (!(e.target as HTMLElement).closest("button")) onToggleMiniMode();
+          if (!(e.target as HTMLElement).closest(MINI_NO_DRAG)) onToggleMiniMode();
         } : undefined}>
         {miniSearch?.isOpen && getAlbumImage && getArtistImage ? (
           <MiniSearchPanel
@@ -384,6 +390,8 @@ export const NowPlayingBar = memo(function NowPlayingBar({
                         cycleResetKey={currentTrack.key}
                         cycleState={miniCycleState}
                         onCycleState={setMiniCycleState}
+                        onNavigateToArtistByName={onNavigateToArtistByName}
+                        onNavigateToAlbumByName={onNavigateToAlbumByName}
                       />
                     )}
                   </>

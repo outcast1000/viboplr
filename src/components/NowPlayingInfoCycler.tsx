@@ -264,10 +264,12 @@ interface NowPlayingInfoCyclerProps {
   className?: string;
   /** Separator between segments of one item (e.g. " · " or " — "). */
   sep?: string;
-  /** Text-only: no clickable links, no rank badges. Used by the mini player. */
+  /** No rank badges. Used by the mini player. */
   plain?: boolean;
   /** Shown when `items` is empty so the line is never blank (e.g. artist name). */
   fallbackText?: string;
+  /** Artist / album segments become links only when these are passed — the
+   *  compact mini row passes none, since its whole line is one scrolling title. */
   onNavigateToArtistByName?: (name: string) => void;
   onNavigateToAlbumByName?: (name: string, artistName?: string) => void;
   intervalMs?: number;
@@ -479,7 +481,7 @@ export function NowPlayingInfoCycler({
   const itemKey = requestedItem ? `req:${requestedItem.id}` : `${index}:${displayed.id}`;
   const styleClass = nowPlayingStyleClass(displayed.style);
   const content = displayed.segments.map((seg, i) => {
-    const navable = !plain && !!seg.nav;
+    const navable = !!seg.nav && (seg.nav.kind === "artist" ? !!onNavigateToArtistByName : !!onNavigateToAlbumByName);
     return (
       <span key={i}>
         {i > 0 && <span className="now-sep">{sep}</span>}

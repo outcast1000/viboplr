@@ -400,6 +400,15 @@
   color: var(--accent);
 }
 
+/* The mini player's info line is muted on purpose; its links stay quiet like
+   the queue rows' — a thin underline under the hovered name, no colour. */
+.now-playing-mini .now-link:hover {
+  color: inherit;
+  text-decoration: underline;
+  text-decoration-thickness: 1px;
+  text-underline-offset: 2px;
+}
+
 .now-controls {
   display: flex;
   gap: 8px;

@@ -5818,8 +5818,16 @@ function App() {
       likeActions.handleToggleDislike(t).finally(() => setLikeBusy(false));
     },
     onTrackClick: (track) => { library.handleTrackClick(queueTrackSelection(track)); },
-    onNavigateToArtistByName: library.navigateToArtistByName,
-    onNavigateToAlbumByName: library.navigateToAlbumByName,
+    // The mini player's info line links here too; a detail page only exists in
+    // the main window, so leave mini mode first (as mini search does).
+    onNavigateToArtistByName: (name: string) => {
+      if (mini.miniModeRef.current) mini.toggleMiniMode();
+      library.navigateToArtistByName(name).catch((e) => console.error("Failed to open artist from the player bar:", e));
+    },
+    onNavigateToAlbumByName: (name: string, artistName?: string) => {
+      if (mini.miniModeRef.current) mini.toggleMiniMode();
+      library.navigateToAlbumByName(name, artistName).catch((e) => console.error("Failed to open album from the player bar:", e));
+    },
     onNavigateToTagByName: library.navigateToTagByName,
     onSkipError: () => { playback.clearPlaybackError(); handleNext(); },
     // Defined unconditionally; the call site gates PRESENCE on currentTrack +
