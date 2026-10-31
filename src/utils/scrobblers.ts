@@ -39,17 +39,6 @@ export const DEFAULT_SCROBBLE_SETTINGS: ScrobbleSettings = {
   byId: {},
 };
 
-/** What happened when a play crossed the scrobble threshold: `offered` —
- *  at least one scrobbler is on for this media type; `accepted` — at least one
- *  took it (the bar's checkmark), as far as is known right away. `settled`
- *  resolves with the real answer once every scrobbler has reported, so the
- *  checkmark can follow what actually happened. */
-export interface ScrobbleOutcome {
-  offered: boolean;
-  accepted: boolean;
-  settled?: Promise<boolean>;
-}
-
 /** Per-scrobbler starting values for scrobblers with no entry of their own,
  *  overriding `default`. Built from manifests by `scrobbleDefaultsFromPlugins`. */
 export type ScrobbleDefaults = Readonly<Record<string, ScrobbleMedia>>;
@@ -191,7 +180,8 @@ export function buildScrobblerList(
  *  destination; `queued` — kept to send later (offline, batching); `skipped`
  *  — deliberately not sent (signed out, nothing to send it to); `failed` —
  *  tried and it went wrong. A plugin returns one from its `track:scrobbled`
- *  handler and/or reports later with `api.playback.reportScrobble`. */
+ *  handler and/or reports later with `api.playback.reportScrobble`; a handler
+ *  that returns nothing leaves its status line as it was. */
 export type ScrobbleReportStatus = "sent" | "queued" | "skipped" | "failed";
 
 export interface ScrobbleReport {
@@ -202,12 +192,8 @@ export interface ScrobbleReport {
   pending?: number;
 }
 
-/** A report, plus `delivered`: the plugin's handler ran and it reported
- *  nothing, so all the host knows is that the play was handed over. */
-export type ScrobblerStatusKind = ScrobbleReportStatus | "delivered";
-
 export interface ScrobblerStatus {
-  status: ScrobblerStatusKind;
+  status: ScrobbleReportStatus;
   /** When this was recorded, ms since the epoch. */
   at: number;
   title?: string;
@@ -219,7 +205,6 @@ export interface ScrobblerStatus {
 export type ScrobblerStatuses = Record<string, ScrobblerStatus>;
 
 const REPORT_STATUSES: readonly ScrobbleReportStatus[] = ["sent", "queued", "skipped", "failed"];
-const STATUS_KINDS: readonly ScrobblerStatusKind[] = [...REPORT_STATUSES, "delivered"];
 export const SCROBBLE_MESSAGE_MAX = 200;
 
 function cleanMessage(raw: unknown): string | undefined {
@@ -247,18 +232,12 @@ export function coerceScrobbleReport(raw: unknown): ScrobbleReport | null {
   return report;
 }
 
-/** Whether this outcome counts as the scrobbler having taken the play (the
- *  bar's checkmark). */
-export function statusAccepts(status: ScrobblerStatusKind): boolean {
-  return status === "sent" || status === "queued" || status === "delivered";
-}
-
 /** Record a report for `id`. `track` names the play it is about; a report
  *  without one (a queued batch landing later) keeps the play last recorded. */
 export function withScrobblerStatus(
   statuses: ScrobblerStatuses,
   id: string,
-  report: { status: ScrobblerStatusKind; message?: string; pending?: number },
+  report: ScrobbleReport,
   track: { title?: string; artist?: string } | null,
   now: number,
 ): ScrobblerStatuses {
@@ -280,9 +259,10 @@ export function coerceScrobblerStatuses(raw: unknown): ScrobblerStatuses {
   for (const [id, value] of Object.entries(raw as Record<string, unknown>)) {
     if (!value || typeof value !== "object") continue;
     const src = value as Record<string, unknown>;
-    if (!STATUS_KINDS.includes(src.status as ScrobblerStatusKind)) continue;
+    // A stored `delivered` (the retired "handed to the plugin" status) drops out here too.
+    if (!REPORT_STATUSES.includes(src.status as ScrobbleReportStatus)) continue;
     if (typeof src.at !== "number" || !Number.isFinite(src.at)) continue;
-    const status: ScrobblerStatus = { status: src.status as ScrobblerStatusKind, at: src.at };
+    const status: ScrobblerStatus = { status: src.status as ScrobbleReportStatus, at: src.at };
     if (typeof src.title === "string" && src.title) status.title = src.title;
     if (typeof src.artist === "string" && src.artist) status.artist = src.artist;
     const message = cleanMessage(src.message);
@@ -299,37 +279,27 @@ export function scrobblerStatusFor(statuses: ScrobblerStatuses, id: string): Scr
   return ownEntry(statuses, id);
 }
 
-/** What one plugin did with a play, from its `track:scrobbled` handler's
- *  answer (`value`, possibly a promise — a worker plugin's always is — or the
- *  `error` it threw): its returned report, a failure, or else "handed over".
- *  A bare return must not hide a report the plugin made itself while the
- *  handler ran (`reportScrobble`, newer than `dispatchedAt`), so that one
- *  stands. Resolves with whether the plugin took the play; never rejects. */
+/** Record what one plugin did with a play, from its `track:scrobbled`
+ *  handler's answer (`value`, possibly a promise — a worker plugin's always
+ *  is — or the `error` it threw): a returned report is recorded, a throw or
+ *  rejection is recorded as `failed`, and anything else records nothing — a
+ *  plugin that doesn't say what it did (Subsonic ignoring a local file) must
+ *  not get a status line claiming it took the play. Never rejects. */
 export function settleScrobbleResult(
   result: { value?: unknown; error?: unknown },
   deps: {
-    dispatchedAt: number;
-    current: () => ScrobblerStatus | undefined;
-    record: (report: { status: ScrobblerStatusKind; message?: string; pending?: number }) => void;
+    record: (report: ScrobbleReport) => void;
     describeError: (e: unknown) => string;
   },
-): Promise<boolean> {
+): Promise<void> {
   const fail = (e: unknown) => {
     console.error("Scrobbler failed to take the play:", e);
     deps.record({ status: "failed", message: cleanMessage(deps.describeError(e)) });
-    return false;
   };
   if ("error" in result) return Promise.resolve(fail(result.error));
   return Promise.resolve(result.value).then((value) => {
     const report = coerceScrobbleReport(value);
-    if (report) {
-      deps.record(report);
-      return statusAccepts(report.status);
-    }
-    const reported = deps.current();
-    if (reported && reported.at >= deps.dispatchedAt) return statusAccepts(reported.status);
-    deps.record({ status: "delivered" });
-    return true;
+    if (report) deps.record(report);
   }, fail);
 }
 
@@ -351,8 +321,6 @@ export function describeScrobblerStatus(
   switch (status.status) {
     case "sent":
       return { tone: "success", text: `Sent ${song} · ${when}${waiting}` };
-    case "delivered":
-      return { tone: "muted", text: `Handed ${song} to the plugin · ${when}` };
     case "queued":
       return { tone: "warning", text: `Queued ${song} · ${when}${waiting}${status.message ? ` · ${status.message}` : ""}` };
     case "skipped":

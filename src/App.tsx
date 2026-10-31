@@ -98,7 +98,7 @@ import {
 } from "./hooks/useMiniMode";
 import { useStableCallbacks } from "./hooks/useStableCallbacks";
 import { usePersistedSetting, usePersistMirror } from "./hooks/usePersistedSetting";
-import { buildScrobblerList, coerceScrobbleSettings, coerceScrobblerStatuses, DEFAULT_SCROBBLE_SETTINGS, LOCAL_HISTORY_SCROBBLER, scrobbleDefaultsFromPlugins, scrobblerAccepts, scrobblerStatusFor, settleScrobbleResult, videoOnForAll, withScrobblerStatus, withVideoForAll, type ScrobbleOutcome, type ScrobblerStatuses, type ScrobblerStatusKind, type ScrobbleSettings } from "./utils/scrobblers";
+import { buildScrobblerList, coerceScrobbleSettings, coerceScrobblerStatuses, DEFAULT_SCROBBLE_SETTINGS, LOCAL_HISTORY_SCROBBLER, scrobbleDefaultsFromPlugins, scrobblerAccepts, settleScrobbleResult, videoOnForAll, withScrobblerStatus, withVideoForAll, type ScrobbleReport, type ScrobblerStatuses, type ScrobbleSettings } from "./utils/scrobblers";
 import { coerceRadioOptions, DEFAULT_RADIO_OPTIONS, type RadioOptions } from "./utils/radioOptions";
 import { DEFAULT_PLAYER_BAR_PINS, normalizePlayerBarPins, type PlayerBarPins } from "./utils/playerBarPins";
 import { useUiZoom } from "./hooks/useUiZoom";
@@ -112,7 +112,7 @@ import { partialStoryboard } from "./utils/storyboard";
 import { useGlobalShortcuts } from "./hooks/useGlobalShortcuts";
 import { useInAppKeyboardShortcuts } from "./hooks/useInAppKeyboardShortcuts";
 import { useSkins } from "./hooks/useSkins";
-import { usePlugins, type PluginEventResult, type PluginHostCallbacks } from "./hooks/usePlugins";
+import { usePlugins, type PluginHostCallbacks } from "./hooks/usePlugins";
 import { useNowPlayingInfo } from "./hooks/useNowPlayingInfo";
 import { useImageResolver } from "./hooks/useImageResolver";
 import { useRetrieveModal, retrieveWantsSuggestions, type OpenInfoArgs, type RetrieveModalData } from "./hooks/useRetrieveModal";
@@ -463,10 +463,9 @@ function App() {
   const scrobbleSettingsRef = useLatestRef(scrobbleSettings);
   // What happened to each scrobbler's last play — the line under its row.
   const [scrobblerStatuses, setScrobblerStatuses] = usePersistedSetting<ScrobblerStatuses>("scrobblerStatus", {}, restoredRef, { restore: coerceScrobblerStatuses });
-  const scrobblerStatusesRef = useLatestRef(scrobblerStatuses);
   // Filled in below `plugins` (handleScrobble); usePlayback calls it when the
   // scrobble threshold is crossed, until some scrobbler is offered the play.
-  const onScrobbleRef = useRef<(track: QueueTrack) => ScrobbleOutcome>(() => ({ offered: false, accepted: false }));
+  const onScrobbleRef = useRef<(track: QueueTrack) => boolean>(() => false);
   // "Prefer video" is an advisory hint passed to every stream resolver in normal
   // order: a resolver that understands it (e.g. yt-dlp) returns a video stream
   // and flags the result `video`, which the host then routes to the theater;
@@ -1598,69 +1597,49 @@ function App() {
 
   // A play crossed the scrobble threshold. Settings → Playback → Scrobbling decides who
   // hears about it, per media type: the local history (`record_play`) and each
-  // plugin subscribed to `track:scrobbled`. `offered` settles the play for
-  // usePlayback (offered to nobody, it asks again next tick); `accepted` is the
-  // bar's checkmark, which must not claim a play nobody took, and `settled`
-  // corrects it once every scrobbler has answered. Each answer is also the
-  // scrobbler's status line in Settings → Playback → Scrobbling.
-  function handleScrobble(track: QueueTrack): ScrobbleOutcome {
+  // plugin subscribed to `track:scrobbled`. Returns whether anyone was offered
+  // the play: that settles it for usePlayback (the bar's checkmark — "this play
+  // was scrobbled"); offered to nobody, it asks again next tick. Whether each
+  // scrobbler actually took it is its status line in Settings → Playback →
+  // Scrobbling, not the checkmark.
+  function handleScrobble(track: QueueTrack): boolean {
     const settings = scrobbleSettingsRef.current;
     const defaults = scrobbleDefaultsRef.current;
     const isVideo = isVideoTrack(track);
     const song = { title: track.title, artist: track.artist_name ?? undefined };
-    const dispatchedAt = Date.now();
-    const settlements: Promise<boolean>[] = [];
     const local = scrobblerAccepts(settings, LOCAL_HISTORY_SCROBBLER, isVideo, defaults);
     if (local) {
       // Ranks change only when the history does, so refresh them once the
       // play is written — not before, or the read can beat the insert.
-      settlements.push(
-        invoke("record_play", { title: track.title, artistName: track.artist_name })
-          .then(() => {
-            refreshRanksFor(track);
-            recordScrobblerStatus(LOCAL_HISTORY_SCROBBLER, { status: "sent" }, song);
-            return true;
-          })
-          .catch((e) => {
-            console.error("Failed to record play:", e);
-            recordScrobblerStatus(LOCAL_HISTORY_SCROBBLER, { status: "failed", message: errorText(e) }, song);
-            return false;
-          }),
-      );
+      invoke("record_play", { title: track.title, artistName: track.artist_name })
+        .then(() => {
+          refreshRanksFor(track);
+          recordScrobblerStatus(LOCAL_HISTORY_SCROBBLER, { status: "sent" }, song);
+        })
+        .catch((e) => {
+          console.error("Failed to record play:", e);
+          recordScrobblerStatus(LOCAL_HISTORY_SCROBBLER, { status: "failed", message: errorText(e) }, song);
+        });
     }
     const plugin = plugins.dispatchEventTo(
       "track:scrobbled",
       (pluginId) => scrobblerAccepts(settings, pluginId, isVideo, defaults),
       track,
     );
-    for (const result of plugin.results) settlements.push(settlePluginScrobble(result, song, dispatchedAt));
-    return {
-      offered: local || plugin.offered > 0,
-      accepted: local || plugin.delivered > 0,
-      settled: settlements.length ? Promise.all(settlements).then((took) => took.some(Boolean)) : undefined,
-    };
-  }
-  function settlePluginScrobble(
-    result: PluginEventResult,
-    song: { title: string; artist?: string },
-    dispatchedAt: number,
-  ): Promise<boolean> {
-    return settleScrobbleResult(result, {
-      dispatchedAt,
-      current: () => scrobblerStatusFor(scrobblerStatusesRef.current, result.pluginId),
-      record: (report) => recordScrobblerStatus(result.pluginId, report, song),
-      describeError: errorText,
-    });
+    for (const result of plugin.results) {
+      void settleScrobbleResult(result, {
+        record: (report) => recordScrobblerStatus(result.pluginId, report, song),
+        describeError: errorText,
+      });
+    }
+    return local || plugin.offered > 0;
   }
   function recordScrobblerStatus(
     id: string,
-    report: { status: ScrobblerStatusKind; message?: string; pending?: number },
+    report: ScrobbleReport,
     song: { title?: string; artist?: string } | null,
   ) {
     const now = Date.now();
-    // Mirrored into the ref at once: a plugin's report and its handler's
-    // return can land in the same tick, before React commits.
-    scrobblerStatusesRef.current = withScrobblerStatus(scrobblerStatusesRef.current, id, report, song, now);
     setScrobblerStatuses((prev) => withScrobblerStatus(prev, id, report, song, now));
   }
   function refreshRanksFor(track: QueueTrack) {

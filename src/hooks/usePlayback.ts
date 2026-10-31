@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import type { QueueTrack, ResolvedTrackSource, EngineSource } from "../types";
-import type { ScrobbleOutcome } from "../utils/scrobblers";
 import { isVideoTrack, shouldScrobble } from "../utils";
 import { parseUrlScheme } from "../queueEntry";
 import { store } from "../store";
@@ -117,12 +116,12 @@ export function usePlayback(
   crossfadeSecsRef: React.RefObject<number>,
   advanceIndexRef: React.RefObject<() => void>,
   /** Called when the scrobble threshold is crossed; App hands the play to
-   *  every scrobbler that accepts it (Settings → Playback → Scrobbling). `offered`: some
-   *  scrobbler was on for this media type, so the play is settled and never
-   *  offered again. `accepted`: one of them took it — what `scrobbled`
-   *  reports. Offered to nobody, it is asked again on later ticks, so a switch
-   *  turned on mid-play still records it. */
-  onScrobbleRef: React.RefObject<(track: QueueTrack) => ScrobbleOutcome>,
+   *  every scrobbler that accepts it (Settings → Playback → Scrobbling) and
+   *  returns whether any was on for this media type. True settles the play —
+   *  it is never offered again, and `scrobbled` (the bar's checkmark) turns
+   *  on. False: it is asked again on later ticks, so a switch turned on
+   *  mid-play still records it. */
+  onScrobbleRef: React.RefObject<(track: QueueTrack) => boolean>,
   resolveTrackSrcRef: React.RefObject<(track: QueueTrack, opts?: { preload?: boolean }) => Promise<ResolvedTrackSource>>,
   prefetchNextRef: React.RefObject<() => void>,
   // True once libmpv has loaded. App owns the capability probe. Nothing plays
@@ -334,43 +333,30 @@ export function usePlayback(
   // Where the next open of the current track starts: set by seeking while no
   // session is open, by loadPaused, and by an engine-error retry.
   const pendingSeekRef = useRef(0);
-  // `scrobbledRef`: this play was offered to a scrobbler (so it is handed
-  // over at most once). `scrobbled`: some scrobbler took it — the bar's
-  // checkmark. They differ when every scrobbler is off for this media type.
+  // This play was scrobbled — handed to at least one scrobbler, at most once.
+  // The ref gates the threshold check; the state is the bar's checkmark. What
+  // each scrobbler then did with it is its status line in Settings, not this.
   const scrobbledRef = useRef(false);
   const [scrobbled, setScrobbled] = useState(false);
-  const scrobbleAcceptedRef = useRef(false);
-  // Bumped by every reset, so a late `settled` answer can't put a checkmark
-  // on the next play.
-  const scrobbleGenRef = useRef(0);
   // Runs inside the position handler, so it must never throw into it — that
   // would skip the tick's preload / crossfade decisions.
   function crossScrobbleThreshold(track: QueueTrack) {
-    let outcome: ScrobbleOutcome;
+    let offered: boolean;
     try {
-      outcome = onScrobbleRef.current(track);
+      offered = onScrobbleRef.current(track);
     } catch (e) {
+      // Settled anyway, or it would throw again on every tick.
       console.error("Failed to hand the play to the scrobblers:", e);
-      outcome = { offered: true, accepted: false };
+      scrobbledRef.current = true;
+      return;
     }
-    if (!outcome.offered) return;
+    if (!offered) return;
     scrobbledRef.current = true;
-    scrobbleAcceptedRef.current = outcome.accepted;
-    setScrobbled(outcome.accepted);
-    if (outcome.settled) {
-      const gen = scrobbleGenRef.current;
-      outcome.settled.then((accepted) => {
-        if (scrobbleGenRef.current !== gen) return;
-        scrobbleAcceptedRef.current = accepted;
-        setScrobbled(accepted);
-      }).catch((e) => console.error("Failed to settle the scrobble:", e));
-    }
+    setScrobbled(true);
   }
-  function resetScrobble(state: { crossed: boolean; accepted: boolean } = { crossed: false, accepted: false }) {
-    scrobbleGenRef.current++;
-    scrobbledRef.current = state.crossed;
-    scrobbleAcceptedRef.current = state.accepted;
-    setScrobbled(state.accepted);
+  function resetScrobble(scrobbledAlready = false) {
+    scrobbledRef.current = scrobbledAlready;
+    setScrobbled(scrobbledAlready);
   }
   const [playbackError, setPlaybackError] = useState<string | null>(null);
   const [failedTrack, setFailedTrack] = useState<QueueTrack | null>(null);
@@ -384,7 +370,7 @@ export function usePlayback(
   const playStartedAtRef = useRef(0);
   // Set by swapCurrentFile: the scrobble state of a session that is resuming
   // on a replaced file, restored by playWithSrc for that key instead of reset.
-  const resumeScrobbleRef = useRef<{ key: string; crossed: boolean; accepted: boolean; startedAt: number } | null>(null);
+  const resumeScrobbleRef = useRef<{ key: string; scrobbled: boolean; startedAt: number } | null>(null);
   const playingRef = useRef(playing);
   useAssignRef(playingRef, playing);
 
@@ -954,7 +940,7 @@ export function usePlayback(
     // scrobble state; any other play starts fresh. Consumed either way.
     const resumed = resumeScrobbleRef.current?.key === track.key ? resumeScrobbleRef.current : null;
     resumeScrobbleRef.current = null;
-    resetScrobble(resumed ?? undefined);
+    resetScrobble(resumed?.scrobbled);
     playStartedAtRef.current = resumed?.startedAt ?? Math.floor(Date.now() / 1000);
     pendingSeekRef.current = 0;
 
@@ -1066,7 +1052,7 @@ export function usePlayback(
     if (!track) return apply();
     const position = getPlaybackPosition();
     const wasPlaying = playingRef.current;
-    resumeScrobbleRef.current = { key: track.key, crossed: scrobbledRef.current, accepted: scrobbleAcceptedRef.current, startedAt: playStartedAtRef.current };
+    resumeScrobbleRef.current = { key: track.key, scrobbled: scrobbledRef.current, startedAt: playStartedAtRef.current };
     invalidatePreload();
     if (nativeSessionRef.current) {
       endNativeSession();

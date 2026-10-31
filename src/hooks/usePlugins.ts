@@ -3337,19 +3337,16 @@ export function usePlugins(
 
   /** Deliver `event` to the plugins `accept` lets through — how the
    *  Settings → Playback → Scrobbling media choices reach `track:scrobbled`. Returns how
-   *  many plugins were offered it and how many took it without throwing (a
-   *  plugin with several handlers counts once, and only if none threw), plus
-   *  each handler's own `results` entry: what it returned (for a worker
-   *  plugin, a promise of what the worker's handler returned — or rejected
-   *  with), or the error it threw. */
+   *  many plugins were offered it (a plugin with several handlers counts
+   *  once), plus each handler's own `results` entry: what it returned (for a
+   *  worker plugin, a promise of what the worker's handler returned — or
+   *  rejected with), or the error it threw. */
   const dispatchEventTo = useCallback(
     (event: PluginEventName, accept: (pluginId: string) => boolean, ...args: unknown[]): {
       offered: number;
-      delivered: number;
       results: PluginEventResult[];
     } => {
       const offered = new Set<string>();
-      const failed = new Set<string>();
       const results: PluginEventResult[] = [];
       // Copy: a handler may unsubscribe itself while we iterate, and splicing
       // the live array would skip the handler after it.
@@ -3359,12 +3356,11 @@ export function usePlugins(
         try {
           results.push({ pluginId, value: (handler as (...a: unknown[]) => unknown)(...args) });
         } catch (e) {
-          failed.add(pluginId);
           results.push({ pluginId, error: e });
           console.error(`[plugin:${pluginId}] event ${event} error:`, e);
         }
       }
-      return { offered: offered.size, delivered: offered.size - failed.size, results };
+      return { offered: offered.size, results };
     },
     [],
   );

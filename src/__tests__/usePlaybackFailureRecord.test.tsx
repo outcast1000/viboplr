@@ -51,7 +51,7 @@ function mount(resolve: (t: QueueTrack) => Promise<ResolvedTrackSource>, opts: {
       ref(() => null),
       ref(0),
       ref(() => {}),
-      ref(() => ({ offered: false, accepted: false })),
+      ref(() => false),
       ref(resolve),
       ref(() => {}),
       ref(opts.engine ?? true),

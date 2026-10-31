@@ -43,7 +43,7 @@ function mountPlayback(resolve: (t: QueueTrack) => Promise<ResolvedTrackSource>)
       ref(() => null),
       ref(0),
       ref(() => {}),
-      ref(() => ({ offered: false, accepted: false })),
+      ref(() => false),
       ref(resolve),
       ref(() => {}),
       ref(true),

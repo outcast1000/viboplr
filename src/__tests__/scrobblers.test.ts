@@ -12,8 +12,6 @@ import {
   scrobbleMediaFor,
   scrobblerAccepts,
   settleScrobbleResult,
-  statusAccepts,
-  type ScrobblerStatus,
   videoOnForAll,
   withScrobbleMedia,
   withScrobblerStatus,
@@ -67,41 +65,33 @@ describe("scrobble reports", () => {
     const r = coerceScrobbleReport({ status: "failed", message: "x".repeat(500) });
     expect(r?.message?.length).toBe(SCROBBLE_MESSAGE_MAX);
   });
-
-  it("only sent, queued and handed-over count for the checkmark", () => {
-    expect(["sent", "queued", "delivered"].every((s) => statusAccepts(s as never))).toBe(true);
-    expect(statusAccepts("skipped")).toBe(false);
-    expect(statusAccepts("failed")).toBe(false);
-  });
 });
 
 describe("settleScrobbleResult", () => {
-  function run(result: { value?: unknown; error?: unknown }, current?: ScrobblerStatus) {
+  async function run(result: { value?: unknown; error?: unknown }) {
     const recorded: unknown[] = [];
-    const settled = settleScrobbleResult(result, {
-      dispatchedAt: 100,
-      current: () => current,
+    await settleScrobbleResult(result, {
       record: (r) => recorded.push(r),
       describeError: (e) => (e instanceof Error ? e.message : String(e)),
     });
-    return settled.then((took) => ({ took, recorded }));
+    return recorded;
   }
 
-  it("uses the handler's report, sync or async", async () => {
-    expect(await run({ value: { status: "sent" } })).toEqual({ took: true, recorded: [{ status: "sent" }] });
+  it("records the handler's report, sync or async", async () => {
+    expect(await run({ value: { status: "sent" } })).toEqual([{ status: "sent" }]);
     expect(await run({ value: Promise.resolve({ status: "skipped", message: "Signed out" }) }))
-      .toEqual({ took: false, recorded: [{ status: "skipped", message: "Signed out" }] });
+      .toEqual([{ status: "skipped", message: "Signed out" }]);
   });
 
   it("a throw or a rejection is a failure with its message", async () => {
-    expect(await run({ error: new Error("boom") })).toEqual({ took: false, recorded: [{ status: "failed", message: "boom" }] });
-    expect(await run({ value: Promise.reject(new Error("503")) })).toEqual({ took: false, recorded: [{ status: "failed", message: "503" }] });
+    expect(await run({ error: new Error("boom") })).toEqual([{ status: "failed", message: "boom" }]);
+    expect(await run({ value: Promise.reject(new Error("503")) })).toEqual([{ status: "failed", message: "503" }]);
   });
 
-  it("a bare return is 'handed over' — unless the plugin reported during the handler", async () => {
-    expect(await run({ value: undefined })).toEqual({ took: true, recorded: [{ status: "delivered" }] });
-    expect(await run({ value: undefined }, { status: "failed", at: 50 })).toEqual({ took: true, recorded: [{ status: "delivered" }] });
-    expect(await run({ value: undefined }, { status: "failed", at: 150 })).toEqual({ took: false, recorded: [] });
+  // Subsonic returns nothing for a local file it ignores: no line claiming it took the play.
+  it("a handler that says nothing records nothing", async () => {
+    expect(await run({ value: undefined })).toEqual([]);
+    expect(await run({ value: Promise.resolve("ok") })).toEqual([]);
   });
 });
 
@@ -113,7 +103,8 @@ describe("scrobbler statuses", () => {
   });
 
   it("restores defensively, entry by entry", () => {
-    const raw = JSON.parse('{"core:history":{"status":"sent","at":5,"title":"A"},"bad":{"status":"nope","at":1},"noat":{"status":"sent"},"__proto__":{"status":"failed","at":2}}');
+    // `delivered` was a status once; a profile that saved one drops it.
+    const raw = JSON.parse('{"core:history":{"status":"sent","at":5,"title":"A"},"bad":{"status":"nope","at":1},"old":{"status":"delivered","at":3},"noat":{"status":"sent"},"__proto__":{"status":"failed","at":2}}');
     const s = coerceScrobblerStatuses(raw);
     expect(Object.keys(s).sort()).toEqual(["__proto__", "core:history"]);
     expect(Object.getPrototypeOf(s)).toBe(Object.prototype);
@@ -130,9 +121,7 @@ describe("scrobbler statuses", () => {
     expect(describeScrobblerStatus({ ...song, status: "skipped", message: "Sign in to send plays" }, ago))
       .toEqual({ tone: "warning", text: "Not sent: Sign in to send plays · 2 min ago" });
     expect(describeScrobblerStatus({ ...song, status: "failed", message: "Server returned 503" }, ago))
-      .toEqual({ tone: "error", text: "Failed to send “Seemann” – Rammstein: Server returned 503 · 2 min ago" });
-    expect(describeScrobblerStatus({ status: "delivered", at: 0 }, ago).text).toBe("Handed the last play to the plugin · 2 min ago");
-  });
+      .toEqual({ tone: "error", text: "Failed to send “Seemann” – Rammstein: Server returned 503 · 2 min ago" });  });
 });
 
 describe("coerceScrobbleSettings", () => {
