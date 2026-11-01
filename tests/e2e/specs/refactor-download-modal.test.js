@@ -13,17 +13,15 @@ const __dirname = fileURLToPath(new URL('.', import.meta.url));
 const tauriMockPath = path.resolve(__dirname, '..', 'tauri-mock.js');
 
 const COMMON_PROPS = {
-  providerId: 'test:prov',
-  providerName: 'TestProvider',
-  downloadFormat: 'flac',
   collections: [{ id: 1, name: 'Music', path: '/music' }],
-  downloadsCollectionId: 1,
   lastDest: null,
 };
 
 // Mounts DownloadModal into a fresh root with the given tracks, returns probe data.
-async function mountDownloadModal(page, tracks, extra = {}) {
-  return page.evaluate(async ({ tracks, common, extra }) => {
+// One track → a single-track modal with a plan; several → a batch, every track
+// with its own resolve (the shapes `utils/downloadModalState.ts` builds).
+async function mountDownloadModal(page, tracks) {
+  return page.evaluate(async ({ tracks, common }) => {
     const errors = [];
     window.addEventListener('error', (e) => errors.push(String(e.message)));
     // Vite resolves bare specifiers behind the /@id/ prefix; raw browser
@@ -40,13 +38,14 @@ async function mountDownloadModal(page, tracks, extra = {}) {
     document.body.appendChild(div);
 
     const fakeStore = { get: async () => null, set: async () => {} };
+    const resolve = async () => ({ url: '' });
+    const modalState = tracks.length === 1
+      ? { kind: 'single', track: tracks[0], plan: { providerId: 'test:prov', providerName: 'TestProvider', resolve } }
+      : { kind: 'batch', items: tracks.map((track) => ({ track, resolve })), providerId: 'test:prov', providerName: 'TestProvider' };
     const props = {
       ...common,
-      ...extra,
-      tracks,
+      modal: modalState,
       store: fakeStore,
-      onSearch: async () => [],
-      onResolve: async () => ({ url: '' }),
       onClose: () => {},
       onComplete: () => {},
     };
@@ -60,11 +59,12 @@ async function mountDownloadModal(page, tracks, extra = {}) {
       // provider name is no longer concatenated into the title string.
       title: modal?.querySelector('.dl-head h2')?.textContent ?? null,
       provider: modal?.querySelector('.dl-head .dl-prov')?.textContent ?? null,
-      trackLine: modal?.querySelector('.dl-track')?.textContent ?? null,
+      // A single track opens on its configure step, naming the track.
+      selectedTitle: modal?.querySelector('.dl-selected .dl-result-title')?.textContent ?? null,
       hasConfigRows: modal ? modal.querySelectorAll('.dl-config-row').length : 0,
       errors,
     };
-  }, { tracks, common: COMMON_PROPS, extra });
+  }, { tracks, common: COMMON_PROPS });
 }
 
 test.beforeEach(async ({ page }) => {
@@ -78,10 +78,11 @@ test('single-track DownloadModal renders via the slim wrapper', async ({ page })
     { title: 'Spike Song', artistName: 'Spike Artist', albumTitle: 'Spike Album', uri: null, durationSecs: 180, trackId: null },
   ]);
   expect(r.mounted).toBe(true);
-  // SingleTrackDownload header + provider chip + track line.
+  // SingleTrackDownload header + provider chip + the configure step.
   expect(r.title).toContain('Download track');
   expect(r.provider).toContain('TestProvider');
-  expect(r.trackLine).toContain('Spike Song');
+  expect(r.selectedTitle).toContain('Spike Song');
+  expect(r.hasConfigRows).toBeGreaterThan(0);
   expect(r.errors, `page errors: ${r.errors.join('; ')}`).toHaveLength(0);
 });
 

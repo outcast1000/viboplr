@@ -1,114 +1,37 @@
-import type {
-  InteractiveSearchResult,
-  DownloadResolveResult,
-  DownloadQualityOption,
-  DownloadResolveProgress,
-} from "../types/plugin";
+import type { DownloadQualityOption } from "../types/plugin";
 import type { AppStore } from "../store";
-import type { DownloadPlan, ResolveTrack } from "../utils/downloadPlan";
+import type { DownloadModalState } from "../utils/downloadModalState";
 import { SingleTrackDownload } from "./download/SingleTrackDownload";
 import { MultiTrackDownload } from "./download/MultiTrackDownload";
-import type { DownloadTrack, DownloadPurpose } from "./download/types";
 import "./DownloadModal.css";
 
 export type { DownloadTrack } from "./download/types";
 
 interface DownloadModalProps {
-  tracks: DownloadTrack[];
-  providerId?: string;
-  providerName: string;
-  confirmed?: boolean;
-  /** See `DownloadModalState.resolveTrack`. */
-  resolveTrack?: ResolveTrack;
-  /** See `DownloadModalState` — a plan's preview / pick-another half. */
-  preview?: DownloadPlan["preview"];
-  resolveMatch?: DownloadPlan["resolveMatch"];
-  search?: DownloadPlan["search"];
-  canChooseAnother?: DownloadPlan["canChooseAnother"];
+  modal: DownloadModalState;
   qualityOptions?: DownloadQualityOption[] | null;
   collections: { id: number; name: string; path: string }[];
   store: AppStore;
   lastDest: string | null;
-  onSearch: (query: string, limit: number) => Promise<InteractiveSearchResult[]>;
-  onResolve: (
-    matchId: string,
-    format: string,
-    onProgress?: (progress: DownloadResolveProgress) => void,
-  ) => Promise<DownloadResolveResult>;
   /** Stop the provider's in-flight resolve work (see `SingleTrackDownload`). */
   onCancelResolve?: () => void;
   onClose: () => void;
   onComplete: (message: string) => void;
   onPlay?: (path: string) => void;
-  /** See `DownloadPurpose`. */
-  purpose?: DownloadPurpose;
 }
 
-export function DownloadModal({
-  tracks,
-  providerId,
-  providerName,
-  confirmed,
-  resolveTrack,
-  preview,
-  resolveMatch,
-  search,
-  canChooseAnother,
-  qualityOptions,
-  collections,
-  store,
-  lastDest,
-  onSearch,
-  onResolve,
-  onCancelResolve,
-  onClose,
-  onComplete,
-  onPlay,
-  purpose,
-}: DownloadModalProps) {
-  const isSingle = tracks.length === 1;
-
+export function DownloadModal({ modal, ...shared }: DownloadModalProps) {
   return (
     <div className="ds-modal-overlay">
       <div className="ds-modal dl-modal" onClick={(e) => e.stopPropagation()}>
-        {isSingle ? (
-          <SingleTrackDownload
-            track={tracks[0]}
-            providerId={providerId}
-            providerName={providerName}
-            resolveTrack={resolveTrack}
-            preview={preview}
-            resolveMatch={resolveMatch}
-            search={search}
-            canChooseAnother={canChooseAnother}
-            qualityOptions={qualityOptions}
-            collections={collections}
-            store={store}
-            lastDest={lastDest}
-            onSearch={onSearch}
-            onResolve={onResolve}
-            onCancelResolve={onCancelResolve}
-            onClose={onClose}
-            onComplete={onComplete}
-            onPlay={onPlay}
-            purpose={purpose}
-          />
+        {modal.kind === "single" ? (
+          <SingleTrackDownload track={modal.track} plan={modal.plan} purpose={modal.purpose} {...shared} />
         ) : (
           <MultiTrackDownload
-            tracks={tracks}
-            providerName={providerName}
-            confirmed={confirmed}
-            qualityOptions={qualityOptions}
-            collections={collections}
-            store={store}
-            lastDest={lastDest}
-            onSearch={onSearch}
-            onResolve={onResolve}
-            onCancelResolve={onCancelResolve}
-            onClose={onClose}
-            onComplete={onComplete}
-            onPlay={onPlay}
-            purpose={purpose}
+            items={modal.items}
+            providerName={modal.providerName}
+            purpose={modal.purpose}
+            {...shared}
           />
         )}
       </div>

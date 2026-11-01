@@ -54,7 +54,8 @@ import { useEngineComponent } from "./hooks/useEngineComponent";
 import { getPlaybackPosition, subscribePlaybackPosition } from "./playback/positionStore";
 import { useStreamResolution } from "./hooks/useStreamResolution";
 import { useDownloadOrchestration } from "./hooks/useDownloadOrchestration";
-import { decideDownload, uriPlan, type DownloadPlan } from "./utils/downloadPlan";
+import { decideDownload } from "./utils/downloadPlan";
+import { pluginDownloadModal, downloadModalProviderId, type PluginDownloadTrack } from "./utils/downloadModalState";
 import { useQueue } from "./hooks/useQueue";
 import type { PlaylistContext } from "./hooks/useQueue";
 import { usePlayActions } from "./hooks/usePlayActions";
@@ -342,14 +343,6 @@ function resolveUiEntity(s: {
   return null;
 }
 
-
-/** The modal-state fields a single-track plan contributes (see `planDownloadModal`). */
-function planFields(plan: DownloadPlan) {
-  return {
-    resolveTrack: plan.resolve, preview: plan.preview, resolveMatch: plan.resolveMatch, search: plan.search,
-    canChooseAnother: plan.canChooseAnother,
-  };
-}
 
 const restorePluginViewMode = restoreOneOf<PluginViewMode>(["cards", "list"]);
 
@@ -2597,97 +2590,61 @@ function App() {
       } else if (action === "hide-loading") {
         setPluginLoadingMessage(null);
         return;
-      } else if (action === "download-album") {
-        const albumPayload = payload as { title: string; artistName: string | null; providerId: string; providerName: string; tracks: Array<{ title: string; artist_name: string | null; uri: string }> };
-        if (albumPayload.tracks && albumPayload.tracks.length > 0) {
-          setDownloadModal({
-            tracks: albumPayload.tracks.map(t => ({
-              title: t.title,
-              artistName: t.artist_name,
-              albumTitle: albumPayload.title,
-              uri: t.uri,
-              isVideo: isVideoTrack({ format: null, path: t.uri }),
-            })),
-            providerId: albumPayload.providerId,
-            providerName: albumPayload.providerName,
-            confirmed: true,
-          });
-        }
-        return;
-      } else if (action === "download-track") {
-        const p = payload as { trackId: number | null; title: string; artistName: string | null; providerId?: string; providerName?: string };
-        if (p.providerId) {
-          setDownloadModal({
-            tracks: [{
-              title: p.title,
-              artistName: p.artistName,
-              trackId: p.trackId,
-            }],
-            providerId: p.providerId,
-            providerName: p.providerName ?? p.providerId,
-          });
-        }
-      } else if (action === "download-tracks") {
-        // Generic track download: opens the standard modal. One track renders the
-        // single-track flow (direct-URI configure when a uri + provider resolver
-        // exist); multiple tracks render the multi-track batch flow. Either way the
-        // user gets a destination/quality step and per-track progress + errors.
+      } else if (action === "download-tracks" || action === "download-album") {
+        // A plugin opens the host download modal: one track → the single-track
+        // flow, several → the batch. Every track is fetched by its own `uri`
+        // through the named provider (`pluginDownloadModal`); a track without
+        // one is left out, and a request with none (or naming a provider that
+        // isn't active) is refused with a notice rather than a modal that
+        // would have to search for it.
         //
-        // A single track may name the library row it is meant to REPLACE
-        // (`libraryTrackId`, e.g. Soulseek's "Replace in library…" on a file it
-        // fetched as an upgrade). The modal's in-place upgrade flow keys off the
-        // library file's own `file://` uri (see `SingleTrackDownload.isUpgrade`),
-        // so the row is read first and, when it is a local file, stands in as
-        // the modal's track. How the file is fetched never depends on that: a
-        // single track with a source uri always gets a `resolveTrack` bound to
-        // the plugin's uri. A row that isn't local (or can't be read) falls back
-        // to the ordinary fresh download: `download_preview` needs a file on disk.
-        const p = payload as { tracks: Array<{ title: string; artist_name: string | null; album_title?: string | null; uri?: string | null; durationSecs?: number | null; libraryTrackId?: number | null }>; providerId: string; providerName: string; purpose?: string };
-        if (p.providerId && p.tracks && p.tracks.length > 0) {
-          const provider = downloadProviders.find(dp => dp.id === p.providerId);
-          const isSingle = p.tracks.length === 1;
-          const open = (upgradeOf: Track | null) => {
-            const sourceUri = p.tracks[0].uri ?? null;
-            setDownloadModal({
-              tracks: p.tracks.map((t, i) => ({
-                title: t.title,
-                artistName: t.artist_name ?? null,
-                albumTitle: t.album_title ?? null,
-                uri: i === 0 && upgradeOf ? upgradeOf.path : (t.uri ?? null),
-                durationSecs: t.durationSecs ?? null,
-                trackId: i === 0 && upgradeOf ? upgradeOf.id : null,
-                isVideo: isVideoTrack({ format: null, path: t.uri ?? null }),
-              })),
-              providerId: p.providerId,
-              providerName: p.providerName,
-              // The plugin's files are already here (Soulseek's "Add to
-              // library…"): same flow, but the modal says Add, not Download.
-              purpose: p.purpose === "import" ? "import" : undefined,
-              // Multi-track: skip the resolve/search step and resolve each uri directly.
-              confirmed: !isSingle,
-              // Single track with a source uri: resolve exactly that, no search.
-              // Without one the modal opens the provider's interactive search.
-              ...(isSingle && sourceUri && provider
-                ? planFields(uriPlan(provider, sourceUri, {
-                  title: p.tracks[0].title,
-                  artist_name: p.tracks[0].artist_name ?? null,
-                  album_title: p.tracks[0].album_title ?? null,
-                  duration_secs: p.tracks[0].durationSecs ?? null,
-                }))
-                : {}),
-            });
-          };
-          const replaceId = isSingle ? p.tracks[0].libraryTrackId : null;
-          if (typeof replaceId === "number" && p.tracks[0].uri && provider) {
-            invoke<Track | null>("get_track_by_id", { trackId: replaceId })
-              .then((row) => open(row?.path?.startsWith("file://") ? row : null))
-              .catch((e) => {
-                console.error("Failed to read the library track a plugin asked to replace:", e);
-                open(null);
-              });
-          } else {
-            open(null);
+        // A single track may name the library row it REPLACES (`libraryTrackId`,
+        // e.g. Soulseek's "Replace in library…"). When that row is a local file
+        // it stands in as the modal's track, which is what the in-place upgrade
+        // compares against; the plan still resolves the plugin's uri. A row that
+        // isn't local (or can't be read) means an ordinary fresh download.
+        const p = payload as {
+          tracks?: Array<PluginDownloadTrack & { libraryTrackId?: number | null }>;
+          providerId?: string; providerName?: string; purpose?: string;
+          /** download-album: the album title every track is filed under. */
+          title?: string;
+        };
+        if (!p.providerId || !p.tracks?.length) return;
+        const sourceless = p.tracks.filter((t) => !t.uri).length;
+        if (sourceless > 0) {
+          console.error(`Plugin ${_pluginId} asked to download ${sourceless} track(s) without a uri; they are left out.`);
+        }
+        const request = {
+          providerId: p.providerId,
+          providerName: p.providerName,
+          tracks: p.tracks,
+          albumTitle: action === "download-album" ? p.title ?? null : null,
+          // The plugin's files are already here (Soulseek's "Add to library…"):
+          // same flow, but the modal says Add, not Download.
+          purpose: p.purpose === "import" ? "import" as const : undefined,
+        };
+        const open = (upgradeOf: Track | null) => {
+          const state = pluginDownloadModal(
+            downloadProviders.find(dp => dp.id === p.providerId),
+            { ...request, upgradeOf: upgradeOf?.id != null && upgradeOf.path ? { id: upgradeOf.id, path: upgradeOf.path } : null },
+          );
+          if ("error" in state) {
+            console.error("Plugin download request refused:", state.error);
+            notify(state.error, { kind: "error", source: pluginNames[_pluginId] ?? _pluginId });
+            return;
           }
+          setDownloadModal(state);
+        };
+        const replaceId = p.tracks.length === 1 ? p.tracks[0].libraryTrackId : null;
+        if (typeof replaceId === "number" && p.tracks[0].uri) {
+          invoke<Track | null>("get_track_by_id", { trackId: replaceId })
+            .then((row) => open(row?.path?.startsWith("file://") ? row : null))
+            .catch((e) => {
+              console.error("Failed to read the library track a plugin asked to replace:", e);
+              open(null);
+            });
+        } else {
+          open(null);
         }
       } else if (action === "navigate-to-artist") {
         pushStateRef.current();
@@ -6728,41 +6685,26 @@ function App() {
         );
       })()}
       {downloadModal && (() => {
-        const parts = downloadModal.providerId.split(":");
-        // Built-in providers (e.g. Subsonic) supply options in app code; plugins
+        // The provider id is `${pluginId}:${providerId}`; built-in providers
+        // (`__builtin:…`) have no plugin behind them.
+        const providerId = downloadModalProviderId(downloadModal);
+        const [pluginId, ...rest] = providerId.split(":");
+        const fromPlugin = rest.length > 0 && pluginId !== "__builtin";
+        // Built-ins (e.g. Subsonic) supply quality options in app code; plugins
         // supply theirs via onGetQualities.
-        const qualityOptions = builtinQualityOptions(downloadModal.providerId)
-          ?? (parts.length >= 2 ? plugins.invokeGetQualities(parts[0], parts.slice(1).join(":")) : null);
+        const qualityOptions = builtinQualityOptions(providerId)
+          ?? (fromPlugin ? plugins.invokeGetQualities(pluginId, rest.join(":")) : null);
         return (
         <DownloadModal
-          tracks={downloadModal.tracks}
-          providerId={downloadModal.providerId}
-          providerName={downloadModal.providerName}
-          confirmed={downloadModal.confirmed}
-          resolveTrack={downloadModal.resolveTrack}
-          preview={downloadModal.preview}
-          resolveMatch={downloadModal.resolveMatch}
-          search={downloadModal.search}
-          canChooseAnother={downloadModal.canChooseAnother}
-          purpose={downloadModal.purpose}
+          modal={downloadModal}
           qualityOptions={qualityOptions}
           collections={localCollections}
           store={store}
           lastDest={lastDownloadDest}
-          onSearch={(query, limit) => {
-            const parts = downloadModal.providerId.split(":");
-            return plugins.invokeInteractiveSearch(parts[0], parts.slice(1).join(":"), query, limit);
-          }}
-          onResolve={(matchId, format, onProgress) => {
-            const parts = downloadModal.providerId.split(":");
-            return plugins.invokeInteractiveResolve(parts[0], parts.slice(1).join(":"), matchId, format, onProgress);
-          }}
           onCancelResolve={() => {
-            // The provider id is `${pluginId}:${providerId}`; the plugin id is
-            // what owns the running subprocesses. Built-in providers resolve in
-            // milliseconds and have no plugin, so this is simply a no-op there.
-            const pluginId = downloadModal.providerId.split(":")[0];
-            if (pluginId && pluginId !== "__builtin") plugins.cancelDownloadResolve(pluginId);
+            // The plugin owns the running subprocesses. Built-in providers
+            // resolve in milliseconds, so there is nothing to stop for them.
+            if (fromPlugin) plugins.cancelDownloadResolve(pluginId);
           }}
           onClose={() => setDownloadModal(null)}
           onComplete={(_msg) => { setDownloadModal(null); library.loadLibrary(); library.loadTracks(); }}

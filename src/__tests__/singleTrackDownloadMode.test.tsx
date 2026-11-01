@@ -1,14 +1,14 @@
 import { describe, it, expect, afterEach, vi } from "vitest";
 import { render, cleanup, fireEvent, waitFor } from "@testing-library/react";
+import type { DownloadPlan } from "../utils/downloadPlan";
 
 /**
- * Which step the single-track download modal opens on is decided by ONE input:
- * whether the caller handed it a `resolveTrack`. It used to be inferred from
- * `track.uri`, and a track a playback fallback played (or a "Not in library"
- * row) has none — so a plan that knew exactly how to fetch the track opened the
- * provider's interactive search instead, which Soulseek doesn't answer: "No
- * matches found on Soulseek" on the song that was playing. These tests pin the
- * mode to `resolveTrack` and nothing else.
+ * The single-track download window always opens with a plan (`DownloadPlan`):
+ * it already knows which track and how to fetch it, so it goes straight to the
+ * configure step and calls the plan's resolve — never a provider search, which
+ * Soulseek, for one, doesn't answer ("No matches found on Soulseek" on the song
+ * that was playing). The provider's search is reachable only through "Choose a
+ * different match…".
  */
 const invoke = vi.hoisted(() => vi.fn(async (cmd: string) => {
   if (cmd === "check_dest_conflict") return { has_conflict: false, dest_path: "/music/A - B.flac", existing_size: null, existing_format: null };
@@ -23,24 +23,22 @@ const { SingleTrackDownload } = await import("../components/download/SingleTrack
 
 const store = { get: vi.fn(async () => null), set: vi.fn() } as never;
 
-function renderModal(props: { uri: string | null; resolveTrack?: ReturnType<typeof vi.fn> }) {
-  const onSearch = vi.fn(async () => []);
-  const onResolve = vi.fn();
-  const utils = render(
+function makePlan(over: Partial<DownloadPlan> = {}): DownloadPlan {
+  return { providerId: "test:prov", providerName: "Soulseek", resolve: vi.fn() as never, ...over };
+}
+
+function renderModal(props: { uri: string | null; resolveTrack: ReturnType<typeof vi.fn>; search?: ReturnType<typeof vi.fn> }) {
+  return render(
     <SingleTrackDownload
       track={{ title: "Lady Writer", artistName: "Dire Straits", uri: props.uri }}
-      providerName="Soulseek"
-      resolveTrack={props.resolveTrack as never}
+      plan={makePlan({ resolve: props.resolveTrack as never, search: props.search as never })}
       collections={[{ id: 1, name: "Music", path: "/music" }]}
       store={store}
       lastDest={null}
-      onSearch={onSearch}
-      onResolve={onResolve}
       onClose={vi.fn()}
       onComplete={vi.fn()}
     />,
   );
-  return { ...utils, onSearch, onResolve };
 }
 
 afterEach(() => {
@@ -49,23 +47,19 @@ afterEach(() => {
 });
 
 describe("SingleTrackDownload mode", () => {
-  it("a plan's resolve with NO uri skips the search and resolves the track itself", async () => {
+  it("a plan with NO uri opens on configure and resolves the track itself, without searching", async () => {
     const resolveTrack = vi.fn(async (_format: string) => ({ url: "file:///slskd/Lady Writer.flac", headers: null, metadata: null, ext: "flac" }));
-    const { getByText, queryByText, onSearch, onResolve } = renderModal({ uri: null, resolveTrack });
+    const search = vi.fn(async () => []);
+    const { getByText, queryByText } = renderModal({ uri: null, resolveTrack, search });
 
     expect(queryByText(/No matches found/)).toBeNull();
-    expect(onSearch).not.toHaveBeenCalled();
+    expect(search).not.toHaveBeenCalled();
 
     fireEvent.click(getByText("Download"));
     await waitFor(() => expect(resolveTrack).toHaveBeenCalledTimes(1));
     expect(resolveTrack.mock.calls[0][0]).toBe("original");
-    expect(onResolve).not.toHaveBeenCalled();
     await waitFor(() => expect(invoke).toHaveBeenCalledWith("download_to_path", expect.objectContaining({ streamUrl: "file:///slskd/Lady Writer.flac" })));
-  });
-
-  it("a uri alone does not make it direct — no resolveTrack means the provider's search", async () => {
-    const { onSearch } = renderModal({ uri: "tidal://5" });
-    await waitFor(() => expect(onSearch).toHaveBeenCalledWith("Lady Writer Dire Straits", 10));
+    expect(search).not.toHaveBeenCalled();
   });
 });
 
@@ -106,18 +100,17 @@ describe("SingleTrackDownload review fixes", () => {
     }) as never);
   }
 
-  function renderWith(props: Partial<Parameters<typeof SingleTrackDownload>[0]> & { storeValues?: Record<string, unknown> }) {
-    const { storeValues, ...rest } = props;
+  type Props = Parameters<typeof SingleTrackDownload>[0];
+  function renderWith(props: Partial<Omit<Props, "plan">> & { plan?: Partial<DownloadPlan>; storeValues?: Record<string, unknown> }) {
+    const { storeValues, plan, ...rest } = props;
     const s = { get: vi.fn(async (k: string) => storeValues?.[k] ?? null), set: vi.fn() } as never;
     return render(
       <SingleTrackDownload
         track={{ title: "Alive", artistName: "Pearl Jam", uri: null }}
-        providerName="yt-dlp"
+        plan={makePlan({ providerName: "yt-dlp", ...plan })}
         collections={[{ id: 1, name: "Music", path: "/music" }]}
         store={s}
         lastDest={null}
-        onSearch={vi.fn(async () => [])}
-        onResolve={vi.fn()}
         onClose={vi.fn()}
         onComplete={vi.fn()}
         {...rest}
@@ -135,7 +128,7 @@ describe("SingleTrackDownload review fixes", () => {
     const resolveTrack = vi.fn(async () => ({ url: "file:///tmp/a.ogg", headers: null, metadata: null, ext: "ogg" }));
     const { getByText, findByText, queryByText } = renderWith({
       track: { title: "Alive", artistName: "Pearl Jam", uri: "file:///music/a.flac", trackId: 7 },
-      resolveTrack: resolveTrack as never,
+      plan: { resolve: resolveTrack as never },
     });
     fireEvent.click(getByText("Download"));
     await findByText("Compare files");
@@ -155,7 +148,7 @@ describe("SingleTrackDownload review fixes", () => {
     const resolveTrack = vi.fn(async () => ({ url: "file:///tmp/a.ogg", headers: null, metadata: null, ext: "ogg" }));
     const { getByText, findByText } = renderWith({
       track: { title: "Alive", artistName: "Pearl Jam", uri: "file:///music/a.flac", trackId: 7 },
-      resolveTrack: resolveTrack as never,
+      plan: { resolve: resolveTrack as never },
     });
     fireEvent.click(getByText("Download"));
     await findByText("This is lower quality than your file, and 21 s longer, so it may be a different version.");
@@ -174,10 +167,12 @@ describe("SingleTrackDownload review fixes", () => {
     }));
     const { getByText, findByText } = renderWith({
       track: { title: "Alive", artistName: "Pearl Jam", uri: null, isVideo: true },
-      resolveTrack: resolveTrack as never,
-      preview: preview as never,
-      resolveMatch: resolveMatch as never,
-      search: vi.fn(async () => []) as never,
+      plan: {
+        resolve: resolveTrack as never,
+        preview: preview as never,
+        resolveMatch: resolveMatch as never,
+        search: vi.fn(async () => []) as never,
+      },
     });
     await findByText("Pearl Jam - Alive (Official Video)");
     expect(preview).toHaveBeenCalledWith({ isVideo: true });
@@ -199,11 +194,12 @@ describe("SingleTrackDownload review fixes", () => {
     // registry's answer is what decides — not their presence.
     const preview = vi.fn(async () => ({ match: { id: "ytdlp://abc", title: "Pearl Jam - Alive (Official Video)" } }));
     const { findByText, queryByText } = renderWith({
-      resolveTrack: vi.fn() as never,
-      preview: preview as never,
-      resolveMatch: vi.fn() as never,
-      search: vi.fn(async () => []) as never,
-      canChooseAnother: () => false,
+      plan: {
+        preview: preview as never,
+        resolveMatch: vi.fn() as never,
+        search: vi.fn(async () => []) as never,
+        canChooseAnother: () => false,
+      },
     });
     await findByText("Pearl Jam - Alive (Official Video)");
     expect(queryByText("Choose a different match…")).toBeNull();
@@ -215,10 +211,11 @@ describe("SingleTrackDownload review fixes", () => {
       : { match: { id: "ytdlp://first", title: "Pearl Jam - Alive (Official Video)" } });
     const search = vi.fn(async () => [{ id: "ytdlp://picked", title: "Alive (Live)", artistName: "Pearl Jam" }]);
     const { getByText, findByText } = renderWith({
-      resolveTrack: vi.fn() as never,
-      preview: preview as never,
-      resolveMatch: vi.fn() as never,
-      search: search as never,
+      plan: {
+        preview: preview as never,
+        resolveMatch: vi.fn() as never,
+        search: search as never,
+      },
     });
     fireEvent.click(await findByText("Choose a different match…"));
     fireEvent.click(await findByText("Alive (Live)"));
@@ -227,9 +224,23 @@ describe("SingleTrackDownload review fixes", () => {
     expect(getByText("Alive (Live)")).toBeTruthy();
   });
 
+  it("going back from the search and opening it again keeps the results", async () => {
+    const preview = vi.fn(async () => ({ match: { id: "ytdlp://first", title: "Pearl Jam - Alive (Official Video)" } }));
+    const search = vi.fn(async () => [{ id: "ytdlp://picked", title: "Alive (Live)", artistName: "Pearl Jam" }]);
+    const { getByText, findByText } = renderWith({
+      plan: { preview: preview as never, resolveMatch: vi.fn() as never, search: search as never },
+    });
+    fireEvent.click(await findByText("Choose a different match…"));
+    await findByText("Alive (Live)");
+    fireEvent.click(getByText("Back"));
+    fireEvent.click(await findByText("Choose a different match…"));
+    await findByText("Alive (Live)");
+    expect(search).toHaveBeenCalledTimes(1);
+  });
+
   it("checks the destination with the folder layout and the album", async () => {
     const resolveTrack = vi.fn(async () => ({ url: "file:///tmp/a.flac", headers: null, metadata: { album: "Ten", trackNumber: 2 }, ext: "flac" }));
-    const { getByText, findByText } = renderWith({ resolveTrack: resolveTrack as never });
+    const { getByText, findByText } = renderWith({ plan: { resolve: resolveTrack as never } });
     expect(getByText("Music › Artist › Album")).toBeTruthy();
     fireEvent.click(getByText("Download"));
     await findByText("Download complete");
@@ -241,7 +252,7 @@ describe("SingleTrackDownload review fixes", () => {
   it("says why a saved file isn't in the library", async () => {
     withInvoke({ add_downloaded_track: () => { throw new Error("the library couldn't read the file"); } });
     const resolveTrack = vi.fn(async () => ({ url: "https://x/a.flac", headers: null, metadata: null, ext: "flac" }));
-    const { getByText, findByText, queryByText } = renderWith({ resolveTrack: resolveTrack as never });
+    const { getByText, findByText, queryByText } = renderWith({ plan: { resolve: resolveTrack as never } });
     fireEvent.click(getByText("Download"));
     await findByText(/Saved, but not added to the library: the library couldn't read the file/);
     expect(queryByText("Added to library.")).toBeNull();
@@ -249,7 +260,7 @@ describe("SingleTrackDownload review fixes", () => {
 
   it("warns when the song is already in the library", async () => {
     withInvoke({ find_track_by_metadata: () => ({ id: 3, title: "Alive", artist_name: "Pearl Jam", format: "flac", collection_name: "Music", path: "file:///music/x.flac" }) });
-    const { findByText } = renderWith({ resolveTrack: vi.fn() as never });
+    const { findByText } = renderWith({});
     await findByText(/You already have this song: Alive — Pearl Jam · FLAC · in Music/);
     await findByText("Download anyway");
   });
@@ -263,9 +274,8 @@ describe("SingleTrackDownload review fixes", () => {
     const resolveTrack = vi.fn(async () => ({ url: "file:///tmp/v.mp4", headers: null, metadata: null, ext: "mp4" }));
     const { findByText, getByText } = renderWith({
       track: { title: "Alive", artistName: "Pearl Jam", uri: null, isVideo: true },
-      providerId: "ytdlp:ytdlp-download",
       qualityOptions,
-      resolveTrack: resolveTrack as never,
+      plan: { providerId: "ytdlp:ytdlp-download", resolve: resolveTrack as never },
       storeValues: { downloadQualityByProvider: { "ytdlp:ytdlp-download": { video: "video-720" } } },
     });
     await findByText("Your last choice for yt-dlp videos");

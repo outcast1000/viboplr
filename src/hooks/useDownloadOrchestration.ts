@@ -2,55 +2,13 @@ import { useState, useMemo, useCallback } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import type { QueueTrack } from "../types";
 import type { DownloadProvider } from "../types/plugin";
-import type { DownloadTrack } from "../components/DownloadModal";
-import type { DownloadPurpose } from "../components/download/types";
 import { isVideoTrack } from "../utils";
 import { withResolverLog } from "../utils/resolverLog";
-import type { DownloadPlan, ResolveTrack } from "../utils/downloadPlan";
+import type { DownloadPlan } from "../utils/downloadPlan";
+import { planDownloadModal, type DownloadModalState } from "../utils/downloadModalState";
 import { usePlugins } from "./usePlugins";
 
-export interface DownloadModalState {
-  tracks: DownloadTrack[];
-  providerId: string;
-  providerName: string;
-  /** Batch flow only (plugin requestAction("download-tracks"/"download-album")):
-   *  skip the per-track resolve/search step and resolve each uri directly. */
-  confirmed?: boolean;
-  /** Single track: how to fetch THIS track — a `DownloadPlan.resolve`. Present
-   *  → the modal goes straight to its configure step and calls it; absent →
-   *  the modal opens the provider's interactive search (only a plugin flow that
-   *  names a track without a source does that). The modal never infers this
-   *  from `tracks[0].uri`; that inference is what kept sending tracks a
-   *  playback fallback played into a search Soulseek doesn't answer. */
-  resolveTrack?: ResolveTrack;
-  /** The plan's preview / pick-another half (`DownloadPlan`), when the
-   *  provider has one: the modal shows what will be fetched before fetching. */
-  preview?: DownloadPlan["preview"];
-  resolveMatch?: DownloadPlan["resolveMatch"];
-  search?: DownloadPlan["search"];
-  canChooseAnother?: DownloadPlan["canChooseAnother"];
-  /** `"import"` when the files are already here and the modal only copies
-   *  them into a collection (a plugin's `download-tracks` with `purpose`). */
-  purpose?: DownloadPurpose;
-}
-
-/** The modal state for downloading one track through a plan. Every plan-based
- *  entry point (the now-playing button, its control-API `ui.action`) goes
- *  through this, so none of them can wire the modal differently. `uri` is the
- *  track's own path — display, video detection and the local-file upgrade
- *  check read it; it does not decide how the track is resolved. */
-export function planDownloadModal(track: DownloadTrack, plan: DownloadPlan): DownloadModalState {
-  return {
-    tracks: [track],
-    providerId: plan.providerId,
-    providerName: plan.providerName,
-    resolveTrack: plan.resolve,
-    preview: plan.preview,
-    resolveMatch: plan.resolveMatch,
-    search: plan.search,
-    canChooseAnother: plan.canChooseAnother,
-  };
-}
+export type { DownloadModalState } from "../utils/downloadModalState";
 
 interface UseDownloadOrchestrationDeps {
   plugins: Pick<
@@ -79,7 +37,8 @@ export function useDownloadOrchestration({
   // The download provider list: built-in Subsonic first, then active plugins'
   // providers in registration order. No user-configurable priority/enable — the
   // Settings → Providers download group was removed with the auto-download
-  // chain; the only order-sensitive consumer left is mixtape export's resolve.
+  // chain. Nothing walks this list in order: callers look a provider up by id
+  // or by the plugin that owns the playing source.
   const downloadProviders = useMemo(() => {
     const providers: DownloadProvider[] = [];
 

@@ -4,50 +4,54 @@ import { listen } from "@tauri-apps/api/event";
 import { safeUnlisten } from "../../utils/tauriEvents";
 import { open } from "@tauri-apps/plugin-dialog";
 import type { Track } from "../../types";
-import type { InteractiveSearchResult, DownloadResolveResult, DownloadResolveProgress, DownloadQualityOption } from "../../types/plugin";
+import type { DownloadQualityOption } from "../../types/plugin";
 import { formatDuration, formatFileSize } from "../../utils";
 import { defaultQualityValue } from "../../utils/downloadQuality";
+import type { DownloadItem } from "../../utils/downloadModalState";
 import type { AppStore } from "../../store";
 import { IconPlay, IconFolder, IconDownload } from "../Icons";
-import type { DownloadTrack, UpgradePreviewInfo, DownloadResult, ExistingAction, ResolveState, BatchDownloadTrackState, BatchConflict, ConflictCheck, DownloadPurpose } from "./types";
-import { downloadWording } from "./types";
+import type { DownloadResult, BatchDownloadTrackState, BatchConflict, ConflictCheck, DownloadPurpose } from "./types";
+import { downloadWording, SOURCE_AS_IS } from "./types";
 import { PATH_PATTERNS, previewPattern, buildDestPath } from "./pathUtils";
 import { ProviderChip } from "./ProviderChip";
 import { QualitySelect } from "./QualitySelect";
 import { DestField } from "./DestField";
 
-import { useAssignRef } from "../../hooks/useLatestRef";
-type BatchStep = "configure" | "resolve" | "review" | "downloading" | "done";
+type BatchStep = "configure" | "downloading" | "done";
 
+const STATUS_GLYPH: Record<BatchDownloadTrackState["status"], { glyph: string; color: string } | null> = {
+  queued: { glyph: "·", color: "var(--text-tertiary)" },
+  downloading: null, // a spinner
+  done: { glyph: "✓", color: "var(--success)" },
+  error: { glyph: "✗", color: "var(--error)" },
+  skipped: { glyph: "–", color: "var(--text-tertiary)" },
+};
+
+/**
+ * Download several tracks, each fetched by its own resolve (a plugin's
+ * `download-tracks` / `download-album` request — every track names its source).
+ * One destination and quality for all, then a sequential run that stops to ask
+ * about a song already in the library or a file already on disk.
+ */
 export function MultiTrackDownload({
-  tracks,
+  items,
   providerName,
-  confirmed,
   qualityOptions,
   collections,
   store,
   lastDest,
-  onSearch,
-  onResolve,
   onCancelResolve,
   onClose,
   onComplete,
   onPlay,
   purpose,
 }: {
-  tracks: DownloadTrack[];
+  items: DownloadItem[];
   providerName: string;
-  confirmed?: boolean;
   qualityOptions?: DownloadQualityOption[] | null;
   collections: { id: number; name: string; path: string }[];
   store: AppStore;
   lastDest: string | null;
-  onSearch: (query: string, limit: number) => Promise<InteractiveSearchResult[]>;
-  onResolve: (
-    matchId: string,
-    format: string,
-    onProgress?: (progress: DownloadResolveProgress) => void,
-  ) => Promise<DownloadResolveResult>;
   /** Stops the provider's in-flight resolve (its yt-dlp / ffmpeg run). A
    *  resolve can be the whole download, so Cancel must reach it. */
   onCancelResolve?: () => void;
@@ -58,20 +62,11 @@ export function MultiTrackDownload({
   purpose?: DownloadPurpose;
 }) {
   const words = downloadWording(purpose);
-  // No provider declared quality options — offer the source as-is rather than a
-  // re-encode this (direct) path can't actually perform. The saved extension is
-  // the resolver's own `ext`; when it reports none we can't know the container
-  // (this path never sniffs the bytes), so `nativeFallback` names it `.bin`.
-  const defaultQualities: DownloadQualityOption[] = [
-    {
-      value: "original",
-      label: "Original (source format)",
-      description: "Downloads the file exactly as the provider serves it — no re-encode.",
-    },
-  ];
-  const qualities = qualityOptions && qualityOptions.length > 0 ? qualityOptions : defaultQualities;
-  const hasProviderQualities = !!(qualityOptions && qualityOptions.length > 0);
-  // Last-resort extension when the resolver reports none — see SingleTrackDownload.
+  const tracks = items.map((i) => i.track);
+  const hasProviderQualities = !!qualityOptions?.length;
+  const qualities = hasProviderQualities ? qualityOptions! : SOURCE_AS_IS;
+  // Last-resort extension when the resolver reports none: this path never
+  // sniffs the bytes, so the container can't be known.
   const nativeFallback: string | null = hasProviderQualities ? null : "bin";
 
   const [step, setStep] = useState<BatchStep>("configure");
@@ -90,7 +85,7 @@ export function MultiTrackDownload({
     if (hasProviderQualities) return;
     store.get<string>("lastDownloadQuality").then(saved => {
       if (saved && qualities.some(q => q.value === saved)) setQualityState(saved);
-    });
+    }).catch((e) => console.error("Failed to read the last download quality:", e));
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   const [destType, setDestType] = useState<"collection" | "path">("collection");
@@ -104,131 +99,34 @@ export function MultiTrackDownload({
   const [destPath, setDestPath] = useState<string | null>(null);
   const [pathPattern, setPathPattern] = useState(PATH_PATTERNS[0].value);
 
-  // Resolve step state
-  const [resolveStates, setResolveStates] = useState<ResolveState[]>([]);
-  const cancelledRef = useRef(false);
-
-  // Review step state
-  const [manualSearchIndex, setManualSearchIndex] = useState<number | null>(null);
-  const [manualQuery, setManualQuery] = useState("");
-  const [manualResults, setManualResults] = useState<InteractiveSearchResult[]>([]);
-  const [manualSearching, setManualSearching] = useState(false);
-
-  // Download step state
   const [downloadStates, setDownloadStates] = useState<BatchDownloadTrackState[]>([]);
   const [batchConflict, setBatchConflict] = useState<BatchConflict | null>(null);
-  // Inline "already in your library" prompt (confirmed/batch flow only — the
-  // resolve→review flow accounts for library matches up front instead).
   const [batchLibraryMatch, setBatchLibraryMatch] = useState<{
-    trackIndex: number;
     title: string;
     existingFormat: string | null;
     existingSize: number | null;
   } | null>(null);
-  // Cancel during the download loop: the loop awaits inline prompt promises
-  // (library match / conflict / upgrade), so a bare onClose would strand it
-  // forever — resolve any pending prompt as "skip" so the loop can observe
-  // cancelledRef and run its cleanup, and abort the in-flight backend transfer.
+  const cancelledRef = useRef(false);
+  const libraryResolveRef = useRef<((decision: "download" | "skip") => void) | null>(null);
+  const conflictResolveRef = useRef<((decision: "replace" | "keep_both" | "skip") => void) | null>(null);
+
+  // Cancel during the run: the loop awaits inline prompt promises (library
+  // match / conflict), so a bare onClose would strand it forever — answer any
+  // pending prompt with "skip" so the loop can see cancelledRef and clean up,
+  // and abort the in-flight resolve and transfer.
   function cancelDownloads() {
     cancelledRef.current = true;
     libraryResolveRef.current?.("skip");
     conflictResolveRef.current?.("skip");
-    upgradeResolveRef.current?.("skip");
     onCancelResolve?.();
     invoke("cancel_direct_download").catch(console.error);
     onClose();
   }
 
-  const libraryResolveRef = useRef<((decision: "download" | "skip") => void) | null>(null);
-  const [upgradeComparison, setUpgradeComparison] = useState<{
-    trackIndex: number;
-    title: string;
-    info: UpgradePreviewInfo;
-  } | null>(null);
-  const upgradeResolveRef = useRef<((decision: "replace" | "copy" | "skip") => void) | null>(null);
-  const conflictResolveRef = useRef<((decision: "replace" | "keep_both" | "skip") => void) | null>(null);
+  const patchRow = (i: number, patch: Partial<BatchDownloadTrackState> | ((s: BatchDownloadTrackState) => Partial<BatchDownloadTrackState>)) =>
+    setDownloadStates(prev => prev.map(s => s.index === i ? { ...s, ...(typeof patch === "function" ? patch(s) : patch) } : s));
 
-  // Callback refs -- critical to prevent stale closures in resolve useEffect
-  const onSearchRef = useRef(onSearch);
-  useAssignRef(onSearchRef, onSearch);
-  const onResolveRef = useRef(onResolve);
-  useAssignRef(onResolveRef, onResolve);
-
-  // Single resolve guard for strict mode
-  const resolveGuard = useRef(false);
-
-  // Resolve step: auto-search each track sequentially
-  useEffect(() => {
-    if (step !== "resolve") return;
-    if (resolveGuard.current) return;
-    resolveGuard.current = true;
-    cancelledRef.current = false;
-
-    async function runResolve() {
-      const initial: ResolveState[] = tracks.map(t => ({
-        originalTrack: t,
-        status: "pending",
-        match: null,
-      }));
-      setResolveStates(initial);
-
-      for (let i = 0; i < tracks.length; i++) {
-        if (cancelledRef.current) break;
-
-        setResolveStates(prev => prev.map((s, idx) =>
-          idx === i ? { ...s, status: "searching" } : s
-        ));
-
-        try {
-          const query = [tracks[i].title, tracks[i].artistName].filter(Boolean).join(" ");
-          const results = await onSearchRef.current(query, 5);
-          const match = results.length > 0 ? results[0] : null;
-
-          let libraryMatch: Track | null = null;
-          if (match) {
-            try {
-              libraryMatch = await invoke<Track | null>("find_track_by_metadata", {
-                title: match.title ?? tracks[i].title,
-                artistName: match.artistName ?? tracks[i].artistName ?? null,
-                albumName: null,
-              });
-            } catch (e) { console.error("Failed to check the library for a batch track:", e); }
-          }
-
-          setResolveStates(prev => prev.map((s, idx) =>
-            idx === i ? {
-              ...s,
-              status: match ? "matched" : "not_found",
-              match,
-              libraryTrack: libraryMatch,
-              existingAction: libraryMatch ? "skip" : undefined,
-            } : s
-          ));
-        } catch (err) {
-          console.error("Failed to resolve track:", err);
-          setResolveStates(prev => prev.map((s, idx) =>
-            idx === i ? { ...s, status: "not_found", match: null } : s
-          ));
-        }
-
-        if (i < tracks.length - 1 && !cancelledRef.current) {
-          await new Promise(r => setTimeout(r, 200));
-        }
-      }
-
-      if (!cancelledRef.current) {
-        setStep("review");
-      }
-    }
-
-    runResolve();
-
-    return () => {
-      cancelledRef.current = true;
-    };
-  }, [step]); // eslint-disable-line react-hooks/exhaustive-deps
-
-  // Download step: sequential download_to_path for each track
+  // Download step: one track at a time. Guarded for StrictMode's double effect.
   const downloadGuard = useRef(false);
   useEffect(() => {
     if (step !== "downloading") return;
@@ -237,55 +135,12 @@ export function MultiTrackDownload({
     cancelledRef.current = false;
 
     (async () => {
-      // Build the list of tracks to download
-      const toDownload = confirmed
-        ? tracks.map((t, i) => ({
-            index: i,
-            title: t.title,
-            artistName: t.artistName ?? null,
-            albumTitle: t.albumTitle ?? null,
-            uri: t.uri ?? null,
-            durationSecs: t.durationSecs ?? null,
-            matchId: t.uri ?? null,
-            coverUrl: null as string | null,
-            trackNumber: null as number | null,
-            existingAction: undefined as ExistingAction | undefined,
-            libraryPath: null as string | null,
-            libraryTrackId: null as number | null,
-          }))
-        : resolveStates
-            .map((s, i) => ({ s, i }))
-            .filter(({ s }) => s.status === "matched" && s.match && (!s.libraryTrack || s.existingAction !== "skip"))
-            .map(({ s, i }) => ({
-              index: i,
-              title: s.match!.title ?? s.originalTrack.title,
-              artistName: s.match!.artistName ?? s.originalTrack.artistName ?? null,
-              albumTitle: s.originalTrack.albumTitle ?? s.match!.albumTitle ?? null,
-              uri: s.originalTrack.uri ?? s.match!.id,
-              durationSecs: s.match!.durationSecs ?? s.originalTrack.durationSecs ?? null,
-              matchId: s.match!.id,
-              coverUrl: s.match!.coverUrl ?? null,
-              trackNumber: s.match!.trackNumber ?? null,
-              existingAction: s.existingAction,
-              libraryPath: s.libraryTrack?.path ?? null,
-              libraryTrackId: s.libraryTrack?.id ?? null,
-            }));
+      store.set("lastDownloadDest", destType === "collection" && destCollectionId != null ? String(destCollectionId) : null);
+      const basePath = (destType === "collection"
+        ? collections.find(c => c.id === destCollectionId)?.path
+        : destPath) ?? "";
 
-      // Save last used destination
-      const collId = destType === "collection" ? destCollectionId : null;
-      store.set("lastDownloadDest", collId != null ? String(collId) : null);
-
-      // Resolve destination base path
-      let basePath: string;
-      if (destType === "collection" && destCollectionId != null) {
-        const coll = collections.find(c => c.id === destCollectionId);
-        basePath = coll?.path ?? "";
-      } else {
-        basePath = destPath ?? "";
-      }
-
-      // Initialize download states
-      setDownloadStates(toDownload.map((t, i) => ({
+      setDownloadStates(tracks.map((t, i) => ({
         index: i,
         title: t.title,
         artist: t.artistName ?? "",
@@ -294,148 +149,76 @@ export function MultiTrackDownload({
       })));
 
       const ext = nativeFallback ?? (quality === "flac" ? "flac" : "m4a");
+      const isVideoQuality = qualities.find(q => q.value === quality)?.video === true;
 
-      // Set up progress listener
       const unlisten = await listen<number>("direct-download-progress", (event) => {
         setDownloadStates(prev => {
           const downloading = prev.find(s => s.status === "downloading");
           // A provider that already fetched the file (yt-dlp) reported its own
           // progress; the copy into place must not restart the row at 0%.
           if (!downloading || downloading.savingLocal) return prev;
-          return prev.map(s =>
-            s.index === downloading.index ? { ...s, progress: event.payload } : s
-          );
+          return prev.map(s => s.index === downloading.index ? { ...s, progress: event.payload } : s);
         });
       });
 
       try {
-        for (let i = 0; i < toDownload.length; i++) {
+        for (let i = 0; i < items.length; i++) {
           if (cancelledRef.current) break;
-
-          const t = toDownload[i];
-          setDownloadStates(prev => prev.map(s =>
-            s.index === i ? { ...s, status: "downloading", progress: 0 } : s
-          ));
+          const { track: t, resolve } = items[i];
+          patchRow(i, { status: "downloading", progress: 0 });
 
           try {
-            // Already-in-library prompt. Only the confirmed/batch flow needs this
-            // inline check — the resolve→review flow already surfaces library
-            // matches up front (so `existingAction` is set there). Done before
-            // resolving the stream so a "skip" doesn't waste a fetch.
-            if (confirmed) {
-              let libMatch: Track | null = null;
-              try {
-                libMatch = await invoke<Track | null>("find_track_by_metadata", {
-                  title: t.title,
-                  artistName: t.artistName ?? null,
-                  albumName: t.albumTitle ?? null,
-                });
-              } catch (e) { console.error("Failed to check the library for a batch track:", e); }
-              if (libMatch && !cancelledRef.current) {
-                setBatchLibraryMatch({
-                  trackIndex: i,
-                  title: t.title,
-                  existingFormat: libMatch.format ?? null,
-                  existingSize: libMatch.file_size ?? null,
-                });
-                const decision = await new Promise<"download" | "skip">((resolve) => {
-                  libraryResolveRef.current = resolve;
-                });
-                setBatchLibraryMatch(null);
-                libraryResolveRef.current = null;
-                if (decision === "skip") {
-                  setDownloadStates(prev => prev.map(s =>
-                    s.index === i ? { ...s, status: "skipped" } : s
-                  ));
-                  continue;
-                }
+            // Already in the library? Asked before resolving, so a skip
+            // doesn't cost a fetch.
+            let libMatch: Track | null = null;
+            try {
+              libMatch = await invoke<Track | null>("find_track_by_metadata", {
+                title: t.title,
+                artistName: t.artistName ?? null,
+                albumName: t.albumTitle ?? null,
+              });
+            } catch (e) { console.error("Failed to check the library for a batch track:", e); }
+            if (libMatch && !cancelledRef.current) {
+              setBatchLibraryMatch({
+                title: t.title,
+                existingFormat: libMatch.format ?? null,
+                existingSize: libMatch.file_size ?? null,
+              });
+              const decision = await new Promise<"download" | "skip">((r) => { libraryResolveRef.current = r; });
+              setBatchLibraryMatch(null);
+              libraryResolveRef.current = null;
+              if (decision === "skip") {
+                patchRow(i, { status: "skipped" });
+                continue;
               }
             }
 
-            // Resolve the stream URL + metadata. A provider that downloads the
-            // file itself reports how far it is; show it on this track's row.
-            const resolved = await onResolveRef.current(t.matchId!, quality, (p) => {
+            // A provider that downloads the file itself reports how far it is;
+            // show it on this track's row.
+            const resolved = await resolve(quality, (p) => {
               if (cancelledRef.current) return;
-              setDownloadStates(prev => prev.map(s => s.index === i ? {
-                ...s,
+              patchRow(i, (s) => ({
                 progress: typeof p.percent === "number" ? Math.max(0, Math.min(100, Math.round(p.percent))) : s.progress,
                 stage: [p.label, p.detail].filter(Boolean).join(" · ") || s.stage,
-              } : s));
+              }));
             });
+            if (!resolved) throw new Error(`${providerName} couldn't find this track to download.`);
             const streamUrl = resolved.url;
             const savingLocal = streamUrl.startsWith("file://");
-            setDownloadStates(prev => prev.map(s => s.index === i ? {
-              ...s, savingLocal, stage: savingLocal ? "Saving…" : undefined,
-            } : s));
+            patchRow(i, { savingLocal, stage: savingLocal ? "Saving…" : undefined });
 
-            // Merge metadata
             const title = resolved.metadata?.title || t.title;
             const artistName = resolved.metadata?.artist || t.artistName;
             const albumTitle = resolved.metadata?.album || t.albumTitle;
-            const trackNumber = resolved.metadata?.trackNumber ?? t.trackNumber;
-            const coverUrl = resolved.metadata?.coverUrl || t.coverUrl;
-
-            // A concrete resolver-provided extension overrides the batch default
-            // so the saved file matches the real container (e.g. original files).
+            const trackNumber = resolved.metadata?.trackNumber ?? null;
+            const coverUrl = resolved.metadata?.coverUrl ?? null;
+            // A concrete resolver extension overrides the batch default so the
+            // saved file matches the real container.
             const trackExt = resolved.ext && resolved.ext !== "auto" ? resolved.ext : ext;
+            const dp = buildDestPath(basePath, pathPattern, title, artistName ?? "Unknown", albumTitle ?? "Unknown", trackNumber, trackExt);
 
-            // Build destination path
-            const dp = buildDestPath(
-              basePath,
-              pathPattern,
-              title,
-              artistName ?? "Unknown",
-              albumTitle ?? "Unknown",
-              trackNumber,
-              trackExt
-            );
-
+            // A file already at that path: ask before clobbering it.
             let finalPath = dp;
-
-            // Overwrite flow: download preview, compare, then user decides
-            if (t.existingAction === "overwrite" && t.libraryTrackId != null) {
-              const info = await invoke<UpgradePreviewInfo>("download_preview", {
-                trackId: t.libraryTrackId,
-                streamUrl,
-                format: quality,
-                ext: resolved.ext && resolved.ext !== "auto" ? resolved.ext : nativeFallback,
-                title,
-                artistName,
-                albumTitle,
-                trackNumber,
-                coverUrl: coverUrl ?? null,
-              });
-
-              setUpgradeComparison({ trackIndex: i, title: t.title, info });
-
-              const decision = await new Promise<"replace" | "copy" | "skip">((resolve) => {
-                upgradeResolveRef.current = resolve;
-              });
-
-              setUpgradeComparison(null);
-              upgradeResolveRef.current = null;
-
-              if (decision === "replace") {
-                await invoke("confirm_track_upgrade", { trackId: t.libraryTrackId, newPath: info.new_path });
-                setDownloadStates(prev => prev.map(s =>
-                  s.index === i ? { ...s, status: "done", progress: 100, filePath: info.new_path } : s
-                ));
-              } else if (decision === "copy") {
-                await invoke("save_track_as_copy", { trackId: t.libraryTrackId, newPath: info.new_path });
-                setDownloadStates(prev => prev.map(s =>
-                  s.index === i ? { ...s, status: "done", progress: 100, filePath: info.new_path } : s
-                ));
-              } else {
-                await invoke("cancel_track_upgrade", { newPath: info.new_path }).catch(console.error);
-                setDownloadStates(prev => prev.map(s =>
-                  s.index === i ? { ...s, status: "skipped" } : s
-                ));
-              }
-              continue;
-            }
-
-            // File-conflict prompt: stat the exact path we're about to write
-            // (built from the user's layout pattern) and ask before clobbering.
             let overwrite = false;
             try {
               const conflict = await invoke<ConflictCheck>("check_path_conflict", { destPath: dp });
@@ -449,28 +232,21 @@ export function MultiTrackDownload({
                   existingFormat: conflict.existing_format,
                   altPath,
                 });
-                const decision = await new Promise<"replace" | "keep_both" | "skip">((resolve) => {
-                  conflictResolveRef.current = resolve;
-                });
+                const decision = await new Promise<"replace" | "keep_both" | "skip">((r) => { conflictResolveRef.current = r; });
                 setBatchConflict(null);
                 conflictResolveRef.current = null;
                 if (decision === "skip") {
-                  setDownloadStates(prev => prev.map(s =>
-                    s.index === i ? { ...s, status: "skipped" } : s
-                  ));
+                  patchRow(i, { status: "skipped" });
                   continue;
-                } else if (decision === "replace") {
-                  overwrite = true;
-                } else {
-                  finalPath = altPath;
                 }
+                if (decision === "replace") overwrite = true;
+                else finalPath = altPath;
               }
             } catch (e) {
-              // Conflict check failed — fall through and let download_to_path decide.
+              // Let download_to_path decide.
               console.error("Failed to check a batch download destination:", e);
             }
 
-            // Normal download
             const result = await invoke<DownloadResult>("download_to_path", {
               streamUrl,
               destPath: finalPath,
@@ -480,41 +256,28 @@ export function MultiTrackDownload({
               artistName,
               albumTitle,
               trackNumber,
-              coverUrl: coverUrl ?? null,
-              isVideo: qualities.find(q => q.value === quality)?.video === true
-                || (!hasProviderQualities && !!tracks[t.index]?.isVideo),
+              coverUrl,
+              isVideo: isVideoQuality || (!hasProviderQualities && !!t.isVideo),
             });
 
-            // Index into library if downloaded to a collection
             if (destType === "collection" && destCollectionId != null) {
               try {
-                await invoke("add_downloaded_track", {
-                  path: result.path,
-                  collectionId: destCollectionId,
-                });
+                await invoke("add_downloaded_track", { path: result.path, collectionId: destCollectionId });
               } catch (e) {
-                // Non-blocking -- file saved, just not indexed. Shown on the row.
+                // The file is saved, just not indexed. Shown on the row.
                 console.error("Failed to add a downloaded file to the library:", e);
-                setDownloadStates(prev => prev.map(s =>
-                  s.index === i ? { ...s, error: `Saved, but not added to the library: ${e instanceof Error ? e.message : String(e)}` } : s
-                ));
+                patchRow(i, { error: `Saved, but not added to the library: ${e instanceof Error ? e.message : String(e)}` });
               }
             }
-
-            setDownloadStates(prev => prev.map(s =>
-              s.index === i ? { ...s, status: "done", progress: 100, filePath: result.path } : s
-            ));
+            patchRow(i, { status: "done", progress: 100, filePath: result.path });
           } catch (err) {
             console.error("Failed to download track:", t.title, err);
-            setDownloadStates(prev => prev.map(s =>
-              s.index === i ? { ...s, status: "error", error: String(err) } : s
-            ));
+            patchRow(i, { status: "error", error: err instanceof Error ? err.message : String(err) });
           }
         }
       } finally {
         safeUnlisten(unlisten);
       }
-
       setStep("done");
     })();
 
@@ -522,28 +285,6 @@ export function MultiTrackDownload({
       cancelledRef.current = true;
     };
   }, [step]); // eslint-disable-line react-hooks/exhaustive-deps
-
-  async function handleManualSearch(_index: number) {
-    setManualSearching(true);
-    try {
-      const results = await onSearchRef.current(manualQuery, 10);
-      setManualResults(results);
-    } catch (err) {
-      console.error("Failed to perform manual search:", err);
-      setManualResults([]);
-    } finally {
-      setManualSearching(false);
-    }
-  }
-
-  function handlePickManualMatch(index: number, match: InteractiveSearchResult) {
-    setResolveStates(prev => prev.map((s, i) =>
-      i === index ? { ...s, status: "matched", match } : s
-    ));
-    setManualSearchIndex(null);
-    setManualQuery("");
-    setManualResults([]);
-  }
 
   async function handleBrowseFolder() {
     const selected = await open({ directory: true, multiple: false });
@@ -554,28 +295,63 @@ export function MultiTrackDownload({
     }
   }
 
-  function handleStart() {
-    store.set("lastDownloadDest", destCollectionId != null ? String(destCollectionId) : null);
-    if (confirmed) {
-      setStep("downloading");
-    } else {
-      setStep("resolve");
-    }
-  }
-
-  // Derive a representative artist/album from the first track for the preview
-  const sampleArtist = tracks[0]?.artistName ?? "Artist";
-  const sampleAlbum = tracks[0]?.albumTitle ?? "Album";
-  const sampleTitle = tracks[0]?.title ?? "Track Name";
   const ext = nativeFallback ?? (quality === "flac" ? "flac" : "m4a");
-  const preview = previewPattern(pathPattern, sampleArtist, sampleAlbum, sampleTitle, ext);
+  const pathPreview = previewPattern(
+    pathPattern,
+    tracks[0]?.artistName ?? "Artist",
+    tracks[0]?.albumTitle ?? "Album",
+    tracks[0]?.title ?? "Track Name",
+    ext,
+  );
   const totalDur = tracks.reduce((s, t) => s + (t.durationSecs ?? 0), 0);
-  const headTitle =
-    step === "review" ? `Review ${tracks.length} tracks`
-    : step === "resolve" ? "Matching tracks"
-    : step === "downloading" ? words.workingMany
-    : step === "done" ? words.done
-    : words.multiTitle(tracks.length);
+  const finished = downloadStates.filter(t => t.status === "done" || t.status === "error" || t.status === "skipped").length;
+  const doneCount = downloadStates.filter(t => t.status === "done").length;
+  const errCount = downloadStates.filter(t => t.status === "error").length;
+  const skippedCount = downloadStates.filter(t => t.status === "skipped").length;
+  const headTitle = step === "downloading" ? words.workingMany : step === "done" ? words.done : words.multiTitle(tracks.length);
+
+  const renderRow = (ds: BatchDownloadTrackState) => {
+    const glyph = STATUS_GLYPH[ds.status];
+    return (
+      <div key={ds.index} className="dl-batch-row">
+        <div className="dl-batch-status">
+          {glyph ? <span style={{ color: glyph.color }}>{glyph.glyph}</span> : <div className="ds-spinner ds-spinner--sm" />}
+        </div>
+        <div className="dl-batch-info">
+          <div className="dl-batch-title">{ds.title}</div>
+          {ds.artist && <div className="dl-batch-match">{ds.artist}</div>}
+          {ds.status === "downloading" && ds.stage && <div className="dl-batch-match">{ds.stage}</div>}
+          {ds.error && (ds.status === "error" || ds.status === "done") && (
+            <div className="dl-batch-match" style={{ color: ds.status === "error" ? "var(--error)" : "var(--warning)" }}>{ds.error}</div>
+          )}
+        </div>
+        {ds.status === "downloading" && <div className="dl-batch-progress">{ds.progress}%</div>}
+        {ds.status === "done" && ds.filePath && (
+          <div className="dl-batch-action" style={{ display: "flex", gap: "4px" }}>
+            {onPlay && (
+              <button className="g-btn g-btn-xs" title="Play" onClick={() => onPlay(ds.filePath!)}>
+                <IconPlay size={10} />
+              </button>
+            )}
+            <button className="g-btn g-btn-xs" title="Show in Folder" onClick={() => invoke("show_in_folder_path", { filePath: ds.filePath }).catch(console.error)}>
+              <IconFolder size={10} />
+            </button>
+          </div>
+        )}
+      </div>
+    );
+  };
+
+  const overallBar = (pct: number, label: string) => (
+    <div className="dl-batch-overall">
+      <div className="dl-progress">
+        <div className="dl-progress-bar">
+          <div className="dl-progress-fill" style={{ width: `${pct}%` }} />
+        </div>
+        <span className="dl-progress-pct">{label}</span>
+      </div>
+    </div>
+  );
 
   return (
     <>
@@ -584,12 +360,7 @@ export function MultiTrackDownload({
         <ProviderChip name={providerName} />
       </div>
 
-      {tracks.length === 0 && (
-        <div className="dl-error">No tracks to download</div>
-      )}
-
-      {/* CONFIGURE STEP */}
-      {step === "configure" && tracks.length > 0 && (
+      {step === "configure" && (
         <>
           <div className="dl-config-row">
             <label>Quality</label>
@@ -616,7 +387,7 @@ export function MultiTrackDownload({
               ))}
             </select>
           </div>
-          <div className="dl-path-preview">{preview}</div>
+          <div className="dl-path-preview">{pathPreview}</div>
 
           <div className="dl-list-header">{tracks.length} tracks{totalDur ? ` · ${formatDuration(totalDur)}` : ""}</div>
           <div className="dl-batch-list">
@@ -636,7 +407,7 @@ export function MultiTrackDownload({
 
           <div className="dl-actions">
             <button onClick={onClose}>Cancel</button>
-            <button className="dl-btn-primary" onClick={handleStart}>
+            <button className="dl-btn-primary" onClick={() => setStep("downloading")}>
               <IconDownload size={15} />
               {words.startMany(tracks.length)}
             </button>
@@ -644,187 +415,10 @@ export function MultiTrackDownload({
         </>
       )}
 
-      {/* RESOLVE STEP */}
-      {step === "resolve" && (
-        <>
-          <div className="dl-batch-list">
-            {resolveStates.map((rs, i) => (
-              <div key={i} className="dl-batch-row">
-                <div className="dl-batch-status">
-                  {rs.status === "searching" && <div className="ds-spinner ds-spinner--sm" />}
-                  {rs.status === "matched" && <span style={{color: "var(--success)"}}>&#10003;</span>}
-                  {rs.status === "not_found" && <span style={{color: "var(--error)"}}>&#10007;</span>}
-                  {rs.status === "pending" && <span style={{color: "var(--text-tertiary)"}}>&#183;</span>}
-                </div>
-                <div className="dl-batch-info">
-                  <div className="dl-batch-title">{rs.originalTrack.title}</div>
-                  {rs.status === "matched" && rs.match && (
-                    <div className="dl-batch-match">&rarr; {rs.match.title}{rs.match.artistName ? ` — ${rs.match.artistName}` : ""}</div>
-                  )}
-                  {rs.status === "not_found" && (
-                    <div className="dl-batch-match">No match found</div>
-                  )}
-                  {rs.status === "searching" && (
-                    <div className="dl-batch-match">Searching...</div>
-                  )}
-                </div>
-              </div>
-            ))}
-          </div>
-          <div className="dl-actions">
-            <button onClick={cancelDownloads}>Cancel</button>
-          </div>
-        </>
-      )}
-
-      {/* REVIEW STEP */}
-      {step === "review" && (() => {
-        const matchedCount = resolveStates.filter(s => s.status === "matched").length;
-        const notFoundCount = resolveStates.filter(s => s.status === "not_found").length;
-        const existingCount = resolveStates.filter(s => s.libraryTrack).length;
-        const downloadableCount = resolveStates.filter(s =>
-          s.status === "matched" && (!s.libraryTrack || s.existingAction !== "skip")
-        ).length;
-
-        return (
-          <>
-            {existingCount > 0 && (
-              <div className="dl-error" style={{background: "color-mix(in srgb, var(--warning) 15%, transparent)", color: "var(--warning)"}}>
-                {existingCount} track{existingCount > 1 ? "s" : ""} already in your library
-              </div>
-            )}
-            <div className="dl-batch-list">
-              {resolveStates.map((rs, i) => (
-                <div key={i}>
-                  <div className="dl-batch-row">
-                    <div className="dl-batch-status">
-                      {rs.status === "matched" && !rs.libraryTrack && <span style={{color: "var(--success)"}}>&#10003;</span>}
-                      {rs.status === "matched" && rs.libraryTrack && <span style={{color: "var(--warning)"}}>&#9679;</span>}
-                      {rs.status === "not_found" && <span style={{color: "var(--error)"}}>&#10007;</span>}
-                    </div>
-                    <div className="dl-batch-info">
-                      <div className="dl-batch-title">{rs.originalTrack.title}</div>
-                      {rs.status === "matched" && rs.match && (
-                        <div className="dl-batch-match">
-                          &rarr; {rs.match.title}{rs.match.artistName ? ` — ${rs.match.artistName}` : ""}
-                          {rs.match.durationSecs ? ` (${formatDuration(rs.match.durationSecs)})` : ""}
-                        </div>
-                      )}
-                      {rs.status === "matched" && rs.libraryTrack && (
-                        <div className="dl-batch-match" style={{color: "var(--warning)"}}>
-                          In library: {rs.libraryTrack.format?.toUpperCase() ?? "local"}
-                          {rs.libraryTrack.file_size ? `, ${formatFileSize(rs.libraryTrack.file_size)}` : ""}
-                          {rs.libraryTrack.duration_secs ? `, ${formatDuration(rs.libraryTrack.duration_secs)}` : ""}
-                        </div>
-                      )}
-                      {rs.status === "not_found" && (
-                        <div className="dl-batch-match">No match found</div>
-                      )}
-                    </div>
-                    {rs.status === "matched" && rs.libraryTrack && (
-                      <div className="dl-batch-action">
-                        <select
-                          value={rs.existingAction ?? "skip"}
-                          onChange={e => {
-                            const action = e.target.value as ExistingAction;
-                            setResolveStates(prev => prev.map((s, idx) =>
-                              idx === i ? { ...s, existingAction: action } : s
-                            ));
-                          }}
-                          style={{fontSize: "var(--fs-xs)", padding: "2px 4px"}}
-                        >
-                          <option value="skip">Skip</option>
-                          <option value="download">Download</option>
-                          {rs.libraryTrack!.path?.startsWith("file://") && (
-                            <option value="overwrite">Overwrite</option>
-                          )}
-                        </select>
-                      </div>
-                    )}
-                    {rs.status === "not_found" && (
-                      <div className="dl-batch-action">
-                        <button className="dl-btn-small" onClick={() => {
-                          setManualSearchIndex(manualSearchIndex === i ? null : i);
-                          setManualQuery([rs.originalTrack.title, rs.originalTrack.artistName].filter(Boolean).join(" "));
-                          setManualResults([]);
-                        }}>
-                          {manualSearchIndex === i ? "Close" : "Search"}
-                        </button>
-                      </div>
-                    )}
-                  </div>
-
-                  {manualSearchIndex === i && (
-                    <div className="dl-batch-inline-search">
-                      <div className="dl-search-field">
-                        <input
-                          value={manualQuery}
-                          onChange={e => setManualQuery(e.target.value)}
-                          onKeyDown={e => { if (e.key === "Enter") handleManualSearch(i); }}
-                          placeholder="Search..."
-                        />
-                        <button onClick={() => handleManualSearch(i)} disabled={manualSearching}>Search</button>
-                      </div>
-                      {manualSearching && <div className="dl-loading"><div className="ds-spinner ds-spinner--sm" /></div>}
-                      {!manualSearching && manualResults.length > 0 && (
-                        <div className="dl-batch-inline-results">
-                          {manualResults.map(r => (
-                            <div key={r.id} className="dl-batch-row" style={{cursor: "pointer"}} onClick={() => handlePickManualMatch(i, r)}>
-                              <div className="dl-batch-info">
-                                <div className="dl-batch-title">{r.title}</div>
-                                <div className="dl-batch-match">{r.artistName}{r.albumTitle ? ` — ${r.albumTitle}` : ""}</div>
-                              </div>
-                            </div>
-                          ))}
-                        </div>
-                      )}
-                      {!manualSearching && manualResults.length === 0 && manualQuery && (
-                        <div className="dl-empty" style={{padding: "8px"}}>No results</div>
-                      )}
-                    </div>
-                  )}
-                </div>
-              ))}
-            </div>
-
-            <div className="dl-batch-footer">
-              <span>
-                {matchedCount} matched{notFoundCount > 0 ? `, ${notFoundCount} not found` : ""}
-                {existingCount > 0 ? ` (${existingCount} existing)` : ""}
-              </span>
-            </div>
-
-            <div className="dl-actions">
-              <button onClick={onClose}>Cancel</button>
-              <button className="dl-btn-primary" onClick={() => setStep("downloading")}
-                disabled={downloadableCount === 0}>
-                <IconDownload size={15} />
-                {words.startMany(downloadableCount)}
-              </button>
-            </div>
-          </>
-        );
-      })()}
-
-      {/* DOWNLOADING STEP */}
       {step === "downloading" && (
         <>
-          <div className="dl-batch-overall">
-            <div className="dl-progress">
-              <div className="dl-progress-bar">
-                <div className="dl-progress-fill" style={{
-                  width: `${downloadStates.length > 0
-                    ? (downloadStates.filter(t => t.status === "done" || t.status === "error" || t.status === "skipped").length / downloadStates.length * 100)
-                    : 0}%`
-                }} />
-              </div>
-              <span className="dl-progress-pct">
-                {downloadStates.filter(t => t.status === "done" || t.status === "error" || t.status === "skipped").length} / {downloadStates.length}
-              </span>
-            </div>
-          </div>
+          {overallBar(downloadStates.length > 0 ? finished / downloadStates.length * 100 : 0, `${finished} / ${downloadStates.length}`)}
 
-          {/* Inline "already in library" UI */}
           {batchLibraryMatch && (
             <div className="dl-conflict">
               <div className="dl-conflict-filename">
@@ -841,7 +435,6 @@ export function MultiTrackDownload({
             </div>
           )}
 
-          {/* Inline conflict UI */}
           {batchConflict && (
             <div className="dl-conflict">
               <div className="dl-conflict-filename">
@@ -858,84 +451,7 @@ export function MultiTrackDownload({
             </div>
           )}
 
-          {/* Inline upgrade comparison UI */}
-          {upgradeComparison && (
-            <div className="dl-conflict">
-              <h4 style={{margin: "0 0 8px"}}>{upgradeComparison.title}</h4>
-              <div className="dl-compare">
-                <div className="dl-compare-col">
-                  <h4>Current file</h4>
-                  <div className="dl-field">
-                    <span>Format</span>
-                    <span>{upgradeComparison.info.old_format?.toUpperCase() ?? "—"}</span>
-                  </div>
-                  <div className="dl-field">
-                    <span>Size</span>
-                    <span>{formatFileSize(upgradeComparison.info.old_file_size)}</span>
-                  </div>
-                </div>
-                <div className="dl-compare-arrow">{"→"}</div>
-                <div className="dl-compare-col">
-                  <h4>New version</h4>
-                  <div className="dl-field">
-                    <span>Format</span>
-                    <span>{upgradeComparison.info.new_format?.toUpperCase() ?? "—"}</span>
-                  </div>
-                  <div className="dl-field">
-                    <span>Size</span>
-                    <span>{formatFileSize(upgradeComparison.info.new_file_size)}</span>
-                  </div>
-                </div>
-              </div>
-              <div className="dl-actions" style={{ marginTop: "12px", justifyContent: "center" }}>
-                <button onClick={() => upgradeResolveRef.current?.("skip")}>Skip</button>
-                <button className="dl-btn-secondary" onClick={() => upgradeResolveRef.current?.("copy")}>Save as Copy</button>
-                <button className="dl-btn-primary" onClick={() => upgradeResolveRef.current?.("replace")}>Replace</button>
-              </div>
-            </div>
-          )}
-
-          <div className="dl-batch-list">
-            {downloadStates.map((ds) => (
-              <div key={ds.index} className="dl-batch-row">
-                <div className="dl-batch-status">
-                  {ds.status === "queued" && <span style={{color: "var(--text-tertiary)"}}>&#183;</span>}
-                  {ds.status === "downloading" && <div className="ds-spinner ds-spinner--sm" />}
-                  {ds.status === "done" && <span style={{color: "var(--success)"}}>&#10003;</span>}
-                  {ds.status === "error" && <span style={{color: "var(--error)"}}>&#10007;</span>}
-                  {ds.status === "skipped" && <span style={{color: "var(--text-tertiary)"}}>&ndash;</span>}
-                </div>
-                <div className="dl-batch-info">
-                  <div className="dl-batch-title">{ds.title}</div>
-                  {ds.artist && <div className="dl-batch-match">{ds.artist}</div>}
-                  {ds.status === "downloading" && ds.stage && (
-                    <div className="dl-batch-match">{ds.stage}</div>
-                  )}
-                  {ds.status === "error" && ds.error && (
-                    <div className="dl-batch-match" style={{color: "var(--error)"}}>{ds.error}</div>
-                  )}
-                  {ds.status === "done" && ds.error && (
-                    <div className="dl-batch-match" style={{color: "var(--warning)"}}>{ds.error}</div>
-                  )}
-                </div>
-                {ds.status === "downloading" && (
-                  <div className="dl-batch-progress">{ds.progress}%</div>
-                )}
-                {ds.status === "done" && ds.filePath && (
-                  <div className="dl-batch-action" style={{display: "flex", gap: "4px"}}>
-                    {onPlay && (
-                      <button className="g-btn g-btn-xs" title="Play" onClick={() => onPlay(ds.filePath!)}>
-                        <IconPlay size={10} />
-                      </button>
-                    )}
-                    <button className="g-btn g-btn-xs" title="Show in Folder" onClick={() => invoke("show_in_folder_path", { filePath: ds.filePath }).catch(console.error)}>
-                      <IconFolder size={10} />
-                    </button>
-                  </div>
-                )}
-              </div>
-            ))}
-          </div>
+          <div className="dl-batch-list">{downloadStates.map(renderRow)}</div>
 
           <div className="dl-actions">
             <button onClick={cancelDownloads}>Cancel</button>
@@ -943,72 +459,25 @@ export function MultiTrackDownload({
         </>
       )}
 
-      {/* DONE STEP */}
-      {step === "done" && (() => {
-        const doneCount = downloadStates.filter(t => t.status === "done").length;
-        const errCount = downloadStates.filter(t => t.status === "error").length;
-        const skippedCount = downloadStates.filter(t => t.status === "skipped").length;
-        return (
-          <>
-            <div className="dl-batch-overall">
-              <div className="dl-progress">
-                <div className="dl-progress-bar">
-                  <div className="dl-progress-fill" style={{ width: "100%" }} />
-                </div>
-                <span className="dl-progress-pct">
-                  {doneCount} / {downloadStates.length}
-                </span>
-              </div>
-            </div>
-
-            <div className="dl-batch-list">
-              {downloadStates.map((ds) => (
-                <div key={ds.index} className="dl-batch-row">
-                  <div className="dl-batch-status">
-                    {ds.status === "done" && <span style={{color: "var(--success)"}}>&#10003;</span>}
-                    {ds.status === "error" && <span style={{color: "var(--error)"}}>&#10007;</span>}
-                    {ds.status === "skipped" && <span style={{color: "var(--text-tertiary)"}}>&ndash;</span>}
-                  </div>
-                  <div className="dl-batch-info">
-                    <div className="dl-batch-title">{ds.title}</div>
-                    {ds.artist && <div className="dl-batch-match">{ds.artist}</div>}
-                    {ds.status === "error" && ds.error && (
-                      <div className="dl-batch-match" style={{color: "var(--error)"}}>{ds.error}</div>
-                    )}
-                  </div>
-                  {ds.status === "done" && ds.filePath && (
-                    <div className="dl-batch-action" style={{display: "flex", gap: "4px"}}>
-                      {onPlay && (
-                        <button className="g-btn g-btn-xs" title="Play" onClick={() => onPlay(ds.filePath!)}>
-                          <IconPlay size={10} />
-                        </button>
-                      )}
-                      <button className="g-btn g-btn-xs" title="Show in Folder" onClick={() => invoke("show_in_folder_path", { filePath: ds.filePath }).catch(console.error)}>
-                        <IconFolder size={10} />
-                      </button>
-                    </div>
-                  )}
-                </div>
-              ))}
-            </div>
-
-            <div className="dl-batch-footer">
-              <span>
-                {doneCount} downloaded{errCount > 0 ? `, ${errCount} failed` : ""}{skippedCount > 0 ? `, ${skippedCount} skipped` : ""}
-              </span>
-            </div>
-
-            <div className="dl-actions">
-              <button className="dl-btn-primary" onClick={() => {
-                onComplete(words.summary(doneCount, downloadStates.length));
-                onClose();
-              }}>
-                Done
-              </button>
-            </div>
-          </>
-        );
-      })()}
+      {step === "done" && (
+        <>
+          {overallBar(100, `${doneCount} / ${downloadStates.length}`)}
+          <div className="dl-batch-list">{downloadStates.map(renderRow)}</div>
+          <div className="dl-batch-footer">
+            <span>
+              {doneCount} downloaded{errCount > 0 ? `, ${errCount} failed` : ""}{skippedCount > 0 ? `, ${skippedCount} skipped` : ""}
+            </span>
+          </div>
+          <div className="dl-actions">
+            <button className="dl-btn-primary" onClick={() => {
+              onComplete(words.summary(doneCount, downloadStates.length));
+              onClose();
+            }}>
+              Done
+            </button>
+          </div>
+        </>
+      )}
     </>
   );
 }

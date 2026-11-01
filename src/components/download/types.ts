@@ -1,6 +1,14 @@
 // Shared types for the download modal family (split out of DownloadModal.tsx).
-import type { Track } from "../../types";
-import type { InteractiveSearchResult } from "../../types/plugin";
+import type { DownloadQualityOption } from "../../types/plugin";
+
+/** The quality list when a provider declares none: the source as-is, never a
+ *  re-encode this path can't perform. The saved extension is the resolver's own
+ *  `ext`; without one the file is named `.bin` and renamed from its bytes. */
+export const SOURCE_AS_IS: DownloadQualityOption[] = [{
+  value: "original",
+  label: "Original (source format)",
+  description: "Downloads the file exactly as the provider serves it — no re-encode.",
+}];
 
 export interface DownloadTrack {
   title: string;
@@ -84,16 +92,6 @@ export interface DownloadResult {
   path: string;
   format: string;
   file_size: number;
-}
-
-export type ExistingAction = "skip" | "download" | "overwrite";
-
-export interface ResolveState {
-  originalTrack: DownloadTrack;
-  status: "pending" | "searching" | "matched" | "not_found";
-  match?: InteractiveSearchResult | null;
-  libraryTrack?: Track | null;
-  existingAction?: ExistingAction;
 }
 
 export type BatchDownloadStatus = "queued" | "downloading" | "done" | "error" | "skipped";
