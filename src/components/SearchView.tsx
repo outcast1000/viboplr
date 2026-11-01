@@ -15,6 +15,7 @@ import { toggleSortKey, chainDir, type SortKey, type SortDir } from "../sortChai
 import { SortButton, LoadMoreSentinel } from "./search/searchShared";
 import { SearchTagResults, SearchAlbumResults, SearchArtistResults } from "./search/SearchEntityResults";
 import { subscribeTrackEvents } from "../trackEvents";
+import { applyLikedCopies } from "../utils/trackLikeStore";
 
 import { useAssignRef } from "../hooks/useLatestRef";
 function isLocalVideo(t: Track): boolean {
@@ -457,6 +458,11 @@ export function SearchView({
           ...prev,
           tracks: prev.tracks.map(t => t.id === event.trackId ? { ...t, ...event.patch } : t),
         }));
+      } else if (event.kind === "liked") {
+        setResults(prev => {
+          const tracks = applyLikedCopies(prev.tracks, event.likedOf);
+          return tracks === prev.tracks ? prev : { ...prev, tracks };
+        });
       } else {
         const removed = new Set(event.trackIds);
         setResults(prev => ({

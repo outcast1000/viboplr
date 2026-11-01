@@ -65,8 +65,8 @@ import * as queueOps from "./utils/queueOps";
 import type { QueueOpsDeps } from "./utils/queueOps";
 import type { TagOpsDeps } from "./utils/tagOps";
 import { TagOpsProvider } from "./contexts/TagOpsContext";
-import { TrackLikeStoreContext, useTrackLikeStoreSync } from "./contexts/TrackLikeContext";
-import { TrackLikeStore } from "./utils/trackLikeStore";
+import { TrackLikeStoreContext, useTrackLikeCopySync, useTrackLikeStoreSync } from "./contexts/TrackLikeContext";
+import { TrackLikeStore, applyLikedCopies } from "./utils/trackLikeStore";
 import { createCoalescedRefresh } from "./utils/coalescedRefresh";
 import { useToasts } from "./hooks/useToasts";
 import { useAssistantActivity } from "./hooks/useAssistantActivity";
@@ -2066,6 +2066,11 @@ function App() {
   // utils/trackLikeStore.ts). Loaded once, kept current from entity-likes-changed.
   const [trackLikeStore] = useState(() => new TrackLikeStore());
   useTrackLikeStoreSync(trackLikeStore);
+  useTrackLikeCopySync(trackLikeStore, {
+    setLibraryTracks: library.setTracks,
+    setQueue: queueHook.setQueue,
+    setCurrentTrack: playback.setCurrentTrack,
+  });
 
   const likeActions = useLikeActions({
     library: {
@@ -3980,6 +3985,8 @@ function App() {
     return subscribeTrackEvents(event => {
       if (event.kind === "patch") {
         setDetailTrack(prev => prev && prev.id === event.trackId ? { ...prev, ...event.patch } : prev);
+      } else if (event.kind === "liked") {
+        setDetailTrack(prev => prev ? applyLikedCopies([prev], event.likedOf)[0] : prev);
       } else {
         const removed = new Set(event.trackIds);
         setDetailTrack(prev => prev && prev.id != null && removed.has(prev.id) ? null : prev);

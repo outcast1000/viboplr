@@ -6,6 +6,7 @@ import { normalizeTrackTitle } from "../utils/missingTracks";
 import { buildExternalQueueTrack } from "../utils/externalTrack";
 import { nextTriState } from "../likeKeys";
 import { subscribeTrackEvents } from "../trackEvents";
+import { applyLikedCopies } from "../utils/trackLikeStore";
 
 
 /**
@@ -188,6 +189,8 @@ export function useEntityDetail({ kind, name, artistName, invokeInfoFetch, onEnt
     return subscribeTrackEvents(event => {
       if (event.kind === "patch") {
         setTracks(prev => prev.map(t => t.id === event.trackId ? { ...t, ...event.patch } : t));
+      } else if (event.kind === "liked") {
+        setTracks(prev => applyLikedCopies(prev, event.likedOf));
       } else {
         const removed = new Set(event.trackIds);
         setTracks(prev => prev.filter(t => t.id == null || !removed.has(t.id)));
