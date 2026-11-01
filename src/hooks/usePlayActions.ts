@@ -1,12 +1,13 @@
 import { useCallback } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import type { Track, Album, Artist, Tag, QueueTrack } from "../types";
-import type { PlaylistContext } from "./useQueue";
+import type { PlaylistContext, LoadingPlay, LoadingPlayOutcome, AppendedTail } from "./useQueue";
 import { trackToQueueTrack } from "../queueEntry";
 import { buildExternalQueueTrack } from "../utils/externalTrack";
 import { track as trackTelemetry } from "../telemetry";
 import type { RadioOptions } from "../utils/radioOptions";
 import type { Notify } from "./useToasts";
+import type { BackfillOpts } from "../utils/queueOps";
 
 interface PlayActionsArgs {
   // Raw `Track`s are fine — useQueue converts at the door (`toQueueTracks`).
@@ -15,10 +16,12 @@ interface PlayActionsArgs {
   // Guarded append for the tail of a play session — no-ops once the queue has
   // been replaced. Must be the raw queue append, NOT the duplicate-banner
   // enqueue path (see useQueue.appendToPlaySession).
-  appendToPlaySession: (gen: number, tracks: QueueTrack[]) => boolean;
-  // Drives the queue panel's "filling in the rest…" indicator.
-  markBackfillPending: (gen: number) => void;
-  settleBackfill: (gen: number) => void;
+  appendToPlaySession: (gen: number, tracks: QueueTrack[]) => AppendedTail | null;
+  // The loading-play record (useQueue): what the queue panel and the bars show
+  // while a play is being built, and what the end of the queue waits for.
+  beginLoadingPlay: (info: Omit<LoadingPlay, "gen" | "startedAt">) => LoadingPlay;
+  isLoadingPlayLive: (play: LoadingPlay) => boolean;
+  endLoadingPlay: (play: LoadingPlay, outcome: LoadingPlayOutcome, failure?: string) => void;
   setPlaylistContext: (fn: (prev: PlaylistContext | null) => PlaylistContext | null) => void;
   albums: Album[];
   artists: Artist[];
@@ -140,15 +143,8 @@ function enrichDescription(
 
 /** A play whose first track(s) are known up front and whose remainder resolves
  *  asynchronously. See `playWithBackfill`. */
-export interface BackfillPlay {
-  /** Plays immediately. Must be the true start of the list, in order. */
-  head: QueueTrack[];
-  context?: PlaylistContext | null;
-  /** The full list (head included or not — the head is de-duped either way). */
-  resolveTail: () => Promise<QueueTrack[]>;
-  /** Toast shown when the tail fails or comes back empty. */
-  tailErrorMessage?: string;
-}
+/** See utils/queueOps.ts → BackfillOpts; the two are one shape. */
+export type BackfillPlay = BackfillOpts;
 
 function entityImage(kind: "album" | "artist", name: string, artistName: string | null): Promise<string | null> {
   return invoke<string | null>("get_entity_image", { kind, name, artistName }).catch(e => {
@@ -186,8 +182,9 @@ export function usePlayActions({
   playTracks,
   enqueueTracks,
   appendToPlaySession,
-  markBackfillPending,
-  settleBackfill,
+  beginLoadingPlay,
+  isLoadingPlayLive,
+  endLoadingPlay,
   setPlaylistContext,
   albums,
   artists,
@@ -258,48 +255,82 @@ export function usePlayActions({
     }
   }, [enqueueTracks]);
 
-  // Canonical "start playing now, fill the rest in behind the music" action.
-  // Use it whenever the first track(s) of a play are known up front but the
-  // rest costs real time to produce (a plugin scrape, a network catalog) — the
-  // user hears audio immediately instead of watching a modal.
+  // Canonical action for a play whose list costs real time to produce (a
+  // plugin scrape, a network catalog). Two shapes, one path:
+  //  - a known head (a radio station's seed, a card's cached first track):
+  //    it plays now and the rest is appended behind the music ("extend");
+  //  - an empty head (nothing is known until it resolves): the current queue
+  //    keeps playing and the list replaces it when it lands ("switch").
+  // Either way the queue panel and the bars show it loading, and the end of
+  // the queue waits for it (useQueue.waitForLoadingPlay).
   //
-  // Only valid when the source *guarantees* the head is the start of the list
-  // (a radio station's seed, a card's cached first track). For a list whose
-  // order isn't known until it resolves, play it the ordinary way — starting
-  // early would misrepresent the source's order.
-  // Resolves with the tracks actually appended (empty when the tail failed, was
-  // redundant, or arrived too late), so callers that post-process new queue
-  // entries — e.g. reconciling plugin tracks against the durable like store —
-  // can act on exactly what landed.
-  const playWithBackfill = useCallback(async ({ head, context, resolveTail, tailErrorMessage }: BackfillPlay): Promise<QueueTrack[]> => {
-    if (head.length === 0) return [];
-    // `fillsLater`: Latest play records this session once the tail has
-    // settled, so its card holds the whole station, not the one-track head.
-    const gen = playTracks(head, 0, context ?? null, { fillsLater: true });
-    // Tell the queue panel a tail is coming, so the wait is visible for its
-    // whole duration rather than only for as long as a toast lives.
-    markBackfillPending(gen);
-    try {
-      let tail: QueueTrack[];
+  // A head is only valid when the source *guarantees* it is the start of the
+  // list. For a list whose order isn't known until it resolves, pass no head —
+  // starting early would misrepresent the source's order.
+  // Resolves with the tracks that landed (an extend's appended tail, a
+  // switch's whole list; empty when it failed, was redundant, or was dropped),
+  // so callers can report exactly what landed.
+  const playWithBackfill = useCallback(async ({ head, context, resolveTail, tailErrorMessage, source, originKey }: BackfillPlay): Promise<QueueTrack[]> => {
+    const ctx = context ?? null;
+    const info = {
+      name: ctx?.name ?? head[0]?.title ?? "tracks",
+      imagePath: ctx?.imagePath ?? null,
+      source: source ?? null,
+      originKey: originKey ?? null,
+    };
+    const resolveList = async (): Promise<QueueTrack[] | null> => {
       try {
-        tail = await resolveTail();
+        return await resolveTail();
       } catch (e) {
         console.error("Failed to resolve the rest of the queue:", e);
-        // The head keeps playing — the user only needs to know the rest is missing.
+        return null;
+      }
+    };
+
+    // Switch: nothing is known yet, so nothing starts. The current queue keeps
+    // playing and the list replaces it when it lands — unless the user
+    // cancelled or played something else meanwhile.
+    if (head.length === 0) {
+      const loading = beginLoadingPlay({ mode: "switch", ...info });
+      const list = await resolveList();
+      if (!isLoadingPlayLive(loading)) {
+        endLoadingPlay(loading, { kind: "nothing" });
+        return [];
+      }
+      if (!list || list.length === 0) {
+        endLoadingPlay(loading, { kind: "nothing" });
         if (tailErrorMessage) notify(tailErrorMessage, { kind: "error" });
         return [];
       }
-      if (tail.length === 0) {
-        if (tailErrorMessage) notify(tailErrorMessage, { kind: "error" });
-        return [];
-      }
-      const rest = dropPlayedHead(head, tail);
-      // Stale (the user replaced or cleared the queue while we resolved) → dropped.
-      return appendToPlaySession(gen, rest) ? rest : [];
-    } finally {
-      settleBackfill(gen);
+      // Ends the loading play itself (a new session), releasing any waiter.
+      playTracks(list, 0, ctx);
+      return list;
     }
-  }, [playTracks, appendToPlaySession, markBackfillPending, settleBackfill, notify]);
+
+    // Extend: the head plays now. `fillsLater`: Latest play records this
+    // session once the tail has settled, so its card holds the whole station,
+    // not the one-track head.
+    const gen = playTracks(head, 0, ctx, { fillsLater: true });
+    const loading = beginLoadingPlay({ mode: "extend", ...info });
+    const tail = await resolveList();
+    if (!isLoadingPlayLive(loading)) {
+      // Cancelled, or the user replaced the queue: dropped.
+      endLoadingPlay(loading, { kind: "nothing" });
+      return [];
+    }
+    if (!tail || tail.length === 0) {
+      // The head keeps playing — the user only needs to know the rest is missing.
+      if (tailErrorMessage) notify(tailErrorMessage, { kind: "error" });
+      endLoadingPlay(loading, { kind: "nothing" }, tailErrorMessage ?? `Couldn't load the rest of “${info.name}”.`);
+      return [];
+    }
+    const appended = appendToPlaySession(gen, dropPlayedHead(head, tail));
+    endLoadingPlay(
+      loading,
+      appended ? { kind: "extended", index: appended.index, first: appended.tracks[0] } : { kind: "nothing" },
+    );
+    return appended?.tracks ?? [];
+  }, [playTracks, appendToPlaySession, beginLoadingPlay, isLoadingPlayLive, endLoadingPlay, notify]);
 
   // Build a radio station from a seed track and play it. Play-only (no enqueue):
   // it replaces the queue with a freshly generated station under a "Radio: …"

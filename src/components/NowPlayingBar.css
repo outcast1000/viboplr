@@ -131,6 +131,105 @@
   cursor: pointer;
 }
 
+/* Waiting for a play still loading: an indeterminate sweep over the seek
+   surface (the shared ds-sweep keyframe, transform only). Opaque underlay so
+   the finished song's waveform reads as done, not as progress. */
+.now-seek-waiting {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  background: var(--now-playing-bg);
+  pointer-events: none;
+}
+
+.now-seek-waiting::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 50%;
+  height: 3px;
+  margin-top: -1.5px;
+  border-radius: 2px;
+  background: var(--bg-surface);
+}
+
+.now-seek-waiting-fill {
+  position: absolute;
+  left: 0;
+  top: 50%;
+  width: 28%;
+  height: 3px;
+  margin-top: -1.5px;
+  border-radius: 2px;
+  background: var(--accent);
+  animation: ds-sweep 1.4s ease-in-out infinite;
+}
+
+.now-info--waiting .now-art-wrapper,
+.now-info--waiting .now-title {
+  opacity: 0.55;
+  transition: opacity var(--dur-base);
+}
+
+.now-subtitle--waiting {
+  color: var(--accent);
+}
+
+/* A pending switch (a play whose first song isn't known yet). Takes layout in
+   the right cluster; dropped on narrow bars, where the queue banner remains. */
+.now-switch-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 280px;
+  padding: 4px 4px 4px 10px;
+  border: 1px solid rgba(var(--accent-rgb), 0.4);
+  border-radius: var(--ds-radius-pill);
+  background: color-mix(in srgb, var(--accent) 10%, var(--now-playing-bg));
+  color: var(--text-primary);
+  font-size: var(--fs-xs);
+  white-space: nowrap;
+  animation: fade-in var(--dur-base) var(--ease-out-quart);
+}
+
+.now-switch-chip-text {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.now-switch-chip-elapsed {
+  flex-shrink: 0;
+  color: var(--text-tertiary);
+  font-variant-numeric: tabular-nums;
+}
+
+.now-switch-chip-cancel {
+  flex-shrink: 0;
+  display: grid;
+  place-items: center;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: none;
+  color: var(--text-secondary);
+  cursor: pointer;
+}
+
+.now-switch-chip-cancel:hover {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+}
+
+@media (max-width: 1100px) {
+  .now-switch-chip {
+    display: none;
+  }
+}
+
 /* Times now flank the waveform as side columns rather than overlaying the peaks,
    so they no longer need the drop-shadow that kept them legible over the bars. */
 .now-seek-time {

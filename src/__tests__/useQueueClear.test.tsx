@@ -99,22 +99,22 @@ describe("clearQueue", () => {
 
     act(() => { result.current.clearQueue(); });
 
-    let appended = true;
+    let appended: unknown = "unset";
     act(() => { appended = result.current.appendToPlaySession(gen, [makeTrack(2)]); });
-    expect(appended).toBe(false);
+    expect(appended).toBeNull();
     expect(result.current.queue).toEqual([]);
   });
 
-  it("retires the pending-backfill indicator", () => {
+  it("drops a play still loading", () => {
     const { result } = mountQueue();
     act(() => {
-      const gen = result.current.playTracks([makeTrack(1)], 0);
-      result.current.markBackfillPending(gen);
+      result.current.playTracks([makeTrack(1)], 0);
+      result.current.beginLoadingPlay({ mode: "extend", name: "Radio", imagePath: null, source: null, originKey: null });
     });
-    expect(result.current.backfillPending).toBe(true);
+    expect(result.current.loadingPlay).not.toBeNull();
 
     act(() => { result.current.clearQueue(); });
-    expect(result.current.backfillPending).toBe(false);
+    expect(result.current.loadingPlay).toBeNull();
   });
 
   // A cleared queue must not resurrect on the next play's generation check.
@@ -125,10 +125,10 @@ describe("clearQueue", () => {
 
     let gen = 0;
     act(() => { gen = result.current.playTracks([makeTrack(3)], 0); });
-    let appended = false;
+    let appended: unknown = null;
     act(() => { appended = result.current.appendToPlaySession(gen, [makeTrack(4)]); });
 
-    expect(appended).toBe(true);
+    expect(appended).not.toBeNull();
     expect(result.current.queue.map((t) => t.title)).toEqual(["Song 3", "Song 4"]);
   });
 });

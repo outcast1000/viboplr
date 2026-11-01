@@ -124,9 +124,14 @@ describe("playWithBackfill", () => {
     expect(deps.playWithBackfill).toHaveBeenCalledWith({ head, resolveTail });
   });
 
-  it("an empty head starts nothing", async () => {
+  // No known first track: still the same path (a switch — the list replaces
+  // the queue when it lands), not a no-op.
+  it("passes an empty head through", async () => {
     const deps = makeDeps();
-    await expect(playWithBackfill(deps, { head: [], resolveTail: async () => [qt("t")] })).resolves.toEqual([]);
-    expect(deps.playWithBackfill).not.toHaveBeenCalled();
+    const list = [qt("t")];
+    vi.mocked(deps.playWithBackfill).mockResolvedValue(list);
+    const resolveTail = async () => list;
+    await expect(playWithBackfill(deps, { head: [], resolveTail })).resolves.toBe(list);
+    expect(deps.playWithBackfill).toHaveBeenCalledWith({ head: [], resolveTail });
   });
 });

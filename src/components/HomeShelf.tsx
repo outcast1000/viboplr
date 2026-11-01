@@ -11,6 +11,7 @@ import { EntityArtFallback } from "./EntityArtFallback";
 import { firstUsableImage, type ImageCandidate } from "../utils/imageCandidates";
 import "./HomeView.css";
 import { VinylArt } from "./PlaceholderArt";
+import { homeCardOriginKey } from "../utils/homeCardOrigin";
 
 // First track's album image, falling back to its artist image — the on-demand
 // (fetch + refresh) cover for a playlist card with no explicit coverUrl. Used for
@@ -93,9 +94,11 @@ export interface HomeShelfProps {
   onItemPlay: (shelf: ResolvedShelf, item: HomeShelfItem) => void;
   /** Opens the shelf's own ⋯ native menu (move / hide / customize). */
   onShelfMenu?: (shelf: ResolvedShelf, e: React.MouseEvent<HTMLButtonElement>) => void;
+  /** The card whose play is still loading (utils/homeCardOrigin), if any. */
+  loadingOriginKey?: string | null;
 }
 
-export function HomeShelf({ shelf, albumImageFor, artistImageFor, onItemClick, onItemContextMenu, onItemPlay, onShelfMenu }: HomeShelfProps) {
+export function HomeShelf({ shelf, albumImageFor, artistImageFor, onItemClick, onItemContextMenu, onItemPlay, onShelfMenu, loadingOriginKey }: HomeShelfProps) {
   const scrollerRef = useRef<HTMLDivElement>(null);
   const videoFrames = useShelfVideoFrames(shelf);
 
@@ -128,7 +131,7 @@ export function HomeShelf({ shelf, albumImageFor, artistImageFor, onItemClick, o
         </div>
       </div>
       <div className="home-shelf-scroller" ref={scrollerRef}>
-        {shelf.items.map((item, i) => renderCard(shelf, item, i, { albumImageFor, artistImageFor, onItemClick, onItemContextMenu, onItemPlay, videoFrames }))}
+        {shelf.items.map((item, i) => renderCard(shelf, item, i, { albumImageFor, artistImageFor, onItemClick, onItemContextMenu, onItemPlay, videoFrames, loadingOriginKey: loadingOriginKey ?? null }))}
       </div>
     </section>
   );
@@ -142,6 +145,18 @@ interface RenderCtx {
   onItemPlay: (shelf: ResolvedShelf, item: HomeShelfItem) => void;
   // shelfVideoKey(path) -> already-converted file URL (from VideoFrameQueue)
   videoFrames: Record<string, string>;
+  loadingOriginKey: string | null;
+}
+
+// A spinner over the card whose play is still loading, so the place the user
+// clicked answers too (the queue panel and the bar carry the details).
+function loadingVeil(shelf: ResolvedShelf, item: HomeShelfItem, ctx: RenderCtx) {
+  if (!ctx.loadingOriginKey || homeCardOriginKey(shelf.id, item) !== ctx.loadingOriginKey) return null;
+  return (
+    <div className="home-shelf-card-loading" role="status" aria-label="Loading">
+      <span className="ds-spinner ds-motion-essential" />
+    </div>
+  );
 }
 
 function playButton(shelf: ResolvedShelf, item: HomeShelfItem, ctx: RenderCtx) {
@@ -180,6 +195,7 @@ function renderCard(shelf: ResolvedShelf, item: HomeShelfItem, idx: number, ctx:
         <div className="ds-card-art">
           <ShelfCardArt candidates={[src]} name={it.name} fallback={<EntityArtFallback kind={isArtist ? "artist" : "album"} />} />
           {playButton(shelf, item, ctx)}
+          {loadingVeil(shelf, item, ctx)}
         </div>
         <div className="ds-card-body">
           <div className="ds-card-title">{it.name}</div>
@@ -196,6 +212,7 @@ function renderCard(shelf: ResolvedShelf, item: HomeShelfItem, idx: number, ctx:
         <div className="ds-card-art">
           <ShelfCardArt candidates={[src]} name={it.name} fallback={<EntityArtFallback kind="artist" />} />
           {playButton(shelf, item, ctx)}
+          {loadingVeil(shelf, item, ctx)}
         </div>
         <div className="ds-card-body">
           <div className="ds-card-title">{it.name}</div>
@@ -214,6 +231,7 @@ function renderCard(shelf: ResolvedShelf, item: HomeShelfItem, idx: number, ctx:
             fallback={<PlaylistCardFallback lead={playlistLead(it)} />}
           />
           {playButton(shelf, item, ctx)}
+          {loadingVeil(shelf, item, ctx)}
         </div>
         <div className="ds-card-body">
           <div className="ds-card-title">{it.name}</div>
@@ -237,6 +255,7 @@ function renderCard(shelf: ResolvedShelf, item: HomeShelfItem, idx: number, ctx:
       <div className="ds-card-art">
         <ShelfCardArt candidates={[src]} name={it.track.title} fallback={<TrackArtFallback track={it.track} size={null} className="home-shelf-card-fallback-art" />} />
         {playButton(shelf, item, ctx)}
+        {loadingVeil(shelf, item, ctx)}
       </div>
       <div className="ds-card-body">
         <div className="ds-card-title">{it.track.title}</div>

@@ -28,17 +28,25 @@ interface TransportButtonsProps {
   className: string;
   /** Extra class on the play button (the fullscreen bar sizes its own). */
   playClassName?: string;
+  /** The queue ran out and playback waits for a play still loading: a ring
+   *  turns around the play button until its first song starts. */
+  waiting?: boolean;
 }
 
 export function TransportButtons({
-  playing, onPrevious, onPause, onNext, onStop, className, playClassName,
+  playing, onPrevious, onPause, onNext, onStop, className, playClassName, waiting = false,
 }: TransportButtonsProps) {
   return (
     <div className={className}>
       <button className="g-btn g-btn-md" onClick={onPrevious} title={`Previous (${mod}←)`}>
         <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M6 6h2v12H6zm3.5 6l8.5 6V6z"/></svg>
       </button>
-      <button className={`g-btn g-btn-play${playClassName ? ` ${playClassName}` : ""}`} onClick={onPause} title="Play / Pause (Space)">
+      <button
+        className={`g-btn g-btn-play${playClassName ? ` ${playClassName}` : ""}${waiting ? " g-btn-play--waiting" : ""}`}
+        onClick={onPause}
+        title={waiting ? "Waiting for the next song to load" : "Play / Pause (Space)"}
+      >
+        {waiting && <span className="g-btn-play-ring ds-motion-essential" aria-hidden="true" />}
         {/* Keyed on the state so the icon swap re-runs its pop animation. */}
         <span className="now-play-icon" key={playing ? "pause" : "play"}>
           {playing

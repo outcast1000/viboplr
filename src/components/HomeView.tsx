@@ -29,6 +29,8 @@ import "./HomeView.css";
 export interface HomeViewProps {
   style?: React.CSSProperties;
   isVisible: boolean;
+  /** The card whose play is still loading (utils/homeCardOrigin), if any. */
+  loadingOriginKey?: string | null;
   pluginShelves: Array<{
     pluginId: string;
     shelfId: string;
@@ -316,6 +318,7 @@ export function HomeView(props: HomeViewProps) {
           onItemContextMenu={props.onShelfItemContextMenu}
           onItemPlay={props.onShelfItemPlay}
           onShelfMenu={openShelfMenu}
+          loadingOriginKey={props.loadingOriginKey ?? null}
         />
       ))}
     </div>

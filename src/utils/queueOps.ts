@@ -26,6 +26,19 @@ import { partitionEnqueue } from "./controlApi";
 
 export type DuplicatePolicy = "ask" | "skip" | "allow";
 
+export interface BackfillOpts {
+  /** Plays now; empty when the first track isn't known yet (the list then
+   *  replaces the queue when it lands). */
+  head: QueueTrack[];
+  context?: PlaylistContext | null;
+  resolveTail: () => Promise<QueueTrack[]>;
+  tailErrorMessage?: string;
+  /** Who is building the list (a plugin's name), shown while it loads. */
+  source?: string | null;
+  /** The surface that started the play (a Home card). */
+  originKey?: string | null;
+}
+
 /** `"end"` appends; `"next"` inserts after the playing entry; a number is an
  *  absolute queue index. */
 export type QueuePosition = "end" | "next" | number;
@@ -46,12 +59,7 @@ export interface QueueOpsDeps {
   /** The live queue index (read at call time — "next" must not use a stale one). */
   queueIndex: () => number;
   /** usePlayActions.playWithBackfill. */
-  playWithBackfill: (opts: {
-    head: QueueTrack[];
-    context?: PlaylistContext | null;
-    resolveTail: () => Promise<QueueTrack[]>;
-    tailErrorMessage?: string;
-  }) => Promise<QueueTrack[]>;
+  playWithBackfill: (opts: BackfillOpts) => Promise<QueueTrack[]>;
   /** Raise the duplicate banner; the user decides what lands. */
   askAboutDuplicates: (pending: PendingDuplicates) => void;
 }
@@ -102,17 +110,9 @@ export function addToQueue(
   return { added: toAdd.length, skippedDuplicates: skipped, awaitingUser: false };
 }
 
-/** Play a known head now and append the resolved tail behind it (see
- *  conventions.md "Play With Backfill"). Resolves with what was appended. */
-export async function playWithBackfill(
-  deps: QueueOpsDeps,
-  opts: {
-    head: QueueTrack[];
-    context?: PlaylistContext | null;
-    resolveTail: () => Promise<QueueTrack[]>;
-    tailErrorMessage?: string;
-  },
-): Promise<QueueTrack[]> {
-  if (opts.head.length === 0) return [];
+/** A play whose list takes time to build (see conventions.md "Play With
+ *  Backfill"): a known head plays now and the rest is appended behind it; with
+ *  no head the list replaces the queue once it lands. Resolves with what landed. */
+export async function playWithBackfill(deps: QueueOpsDeps, opts: BackfillOpts): Promise<QueueTrack[]> {
   return deps.playWithBackfill(opts);
 }

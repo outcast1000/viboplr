@@ -1,3 +1,5 @@
+import type { LoadingPlay } from "../hooks/useQueue";
+import { LoadingElapsed } from "./LoadingPlay";
 import { memo, useCallback, useRef, useState, useEffect } from "react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { resolveImageUrl } from "../utils/resolveImageUrl";
@@ -165,6 +167,12 @@ interface NowPlayingBarProps {
   playbackError?: string | null;
   resolvedSource?: ResolvedSource | null;
   loadingTrack?: QueueTrack | null;
+  /** A play still being built (useQueue). A switch shows a "Switching to…"
+   *  chip with a cancel; with `playbackWaiting` the bar shows it's waiting. */
+  loadingPlay?: LoadingPlay | null;
+  /** The queue ran out and playback waits for the loading play. */
+  playbackWaiting?: boolean;
+  onCancelLoadingPlay?: () => void;
   onSkipError?: () => void;
   onDownloadTrack?: () => void;
   onContextMenu: (e: React.MouseEvent) => void;
@@ -217,7 +225,7 @@ export const NowPlayingBar = memo(function NowPlayingBar({
   eqShowBarControl, onEqShowBarControlChange,
   onToggleLike, onToggleDislike, likeDisabled, onTrackClick,
   onNavigateToArtistByName, onNavigateToAlbumByName, onNavigateToTagByName,
-  playbackError, resolvedSource, loadingTrack, onSkipError, bitPerfect = null, playerBarPins, onPlayerBarPinsChange,
+  playbackError, resolvedSource, loadingTrack, loadingPlay = null, playbackWaiting = false, onCancelLoadingPlay, onSkipError, bitPerfect = null, playerBarPins, onPlayerBarPinsChange,
   onDownloadTrack,
   onContextMenu,
   nowPlayingInfo,
@@ -234,6 +242,7 @@ export const NowPlayingBar = memo(function NowPlayingBar({
   const positionSecs = usePlaybackPosition();
   const buffer = usePlaybackBuffer();
   const bufferedPct = bufferedFraction(buffer?.bufferedToSecs ?? null, durationSecs);
+  const waitingForPlay = playbackWaiting && loadingPlay !== null;
   const miniDragTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const miniVolumeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   // The heart beside the mini player's title reads the same store as the
@@ -559,6 +568,13 @@ export const NowPlayingBar = memo(function NowPlayingBar({
             />
             <SeekMarkers markers={seekMarkers} durationSecs={durationSecs} />
             <BufferingChip buffer={buffer} />
+            {/* Waiting for a loading play: the bar sweeps instead of sitting
+                full on the song that just ended. */}
+            {waitingForPlay && (
+              <span className="now-seek-waiting" aria-hidden="true">
+                <span className="now-seek-waiting-fill ds-motion-essential" />
+              </span>
+            )}
           </div>
           <span className="now-seek-time now-seek-total">
             {formatDuration(durationSecs)}
@@ -576,7 +592,7 @@ export const NowPlayingBar = memo(function NowPlayingBar({
         />
       </div>
       <div className="now-main">
-        <div className="now-info">
+        <div className={`now-info${waitingForPlay ? " now-info--waiting" : ""}`}>
           <div className={`now-art-wrapper${playing ? " playing" : ""}`}>
             {imagePath ? (
               <CrossfadeArt className="now-art" src={resolveImageUrl(imagePath)} />
@@ -626,6 +642,12 @@ export const NowPlayingBar = memo(function NowPlayingBar({
                     </button>
                   )}
                 </span>
+                {waitingForPlay && loadingPlay ? (
+                <span className="now-subtitle now-subtitle--waiting" role="status">
+                  <span className="queue-item-resolving-icon ds-motion-essential" />
+                  <span className="now-artist-album">Up next: loading {loadingPlay.name}…</span>
+                </span>
+                ) : (
                 <span className="now-subtitle">
                   <SourceIndicator track={currentTrack} resolvedSource={resolvedSource ?? null} />
                   {/* Static artist · album. The cycling Now Playing info section
@@ -662,6 +684,7 @@ export const NowPlayingBar = memo(function NowPlayingBar({
                     <TagPopover track={currentTrack} suggestions={tagSuggestions ?? []} invokeInfoFetch={invokeInfoFetch} pluginsLoaded={pluginsLoaded} onNavigateToTag={onNavigateToTagByName} />
                   )}
                 </span>
+                )}
               </>
             ) : loadingTrack ? (
               <>
@@ -682,8 +705,26 @@ export const NowPlayingBar = memo(function NowPlayingBar({
           onNext={onNext}
           onStop={onStop}
           className="now-controls"
+          waiting={waitingForPlay}
         />
       <div className="now-right">
+        {/* A play whose first song isn't known yet: what's playing keeps
+            playing until it lands. The queue panel's banner says the same. */}
+        {loadingPlay?.mode === "switch" && (
+          <span className="now-switch-chip" role="status" title={`Switching to ${loadingPlay.name} when it's ready`}>
+            <span className="queue-item-resolving-icon ds-motion-essential" />
+            <span className="now-switch-chip-text">Switching to {loadingPlay.name}</span>
+            <LoadingElapsed since={loadingPlay.startedAt} className="now-switch-chip-elapsed" />
+            <button
+              className="now-switch-chip-cancel"
+              onClick={onCancelLoadingPlay}
+              title="Cancel"
+              aria-label={`Cancel switching to ${loadingPlay.name}`}
+            >
+              <svg width="10" height="10" viewBox="0 0 10 10" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"><path d="M2 2l6 6M8 2l-6 6" /></svg>
+            </button>
+          </span>
+        )}
         {/* Audio group: audio options (+ Bit-perfect / EQ while on or pinned) · mute · volume.
             Queue mode and auto-continue live in the queue panel header. */}
         <div className="now-group now-group--audio" role="group" aria-label="Audio controls">

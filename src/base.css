@@ -254,6 +254,21 @@ body.window-transparent {
   color: var(--accent);
   box-shadow: 0 0 16px rgba(var(--accent-rgb), 0.12), inset 0 1px 0 rgba(var(--overlay-base), 0.08);
 }
+/* Waiting for a play still loading (TransportButtons `waiting`): a ring turns
+   around the button. A real element, not a pseudo — the reduced-motion guard
+   freezes every pseudo-element, and a busy ring must keep turning. */
+.g-btn-play--waiting {
+  position: relative;
+}
+.g-btn-play-ring {
+  position: absolute;
+  inset: -3px;
+  border-radius: 50%;
+  border: 2px solid rgba(var(--accent-rgb), 0.2);
+  border-top-color: var(--accent);
+  animation: ds-spin 1s linear infinite;
+  pointer-events: none;
+}
 .g-btn-play:hover {
   background: rgba(var(--accent-rgb), 0.28);
   color: var(--text-primary);

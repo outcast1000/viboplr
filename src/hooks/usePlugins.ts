@@ -419,7 +419,7 @@ export interface PluginPlaybackCallbacks {
     context?: PluginPlayContext;
     resolveTail: () => Promise<PluginTrack[]> | PluginTrack[];
     tailErrorMessage?: string;
-  }) => Promise<number>;
+  }, pluginId?: string) => Promise<number>;
 }
 
 /** One handler's answer to a dispatched event (`dispatchEventTo`). */
@@ -1296,8 +1296,10 @@ export function usePlugins(
           insertTracks: (tracks, position) => {
             playbackCallbacksRef.current?.insertTracks(tracks, position);
           },
+          // The plugin's id rides along so the queue panel can say who is
+          // building the list ("loading from Spotify").
           playWithBackfill: (opts) =>
-            playbackCallbacksRef.current?.playWithBackfill(opts) ?? Promise.resolve(0),
+            playbackCallbacksRef.current?.playWithBackfill(opts, pluginId) ?? Promise.resolve(0),
           onTrackStarted: (handler) =>
             subscribeEvent(
               "track:started",

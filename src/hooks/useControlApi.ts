@@ -94,6 +94,7 @@ import {
   searchCatalog, webSearch,
 } from "../utils/hostOps";
 import { addToQueue, playNow, playWithBackfill, type DuplicatePolicy, type QueueOpsDeps } from "../utils/queueOps";
+import { homeCardOriginKey } from "../utils/homeCardOrigin";
 import { isCoreImageProvider } from "../utils/coreImageProviders";
 import { permissionReasons } from "../pluginWorker/permissions";
 import type { DeleteTracksResult } from "./useContextMenuActions";
@@ -1337,11 +1338,16 @@ export function useControlApi(deps: ControlApiDeps) {
           return { queued: head.length + appended.length, name: context.name, backfilled: appended.length };
         }
         if (!resolve) bad("this card ships no tracks and its shelf has no resolver");
-        const resolved = await resolve;
-        if (!resolved || resolved.length === 0) bad("the shelf resolved no tracks for this card");
-        const tracks = resolved.map(pluginTrackToQueueTrack);
-        playNow(d.queueOps, tracks, { context });
-        return { queued: tracks.length, name: context.name };
+        // The same loading play a click starts: the user sees it load while
+        // what's playing keeps playing, and it replaces the queue on landing.
+        const landed = await playWithBackfill(d.queueOps, {
+          head: [],
+          context,
+          resolveTail: async () => ((await resolve) ?? []).map(pluginTrackToQueueTrack),
+          originKey: homeCardOriginKey(`${pluginId}:${shelfId}`, item),
+        });
+        if (landed.length === 0) bad("the shelf resolved no tracks for this card, or the play was replaced before it landed");
+        return { queued: landed.length, name: context.name };
       }
 
       // --- Plugin context-menu actions ---

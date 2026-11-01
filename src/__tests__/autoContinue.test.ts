@@ -114,17 +114,17 @@ describe("prefetchLeadSecs", () => {
 });
 
 describe("prefetchStillWanted", () => {
-  const base = { fetchedForKey: "q:1", currentKey: "q:1", hasNext: false, backfillPending: false };
+  const base = { fetchedForKey: "q:1", currentKey: "q:1", hasNext: false, playLoading: false };
 
   it("queues a late pick that still continues the playing track", () => {
     expect(prefetchStillWanted(base)).toBe(true);
   });
 
-  it("drops it once playback moved on: another track, something queued after, a session still filling", () => {
+  it("drops it once playback moved on: another track, something queued after, a play still loading", () => {
     expect(prefetchStillWanted({ ...base, currentKey: "q:9" })).toBe(false); // user started an album
     expect(prefetchStillWanted({ ...base, currentKey: null })).toBe(false); // stopped
     expect(prefetchStillWanted({ ...base, hasNext: true })).toBe(false); // the end-of-queue pick, or a user enqueue
-    expect(prefetchStillWanted({ ...base, backfillPending: true })).toBe(false);
+    expect(prefetchStillWanted({ ...base, playLoading: true })).toBe(false);
   });
 });
 

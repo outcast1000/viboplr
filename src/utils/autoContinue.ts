@@ -139,14 +139,15 @@ export function prefetchLeadSecs(opts: {
 /** A prefetched pick can arrive seconds after it was asked for (a plugin
  *  lookup). Queue it only if it still continues what is playing: the same
  *  track, nothing queued after it meanwhile (an album the user started, the
- *  end-of-queue path's own pick), and no play session still filling its tail. */
+ *  end-of-queue path's own pick), and no play still loading (its first track
+ *  plays next). */
 export function prefetchStillWanted(s: {
   fetchedForKey: string;
   currentKey: string | null;
   hasNext: boolean;
-  backfillPending: boolean;
+  playLoading: boolean;
 }): boolean {
-  return s.currentKey === s.fetchedForKey && !s.hasNext && !s.backfillPending;
+  return s.currentKey === s.fetchedForKey && !s.hasNext && !s.playLoading;
 }
 
 /** The first plugin suggestion worth playing: it has a title, wasn't played

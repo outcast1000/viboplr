@@ -7,6 +7,8 @@ import { formatDuration, formatFileSize } from "../utils";
 import { queueItemLocalThumb, playlistContextTitle, type ThumbInfo } from "../mainPlaylist";
 import { extractDominantColor, type RGB } from "../utils/extractDominantColor";
 import { resolveImageUrl } from "../utils/resolveImageUrl";
+import type { LoadingPlay } from "../hooks/useQueue";
+import { QueueLoadFailureRow, QueueLoadingBlock, QueueSwitchBanner } from "./LoadingPlay";
 import { resolveTrackImage } from "../utils/trackImage";
 import { useImageCache } from "../hooks/useImageCache";
 import { useFlipList } from "../hooks/useFlipList";
@@ -321,9 +323,15 @@ interface QueuePanelProps {
   trackFailures?: Record<string, TrackFailure>;
   /** Click on a row's "Couldn't play" note — App opens the details dialog. */
   onShowFailure?: (track: QueueTrack) => void;
-  /** The live play session is still resolving its remaining tracks (see
-   *  usePlayActions.playWithBackfill). Renders the trailing "filling in" row. */
-  backfillPending?: boolean;
+  /** A play still being built (usePlayActions.playWithBackfill): an extend
+   *  renders placeholder rows after the queue, a switch a banner above it. */
+  loadingPlay?: LoadingPlay | null;
+  /** The queue ran out and playback waits for the loading play. */
+  playbackWaiting?: boolean;
+  /** A loading play's remainder that never arrived (this session only). */
+  loadFailure?: string | null;
+  /** Drop the loading play (the switch banner's Cancel). */
+  onCancelLoadingPlay?: () => void;
 }
 
 const AUTO_APPROVE_SECS = 10;
@@ -408,8 +416,11 @@ export function QueuePanel({
   onPlay, onTogglePlayPause, onRemove: _onRemove, onLocateTrack, onStartRadio, onNavigateToArtist, onNavigateToAlbum, onMoveMultiple, onClear, onSaveAsM3U, onSaveToPlaylists, onExportAsMixtape, onLoadPlaylist, onPublishQueue, preferVideoResolution, onPreferVideoResolutionChange, onRandomize, queueMode, onToggleQueueMode, autoContinueEnabled, onToggleAutoContinue, onOpenAutoContinueSettings, onContextMenu, onToggleLike, onToggleDislike,
   externalDropTarget,
   collapsed, fsRevealed, onToggleCollapsed, onResizeWidth, isPlaying, debugMode,
-  mainPlaylistDir, thumbInfo, resolvingStatus, trackFailures, onShowFailure, backfillPending,
+  mainPlaylistDir, thumbInfo, resolvingStatus, trackFailures, onShowFailure,
+  loadingPlay = null, playbackWaiting = false, loadFailure = null, onCancelLoadingPlay,
 }: QueuePanelProps) {
+  const switching = loadingPlay?.mode === "switch" ? loadingPlay : null;
+  const extending = loadingPlay?.mode === "extend" ? loadingPlay : null;
   const [selectedIndices, setSelectedIndices] = useState<Set<number>>(new Set());
   const [dropTarget, setDropTarget] = useState<number | null>(null);
   const [isDragging, setIsDragging] = useState(false);
@@ -930,7 +941,12 @@ export function QueuePanel({
           )}
         </div>
       )}
-      <div className="queue-list" ref={queueListRef}>
+      {/* A play whose first song isn't known yet: the queue below keeps
+          playing, and is replaced when the new list lands. */}
+      {switching && (
+        <QueueSwitchBanner play={switching} onCancel={() => onCancelLoadingPlay?.()} />
+      )}
+      <div className={`queue-list${switching ? " queue-list--superseded" : ""}`} ref={queueListRef}>
         {/* The mode banner for "Prefer video": the mode changes what every play
             in this list does (a music video is fetched before the track's own
             audio plays), so the list itself says so — a toggle buried in a
@@ -989,21 +1005,19 @@ export function QueuePanel({
             onOpenEntity={canOpenEntity ? rowOpenEntity : null}
           />
         ))}
-        {queue.length === 0 && (
+        {queue.length === 0 && !switching && (
           <div className={`queue-empty${externalDropTarget !== null ? " drop-highlight" : ""}`}>
             {externalDropTarget !== null ? "Drop here to add" : "Playlist is empty"}
           </div>
         )}
         {/* The play started from a known first track and its remainder is still
-            resolving (a plugin scrape, a remote catalog). This is what stands in
-            for the loading modal now that the music starts first — without it a
-            one-track queue looks finished rather than still filling. */}
-        {backfillPending && (
-          <div className="queue-backfill-row">
-            <span className="queue-item-resolving-icon ds-motion-essential" />
-            <span className="queue-backfill-text">Filling in the rest…</span>
-          </div>
-        )}
+            resolving (a plugin scrape, a remote catalog). Without this a
+            one-track queue looks finished rather than still filling. While the
+            queue has run out and waits, the first placeholder is marked next. */}
+        {extending && <QueueLoadingBlock play={extending} waiting={playbackWaiting} />}
+        {/* Persistent, unlike the toast: a tail can fail long after the user
+            looked away. Cleared by the next play. */}
+        {!loadingPlay && loadFailure && <QueueLoadFailureRow message={loadFailure} />}
       </div>
       {queue.length > 0 && !playlistContext && (
         <div className="queue-info-bar">

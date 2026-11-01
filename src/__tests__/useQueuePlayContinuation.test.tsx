@@ -135,13 +135,13 @@ describe("playTracks continuation", () => {
     let gen = 0;
     act(() => { gen = hook.result.current.playTracks([makeTrack(1)], 0); });
 
-    let staleAppended = true;
+    let staleAppended: unknown = "unset";
     act(() => { staleAppended = hook.result.current.appendToPlaySession(oldGen, [makeTrack(9)]); });
-    expect(staleAppended).toBe(false);
+    expect(staleAppended).toBeNull();
 
-    let appended = false;
+    let appended: unknown = null;
     act(() => { appended = hook.result.current.appendToPlaySession(gen, [makeTrack(2)]); });
-    expect(appended).toBe(true);
+    expect(appended).not.toBeNull();
     expect(hook.result.current.queue.map((t) => t.title)).toEqual(["Song 1", "Song 2"]);
   });
 });

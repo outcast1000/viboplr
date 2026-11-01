@@ -30,6 +30,38 @@ export interface PlaySessionInfo {
   fillsLater: boolean;
 }
 
+/** A play whose list is still being built (conventions.md "Play With Backfill").
+ *  While one is live, "what plays next" waits for it. */
+export interface LoadingPlay {
+  /** `extend`: its known first track(s) already play and the rest is appended
+   *  when it lands. `switch`: nothing of it plays yet — the current queue keeps
+   *  playing and the list replaces it when it lands. */
+  mode: "extend" | "switch";
+  /** The play session it belongs to: the one its head started (extend) or the
+   *  one it will replace (switch). Every session boundary drops it. */
+  gen: number;
+  /** What is loading, e.g. "Radio: Teardrop". */
+  name: string;
+  imagePath: string | null;
+  /** Who is building it (a plugin's name), when known. */
+  source: string | null;
+  /** The surface that started it (a Home card), so that surface can show it. */
+  originKey: string | null;
+  startedAt: number;
+}
+
+/** What a loading play put in the queue, handed to whoever waited on it. */
+export type LoadingPlayOutcome =
+  | { kind: "extended"; index: number; first: QueueTrack }
+  | { kind: "nothing" };
+
+/** What appendToPlaySession added: the queued (possibly re-keyed) tracks and
+ *  the index the first one landed at. */
+export interface AppendedTail {
+  index: number;
+  tracks: QueueTrack[];
+}
+
 export function useQueue(
   restoredRef: React.RefObject<boolean>,
   handlePlay: (track: QueueTrack, source?: "user" | "auto") => void,
@@ -42,11 +74,6 @@ export function useQueue(
   // read at call time. Lets playTracks keep the music running when the
   // replacing list opens on the same song — see the continuation note there.
   getPlayingTrack?: () => QueueTrack | null,
-  // The queue ran dry while a backfill was still resolving, we held playback
-  // for the tail (see `holdForBackfillTail`) — and the tail never arrived.
-  // Whatever the caller would have done at the end of the queue (auto-continue,
-  // stop) is now due. Read at call time.
-  onBackfillAbandoned?: () => void,
   // A `fillsLater` session finished filling (its tail landed, failed, or came
   // back empty): everything the session put in the queue — the head plus the
   // tail that was appended. Not fired once the session was replaced or cleared.
@@ -232,24 +259,22 @@ export function useQueue(
   // has since replaced with something else.
   const playGenRef = useRef(0);
 
-  // Set while the live play session is still waiting on its async tail, so the
-  // queue panel can say so — without it, dropping the loading modal would leave
-  // a one-track queue with nothing explaining that more is coming. Holding the
-  // generation (not a bare boolean) is what makes it self-cancelling: every
-  // queue replacement clears it, so it can only ever describe the live session.
-  const [pendingBackfillGen, setPendingBackfillGen] = useState<number | null>(null);
-  // Same value, readable at call time: the end-of-queue decision runs from
-  // event handlers (track ended, progress tick) that hold a stale render.
-  const pendingBackfillGenRef = useRef<number | null>(null);
-  useAssignRef(pendingBackfillGenRef, pendingBackfillGen);
-
-  // Set when the queue ran out *while* its tail was still resolving, so the
-  // tail's first track starts the music instead of merely landing behind a
-  // silent queue. Cleared by every session boundary — a held-for stop that
-  // outlives its own session must not hijack the next one.
-  const resumeOnTailRef = useRef(false);
-  const onBackfillAbandonedRef = useRef(onBackfillAbandoned);
-  useAssignRef(onBackfillAbandonedRef, onBackfillAbandoned);
+  // The play still being built, if any (see LoadingPlay). State for the
+  // queue panel and the bars; the ref (with the promise its waiters hold) for
+  // the end-of-queue path, which runs from event handlers holding a stale render.
+  const [loadingPlay, setLoadingPlay] = useState<LoadingPlay | null>(null);
+  const loadingRef = useRef<{
+    play: LoadingPlay;
+    settled: Promise<LoadingPlayOutcome>;
+    resolve: (outcome: LoadingPlayOutcome) => void;
+  } | null>(null);
+  // The queue ran out and playback is waiting for the loading play to land.
+  // Not derivable from "not playing" — that is also a pause.
+  const [playbackWaiting, setPlaybackWaiting] = useState(false);
+  const waitingRef = useRef(false);
+  // A loading play's remainder that failed to arrive: the queue panel says so
+  // for as long as that session lasts.
+  const [loadFailure, setLoadFailure] = useState<string | null>(null);
   const onPlaySessionFilledRef = useRef(onPlaySessionFilled);
   useAssignRef(onPlaySessionFilledRef, onPlaySessionFilled);
   // What the live play session itself put in the queue: the tracks playTracks
@@ -305,56 +330,108 @@ export function useQueue(
     setQueueIndex(startIndex);
     if (!continues) handlePlay(dedupedTracks[startIndex]);
     setPlaylistContext(context ?? null);
-    playGenRef.current += 1;
+    endPlaySession();
     sessionTracksRef.current = { gen: playGenRef.current, tracks: dedupedTracks };
     onPlay?.(dedupedTracks, startIndex, context ?? null, { gen: playGenRef.current, fillsLater: !!opts?.fillsLater });
-    // A fresh session owns no tail yet — and this is what retires the indicator
-    // when the user plays something else mid-resolve.
-    setPendingBackfillGen(null);
-    pendingBackfillGenRef.current = null;
-    resumeOnTailRef.current = false;
     return playGenRef.current;
   }
 
-  // Declare that the session `gen` is waiting on an async tail. Paired with
-  // settleBackfill; both are driven by usePlayActions.playWithBackfill.
-  function markBackfillPending(gen: number) {
-    if (gen === playGenRef.current) {
-      setPendingBackfillGen(gen);
-      pendingBackfillGenRef.current = gen;
+  // Every queue replacement (playTracks, clearQueue, loadPlaylist) ends the
+  // live play session: a tail still resolving for it is now stale, and a play
+  // still loading — either mode — is dropped, releasing anyone waiting on it.
+  function endPlaySession() {
+    playGenRef.current += 1;
+    settleLoading({ kind: "nothing" });
+    setLoadFailure(null);
+  }
+
+  function settleLoading(outcome: LoadingPlayOutcome) {
+    const current = loadingRef.current;
+    if (!current) return;
+    loadingRef.current = null;
+    setLoadingPlay(null);
+    current.resolve(outcome);
+  }
+
+  // Start showing a play that is still being built. Belongs to the live
+  // session; any other loading play is dropped (there is only ever one).
+  function beginLoadingPlay(info: Omit<LoadingPlay, "gen" | "startedAt">): LoadingPlay {
+    settleLoading({ kind: "nothing" });
+    setLoadFailure(null);
+    const play: LoadingPlay = { ...info, gen: playGenRef.current, startedAt: Date.now() };
+    let resolve: (outcome: LoadingPlayOutcome) => void = () => {};
+    const settled = new Promise<LoadingPlayOutcome>(r => { resolve = r; });
+    loadingRef.current = { play, settled, resolve };
+    setLoadingPlay(play);
+    return play;
+  }
+
+  // Still the loading play, and its session still live — i.e. what it
+  // resolved may still go into the queue. False once cancelled or replaced.
+  function isLoadingPlayLive(play: LoadingPlay): boolean {
+    return loadingRef.current?.play === play && play.gen === playGenRef.current;
+  }
+
+  // The loading play is done: its remainder landed (`outcome`), or nothing
+  // did. `failure` is the message the queue panel keeps showing for an extend
+  // whose remainder failed. No-op for a play that was already dropped.
+  function endLoadingPlay(play: LoadingPlay, outcome: LoadingPlayOutcome, failure?: string) {
+    if (loadingRef.current?.play !== play) return;
+    const live = play.gen === playGenRef.current;
+    settleLoading(outcome);
+    if (!live) return;
+    if (failure && play.mode === "extend") setLoadFailure(failure);
+    if (play.mode === "extend" && sessionTracksRef.current.gen === play.gen) {
+      onPlaySessionFilledRef.current?.(play.gen, sessionTracksRef.current.tracks);
     }
   }
 
-  // The tail arrived, failed, or turned out to be stale. Only retires its own
-  // session's indicator, so a late tail can't clear a newer session's.
-  function settleBackfill(gen: number) {
-    setPendingBackfillGen(prev => (prev === gen ? null : prev));
-    if (pendingBackfillGenRef.current === gen) pendingBackfillGenRef.current = null;
-    // Still held means nothing was appended (the resolve failed, came back
-    // empty, or was dropped as stale) — release the end-of-queue decision we
-    // deferred, so the queue doesn't sit silent forever.
-    if (gen === playGenRef.current && resumeOnTailRef.current) {
-      resumeOnTailRef.current = false;
-      onBackfillAbandonedRef.current?.();
-    }
-    if (gen === playGenRef.current && sessionTracksRef.current.gen === gen) {
-      onPlaySessionFilledRef.current?.(gen, sessionTracksRef.current.tracks);
-    }
+  // The user's × on a loading play: drop it. What it resolves later is discarded.
+  function cancelLoadingPlay() {
+    const current = loadingRef.current;
+    if (current) endLoadingPlay(current.play, { kind: "nothing" });
   }
 
-  // The queue ran out while this session's tail is still resolving. Returns
-  // true when playback is now held for that tail — the caller must then do
-  // nothing (no auto-continue, no stop): `appendToPlaySession` starts the first
-  // track that lands, and `settleBackfill` hands the decision back if the tail
-  // never comes. Returns false when there is nothing to wait for.
+  // The queue ran out. While a play is still loading, what plays next is its
+  // first track, so wait for it: an extend's first appended track starts here,
+  // a switch starts itself when it lands. Resolves true when that settled what
+  // plays next (or the user moved on meanwhile); false when nothing is loading
+  // or nothing landed — the caller's end-of-queue decision (auto-continue,
+  // stop) is then due.
   //
-  // Without this the end of a one-track head (a plugin radio seed, a lazy Home
-  // card) races the station: auto-continue's prefetch fires ~20s before the
-  // seed ends, so an unrelated track starts and the station lands behind it.
-  function holdForBackfillTail(): boolean {
-    if (pendingBackfillGenRef.current !== playGenRef.current) return false;
-    resumeOnTailRef.current = true;
-    return true;
+  // Without this the end of a one-track head (a plugin radio seed) races the
+  // station: auto-continue plays an unrelated song and the station lands
+  // behind it.
+  async function waitForLoadingPlay(source: "user" | "auto" = "auto"): Promise<boolean> {
+    const current = loadingRef.current;
+    if (!current || current.play.gen !== playGenRef.current) return false;
+    // Already waiting (the track ended, then Next was pressed): the first
+    // waiter decides, or the landed track would start twice.
+    if (waitingRef.current) return true;
+    const gen = playGenRef.current;
+    const atKey = queueRef.current[queueIndexRef.current]?.key ?? null;
+    waitingRef.current = true;
+    setPlaybackWaiting(true);
+    let outcome: LoadingPlayOutcome;
+    try {
+      outcome = await current.settled;
+    } finally {
+      waitingRef.current = false;
+      setPlaybackWaiting(false);
+    }
+    // The queue was replaced (the switch landed, or the user played something
+    // else), or the user picked another entry while we waited.
+    if (gen !== playGenRef.current) return true;
+    if ((queueRef.current[queueIndexRef.current]?.key ?? null) !== atKey) return true;
+    if (outcome.kind === "extended") {
+      // Played from the outcome, not via playNext: the append isn't committed
+      // yet, so queueRef still holds the queue without it.
+      setQueueIndex(outcome.index);
+      handlePlay(outcome.first, source);
+      return true;
+    }
+    // Nothing landed — but the user may have queued something meanwhile.
+    return playNext(source);
   }
 
   // Append the tail of a play session started by `playTracks`. Returns false
@@ -365,10 +442,10 @@ export function useQueue(
   // entry points must run: the tail is the continuation of a play the user
   // already made, so prompting over already-playing audio would be wrong. It is
   // the one sanctioned exception (see conventions.md "Play With Backfill").
-  function appendToPlaySession(gen: number, tracks: QueueTrack[]): boolean {
-    if (gen !== playGenRef.current || tracks.length === 0) return false;
-    // Prepared here rather than inside enqueueTracks so the resume below plays
-    // the *queued* object — withUniqueKeys may have re-keyed it, and handing
+  function appendToPlaySession(gen: number, tracks: QueueTrack[]): AppendedTail | null {
+    if (gen !== playGenRef.current || tracks.length === 0) return null;
+    // Prepared here rather than inside enqueueTracks so a waiter plays the
+    // *queued* object — withUniqueKeys may have re-keyed it, and handing
     // handlePlay the pre-key copy would give the now-playing row an identity
     // no queue entry has.
     const prepared = withUniqueKeys(toQueueTracks(tracks));
@@ -377,12 +454,7 @@ export function useQueue(
     if (sessionTracksRef.current.gen === gen) {
       sessionTracksRef.current = { gen, tracks: [...sessionTracksRef.current.tracks, ...prepared] };
     }
-    if (resumeOnTailRef.current) {
-      resumeOnTailRef.current = false;
-      setQueueIndex(firstIndex);
-      handlePlay(prepared[0], "auto");
-    }
-    return true;
+    return { index: firstIndex, tracks: prepared };
   }
 
   // By path; a metadata-only entry (no path yet — the stream resolvers find
@@ -716,10 +788,7 @@ export function useQueue(
     setQueueIndex(-1);
     setPlaylistContext(null);
     // Ends the live play session: any in-flight backfill is now stale.
-    playGenRef.current += 1;
-    setPendingBackfillGen(null);
-    pendingBackfillGenRef.current = null;
-    resumeOnTailRef.current = false;
+    endPlaySession();
     invoke("main_playlist_clear").catch(console.error);
   }
 
@@ -852,9 +921,7 @@ export function useQueue(
       handlePlay(tracks[0]);
       setPlaylistContext({ name: result.playlist_name });
       // Replaces the queue, so it starts a new play session (see playTracks).
-      playGenRef.current += 1;
-      pendingBackfillGenRef.current = null;
-      resumeOnTailRef.current = false;
+      endPlaySession();
     }
   }
 
@@ -864,8 +931,8 @@ export function useQueue(
     queueMode, setQueueMode,
     queuePanelRef, dragIndexRef,
     playTracks, enqueueTracks, findDuplicates, appendToPlaySession,
-    backfillPending: pendingBackfillGen !== null, markBackfillPending, settleBackfill,
-    holdForBackfillTail,
+    loadingPlay, playbackWaiting, loadFailure,
+    beginLoadingPlay, isLoadingPlayLive, endLoadingPlay, cancelLoadingPlay, waitForLoadingPlay,
     playNext, playPrevious,
     removeFromQueue, removeMultiple, removeAndAdvance, updateTrackMetadata, patchTrackFormat, rewritePathPrefix, replaceTrackPath, moveInQueue, moveMultiple, moveToTop, moveToBottom, clearQueue, insertAtPosition,
     toggleQueueMode, randomizeQueue, playNextInQueue, addToQueue, addToQueueAndPlay, insertNextAndPlay,

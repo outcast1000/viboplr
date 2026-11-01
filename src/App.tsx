@@ -232,6 +232,7 @@ import type { DiagnosticContext, DiagnosticSources } from "./utils/diagnosticRep
 import { recordAppError } from "./utils/errorLog";
 import { classifyErrorKind, errorText } from "./utils/errorKind";
 import { userUrlHost } from "./utils/userUrl";
+import { homeCardOriginKey } from "./utils/homeCardOrigin";
 
 
 import { useAssignRef, useLatestRef } from "./hooks/useLatestRef";
@@ -704,10 +705,9 @@ function App() {
   // render's state: playTracks is reached from stale closures.
   const audiblePlayingTrackRef = useLatestRef<QueueTrack | null>(playback.playing ? playback.currentTrack : null);
 
-  // Assigned further down (it needs the end-of-queue handler, which needs the
-  // queue hook): what to do when playback was held for a backfill tail that
-  // never arrived.
-  const backfillAbandonedRef = useRef<() => void>(() => {});
+  // Plugin id → name, for "loading from <plugin>" on a play a plugin builds.
+  // Filled once usePlugins exists (below); the playback bridge is built first.
+  const pluginNamesRef = useRef<Record<string, string>>({});
 
   // Latest play recording. Commit a new list, then delete the snapshot files of
   // sessions that just left the ring (evicted, or replaced by a newer play of
@@ -805,7 +805,7 @@ function App() {
       return;
     }
     recordNewPlay(tracks, startIndex, context);
-  }, () => audiblePlayingTrackRef.current, () => backfillAbandonedRef.current(), (gen, sessionTracks) => {
+  }, () => audiblePlayingTrackRef.current, (gen, sessionTracks) => {
     // A fill-later play settled: record it with everything it filled in.
     const pending = pendingFillPlayRef.current;
     if (!pending || pending.gen !== gen) return;
@@ -880,13 +880,16 @@ function App() {
     // music. The host owns the staleness guard + head de-dupe (see
     // conventions.md "Play With Backfill"), so a plugin can't splice a late
     // tail into a queue the user has since replaced.
-    playWithBackfill: (opts: { head: PluginTrack[]; context?: PluginPlayContext; resolveTail: () => Promise<PluginTrack[]> | PluginTrack[]; tailErrorMessage?: string }) =>
+    // An empty head is a play whose first track isn't known yet: the queue
+    // keeps playing and the list replaces it when it lands.
+    playWithBackfill: (opts: { head: PluginTrack[]; context?: PluginPlayContext; resolveTail: () => Promise<PluginTrack[]> | PluginTrack[]; tailErrorMessage?: string }, pluginId?: string) =>
       queueOps.playWithBackfill(queueOpsDeps, {
-        head: opts.head.map(pluginTrackToQueueTrack),
+        head: (opts.head ?? []).map(pluginTrackToQueueTrack),
         context: pluginPlaylistContext(opts.context),
         // Promise.resolve tolerates a plugin handing back a plain array.
         resolveTail: () => Promise.resolve(opts.resolveTail()).then(ts => (ts ?? []).map(pluginTrackToQueueTrack)),
         tailErrorMessage: opts.tailErrorMessage,
+        source: pluginId ? pluginNamesRef.current[pluginId] ?? pluginId : null,
       })
         // Hand back the appended count so the plugin reports what actually
         // landed rather than what it resolved — a stale tail appended nothing.
@@ -1122,6 +1125,7 @@ function App() {
     () => Object.fromEntries(plugins.pluginStates.map((p) => [p.id, p.manifest.name])),
     [plugins.pluginStates],
   );
+  useAssignRef(pluginNamesRef, pluginNames);
 
   // Dynamic, cycling Now Playing info section (mini player + main bar).
   const { availableItems: nowPlayingInfoAvailable, resolvedItems: nowPlayingInfoResolved } = useNowPlayingInfo({
@@ -2120,8 +2124,9 @@ function App() {
     // Raw guarded append (no duplicate banner) — a backfill continues a play
     // the user already made. See useQueue.appendToPlaySession.
     appendToPlaySession: queueHook.appendToPlaySession,
-    markBackfillPending: queueHook.markBackfillPending,
-    settleBackfill: queueHook.settleBackfill,
+    beginLoadingPlay: queueHook.beginLoadingPlay,
+    isLoadingPlayLive: queueHook.isLoadingPlayLive,
+    endLoadingPlay: queueHook.endLoadingPlay,
     setPlaylistContext: queueHook.setPlaylistContext,
     albums: library.albums,
     artists: library.artists,
@@ -3025,24 +3030,25 @@ function App() {
               context: ctx ?? null,
               resolveTail: () => pending.then(ts => ts.map(pluginTrackToQueueTrack)),
               tailErrorMessage: `Couldn't load the rest of “${label}”.`,
+              source: shelf.pluginId ? pluginNames[shelf.pluginId] ?? null : null,
+              originKey: homeCardOriginKey(shelf.id, item),
             });
             return;
           }
           queueHook.playTracks(head, 0, ctx);
           return;
         }
-        // Nothing playable shipped, so there's no audio to hide the wait
-        // behind — this is the one case that still blocks on a modal.
+        // Nothing playable shipped: the card's list loads while the current
+        // queue keeps playing, and replaces it when it lands. No modal — the
+        // card, the queue panel and the bar say what's loading.
         if (pending) {
-          setPluginLoadingMessage("Loading " + label + "…");
-          pending.then((tracks) => {
-            if (tracks && tracks.length > 0) {
-              queueHook.playTracks(tracks.map(pluginTrackToQueueTrack), 0, ctx);
-            }
-          }).catch((e) => {
-            console.error("[home] resolve-play failed:", e);
-          }).finally(() => {
-            setPluginLoadingMessage(null);
+          void queueOps.playWithBackfill(queueOpsDeps, {
+            head: [],
+            context: ctx ?? { name: label },
+            resolveTail: () => pending.then(ts => (ts ?? []).map(pluginTrackToQueueTrack)),
+            tailErrorMessage: `Couldn't load “${label}”.`,
+            source: shelf.pluginId ? pluginNames[shelf.pluginId] ?? null : null,
+            originKey: homeCardOriginKey(shelf.id, item),
           });
         }
         return;
@@ -3050,7 +3056,7 @@ function App() {
       case "none":
         return;
     }
-  }, [playActions, contextMenuActions, queueHook, queueOpsDeps, plugins, handleReplayLatestPlay]);
+  }, [playActions, contextMenuActions, queueHook, queueOpsDeps, plugins, handleReplayLatestPlay, pluginNames]);
 
   const handleHomeShelfItemClick = useCallback((shelf: ResolvedShelf, item: HomeShelfItem) => {
     // The "Latest play" shelf re-resolves each tile to a fresh play (see
@@ -4054,8 +4060,8 @@ function App() {
   const playNextRef = useLatestRef(queueHook.playNext);
   const addToQueueAndPlayRef = useLatestRef(queueHook.addToQueueAndPlay);
   const addToQueueRef = useLatestRef(queueHook.addToQueue);
-  const holdForBackfillTailRef = useLatestRef(queueHook.holdForBackfillTail);
-  const backfillPendingRef = useLatestRef(queueHook.backfillPending);
+  const waitForLoadingPlayRef = useLatestRef(queueHook.waitForLoadingPlay);
+  const playLoadingRef = useLatestRef(queueHook.loadingPlay !== null);
   const queueRef = useLatestRef(queueHook.queue);
 
 
@@ -4100,12 +4106,13 @@ function App() {
     const ac = autoContinueRef.current;
     const track = currentTrackRef.current;
     if (!ac.enabled || !track) return;
-    // The queue only *looks* empty ahead: this session's tail is still
-    // resolving. Prefetching here is what used to hijack a plugin radio — the
-    // seed is one track long, so the lead-time prefetch fires mid-scrape and
-    // an unrelated song plays while the station lands behind it.
-    if (backfillPendingRef.current) {
-      console.debug("[prefetch] Skipped — the play session is still filling in its tail");
+    // The queue only *looks* empty ahead: a play is still loading, and what
+    // plays next is its first track. Prefetching here is what used to hijack a
+    // plugin radio — the seed is one track long, so the lead-time prefetch
+    // fires mid-scrape and an unrelated song plays while the station lands
+    // behind it.
+    if (playLoadingRef.current) {
+      console.debug("[prefetch] Skipped — a play is still loading");
       return;
     }
     console.debug(`[prefetch] Fetching auto-continue track (current: "${track.title}")`);
@@ -4118,7 +4125,7 @@ function App() {
         fetchedForKey: track.key,
         currentKey: currentTrackRef.current?.key ?? null,
         hasNext: peekNextRef.current() !== null,
-        backfillPending: backfillPendingRef.current,
+        playLoading: playLoadingRef.current,
       });
       if (!wanted) {
         console.debug(`[prefetch] Dropped "${next.title}" — playback moved on while it was fetched`);
@@ -4150,20 +4157,15 @@ function App() {
     }
     handleStopRef.current();
   }, [fetchAutoContinueRef, addToQueueAndPlayRef, autoContinueRef, currentTrackRef, handleStopRef, queueModeRef]);
-  // Handed to useQueue: a held-for tail that never arrived releases the
-  // end-of-queue decision we deferred below.
-  useAssignRef(backfillAbandonedRef, () => { void endOfQueue("auto"); });
-
   const handleNext = useCallback(async (source: "user" | "auto" = "user") => {
     if (playNextRef.current(source)) return;
-    // Nothing left to play, but this session is still resolving its tail (a
-    // plugin radio seeded from one track, a lazy Home card). Hold for it: the
-    // station's first track starts the music when it lands. Auto-continuing
-    // here would wander off to an unrelated song and leave the station queued
-    // behind it — which is what this fixes.
-    if (holdForBackfillTailRef.current()) return;
+    // Nothing left to play, but a play is still loading (a plugin radio seeded
+    // from one track, a Home card scraping its list): what plays next is its
+    // first track, so wait for it. Auto-continuing here would wander off to an
+    // unrelated song and leave the station queued behind it.
+    if (await waitForLoadingPlayRef.current(source)) return;
     await endOfQueue(source);
-  }, [endOfQueue, holdForBackfillTailRef, playNextRef]);
+  }, [endOfQueue, waitForLoadingPlayRef, playNextRef]);
 
   useAssignRef(mediaSessionNextRef, () => handleNext());
   // Engine-side "ended with nothing gapless-armed" (gapless and crossfade
@@ -5254,6 +5256,7 @@ function App() {
   // renders gave inline closures new identities. The bodies are re-captured
   // every render (they read live state); only the identities are pinned.
   const npBar = useStableCallbacks({
+    onCancelLoadingPlay: queueHook.cancelLoadingPlay,
     onCancelCollapseTimer: mini.cancelCollapseTimer,
     onBeginMiniDrag: mini.beginMiniDrag,
     onCycleRestingSize: () => mini.setMiniRestingSize(cycleRestingSize(mini.miniRestingSize)),
@@ -5867,6 +5870,7 @@ function App() {
           <HomeView
             style={{ display: view === "home" ? undefined : "none" }}
             isVisible={view === "home"}
+            loadingOriginKey={queueHook.loadingPlay?.originKey ?? null}
             pluginShelves={plugins.homeShelves}
             pluginNames={pluginNames}
             pluginsLoaded={plugins.pluginsLoaded}
@@ -6555,7 +6559,10 @@ function App() {
           mainPlaylistDir={mainPlaylistDir}
           thumbInfo={queueHook.thumbInfo}
           resolvingStatus={resolvingStatus}
-          backfillPending={queueHook.backfillPending}
+          loadingPlay={queueHook.loadingPlay}
+          playbackWaiting={queueHook.playbackWaiting}
+          loadFailure={queueHook.loadFailure}
+          onCancelLoadingPlay={queueHook.cancelLoadingPlay}
           trackFailures={trackFailures}
           onShowFailure={(track) => {
             setFailureDetailsKey(track.key);
@@ -7188,6 +7195,9 @@ function App() {
         onNavigateToTagByName={npBar.onNavigateToTagByName}
         resolvedSource={resolvedSource}
         loadingTrack={playback.loadingTrack}
+        loadingPlay={queueHook.loadingPlay}
+        playbackWaiting={queueHook.playbackWaiting}
+        onCancelLoadingPlay={npBar.onCancelLoadingPlay}
         playbackError={playback.playbackError}
         onSkipError={npBar.onSkipError}
         onContextMenu={npBar.onContextMenu}

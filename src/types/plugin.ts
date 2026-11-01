@@ -1056,15 +1056,22 @@ export interface PluginPlaybackAPI {
    *  started. On failure or an empty result the head keeps playing and
    *  `tailErrorMessage` is shown as a toast.
    *
-   *  Prefer this over `playTracks` + `insertTracks`: the host discards the tail
-   *  if the user replaced or cleared the queue while you were resolving, which a
-   *  hand-rolled insert cannot detect. Guard with a `typeof` check — older hosts
-   *  don't have it.
+   *  With `head: []` (the first track isn't known yet) what the user is
+   *  listening to keeps playing, and the list replaces the queue once it
+   *  lands; the user can cancel it meanwhile. Older hosts resolve 0 and play
+   *  nothing for an empty head — check `api.appVersion`.
    *
-   *  Resolves with **how many tracks were actually appended** — 0 when the tail
-   *  failed, came back empty, was entirely the head, or was discarded because
-   *  the user had moved on. Report success from this number rather than from
-   *  your own resolved list, or you'll announce a station that never landed. */
+   *  Either way the host shows the wait (queue panel, now-playing bar) and the
+   *  end of the queue waits for it. Prefer this over `playTracks` +
+   *  `insertTracks`: the host discards the result if the user replaced or
+   *  cleared the queue while you were resolving, which a hand-rolled insert
+   *  cannot detect. Guard with a `typeof` check — older hosts don't have it.
+   *
+   *  Resolves with **how many tracks landed** — the appended tail, or a
+   *  switch's whole list; 0 when it failed, came back empty, was entirely the
+   *  head, was cancelled, or was discarded because the user had moved on.
+   *  Report success from this number rather than from your own resolved list,
+   *  or you'll announce a station that never landed. */
   playWithBackfill(opts: {
     head: PluginTrack[];
     context?: PluginPlayContext;
@@ -1607,8 +1614,8 @@ export type HomeShelfItem =
       // seed, or the one track still cached from a previous fetch) — the rest
       // comes from this shelf's `onResolvePlay` handler. The host plays what's
       // here immediately and appends the resolved remainder behind the music,
-      // instead of holding the user behind a loading modal for the whole
-      // fetch. Only set it when the shipped tracks really do open the list:
+      // instead of keeping the previous queue playing for the whole fetch.
+      // Only set it when the shipped tracks really do open the list:
       // the host trusts the order and appends after them.
       partial?: boolean;
       sourcePluginId?: string;
@@ -1665,9 +1672,9 @@ export interface PluginHomeAPI {
   ): () => void;
   // Resolve the tracks to play for a card that shipped without its full list.
   // The host calls this when the card's play action is kind:"tracks" and either
-  // the list is empty (it awaits behind a loading modal) or the card is marked
-  // `partial` (it plays the shipped head first and appends the remainder — no
-  // modal, no waiting). Return the full list either way; the host de-dupes a
+  // the list is empty (what is playing keeps playing until the list lands,
+  // then it replaces the queue) or the card is marked `partial` (it plays the
+  // shipped head first and appends the remainder). Return the full list either way; the host de-dupes a
   // head it has already started. Return [] to play nothing.
   onResolvePlay(
     shelfId: string,

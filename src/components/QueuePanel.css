@@ -489,21 +489,195 @@
   background: var(--bg-hover);
 }
 
-/* Trailing row shown while a play's remaining tracks are still resolving.
-   Reuses the per-row resolving spinner so the two waits read as the same kind
-   of thing, and matches the row gutters so the list doesn't appear to shift. */
-.queue-backfill-row {
-  display: flex;
-  align-items: center;
-  gap: 7px;
-  padding: 7px 10px;
+/* A play still being built (LoadingPlay.tsx). The label reuses the per-row
+   resolving spinner so the two waits read as the same kind of thing; the
+   placeholder rows match a real row's gutters so nothing shifts when the
+   tracks land in their place. */
+.queue-loading-block {
   animation: queue-item-in 220ms var(--ease-out-quart);
 }
 
-.queue-backfill-text {
-  color: var(--text-tertiary);
+.queue-loading-label {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 7px 10px 4px;
   font-size: var(--fs-xs);
-  font-style: italic;
+  color: var(--text-secondary);
+}
+
+.queue-loading-label-text {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.queue-loading-label-text strong {
+  color: var(--text-primary);
+  font-weight: 600;
+}
+
+.queue-loading-elapsed {
+  flex-shrink: 0;
+  font-size: var(--fs-2xs);
+  color: var(--text-tertiary);
+  font-variant-numeric: tabular-nums;
+}
+
+.queue-placeholder-row {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 10px;
+  min-height: 44px;
+  overflow: hidden;
+}
+
+/* One sweeping highlight per row, staggered down the list. Transform only,
+   on the shared ds-sweep keyframe; frozen under reduced motion (skeletons are
+   not busy indicators), and it exists only while the play loads. */
+.queue-placeholder-row::after {
+  content: "";
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: 30%;
+  background: linear-gradient(90deg, transparent, rgba(var(--accent-rgb), 0.07), transparent);
+  transform: translateX(-100%);
+  animation: ds-sweep 1.6s ease-in-out infinite;
+  animation-delay: var(--placeholder-delay, 0ms);
+  pointer-events: none;
+}
+
+.queue-placeholder-row--next {
+  background: rgba(var(--accent-rgb), 0.08);
+  box-shadow: inset 2px 0 0 var(--accent);
+}
+
+.queue-placeholder-art {
+  width: 36px;
+  height: 36px;
+  flex-shrink: 0;
+  border-radius: 4px;
+  background: var(--bg-tertiary);
+}
+
+.queue-placeholder-lines {
+  flex: 1;
+  min-width: 0;
+  display: grid;
+  gap: 6px;
+}
+
+.queue-placeholder-bar {
+  display: block;
+  height: 8px;
+  border-radius: 4px;
+  background: var(--bg-tertiary);
+}
+
+.queue-placeholder-row--next .queue-placeholder-art,
+.queue-placeholder-row--next .queue-placeholder-bar {
+  background: rgba(var(--accent-rgb), 0.18);
+}
+
+/* A play whose first song isn't known yet: the queue below still plays and is
+   replaced when the list lands. Opaque (mixed into a skin surface) like the
+   other queue banners, since the mpv engine punches a hole under the window. */
+.queue-switch-banner {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 6px 8px;
+  padding: 8px 10px;
+  border: 1px solid rgba(var(--accent-rgb), 0.35);
+  border-radius: var(--ds-radius-card);
+  background: color-mix(in srgb, var(--accent) 8%, var(--bg-secondary));
+  animation: queue-item-in 220ms var(--ease-out-quart);
+}
+
+.queue-switch-cover {
+  width: 34px;
+  height: 34px;
+  flex-shrink: 0;
+  border-radius: 5px;
+  overflow: hidden;
+  background: var(--bg-tertiary);
+}
+
+.queue-switch-cover img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.queue-switch-text {
+  flex: 1;
+  min-width: 0;
+}
+
+.queue-switch-name {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: var(--fs-sm);
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.queue-switch-name span:last-child,
+.queue-switch-meta {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.queue-switch-meta {
+  font-size: var(--fs-xs);
+  color: var(--text-secondary);
+  font-variant-numeric: tabular-nums;
+}
+
+.queue-switch-cancel {
+  flex-shrink: 0;
+  padding: 3px 8px;
+  border: 1px solid var(--border);
+  border-radius: var(--ds-radius);
+  background: var(--bg-surface);
+  color: var(--text-primary);
+  font-size: var(--fs-xs);
+  cursor: pointer;
+}
+
+.queue-switch-cancel:hover {
+  background: var(--bg-hover);
+}
+
+/* The queue a pending switch will replace: still playing, so still usable,
+   but quieter than the banner above it. The playing row stays full strength. */
+.queue-list--superseded > .queue-item:not(.queue-current) {
+  opacity: 0.55;
+  transition: opacity var(--dur-base);
+}
+
+.queue-load-failure {
+  display: flex;
+  align-items: flex-start;
+  gap: 7px;
+  padding: 8px 10px;
+  font-size: var(--fs-xs);
+  color: var(--text-secondary);
+  border-top: 1px solid color-mix(in srgb, var(--error) 30%, transparent);
+  background: color-mix(in srgb, var(--error) 8%, var(--bg-secondary));
+  animation: queue-item-in 220ms var(--ease-out-quart);
+}
+
+.queue-load-failure svg {
+  flex-shrink: 0;
+  margin-top: 1px;
+  color: var(--error);
 }
 
 .queue-item-status {

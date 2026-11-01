@@ -42,9 +42,10 @@ function mount(station: { seedInLibrary: boolean; tracks: Track[] }) {
   const { result } = renderHook(() => usePlayActions({
     playTracks,
     enqueueTracks: vi.fn(),
-    appendToPlaySession: vi.fn(() => true),
-    markBackfillPending: vi.fn(),
-    settleBackfill: vi.fn(),
+    appendToPlaySession: vi.fn(() => null),
+    beginLoadingPlay: vi.fn(),
+    isLoadingPlayLive: vi.fn(() => true),
+    endLoadingPlay: vi.fn(),
     setPlaylistContext,
     albums: [], artists: [], tags: [],
     getAlbumImage: () => null, getArtistImage: () => null, getTagImage: () => null,
