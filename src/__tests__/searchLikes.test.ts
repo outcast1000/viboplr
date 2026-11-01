@@ -17,10 +17,8 @@ const results = (): SearchAllResults => ({
 
 describe("patchSearchResultsLike", () => {
   it("advances only the addressed row through the tri-state cycle", () => {
-    const r = patchSearchResultsLike(results(), "track", 1, "like");
-    expect(r.tracks.map((t) => t.liked)).toEqual([1, 1]);
     // like on an already-liked row clears it
-    expect(patchSearchResultsLike(results(), "track", 2, "like").tracks[1].liked).toBe(0);
+    expect(patchSearchResultsLike(results(), "album", 1, "like").albums[0].liked).toBe(0);
     // dislike from neutral → -1, from -1 → 0
     expect(patchSearchResultsLike(results(), "artist", 1, "dislike").artists[0].liked).toBe(-1);
     expect(patchSearchResultsLike(results(), "artist", 2, "dislike").artists[1].liked).toBe(0);
@@ -42,7 +40,7 @@ describe("buildSearchLikeHandlers", () => {
     expect(buildSearchLikeHandlers(undefined, vi.fn())).toBeUndefined();
   });
 
-  it("patches the snapshot then forwards to the canonical handler", () => {
+  it("patches artist/album rows then forwards; track rows only forward (their hearts read the store)", () => {
     const deps = {
       onToggleTrackLike: vi.fn(), onToggleTrackDislike: vi.fn(),
       onToggleArtistLike: vi.fn(), onToggleArtistDislike: vi.fn(),
@@ -52,8 +50,9 @@ describe("buildSearchLikeHandlers", () => {
     const setResults = vi.fn((fn: (p: SearchAllResults) => SearchAllResults) => { state = fn(state); });
     const h = buildSearchLikeHandlers(deps, setResults)!;
 
+    const tracksBefore = state.tracks;
     h.toggleTrackLike(state.tracks[0]);
-    expect(state.tracks[0].liked).toBe(1);
+    expect(state.tracks).toBe(tracksBefore);
     expect(deps.onToggleTrackLike).toHaveBeenCalledWith(expect.objectContaining({ id: 1 }));
 
     h.toggleAlbumDislike(2);
@@ -63,6 +62,6 @@ describe("buildSearchLikeHandlers", () => {
     h.toggleArtistLike(1);
     expect(state.artists[0].liked).toBe(1);
     expect(deps.onToggleArtistLike).toHaveBeenCalledWith(1);
-    expect(setResults).toHaveBeenCalledTimes(3);
+    expect(setResults).toHaveBeenCalledTimes(2);
   });
 });

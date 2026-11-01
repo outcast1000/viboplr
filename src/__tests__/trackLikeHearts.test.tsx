@@ -129,11 +129,9 @@ describe("like actions read and write the store", () => {
   function setup(store: TrackLikeStore) {
     return renderHook(() => useLikeActions({
       library: {
-        tracks: [], artists: [], albums: [], tags: [],
-        setTracks: vi.fn(), setArtists: vi.fn(), setAlbums: vi.fn(), setTags: vi.fn(),
+        artists: [], albums: [], tags: [],
+        setArtists: vi.fn(), setAlbums: vi.fn(), setTags: vi.fn(),
       },
-      playback: { currentTrack: null, setCurrentTrack: vi.fn() },
-      queueHook: { setQueue: vi.fn() },
       plugins: { dispatchEvent: vi.fn() },
       notify: vi.fn(),
       likeStore: store,

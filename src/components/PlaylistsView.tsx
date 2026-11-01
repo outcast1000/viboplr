@@ -23,7 +23,6 @@ import playlistDefault from "../assets/playlist-default.png";
 import { resolveImageSrc, resolveImageUrl } from "../utils/resolveImageUrl";
 import { IconHeartFilled, IconBan, IconRefresh, IconSparkles } from "./Icons";
 import { LikeDislikeButtons } from "./LikeDislikeButtons";
-import { nextTriState } from "../likeKeys";
 import { isAuto, isProtectedSystem, comparePlaylists, playlistKind, playlistKindLabel, parseRecipe, autoRecipeLabel, firstArtist, featuredArtists, featuredArtistsFromMetadata, featuredArtistsLabel, parsePlaylistMetadata, type PlaylistKind } from "../utils/autoPlaylist";
 import { store } from "../store";
 import type { ViewMode } from "../types";
@@ -614,13 +613,12 @@ export function PlaylistsView({ searchQuery, onSearchChange, onPlayTracks, onEnq
   }, [displayTracks, selectedTrackIds, onTrackDragStart, editable, naturalOrder, trackViewMode, applyReorder, onNotify]);
 
   // Like/dislike a detail row through the canonical metadata-keyed path
-  // (useLikeActions, wired from App). The row is reflected optimistically for
-  // instant feedback; the entity-likes-changed reload then reconciles the
-  // authoritative state — and on "Liked/Disliked Tracks" re-projects the list so
+  // (useLikeActions, wired from App). The row's heart reads the track-like
+  // store, which that path writes first; the entity-likes-changed reload then
+  // refreshes the rows — and on "Liked/Disliked Tracks" re-projects the list so
   // a no-longer-qualifying track drops out.
   const rateTrack = useCallback((t: PlaylistTrack, action: "like" | "dislike") => {
     const qt = playlistTrackToMinimalTrack(t);
-    setTracks(prev => prev.map(x => (x.id === t.id ? { ...x, liked: nextTriState(x.liked ?? 0, action) } : x)));
     if (action === "like") onToggleLike?.(qt);
     else onToggleDislike?.(qt);
   }, [onToggleLike, onToggleDislike]);

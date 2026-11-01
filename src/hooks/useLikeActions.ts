@@ -2,31 +2,21 @@ import { useRef } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import type { Track, Artist, Album, Tag, QueueTrack } from "../types";
 import type { PluginEventName } from "../types/plugin";
-import { emitTrackPatch } from "../trackEvents";
 import { trackLikePayload, entityLikePayload, nextTriState, trackLikeChange, entityLikeChange } from "../likeKeys";
 import { normalizeForMatch } from "../utils/normalize";
 import { trackLikeId } from "../utils/likeReconcile";
 import type { Notify } from "./useToasts";
 import type { TrackLikeStore } from "../utils/trackLikeStore";
 
+// Artist / album / tag likes are mirrored into these lists. Track likes are
+// not: they live in the track-like store, whose listeners update every copy.
 interface LibraryDeps {
-  tracks: Track[];
   artists: Artist[];
   albums: Album[];
   tags: Tag[];
-  setTracks: React.Dispatch<React.SetStateAction<Track[]>>;
   setArtists: React.Dispatch<React.SetStateAction<Artist[]>>;
   setAlbums: React.Dispatch<React.SetStateAction<Album[]>>;
   setTags: React.Dispatch<React.SetStateAction<Tag[]>>;
-}
-
-interface PlaybackDeps {
-  currentTrack: QueueTrack | null;
-  setCurrentTrack: React.Dispatch<React.SetStateAction<QueueTrack | null>>;
-}
-
-interface QueueDeps {
-  setQueue: React.Dispatch<React.SetStateAction<QueueTrack[]>>;
 }
 
 interface PluginsDeps {
@@ -35,63 +25,30 @@ interface PluginsDeps {
 
 interface UseLikeActionsDeps {
   library: LibraryDeps;
-  playback: PlaybackDeps;
-  queueHook: QueueDeps;
   plugins: PluginsDeps;
   // Surface a failed like/dislike write to the user (toast). Wired from
   // useToasts().notify in App.tsx so a rejected set_entity_like_state is never
   // silent — see conventions "User Feedback for Significant Operations".
   notify: Notify;
-  // The track-like store: the one answer to "is this song liked?". A like
-  // reads its current state here and writes here first (optimistic, reverted
-  // on failure). Optional so a caller without one keeps the copy-only path.
-  likeStore?: TrackLikeStore | null;
-}
-
-// The metadata fallbacks below all compare `trackLikeId` (utils/likeReconcile)
-// — the SAME normalized title+artist identity the durable entity_likes key is
-// built from. One definition, deliberately: the invariant "optimistic matching
-// agrees with the key the backend wrote" was maintained in three hand-rolled
-// copies of the normalize-and-compare, and any drift would silently leave the
-// optimistic heart pointing at rows the durable store doesn't. Normalization
-// is diacritic-insensitive so a "Jóga"/"Joga" pair reads as one song, exactly
-// as the backend treats it.
-
-// Which library rows a like on `track` should optimistically patch.
-//
-// Prefer the entry's cached `libraryId` and match the row's **own id**. Do NOT
-// match on `key`: keys used to encode the id (`lib:N`) so comparing them
-// happened to work, but a queue key is re-minted as `q:N` whenever it would
-// collide and every restored entry gets a fresh one — so an entry can carry
-// `libraryId: 42` alongside a key that names nothing. Comparing keys then
-// matched no row *and*, because the id was non-null, skipped the metadata
-// fallback: liking a restored track or a second copy of one left the library
-// list's heart stale.
-//
-// With no cached id (a plugin search result, a metadata-only entry) fall back
-// to the metadata identity, which is also how a `subsonic://` or plugin-scheme
-// copy finds its local twin.
-export function likeTargetsRow(
-  row: { id: number | null; title: string; artist_name: string | null },
-  track: QueueTrack,
-): boolean {
-  const directId = track.libraryId ?? null;
-  if (directId != null) return row.id === directId;
-  return trackLikeId(row.title, row.artist_name) === trackLikeId(track.title, track.artist_name);
+  // The track-like store: the one answer to "is this song liked?". A track
+  // like reads its current state here and writes here first (optimistic,
+  // reverted on failure); the store's listeners move every heart and copy.
+  likeStore: TrackLikeStore;
 }
 
 // A queue/now-playing entry is the same song as `track` when its in-memory key
 // matches, OR — for copies that came from a different surface (external source,
 // restored playlist, a duplicate add) and so carry a different key — when the
-// metadata identity matches. Without the fallback, liking a song
-// from one surface would leave a same-song copy elsewhere in the queue stale.
+// metadata identity (`trackLikeId`, the backend's like key) matches. Used for
+// song identity (play continuation, the control API), no longer for likes:
+// a like lives once in the track-like store.
 export function sameSong(a: QueueTrack, b: QueueTrack): boolean {
   if (a.key === b.key) return true;
   return trackLikeId(a.title, a.artist_name) === trackLikeId(b.title, b.artist_name);
 }
 
 export function useLikeActions(deps: UseLikeActionsDeps) {
-  const { library, playback, queueHook, plugins, notify, likeStore } = deps;
+  const { library, plugins, notify, likeStore } = deps;
 
   // In-flight guard, keyed by the song's metadata identity (the dimension the
   // durable like key uses) so a rapid second click — on the same now-playing
@@ -104,36 +61,7 @@ export function useLikeActions(deps: UseLikeActionsDeps) {
   // The song's current state: the store's answer, the copy's own `liked` until
   // the store has loaded (or when there is none). A copy can be stale — a
   // plugin row hardcodes 0 — so the store wins whenever it can answer.
-  const currentLike = (track: Track | QueueTrack) =>
-    likeStore ? likeStore.lookupKey(likeIdentity(track), track.liked) : track.liked ?? 0;
-
-  // Apply a track's liked value across every in-memory mirror: library list
-  // (likeTargetsRow's rule), currentTrack, and the queue (sameSong's rule).
-  // Used both for the optimistic update and to revert it on failure. The
-  // clicked track's identity is normalized ONCE here and compared per row —
-  // the exported predicates re-derive it per call, which inside a setTracks
-  // map would cost 2×N normalizations per like click.
-  //
-  // Accepts both track shapes because both surfaces click hearts: a library
-  // list hands a `Track` (row handle = `id`, no render key), a queue/playback
-  // surface hands a `QueueTrack` (cached `libraryId` + `key` fast path).
-  function mirrorTrackLike(track: Track | QueueTrack, likedValue: number) {
-    const directId = "id" in track ? track.id : track.libraryId ?? null;
-    const trackKey = "key" in track ? track.key : null;
-    const ident = trackLikeId(track.title, track.artist_name);
-    const sameIdent = (t: { title: string; artist_name: string | null }) =>
-      trackLikeId(t.title, t.artist_name) === ident;
-    // = likeTargetsRow(t, track), with `ident` hoisted.
-    library.setTracks(prev => prev.map(t =>
-      (directId != null ? t.id === directId : sameIdent(t)) ? { ...t, liked: likedValue } : t));
-    if (directId != null) emitTrackPatch(directId, { liked: likedValue });
-    // = sameSong(t, track), with `ident` hoisted.
-    if (playback.currentTrack && (playback.currentTrack.key === trackKey || sameIdent(playback.currentTrack))) {
-      playback.setCurrentTrack(prev => prev ? { ...prev, liked: likedValue } : prev);
-    }
-    queueHook.setQueue(prev => prev.map(t =>
-      (t.key === trackKey || sameIdent(t)) ? { ...t, liked: likedValue } : t));
-  }
+  const currentLike = (track: Track | QueueTrack) => likeStore.lookupKey(likeIdentity(track), track.liked);
 
   /** Set a track's rating to an absolute tri-state value. The toggle handlers
    *  route through here (with `nextTriState`) so the two paths can't drift;
@@ -145,9 +73,9 @@ export function useLikeActions(deps: UseLikeActionsDeps) {
     if (inFlightRef.current.has(id)) return false;
     const prevLiked = currentLike(track);
     inFlightRef.current.add(id);
-    // Optimistic: reflect the new state immediately so the UI is responsive.
-    likeStore?.set(id, likeState);
-    mirrorTrackLike(track, likeState);
+    // Optimistic: the store moves every heart, and its copy listener
+    // (useTrackLikeCopySync) every copy of the song, library or not.
+    likeStore.set(id, likeState);
     try {
       const stored = await invoke<number>("set_entity_like_state", {
         kind: "track",
@@ -164,9 +92,8 @@ export function useLikeActions(deps: UseLikeActionsDeps) {
       return true;
     } catch (e) {
       console.error("Failed to set track rating:", e);
-      // Revert the optimistic mirror to the prior value and surface the failure.
-      likeStore?.set(id, prevLiked);
-      mirrorTrackLike(track, prevLiked);
+      // Revert the optimistic write and surface the failure.
+      likeStore.set(id, prevLiked);
       notify(`Couldn't save like for "${track.title}" — please retry`, { kind: "error" });
       return false;
     } finally {

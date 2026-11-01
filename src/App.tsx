@@ -127,7 +127,6 @@ import { PluginInstallModal } from "./components/PluginInstallModal";
 import { useAssistantInstall } from "./hooks/useAssistantInstall";
 
 import { useLikeActions } from "./hooks/useLikeActions";
-import { nextTriState } from "./likeKeys";
 import { useControlApi } from "./hooks/useControlApi";
 import { useCollectionActions } from "./hooks/useCollectionActions";
 import { useContextMenuActions } from "./hooks/useContextMenuActions";
@@ -2074,21 +2073,12 @@ function App() {
 
   const likeActions = useLikeActions({
     library: {
-      tracks: library.tracks,
       artists: library.artists,
       albums: library.albums,
       tags: library.tags,
-      setTracks: library.setTracks,
       setArtists: library.setArtists,
       setAlbums: library.setAlbums,
       setTags: library.setTags,
-    },
-    playback: {
-      currentTrack: playback.currentTrack,
-      setCurrentTrack: playback.setCurrentTrack,
-    },
-    queueHook: {
-      setQueue: queueHook.setQueue,
     },
     plugins: {
       dispatchEvent: plugins.dispatchEvent,
@@ -3994,39 +3984,6 @@ function App() {
     });
   }, []);
 
-  // Like state for the name-only fallback Track page. Its Track is built
-  // inline from `fallbackTrackName`, which carries none, so it is read from
-  // the durable store — likes are keyed by metadata, so a track that isn't in
-  // the library can still be liked. Keyed by identity so a stale answer for
-  // the previous page never shows on the next one.
-  const [fallbackTrackLike, setFallbackTrackLike] = useState<{ id: string; liked: number } | null>(null);
-  const fallbackTrackLikeId = library.fallbackTrackName
-    ? trackLikeId(library.fallbackTrackName.name, library.fallbackTrackName.artistName ?? null)
-    : null;
-  useEffect(() => {
-    const fb = library.fallbackTrackName;
-    if (!fb) return;
-    let cancelled = false;
-    const id = trackLikeId(fb.name, fb.artistName ?? null);
-    fetchLikeStates([{ title: fb.name, artist_name: fb.artistName ?? null }])
-      .then(byId => { if (!cancelled) setFallbackTrackLike({ id, liked: byId.get(id) ?? 0 }); })
-      .catch(e => console.error("Failed to load like state for track page:", e));
-    return () => { cancelled = true; };
-  }, [library.fallbackTrackName]);
-
-  // Like/dislike from the Track-detail hero. setTrackRating mirrors the new
-  // state into the library list, queue and currentTrack, and patches by id —
-  // but an id-less page (an external queue entry, the name-only fallback) is
-  // in none of those, so the page's own copy is updated through `apply` too,
-  // and reverted when the write doesn't land.
-  const rateDetailTrack = async (track: Track, action: "like" | "dislike", apply: (liked: number) => void) => {
-    // The store's answer, not the page's copy (which an id-less entry or the
-    // name-only page may hold as a guess).
-    const current = trackLikeStore.lookup(track.title, track.artist_name, track.liked);
-    const next = nextTriState(current, action);
-    apply(next);
-    if (!(await likeActions.setTrackRating(track, next))) apply(current);
-  };
 
   useEffect(() => {
     if (!restoredRef.current) return;
@@ -5905,8 +5862,6 @@ function App() {
             const track = detailTrackLocal ?? detailTrack;
             if (!track) return null;
             const isCurrentTrack = isPlayingSelection(library.selectedTrack, playback.currentTrack);
-            const applyDetailLike = (liked: number) => setDetailTrack(prev =>
-              prev && prev.id === track.id && prev.title === track.title ? { ...prev, liked } : prev);
             return (
               <TrackDetailView
                 trackId={track.id}
@@ -5927,8 +5882,8 @@ function App() {
                   }
                 }}
                 onStartRadio={() => contextMenuActions.startRadio({ title: track.title, artistName: track.artist_name, coverPath: track.image_url ?? null })}
-                onToggleLike={() => rateDetailTrack(track, "like", applyDetailLike)}
-                onToggleDislike={() => rateDetailTrack(track, "dislike", applyDetailLike)}
+                onToggleLike={() => likeActions.handleToggleLike(track)}
+                onToggleDislike={() => likeActions.handleToggleDislike(track)}
                 onShowInFolder={() => { void contextMenuActions.showTrackInFolder({ libraryId: track.id, path: track.path }); }}
               />
             );
@@ -5951,12 +5906,11 @@ function App() {
               file_size: null,
               collection_id: null,
               collection_name: null,
-              liked: fallbackTrackLike && fallbackTrackLike.id === fallbackTrackLikeId ? fallbackTrackLike.liked : 0,
+              // Not read: the page's heart asks the track-like store by name,
+              // which answers for songs outside the library too.
+              liked: 0,
               added_at: null,
               modified_at: null,
-            };
-            const applyFallbackLike = (liked: number) => {
-              if (fallbackTrackLikeId) setFallbackTrackLike({ id: fallbackTrackLikeId, liked });
             };
             const albumImg = syntheticTrack.album_title
               ? albumImageCache.getImage(syntheticTrack.album_title, syntheticTrack.artist_name)
@@ -5975,8 +5929,8 @@ function App() {
                 onPlay={() => queueHook.playTracks([syntheticTrack], 0)}
                 onPlayAt={() => {}}
                 onStartRadio={syntheticTrack.artist_name ? () => contextMenuActions.startRadio({ title: syntheticTrack.title, artistName: syntheticTrack.artist_name, coverPath: albumImg ?? artistImg ?? null }) : undefined}
-                onToggleLike={() => rateDetailTrack(syntheticTrack, "like", applyFallbackLike)}
-                onToggleDislike={() => rateDetailTrack(syntheticTrack, "dislike", applyFallbackLike)}
+                onToggleLike={() => likeActions.handleToggleLike(syntheticTrack)}
+                onToggleDislike={() => likeActions.handleToggleDislike(syntheticTrack)}
                 onShowInFolder={() => {}}
               />
             );

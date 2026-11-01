@@ -8,6 +8,7 @@ const invoke = vi.fn();
 vi.mock("@tauri-apps/api/core", () => ({ invoke: (...a: unknown[]) => invoke(...a) }));
 
 import { useLikeActions } from "../hooks/useLikeActions";
+import { TrackLikeStore } from "../utils/trackLikeStore";
 import { trackLikeChange, entityLikeChange, entityLikePayload } from "../likeKeys";
 import type { Album, Artist, QueueTrack } from "../types";
 
@@ -20,17 +21,12 @@ function setup(over: { artists?: Artist[]; albums?: Album[] } = {}) {
   const dispatchEvent = vi.fn();
   const notify = vi.fn();
   const library = {
-    tracks: [], artists: over.artists ?? [], albums: over.albums ?? [], tags: [],
-    setTracks: vi.fn(), setArtists: vi.fn(), setAlbums: vi.fn(), setTags: vi.fn(),
+    artists: over.artists ?? [], albums: over.albums ?? [], tags: [],
+    setArtists: vi.fn(), setAlbums: vi.fn(), setTags: vi.fn(),
   };
+  const likeStore = new TrackLikeStore();
   const { result } = renderHook(() =>
-    useLikeActions({
-      library,
-      playback: { currentTrack: null, setCurrentTrack: vi.fn() },
-      queueHook: { setQueue: vi.fn() },
-      plugins: { dispatchEvent },
-      notify,
-    }),
+    useLikeActions({ library, plugins: { dispatchEvent }, notify, likeStore }),
   );
   const changes = () => dispatchEvent.mock.calls.filter(([e]) => e === "like:changed").map(([, c]) => c);
   return { result, changes, notify };
@@ -115,11 +111,10 @@ describe("like:changed", () => {
     const dispatchEvent = vi.fn();
     const { result } = renderHook(() =>
       useLikeActions({
-        library: { tracks: [], artists: [], albums: [], tags: [], setTracks: vi.fn(), setArtists: vi.fn(), setAlbums: vi.fn(), setTags: vi.fn() },
-        playback: { currentTrack: null, setCurrentTrack: vi.fn() },
-        queueHook: { setQueue: vi.fn() },
+        library: { artists: [], albums: [], tags: [], setArtists: vi.fn(), setAlbums: vi.fn(), setTags: vi.fn() },
         plugins: { dispatchEvent },
         notify: vi.fn(),
+        likeStore: new TrackLikeStore(),
       }),
     );
     await act(() => result.current.handleToggleLike(TRACK));

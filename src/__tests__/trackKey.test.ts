@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { nextQueueKey, librarySelection, entrySelection, queueTrackSelection, isPlayingLibraryRow, isPlayingSelection, isLocalTrack, trackToQueueTrack } from "../queueEntry";
-import { sameSong, likeTargetsRow } from "../hooks/useLikeActions";
+import { sameSong } from "../hooks/useLikeActions";
 import type { Track, QueueTrack } from "../types";
 
 // A library Track carries NO key — that field was removed with the last
@@ -230,41 +230,4 @@ describe("guard behavior for non-library tracks", () => {
     });
   });
 
-  describe("likeTargetsRow (library-list patch predicate)", () => {
-    const base = { id: 42, title: "Roygbiv", artist_name: "Boards of Canada" };
-    const row = (over: Partial<Track> = {}) => makeTrack({ ...base, ...over });
-    const entry = (over: Partial<QueueTrack> = {}): QueueTrack =>
-      ({ ...trackToQueueTrack(makeTrack(base)), ...over });
-
-    it("matches the row whose id the entry cached", () => {
-      expect(likeTargetsRow(row(), entry())).toBe(true);
-      expect(likeTargetsRow(row({ id: 7 }), entry())).toBe(false);
-    });
-
-    // The regression this predicate exists for: a re-keyed duplicate and every
-    // restored entry carry the library id with an unrelated `q:N` key, so a
-    // key comparison found no row and — the id being non-null — never reached
-    // the metadata fallback either.
-    it("matches by id even when the entry's key names nothing", () => {
-      expect(likeTargetsRow(row(), entry({ key: "ext:9" }))).toBe(true);
-    });
-
-    it("ignores metadata once an id is cached, so a same-titled row is left alone", () => {
-      expect(likeTargetsRow(row({ id: 7 }), entry({ key: "ext:9" }))).toBe(false);
-    });
-
-    // A plugin search result (Spotify, yt-dlp) never ingested into a collection
-    // has no id at all — it falls back to metadata, which is what lets a like
-    // made there light up a local copy of the same song.
-    it("falls back to title + artist when the entry has no id", () => {
-      expect(likeTargetsRow(row(), entry({ key: "ext:9", libraryId: null }))).toBe(true);
-      expect(likeTargetsRow(row({ title: "Dayvan Cowboy" }), entry({ key: "ext:9", libraryId: null }))).toBe(false);
-    });
-
-    it("matches diacritic variants on the fallback path", () => {
-      const local = row({ title: "Jóga", artist_name: "Björk" });
-      const external = entry({ key: "ext:9", libraryId: null, title: "Joga", artist_name: "Bjork" });
-      expect(likeTargetsRow(local, external)).toBe(true);
-    });
-  });
 });
