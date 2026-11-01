@@ -1106,6 +1106,7 @@ export function PlaylistsView({ searchQuery, onSearchChange, onPlayTracks, onEnq
                 {onToggleLike && (
                   <LikeDislikeButtons
                     liked={t.liked ?? 0}
+                    track={t}
                     onToggleLike={() => rateTrack(t, "like")}
                     onToggleDislike={onToggleDislike ? () => rateTrack(t, "dislike") : undefined}
                     variant="inline"
@@ -1138,6 +1139,7 @@ export function PlaylistsView({ searchQuery, onSearchChange, onPlayTracks, onEnq
                   title={t.title}
                   subtitle={<>{t.artist_name && <>{t.artist_name} {"·"} </>}{formatDuration(t.duration_secs)}</>}
                   liked={t.liked ?? 0}
+                  track={t}
                   selected={selectedTrackIds.has(t.id)}
                   onClick={(e) => handleRowClick(e, index)}
                   onMouseDown={(e) => handleRowMouseDown(e, index)}
@@ -1166,6 +1168,7 @@ export function PlaylistsView({ searchQuery, onSearchChange, onPlayTracks, onEnq
                     {onToggleLike && (
                       <LikeDislikeButtons
                         liked={t.liked ?? 0}
+                        track={t}
                         onToggleLike={() => rateTrack(t, "like")}
                         onToggleDislike={onToggleDislike ? () => rateTrack(t, "dislike") : undefined}
                         variant="inline"

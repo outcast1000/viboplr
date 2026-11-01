@@ -25,6 +25,7 @@ import { EntityArtFallback } from "./EntityArtFallback";
 import { EntityTagPanel } from "./EntityTagPanel";
 import { buildHeroOverflowItems, type HeroOverflowItem } from "../utils/heroOverflow";
 import "./TrackDetailView.css";
+import { useTrackLike } from "../contexts/TrackLikeContext";
 
 const DEFAULT_TAB_ORDER = ["song_meaning", "lyrics", "song_bio", "similar_tracks", "details", "tags", "play-history"];
 const PLAY_HISTORY_LIMIT = 50;
@@ -78,6 +79,9 @@ export function TrackDetailView({
   onToggleLike, onToggleDislike,
 }: TrackDetailViewProps) {
   const actions = useDetailActions();
+  // The hero heart reads the track-like store like every other heart, so an
+  // id-less entry or the name-only page shows the song's real state.
+  const shownLiked = useTrackLike(track, track.liked);
   const isLibrary = trackId != null;
 
   const [playStats, setPlayStats] = useState<TrackPlayStats | null>(null);
@@ -350,7 +354,7 @@ export function TrackDetailView({
         artShape="square"
         eyebrow="Track"
         title={track.title}
-        liked={track.liked}
+        liked={shownLiked}
         onToggleLike={onToggleLike}
         onToggleDislike={onToggleDislike}
         entityLabel="track"

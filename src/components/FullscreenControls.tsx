@@ -203,6 +203,7 @@ export function FullscreenControls({
             {currentTrack && (
               <LikeDislikeButtons
                 liked={currentTrack.liked}
+                track={currentTrack}
                 onToggleLike={onToggleLike}
                 onToggleDislike={onToggleDislike}
                 variant="glass"

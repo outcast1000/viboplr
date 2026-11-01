@@ -24,6 +24,9 @@ export interface TrackCardProps {
   title: string;
   subtitle?: ReactNode;         // e.g. "Artist · 3:21"
   liked: number;
+  /** The track's identity, so the heart reads the track-like store
+   *  (`LikeDislikeButtons` `track`); `liked` is the fallback. */
+  track?: { title: string; artist_name?: string | null } | null;
   playing?: boolean;
   selected?: boolean;
   onClick?: (e: React.MouseEvent) => void;
@@ -54,7 +57,7 @@ function CardArt({ art }: { art: TrackCardArt }) {
 }
 
 export function TrackCard({
-  art, title, subtitle, liked, playing, selected,
+  art, title, subtitle, liked, track, playing, selected,
   onClick, onMouseDown, onDoubleClick, onContextMenu,
   onPlay, onLocate, onToggleLike, onToggleDislike,
 }: TrackCardProps) {
@@ -70,6 +73,7 @@ export function TrackCard({
         <CardArt art={art} />
         <LikeDislikeButtons
           liked={liked}
+          track={track}
           onToggleLike={onToggleLike}
           onToggleDislike={onToggleDislike}
           variant="overlay"

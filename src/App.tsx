@@ -65,6 +65,8 @@ import * as queueOps from "./utils/queueOps";
 import type { QueueOpsDeps } from "./utils/queueOps";
 import type { TagOpsDeps } from "./utils/tagOps";
 import { TagOpsProvider } from "./contexts/TagOpsContext";
+import { TrackLikeStoreContext, useTrackLikeStoreSync } from "./contexts/TrackLikeContext";
+import { TrackLikeStore } from "./utils/trackLikeStore";
 import { createCoalescedRefresh } from "./utils/coalescedRefresh";
 import { useToasts } from "./hooks/useToasts";
 import { useAssistantActivity } from "./hooks/useAssistantActivity";
@@ -2060,6 +2062,11 @@ function App() {
   const [likeBusy, setLikeBusy] = useState(false);
 
   // Like actions
+  // The one answer to "is this song liked?" for every heart (see
+  // utils/trackLikeStore.ts). Loaded once, kept current from entity-likes-changed.
+  const [trackLikeStore] = useState(() => new TrackLikeStore());
+  useTrackLikeStoreSync(trackLikeStore);
+
   const likeActions = useLikeActions({
     library: {
       tracks: library.tracks,
@@ -2082,6 +2089,7 @@ function App() {
       dispatchEvent: plugins.dispatchEvent,
     },
     notify,
+    likeStore: trackLikeStore,
   });
 
   // The library's track population changed (scan, sync, collection
@@ -4005,9 +4013,12 @@ function App() {
   // in none of those, so the page's own copy is updated through `apply` too,
   // and reverted when the write doesn't land.
   const rateDetailTrack = async (track: Track, action: "like" | "dislike", apply: (liked: number) => void) => {
-    const next = nextTriState(track.liked, action);
+    // The store's answer, not the page's copy (which an id-less entry or the
+    // name-only page may hold as a guess).
+    const current = trackLikeStore.lookup(track.title, track.artist_name, track.liked);
+    const next = nextTriState(current, action);
     apply(next);
-    if (!(await likeActions.setTrackRating(track, next))) apply(track.liked);
+    if (!(await likeActions.setTrackRating(track, next))) apply(current);
   };
 
   useEffect(() => {
@@ -5479,10 +5490,11 @@ function App() {
         specs.push({ kind: "item", text: "Next", action: handleNext });
         specs.push({ kind: "item", text: "Previous", action: queueHook.playPrevious });
         specs.push({ kind: "separator" });
+        const rating = trackLikeStore.lookup(t.title, t.artist_name, t.liked);
         const ratingItems: MenuItemSpec[] = [
-          { kind: "check", text: "Like", checked: t.liked === 1, action: () => likeActions.handleToggleLike(t) },
-          { kind: "check", text: "None", checked: t.liked === 0, action: () => { if (t.liked === 1) likeActions.handleToggleLike(t); else if (t.liked === -1) likeActions.handleToggleDislike(t); } },
-          { kind: "check", text: "Dislike", checked: t.liked === -1, action: () => likeActions.handleToggleDislike(t) },
+          { kind: "check", text: "Like", checked: rating === 1, action: () => likeActions.handleToggleLike(t) },
+          { kind: "check", text: "None", checked: rating === 0, action: () => { if (rating === 1) likeActions.handleToggleLike(t); else if (rating === -1) likeActions.handleToggleDislike(t); } },
+          { kind: "check", text: "Dislike", checked: rating === -1, action: () => likeActions.handleToggleDislike(t) },
         ];
         specs.push({ kind: "submenu", text: "Rating", items: ratingItems });
         specs.push({ kind: "item", text: "Start radio from this track", action: () => {
@@ -5633,6 +5645,7 @@ function App() {
   }), [miniSearch.isOpen, miniSearch.query, miniSearch.results, miniSearch.items, miniSearch.highlightedIndex, miniSearch.likeHandlers, npBar]);
 
   return (
+    <TrackLikeStoreContext.Provider value={trackLikeStore}>
     <TagOpsProvider value={tagOpsDeps}>
     <VideoFrameQueueProvider>
     <VideoFrameQueueRefBridge refOut={videoFrameQueueRef} />
@@ -7474,6 +7487,7 @@ function App() {
     </div>
     </VideoFrameQueueProvider>
     </TagOpsProvider>
+    </TrackLikeStoreContext.Provider>
   );
 }
 

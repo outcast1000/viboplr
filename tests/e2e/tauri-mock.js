@@ -544,6 +544,11 @@ window.__TAURI_INTERNALS__.invoke = async function (cmd, args) {
       else store[key] = likeState;
       return previous;
     }
+    // Feeds the frontend's track-like store. The mock's key fold is lowercase
+    // only (see set_entity_like_state above), so an accented or padded fixture
+    // name builds a key the store never looks up — keep like fixtures ASCII.
+    // The mock emits no entity-likes-changed; the store's own optimistic write
+    // is what moves a heart here (the event path is unit-tested).
     case 'list_track_likes': {
       const store = (window.__TEST_LIKES__ = window.__TEST_LIKES__ || {});
       return Object.entries(store)

@@ -133,6 +133,7 @@ const QueueRow = memo(function QueueRow({
           <div className="queue-item-like">
             <LikeDislikeButtons
               liked={t.liked}
+              track={t}
               onToggleLike={() => onToggleLike(t)}
               onToggleDislike={showDislike ? () => onToggleDislike(t) : undefined}
               variant="inline"

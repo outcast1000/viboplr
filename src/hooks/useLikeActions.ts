@@ -7,6 +7,7 @@ import { trackLikePayload, entityLikePayload, nextTriState, trackLikeChange, ent
 import { normalizeForMatch } from "../utils/normalize";
 import { trackLikeId } from "../utils/likeReconcile";
 import type { Notify } from "./useToasts";
+import type { TrackLikeStore } from "../utils/trackLikeStore";
 
 interface LibraryDeps {
   tracks: Track[];
@@ -41,6 +42,10 @@ interface UseLikeActionsDeps {
   // useToasts().notify in App.tsx so a rejected set_entity_like_state is never
   // silent — see conventions "User Feedback for Significant Operations".
   notify: Notify;
+  // The track-like store: the one answer to "is this song liked?". A like
+  // reads its current state here and writes here first (optimistic, reverted
+  // on failure). Optional so a caller without one keeps the copy-only path.
+  likeStore?: TrackLikeStore | null;
 }
 
 // The metadata fallbacks below all compare `trackLikeId` (utils/likeReconcile)
@@ -86,7 +91,7 @@ export function sameSong(a: QueueTrack, b: QueueTrack): boolean {
 }
 
 export function useLikeActions(deps: UseLikeActionsDeps) {
-  const { library, playback, queueHook, plugins, notify } = deps;
+  const { library, playback, queueHook, plugins, notify, likeStore } = deps;
 
   // In-flight guard, keyed by the song's metadata identity (the dimension the
   // durable like key uses) so a rapid second click — on the same now-playing
@@ -96,6 +101,11 @@ export function useLikeActions(deps: UseLikeActionsDeps) {
   // the cycle and persist a rating the user never chose.
   const inFlightRef = useRef<Set<string>>(new Set());
   const likeIdentity = (track: Track | QueueTrack) => trackLikeId(track.title, track.artist_name);
+  // The song's current state: the store's answer, the copy's own `liked` until
+  // the store has loaded (or when there is none). A copy can be stale — a
+  // plugin row hardcodes 0 — so the store wins whenever it can answer.
+  const currentLike = (track: Track | QueueTrack) =>
+    likeStore ? likeStore.lookupKey(likeIdentity(track), track.liked) : track.liked ?? 0;
 
   // Apply a track's liked value across every in-memory mirror: library list
   // (likeTargetsRow's rule), currentTrack, and the queue (sameSong's rule).
@@ -133,9 +143,10 @@ export function useLikeActions(deps: UseLikeActionsDeps) {
   async function setTrackRating(track: Track | QueueTrack, likeState: number): Promise<boolean> {
     const id = likeIdentity(track);
     if (inFlightRef.current.has(id)) return false;
-    const prevLiked = track.liked;
+    const prevLiked = currentLike(track);
     inFlightRef.current.add(id);
     // Optimistic: reflect the new state immediately so the UI is responsive.
+    likeStore?.set(id, likeState);
     mirrorTrackLike(track, likeState);
     try {
       const stored = await invoke<number>("set_entity_like_state", {
@@ -154,6 +165,7 @@ export function useLikeActions(deps: UseLikeActionsDeps) {
     } catch (e) {
       console.error("Failed to set track rating:", e);
       // Revert the optimistic mirror to the prior value and surface the failure.
+      likeStore?.set(id, prevLiked);
       mirrorTrackLike(track, prevLiked);
       notify(`Couldn't save like for "${track.title}" — please retry`, { kind: "error" });
       return false;
@@ -163,7 +175,7 @@ export function useLikeActions(deps: UseLikeActionsDeps) {
   }
 
   async function applyTrackRating(track: Track | QueueTrack, action: "like" | "dislike") {
-    await setTrackRating(track, nextTriState(track.liked, action));
+    await setTrackRating(track, nextTriState(currentLike(track), action));
   }
 
   async function handleToggleLike(track: Track | QueueTrack) {

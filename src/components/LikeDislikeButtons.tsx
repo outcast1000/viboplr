@@ -4,9 +4,14 @@ import {
   IconHeartOutline,
   IconBan,
 } from "./Icons";
+import { useTrackLike } from "../contexts/TrackLikeContext";
 
 interface LikeDislikeButtonsProps {
   liked: number;
+  /** A track's identity. When given, the shown state comes from the track-like
+   *  store (one answer per song, whichever copy this is), with `liked` only as
+   *  the fallback until the store has loaded. Omit it for artists, albums, tags. */
+  track?: { title: string; artist_name?: string | null } | null;
   onToggleLike: () => void;
   onToggleDislike?: () => void;
   size?: number;
@@ -31,7 +36,8 @@ const VARIANT_CLASS: Record<string, string> = {
 // If onToggleDislike is omitted the button degrades to a plain like toggle
 // (0 → 1 → 0) via onToggleLike.
 export function LikeDislikeButtons({
-  liked,
+  liked: likedProp,
+  track,
   onToggleLike,
   onToggleDislike,
   size = 14,
@@ -41,6 +47,8 @@ export function LikeDislikeButtons({
   showKeyboardHint,
   disabled,
 }: LikeDislikeButtonsProps) {
+  const fromStore = useTrackLike(track ?? null, likedProp);
+  const liked = track ? fromStore : likedProp;
   const current = liked === 1 ? 1 : liked === -1 ? -1 : 0;
   const hasDislike = !!onToggleDislike;
 

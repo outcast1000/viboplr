@@ -1022,6 +1022,7 @@ export function SearchView({
                     leading={
                       <LikeDislikeButtons
                         liked={t.liked}
+                        track={t}
                         onToggleLike={() => handleTrackLike(t)}
                         onToggleDislike={() => handleTrackDislike(t)}
                         variant="inline"
@@ -1071,6 +1072,7 @@ export function SearchView({
                       title={t.title}
                       subtitle={<>{t.artist_name && <>{t.artist_name} {"·"} </>}{formatDuration(t.duration_secs)}</>}
                       liked={t.liked}
+                      track={t}
                       playing={isPlayingLibraryRow(t, currentTrack)}
                       selected={selectedTrackIds.has(t.id)}
                       onClick={(e) => handleTrackItemClick(e, i)}

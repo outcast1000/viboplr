@@ -469,6 +469,7 @@ export function CentralSearchDropdown({
                     {likes && (
                       <RowLike
                         liked={track.liked}
+                        track={track}
                         entityLabel="track"
                         onToggleLike={() => likes.toggleTrackLike(track)}
                         onToggleDislike={() => likes.toggleTrackDislike(track)}

@@ -685,6 +685,7 @@ const TrackRow = memo(function TrackRow({
           <span key="like" className="col-like">
             <LikeDislikeButtons
               liked={t.liked}
+              track={t}
               onToggleLike={() => handlers.current.toggleLike(t)}
               onToggleDislike={presence.dislike ? () => handlers.current.toggleDislike?.(t) : undefined}
               variant="inline"

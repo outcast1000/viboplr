@@ -33,6 +33,7 @@ import type { NowPlayingInfoResolved } from "../hooks/useNowPlayingInfo";
 import { SourceIndicator } from "./SourceIndicator";
 import type { InvokeInfoFetch } from "../hooks/useCommunityTags";
 import "./NowPlayingBar.css";
+import { useTrackLike } from "../contexts/TrackLikeContext";
 import { quantizeFraction } from "../utils/seekRepaint";
 import type { WaveformPeaks } from "../waveform/types";
 
@@ -235,6 +236,9 @@ export const NowPlayingBar = memo(function NowPlayingBar({
   const bufferedPct = bufferedFraction(buffer?.bufferedToSecs ?? null, durationSecs);
   const miniDragTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const miniVolumeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // The heart beside the mini player's title reads the same store as the
+  // like buttons, so the two can't disagree.
+  const currentLiked = useTrackLike(currentTrack, currentTrack?.liked);
   const [showMiniVolume, setShowMiniVolume] = useState(false);
   // Cycle phase for the mini info line, shared by the compact (ultra) and
   // expanded rows — each renders its own cycler instance, so the phase must
@@ -368,7 +372,7 @@ export const NowPlayingBar = memo(function NowPlayingBar({
                 ) : currentTrack ? (
                   <>
                     <span className="now-title" title={currentTrack.title}>
-                      {currentTrack.liked === 1 && <IconHeartFilled size={11} className="mini-ultra-heart" />}
+                      {currentLiked === 1 && <IconHeartFilled size={11} className="mini-ultra-heart" />}
                       {currentTrack.title}
                     </span>
                     {showMiniVolume ? (
@@ -432,7 +436,7 @@ export const NowPlayingBar = memo(function NowPlayingBar({
               <MarqueeText className="mini-ultra-title" enabled={titleScroll} restartKey={currentTrack.key} onPlan={handleUltraPlan} title={currentTrack.artist_name ? `${currentTrack.title} — ${currentTrack.artist_name}` : currentTrack.title}>
                 <span className={`mini-ultra-lead${ultraTitleYielded ? " is-yielded" : ""}`}>
                   <span className="mini-ultra-lead-inner">
-                    {currentTrack.liked === 1 && <IconHeartFilled size={11} className="mini-ultra-heart" />}
+                    {currentLiked === 1 && <IconHeartFilled size={11} className="mini-ultra-heart" />}
                     <span className="mini-ultra-track">{currentTrack.title}</span>
                     <span className="mini-ultra-sep"> — </span>
                   </span>
@@ -466,6 +470,7 @@ export const NowPlayingBar = memo(function NowPlayingBar({
                 {currentTrack && (
                   <LikeDislikeButtons
                     liked={currentTrack.liked}
+                    track={currentTrack}
                     onToggleLike={onToggleLike}
                     onToggleDislike={onToggleDislike}
                     disabled={likeDisabled}
@@ -586,6 +591,7 @@ export const NowPlayingBar = memo(function NowPlayingBar({
             {currentTrack && (
               <LikeDislikeButtons
                 liked={currentTrack.liked}
+                track={currentTrack}
                 onToggleLike={onToggleLike}
                 onToggleDislike={onToggleDislike}
                 disabled={likeDisabled}
