@@ -1687,7 +1687,7 @@ pub fn run() {
             // first dependency check. The dev folder is the one the frontend
             // will name (usePlugins: `devPluginPath`, only with `debugMode` on),
             // so a dev plugin asking for a tool before the plugin listing
-            // rebuilds again is told the real reason (`DevFolderIgnored`).
+            // rebuilds again already finds its own definitions.
             let startup_dev_plugin_dir = {
                 let store = std::fs::read_to_string(app_dir.join("app-state.json"))
                     .ok()

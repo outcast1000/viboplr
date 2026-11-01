@@ -82,7 +82,6 @@ export type DefinitionState = (
   | { kind: "active" }
   | { kind: "pendingConsent"; items: PendingDefinition[] }
   | { kind: "refused"; reason: string }
-  | { kind: "devFolderIgnored" }
   | { kind: "undefined" }
 ) & {
   /** No definition in force, yet a copy of the tool is on this machine. */
@@ -106,8 +105,6 @@ export function noDefinitionReason(
   switch (state.kind) {
     case "refused":
       return `${lead}: Vibo refused this plugin's definition of it (${state.reason}).`;
-    case "devFolderIgnored":
-      return `${lead}: this plugin runs from your dev plugin folder, and a release build of Vibo ignores tool definitions there. Run a development build, or install the plugin normally.`;
     case "undefined":
       return `${lead}: no installed plugin tells Vibo where to get it.`;
   }

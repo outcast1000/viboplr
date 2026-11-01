@@ -584,7 +584,7 @@ pub async fn dependency_registry_status() -> Result<DependencyRegistryStatus, St
 }
 
 /// Where tool `name` stands for plugin `plugin_id` — in force, waiting for
-/// consent, refused, ignored (dev folder in a release build) or undefined.
+/// consent, refused or undefined.
 /// Read when a plugin asks for the tool, so the answer is the registry's now,
 /// not a copy the webview fetched earlier.
 #[tauri::command]

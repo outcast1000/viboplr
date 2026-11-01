@@ -40,10 +40,6 @@ pub struct PluginRoot {
     pub builtin: bool,
     /// One folder that IS a plugin (the dev plugin path), id from its manifest.
     pub single: bool,
-    /// Scanned only to report what it would have defined (`RegistryStatus::ignored`):
-    /// the dev folder in a release build, whose plugin still loads but whose
-    /// definitions don't count.
-    pub definitions_ignored: bool,
 }
 
 #[derive(Debug, Clone, Serialize, PartialEq)]
@@ -75,21 +71,12 @@ pub struct Refused {
     pub reason: String,
 }
 
-/// A definition left out because of where its plugin was loaded from.
-#[derive(Debug, Clone, Serialize, PartialEq)]
-#[serde(rename_all = "camelCase")]
-pub struct Ignored {
-    pub plugin_id: String,
-    pub name: String,
-}
-
 #[derive(Debug, Clone, Default, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct RegistryStatus {
     pub pending_consent: Vec<PendingConsent>,
     pub conflicts: Vec<Conflict>,
     pub refused: Vec<Refused>,
-    pub ignored: Vec<Ignored>,
 }
 
 /// Where a tool a plugin asks for stands, from that plugin's side — what the
@@ -104,8 +91,6 @@ pub enum DefinitionState {
     PendingConsent { items: Vec<PendingConsent> },
     /// This plugin's definition was refused.
     Refused { reason: String },
-    /// This plugin runs from the dev folder, whose definitions this build ignores.
-    DevFolderIgnored,
     /// Nothing defines it.
     Undefined,
 }
@@ -124,6 +109,10 @@ struct Registry {
     /// Plugin id → every tool its `binaryDependencies` names, defined or only
     /// referenced: what `programs.start({ dependency })` checks (`declares`).
     uses: HashMap<String, Vec<String>>,
+    /// Plugin id → why the registry took nothing from it at all (its signature
+    /// doesn't match its files), so a refusal can name that instead of
+    /// claiming the manifest doesn't list the tool (`untrusted_reason`).
+    untrusted: HashMap<String, String>,
     status: RegistryStatus,
 }
 
@@ -164,6 +153,18 @@ pub fn declares(plugin_id: &str, name: &str) -> bool {
         .is_some_and(|names| names.iter().any(|n| n == name))
 }
 
+/// `declares`, plus why not when the registry dropped the plugin's whole
+/// `binaryDependencies` list (its signature doesn't match its files). One
+/// read, so a rebuild can't land between the answer and its reason.
+pub fn check_declares(plugin_id: &str, name: &str) -> Result<(), Option<String>> {
+    let Ok(reg) = REGISTRY.read() else { return Err(None) };
+    let Some(reg) = reg.as_ref() else { return Err(None) };
+    if reg.uses.get(plugin_id).is_some_and(|names| names.iter().any(|n| n == name)) {
+        return Ok(());
+    }
+    Err(reg.untrusted.get(plugin_id).cloned())
+}
+
 /// Is the definition of `name` Vibo's or a bundled / Vibo-signed plugin's
 /// (shown in the Tools tab; nothing installs silently either way).
 pub fn signed_definition(name: &str) -> bool {
@@ -198,9 +199,6 @@ pub fn definition_state(plugin_id: &str, name: &str) -> DefinitionState {
     }
     if let Some(r) = status.refused.into_iter().find(|r| r.plugin_id == plugin_id && r.name == name) {
         return DefinitionState::Refused { reason: r.reason };
-    }
-    if status.ignored.iter().any(|i| i.plugin_id == plugin_id && i.name == name) {
-        return DefinitionState::DevFolderIgnored;
     }
     DefinitionState::Undefined
 }
@@ -687,7 +685,7 @@ fn read_plugin(
         .collect();
     let entries: Vec<&serde_json::Value> = all.iter().filter(|e| e.get("definition").is_some()).collect();
     if entries.is_empty() {
-        return Some(ReadPlugin { id, name, signed: builtin, order: 0, parsed: Vec::new(), uses });
+        return Some(ReadPlugin { id, name, signed: builtin, order: 0, parsed: Vec::new(), uses, untrusted: None });
     }
     let signed = if builtin {
         true
@@ -702,14 +700,23 @@ fn read_plugin(
             crate::plugin_signing::SignatureStatus::Verified => true,
             crate::plugin_signing::SignatureStatus::Unsigned => false,
             crate::plugin_signing::SignatureStatus::Invalid(why) => {
+                let reason = format!("the plugin's signature doesn't match its files ({why})");
                 for e in &entries {
                     refused.push(Refused {
                         plugin_id: id.clone(),
                         name: e.get("name").and_then(|v| v.as_str()).unwrap_or("?").to_string(),
-                        reason: format!("the plugin's signature doesn't match its files ({why})"),
+                        reason: reason.clone(),
                     });
                 }
-                return Some(ReadPlugin { id, name, signed: false, order: 0, parsed: Vec::new(), uses: Vec::new() });
+                return Some(ReadPlugin {
+                    id,
+                    name,
+                    signed: false,
+                    order: 0,
+                    parsed: Vec::new(),
+                    uses: Vec::new(),
+                    untrusted: Some(reason),
+                });
             }
         }
     };
@@ -725,7 +732,7 @@ fn read_plugin(
         }
     }
     let order = if builtin { 0 } else { manifest_mtime(dir) };
-    Some(ReadPlugin { id, name, signed, order, parsed, uses })
+    Some(ReadPlugin { id, name, signed, order, parsed, uses, untrusted: None })
 }
 
 struct ReadPlugin {
@@ -735,28 +742,18 @@ struct ReadPlugin {
     order: u64,
     parsed: Vec<Parsed>,
     uses: Vec<String>,
+    untrusted: Option<String>,
 }
 
 fn collect(
     roots: &[PluginRoot],
     refused: &mut Vec<Refused>,
-    ignored: &mut Vec<Ignored>,
     uses: &mut HashMap<String, Vec<String>>,
+    untrusted: &mut HashMap<String, String>,
 ) -> Vec<Candidate> {
     let mut seen = std::collections::HashSet::new();
     let mut out = Vec::new();
     for root in roots {
-        if root.definitions_ignored {
-            // Not part of the precedence: the copies behind it keep counting,
-            // exactly as when this root wasn't scanned at all. Read the same way
-            // as a counted root, so an entry any build would refuse (a
-            // built-in's name, an invalid definition) is reported as refused,
-            // and only what this build alone leaves out as ignored.
-            if let Some(read) = read_plugin(&root.dir, None, root.builtin, refused) {
-                ignored.extend(read.parsed.into_iter().map(|p| Ignored { plugin_id: read.id.clone(), name: p.name }));
-            }
-            continue;
-        }
         let folders: Vec<(PathBuf, Option<String>)> = if root.single {
             vec![(root.dir.clone(), None)]
         } else {
@@ -778,7 +775,7 @@ fn collect(
                     continue;
                 }
             }
-            let Some(ReadPlugin { id, name, signed, order, parsed, uses: names }) =
+            let Some(ReadPlugin { id, name, signed, order, parsed, uses: names, untrusted: why }) =
                 read_plugin(&dir, folder.as_deref(), root.builtin, refused)
             else {
                 continue;
@@ -787,6 +784,9 @@ fn collect(
             // id wins, the copies it hides contribute nothing.
             if !seen.insert(id.clone()) {
                 continue;
+            }
+            if let Some(why) = why {
+                untrusted.insert(id.clone(), why);
             }
             uses.insert(id.clone(), names);
             for p in parsed {
@@ -798,22 +798,18 @@ fn collect(
 }
 
 /// The roots in the plugin listing's precedence: the dev folder, the profile's
-/// plugins, the bundled plugins, then the debug-only test plugins. A release
-/// build ignores an unsigned dev folder's definitions — it is still scanned, to
-/// say so when its plugin asks for a tool (`DefinitionState::DevFolderIgnored`).
+/// plugins, the bundled plugins, then the debug-only test plugins. The dev
+/// folder counts in every build: callers pass it only while Debug mode is on
+/// (the rule its plugin loads under), and as an unsigned folder its definitions
+/// still wait for the user's consent like any other unsigned plugin's.
 pub fn roots_for(profile_dir: &Path, native_dir: Option<&Path>, dev_dir: Option<&str>) -> Vec<PluginRoot> {
     let mut roots = Vec::new();
     if let Some(dev) = dev_dir.filter(|d| !d.is_empty()) {
-        roots.push(PluginRoot {
-            dir: PathBuf::from(dev),
-            builtin: false,
-            single: true,
-            definitions_ignored: !cfg!(debug_assertions),
-        });
+        roots.push(PluginRoot { dir: PathBuf::from(dev), builtin: false, single: true });
     }
-    roots.push(PluginRoot { dir: crate::plugins::plugins_dir(profile_dir), builtin: false, single: false, definitions_ignored: false });
+    roots.push(PluginRoot { dir: crate::plugins::plugins_dir(profile_dir), builtin: false, single: false });
     for dir in native_dir.map(Path::to_path_buf).into_iter().chain(crate::plugins::dev_plugins_dir()) {
-        roots.push(PluginRoot { dir, builtin: true, single: false, definitions_ignored: false });
+        roots.push(PluginRoot { dir, builtin: true, single: false });
     }
     roots
 }
@@ -824,9 +820,9 @@ pub fn roots_for(profile_dir: &Path, native_dir: Option<&Path>, dev_dir: Option<
 pub fn rebuild(profile_dir: &Path, roots: Vec<PluginRoot>) -> bool {
     let consent = read_consent(profile_dir);
     let mut refused = Vec::new();
-    let mut ignored = Vec::new();
     let mut uses = HashMap::new();
-    let mut candidates = collect(&roots, &mut refused, &mut ignored, &mut uses);
+    let mut untrusted = HashMap::new();
+    let mut candidates = collect(&roots, &mut refused, &mut uses, &mut untrusted);
     // Signed before unsigned, then first installed first.
     candidates.sort_by(|a, b| b.signed.cmp(&a.signed).then(a.order.cmp(&b.order)).then(a.plugin_id.cmp(&b.plugin_id)));
 
@@ -875,23 +871,20 @@ pub fn rebuild(profile_dir: &Path, roots: Vec<PluginRoot>) -> bool {
     for r in &refused {
         log::warn!("Dependency {} from {} refused: {}", r.name, r.plugin_id, r.reason);
     }
-    for i in &ignored {
-        log::info!("Dependency {} from {}'s dev folder ignored: a release build uses no dev-folder definitions", i.name, i.plugin_id);
-    }
-    let status = RegistryStatus { pending_consent: pending, conflicts, refused, ignored };
+    let status = RegistryStatus { pending_consent: pending, conflicts, refused };
     let summary = |active: &[Active], status: &RegistryStatus| {
         let mut a: Vec<String> = active
             .iter()
             .map(|x| format!("{}={}:{}:{}", x.def.name, x.fingerprint, x.signed, x.declared_by.join(",")))
             .collect();
         a.sort();
-        format!("{a:?}|{:?}|{:?}|{:?}|{:?}", status.pending_consent, status.conflicts, status.refused, status.ignored)
+        format!("{a:?}|{:?}|{:?}|{:?}", status.pending_consent, status.conflicts, status.refused)
     };
     let mut changed = true;
     if let Ok(mut reg) = REGISTRY.write() {
         let next = summary(&active, &status);
         changed = reg.as_ref().is_none_or(|r| summary(&r.active, &r.status) != next);
-        *reg = Some(Registry { active, uses, status });
+        *reg = Some(Registry { active, uses, untrusted, status });
     }
     if let Ok(mut last) = LAST_INPUTS.lock() {
         *last = Some((profile_dir.to_path_buf(), roots));
@@ -1138,7 +1131,7 @@ mod tests {
         // Spelled out: the consent dialog says when nothing checks the download.
         entry["definition"]["managed"]["checksum"] = json!({ "none": true });
         write_plugin(plugins.path(), "torrents", json!([entry, { "name": "ffmpeg", "required": false }]));
-        let roots = vec![PluginRoot { dir: plugins.path().to_path_buf(), builtin: false, single: false, definitions_ignored: false }];
+        let roots = vec![PluginRoot { dir: plugins.path().to_path_buf(), builtin: false, single: false }];
 
         rebuild(profile.path(), roots.clone());
         assert!(active_def("demo-torrent").is_none(), "an unsigned definition isn't used before consent");
@@ -1184,8 +1177,8 @@ mod tests {
         write_plugin(user.path(), "second", json!([other]));
         write_plugin(user.path(), "same", json!([demo]));
         let roots = vec![
-            PluginRoot { dir: user.path().to_path_buf(), builtin: false, single: false, definitions_ignored: false },
-            PluginRoot { dir: bundled.path().to_path_buf(), builtin: true, single: false, definitions_ignored: false },
+            PluginRoot { dir: user.path().to_path_buf(), builtin: false, single: false },
+            PluginRoot { dir: bundled.path().to_path_buf(), builtin: true, single: false },
         ];
         rebuild(profile.path(), roots);
         let def = active_def("demo-video").unwrap();
@@ -1212,7 +1205,7 @@ mod tests {
         demo["name"] = json!("demo-ref");
         write_plugin(bundled.path(), "lastfm", json!([demo]));
         write_plugin(bundled.path(), "lyrics", json!([{ "name": "demo-ref", "required": false, "reason": "x" }]));
-        rebuild(profile.path(), vec![PluginRoot { dir: bundled.path().to_path_buf(), builtin: true, single: false, definitions_ignored: false }]);
+        rebuild(profile.path(), vec![PluginRoot { dir: bundled.path().to_path_buf(), builtin: true, single: false }]);
         assert!(declares("lastfm", "demo-ref"));
         assert!(declares("lyrics", "demo-ref"), "a reference without a definition still declares");
         assert!(!declares("lyrics", "yt-dlp"));
@@ -1221,9 +1214,7 @@ mod tests {
         reset_for_tests();
     }
 
-    // What `promptDep` reads to open the right dialog or say why it can't —
-    // the silent case was a dev-folder plugin in a release build, whose
-    // definition the registry dropped without a trace.
+    // What `promptDep` reads to open the right dialog or say why it can't.
     #[test]
     fn test_definition_state_names_why_a_tool_has_no_definition() {
         let _g = SERIAL.lock().unwrap_or_else(|e| e.into_inner());
@@ -1234,21 +1225,15 @@ mod tests {
         let mut builtin = rqbit_entry();
         builtin["name"] = json!("ffmpeg");
         write_plugin(plugins.path(), "torrents", json!([entry.clone(), builtin]));
-        let dev = PluginRoot { dir: plugins.path().join("torrents"), builtin: false, single: true, definitions_ignored: true };
+        let dev = PluginRoot { dir: plugins.path().join("torrents"), builtin: false, single: true };
 
         rebuild(profile.path(), vec![dev.clone()]);
-        assert_eq!(definition_state("torrents", "demo-state"), DefinitionState::DevFolderIgnored);
-        let s = status();
-        assert!(s.ignored.iter().all(|i| i.name != "ffmpeg"), "a built-in's name is refused by any build, not ignored");
-        assert!(s.refused.iter().any(|r| r.plugin_id == "torrents" && r.name == "ffmpeg"));
+        assert!(status().refused.iter().any(|r| r.plugin_id == "torrents" && r.name == "ffmpeg"));
         assert_eq!(definition_state("torrents", "ffmpeg"), DefinitionState::Active, "Vibo's own definition is in force");
         assert_eq!(definition_state("someone-else", "ffmpeg"), DefinitionState::Active);
-        assert!(active_def("demo-state").is_none() && status().pending_consent.is_empty(), "ignored, not waiting");
         assert_eq!(definition_state("someone-else", "demo-state"), DefinitionState::Undefined, "only the plugin it came from");
-
-        rebuild(profile.path(), vec![PluginRoot { definitions_ignored: false, ..dev.clone() }]);
         let DefinitionState::PendingConsent { items } = definition_state("torrents", "demo-state") else {
-            panic!("an unsigned definition in a counted root waits for consent");
+            panic!("an unsigned definition waits for consent, the dev folder's included");
         };
         grant_consent(profile.path(), "torrents", &items.into_iter().map(|i| i.fingerprint).collect::<Vec<_>>()).unwrap();
         assert_eq!(definition_state("torrents", "demo-state"), DefinitionState::Active);
@@ -1266,12 +1251,66 @@ mod tests {
         reset_for_tests();
     }
 
+    // The dev folder counts in every build (callers name it only while Debug
+    // mode is on). A release build used to drop its definitions, so a dev
+    // plugin could run but never start or install the tool it defines.
     #[test]
-    fn test_a_release_build_scans_the_dev_folder_only_to_report_it() {
+    fn test_the_dev_folder_comes_first_in_every_build() {
         let roots = roots_for(Path::new("/profile"), None, Some("/dev/plugin"));
         assert_eq!(roots[0].dir, PathBuf::from("/dev/plugin"));
-        assert_eq!(roots[0].definitions_ignored, !cfg!(debug_assertions));
-        assert!(roots.iter().skip(1).all(|r| !r.definitions_ignored));
+        assert!(roots[0].single && !roots[0].builtin);
+        assert!(roots.iter().skip(1).all(|r| !r.single));
         assert!(roots_for(Path::new("/profile"), None, Some("")).iter().all(|r| !r.single), "no dev folder, no root");
+    }
+
+    // A plugin whose signature doesn't match its files contributes nothing,
+    // its references included. The refusal must say so, even when the tool it
+    // references is defined by someone else (definition state `Active`).
+    #[test]
+    fn test_a_tampered_plugin_reports_why_none_of_its_tools_count() {
+        let _g = SERIAL.lock().unwrap_or_else(|e| e.into_inner());
+        let profile = tempfile::tempdir().unwrap();
+        let user = tempfile::tempdir().unwrap();
+        let mut defined = rqbit_entry();
+        defined["name"] = json!("demo-tampered");
+        let dir = write_plugin(user.path(), "tampered", json!([defined, { "name": "ffmpeg", "reason": "frames" }]));
+        std::fs::write(dir.join(crate::plugin_signing::SIGNATURE_FILE), "not a signature").unwrap();
+        write_plugin(user.path(), "honest", json!([{ "name": "ffmpeg", "reason": "frames" }]));
+
+        rebuild(profile.path(), vec![PluginRoot { dir: user.path().to_path_buf(), builtin: false, single: false }]);
+        let Err(Some(why)) = check_declares("tampered", "ffmpeg") else {
+            panic!("a reference-only tool of a tampered plugin names the signature");
+        };
+        assert!(why.contains("signature"), "{why}");
+        assert_eq!(definition_state("tampered", "ffmpeg"), DefinitionState::Active, "why definition_state can't answer it");
+        assert_eq!(check_declares("honest", "ffmpeg"), Ok(()));
+        assert_eq!(check_declares("honest", "rqbit"), Err(None), "not listed, and nothing to explain");
+        reset_for_tests();
+    }
+
+    #[test]
+    fn test_a_dev_folder_copy_hides_the_installed_copy_of_the_same_plugin() {
+        let _g = SERIAL.lock().unwrap_or_else(|e| e.into_inner());
+        let profile = tempfile::tempdir().unwrap();
+        let dev_parent = tempfile::tempdir().unwrap();
+        let user = tempfile::tempdir().unwrap();
+        let mut entry = rqbit_entry();
+        entry["name"] = json!("demo-dev-tool");
+        write_plugin(dev_parent.path(), "torrents", json!([entry]));
+        write_plugin(user.path(), "torrents", json!([]));
+
+        rebuild(
+            profile.path(),
+            vec![
+                PluginRoot { dir: dev_parent.path().join("torrents"), builtin: false, single: true },
+                PluginRoot { dir: user.path().to_path_buf(), builtin: false, single: false },
+            ],
+        );
+        assert!(declares("torrents", "demo-dev-tool"), "the dev copy's list is the one that counts");
+        assert!(
+            matches!(definition_state("torrents", "demo-dev-tool"), DefinitionState::PendingConsent { .. }),
+            "unsigned, so it still waits for the user"
+        );
+        reset_for_tests();
     }
 }

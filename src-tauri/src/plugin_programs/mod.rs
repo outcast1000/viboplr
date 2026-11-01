@@ -317,14 +317,26 @@ fn read_dependency_runs(app_dir: &Path, plugin_id: &str) -> std::collections::BT
         .unwrap_or_default()
 }
 
+/// Why a plugin may not start `dep` when the registry has no record of it
+/// listing the tool. A plugin whose signature doesn't match its files
+/// contributes nothing to the registry, its references included, so the bare
+/// "isn't in binaryDependencies" was false for a manifest that plainly lists
+/// the tool. Name the real reason when the registry knows it — read off the
+/// plugin, not off the tool's definition state, which answers `Active` when a
+/// built-in or another plugin defines the same tool.
+fn undeclared_message(dep: &str, untrusted: Option<String>) -> String {
+    match untrusted {
+        Some(reason) => format!("Vibo won't run {dep} for this plugin: {reason}"),
+        None => format!("{dep} isn't in this plugin's binaryDependencies"),
+    }
+}
+
 /// The managed copy of `dep` that `plugin_id` may start: the plugin lists the
 /// tool, its definition is in force, Vibo installed the copy in use (a system
 /// copy is the user's own and never started), and that copy came from the
 /// definition in force.
 fn dependency_exe(plugin_id: &str, dep: &str) -> Result<PathBuf, String> {
-    if !crate::dependency_registry::declares(plugin_id, dep) {
-        return Err(format!("{dep} isn't in this plugin's binaryDependencies"));
-    }
+    crate::dependency_registry::check_declares(plugin_id, dep).map_err(|why| undeclared_message(dep, why))?;
     let def = crate::dependencies::get_def(dep).ok_or_else(|| format!("No definition of {dep} is in force"))?;
     if def.managed.is_none() {
         return Err(format!("Vibo doesn't install {dep}, so it can't start it"));
@@ -944,9 +956,18 @@ mod tests {
         .unwrap();
         crate::dependency_registry::rebuild(
             app,
-            vec![crate::dependency_registry::PluginRoot { dir: plugins.to_path_buf(), builtin: true, single: false, definitions_ignored: false }],
+            vec![crate::dependency_registry::PluginRoot { dir: plugins.to_path_buf(), builtin: true, single: false }],
         );
         true
+    }
+
+    #[test]
+    fn test_an_undeclared_tool_names_the_registry_reason() {
+        let why = "the plugin's signature doesn't match its files (x)".to_string();
+        let msg = undeclared_message("slskd", Some(why.clone()));
+        assert!(msg.contains(&why) && !msg.contains("binaryDependencies"), "{msg}");
+        let msg = undeclared_message("slskd", None);
+        assert_eq!(msg, "slskd isn't in this plugin's binaryDependencies");
     }
 
     #[test]

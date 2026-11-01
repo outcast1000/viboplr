@@ -42,7 +42,7 @@ function mockBackend(state: unknown | (() => unknown) = { kind: "active" }, chec
   vi.mocked(invoke).mockImplementation(async (cmd: string) => {
     if (cmd === "check_dependencies") return checkResult;
     if (cmd === "dependency_definition_state") return typeof state === "function" ? (state as () => unknown)() : state;
-    if (cmd === "dependency_registry_status") return { conflicts: [], pendingConsent: [], refused: [], unused: [], ignored: [] };
+    if (cmd === "dependency_registry_status") return { conflicts: [], pendingConsent: [], refused: [], unused: [] };
     return null;
   });
 }
@@ -101,7 +101,6 @@ describe("promptDep", () => {
   // message, and a plugin polling for five minutes for an install that could
   // never happen. The reason is the backend's, read when the plugin asks.
   it.each([
-    [{ kind: "devFolderIgnored" }, /release build of Vibo ignores tool definitions there/],
     [{ kind: "refused", reason: "unknown key" }, /refused this plugin's definition of it \(unknown key\)/],
     [{ kind: "undefined" }, /no installed plugin tells Vibo where to get it/],
   ])("says why when %o, instead of doing nothing", async (state, reason) => {
@@ -154,7 +153,7 @@ describe("promptDep", () => {
   });
 
   it("says a tool already on the machine is there, not that it couldn't be installed", async () => {
-    mockBackend({ kind: "devFolderIgnored", present: true });
+    mockBackend({ kind: "undefined", present: true });
     const { result } = renderHook(() => useDependencies([plugin(false)]));
     const message = await rejectionOf(result.current.promptDep("ffmpeg", undefined, "ytdlp"));
     expect(message).toMatch(/ffmpeg is on this machine, but Vibo can't let this plugin use it/);
@@ -166,7 +165,7 @@ describe("promptDep", () => {
     vi.mocked(invoke).mockImplementation(async (cmd: string) => {
       if (cmd === "dependency_definition_state") return { kind: "pendingConsent", items: [PENDING_FFMPEG] };
       if (cmd === "dependency_definitions_consent") throw new Error("disk full");
-      if (cmd === "dependency_registry_status") return { conflicts: [], pendingConsent: [], refused: [], unused: [], ignored: [] };
+      if (cmd === "dependency_registry_status") return { conflicts: [], pendingConsent: [], refused: [], unused: [] };
       return null;
     });
     const { result } = renderHook(() => useDependencies([plugin(false)]));
