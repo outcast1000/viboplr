@@ -290,43 +290,32 @@ export function useContextMenuActions(deps: UseContextMenuActionsDeps) {
     queueHook.moveToBottom(cm.target.indices);
   }
 
+  /** Reveal a track's file: by library row when known, else by its path —
+   *  `libraryId` is a cache, so its absence must fall back, never give up. */
+  async function showTrackInFolder(track: { libraryId?: number | null; path?: string | null }) {
+    try {
+      if (track.libraryId != null) {
+        await invoke("show_in_folder", { trackId: track.libraryId });
+      } else if (track.path) {
+        await invoke("show_in_folder_path", { filePath: track.path });
+      }
+    } catch (e) {
+      console.error("Failed to open containing folder:", e);
+      setFolderError(String(e));
+    }
+  }
+
   async function handleShowInFolder() {
     const cm = contextMenuRef.current;
     if (cm && cm.target.kind === "track" && cm.target.trackId != null) {
-      try {
-        await invoke("show_in_folder", { trackId: cm.target.trackId });
-      } catch (e) {
-        console.error("Failed to open containing folder:", e);
-        setFolderError(String(e));
-      }
+      await showTrackInFolder({ libraryId: cm.target.trackId });
       setContextMenu(null);
     } else if (cm && cm.target.kind === "queue-multi" && cm.target.indices.length === 1) {
       const track = queueHook.queue[cm.target.indices[0]];
-      try {
-        const libId = track?.libraryId ?? null;
-        if (track && libId != null) {
-          await invoke("show_in_folder", { trackId: libId });
-        } else if (track && track.path) {
-          await invoke("show_in_folder_path", { filePath: track.path });
-        }
-      } catch (e) {
-        console.error("Failed to open containing folder:", e);
-        setFolderError(String(e));
-      }
+      if (track) await showTrackInFolder(track);
       setContextMenu(null);
     } else if (cm && cm.target.kind === "video" && cm.target.track) {
-      const t = cm.target.track;
-      try {
-        const libId = t.libraryId ?? null;
-        if (libId != null) {
-          await invoke("show_in_folder", { trackId: libId });
-        } else if (t.path) {
-          await invoke("show_in_folder_path", { filePath: t.path });
-        }
-      } catch (e) {
-        console.error("Failed to open containing folder:", e);
-        setFolderError(String(e));
-      }
+      await showTrackInFolder(cm.target.track);
       setContextMenu(null);
     }
   }
@@ -562,6 +551,7 @@ export function useContextMenuActions(deps: UseContextMenuActionsDeps) {
     handleContextEnqueue,
     handleEnqueue,
     handleShowInFolder,
+    showTrackInFolder,
     handleBulkEdit,
     handleDeleteRequest,
     handleDeleteConfirm,

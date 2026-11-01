@@ -145,6 +145,19 @@ interface HostRegistry {
   pluginNames: Map<string, string>;
 }
 
+/** A by-id lookup for the plugin API: the contract is `null` for a missing row,
+ *  so a failure also resolves `null` — but a real failure is logged rather than
+ *  passed off as "not found". `get_track_by_id` reports a missing row as
+ *  rusqlite's "Query returned no rows" error, which is the miss, not a failure. */
+function lookupOrNull<T>(what: string, call: Promise<T | null>): Promise<T | null> {
+  return call.catch((e: unknown) => {
+    if (!String(e).includes("Query returned no rows")) {
+      console.error(`Plugin API ${what} failed:`, e);
+    }
+    return null;
+  });
+}
+
 /** Parse a stored info value (JSON string) for plugin consumers; passes through
  *  non-string / non-JSON values unchanged so callers never see a parse throw. */
 function parsePluginJson(value: unknown): unknown {
@@ -780,6 +793,8 @@ export function usePlugins(
   /** Run `ask` after every host dialog already queued has been answered. */
   const queueHostPrompt = useCallback(<T,>(ask: () => Promise<T>): Promise<T> => {
     const run = hostPromptChainRef.current.then(ask, ask);
+    // Not swallowed: the caller gets `run` and handles its rejection. The chain
+    // only needs to keep going, so it must not inherit that rejection.
     hostPromptChainRef.current = run.catch(() => undefined);
     return run;
   }, []);
@@ -1060,16 +1075,16 @@ export function usePlugins(
             });
           },
           async getTrackById(id: number) {
-            return invoke<Track | null>("get_track_by_id", { trackId: id }).catch(() => null);
+            return lookupOrNull("getTrackById", invoke<Track | null>("get_track_by_id", { trackId: id }));
           },
           async getArtistById(id: number) {
-            return invoke<{ id: number; name: string; track_count: number } | null>("get_artist_by_id", { artistId: id }).catch(() => null);
+            return lookupOrNull("getArtistById", invoke<{ id: number; name: string; track_count: number } | null>("get_artist_by_id", { artistId: id }));
           },
           async getAlbumById(id: number) {
-            return invoke<{ id: number; title: string; artist_name: string | null; year: number | null } | null>("get_album_by_id", { albumId: id }).catch(() => null);
+            return lookupOrNull("getAlbumById", invoke<{ id: number; title: string; artist_name: string | null; year: number | null } | null>("get_album_by_id", { albumId: id }));
           },
           async getTagById(id: number) {
-            return invoke<{ id: number; name: string; track_count: number } | null>("get_tag_by_id", { tagId: id }).catch(() => null);
+            return lookupOrNull("getTagById", invoke<{ id: number; name: string; track_count: number } | null>("get_tag_by_id", { tagId: id }));
           },
           async getHistory(opts) {
             return invoke("get_history_recent", {

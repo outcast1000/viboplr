@@ -8,15 +8,23 @@ import { track, bucketCount } from "../telemetry";
 import { probeEngineCapabilities } from "../playback/nativeEngine";
 import type { Collection } from "../types";
 
+/** Each read is optional: a failed one only drops its prop from the event,
+ *  but the failure is still logged. */
+function optional<T>(what: string, read: Promise<T>): Promise<T | null> {
+  return read.catch((e: unknown) => {
+    console.error(`Startup telemetry: couldn't read ${what}:`, e);
+    return null;
+  });
+}
+
 export async function reportStartupTelemetry(betaChannel: boolean): Promise<void> {
   // `probeEngineCapabilities()` is cached (the restore's own probe shares this
   // promise), so this costs no second `engine_capabilities` round-trip.
-  // Each read is optional: a failed one only drops its prop from the event.
   const [trackCount, cols, enabledPlugins, installReported, caps] = await Promise.all([
-    invoke<number>("get_track_count").catch(() => null),
-    invoke<Collection[]>("get_collections").catch(() => null),
-    store.get<string[]>("enabledPlugins").catch(() => null),
-    store.get<boolean>("telemetryInstallReported").catch(() => null),
+    optional("track count", invoke<number>("get_track_count")),
+    optional("collections", invoke<Collection[]>("get_collections")),
+    optional("enabledPlugins", store.get<string[]>("enabledPlugins")),
+    optional("telemetryInstallReported", store.get<boolean>("telemetryInstallReported")),
     probeEngineCapabilities(),
   ]);
   // There is one build and it always bundles libmpv, so there is no flavor to

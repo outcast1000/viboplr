@@ -7,6 +7,8 @@ import { generateSkinCSS, buildStarterSkin, skinSubmissionUrl, validateSkin } fr
 import { track as trackTelemetry } from "../telemetry";
 import { nativeEngine } from "../playback/nativeEngine";
 import type { SkinInfo, SkinColors, GallerySkinEntry } from "../types/skin";
+import type { Notify } from "./useToasts";
+import { useLatestRef } from "./useLatestRef";
 import defaultSkin from "../skins/default.json";
 
 const STYLE_ID = "viboplr-skin";
@@ -36,7 +38,8 @@ function injectSkinCSS(skin: SkinInfo) {
   nativeEngine.setVideoBackground(colors["video-bg"]).catch(console.error);
 }
 
-export function useSkins() {
+export function useSkins(notify?: Notify) {
+  const notifyRef = useLatestRef(notify);
   const [activeSkinId, setActiveSkinId] = useState("default");
   const [userSkins, setUserSkins] = useState<SkinInfo[]>([]);
   const [gallerySkins, setGallerySkins] = useState<GallerySkinEntry[]>([]);
@@ -56,11 +59,13 @@ export function useSkins() {
       const savedId = await store.get<string>("skin");
       if (savedId) setActiveSkinId(savedId);
 
+      // The backend creates the skins folder before listing it, so an empty
+      // profile reads `[]` — an error here is a real failure, not "none yet".
       try {
         const list = await invoke<Record<string, unknown>[]>("list_user_skins");
         setUserSkins(list.map(s => ({ ...s, source: "user" } as SkinInfo)));
-      } catch {
-        // No user skins yet
+      } catch (e) {
+        console.error("Failed to list user skins:", e);
       }
 
       // Hydrate the gallery from the last cached index so the Extensions panel
@@ -109,10 +114,14 @@ export function useSkins() {
     try {
       const list = await invoke<Record<string, unknown>[]>("list_user_skins");
       setUserSkins(list.map(s => ({ ...s, source: "user" } as SkinInfo)));
-    } catch {
-      // ignore
+    } catch (e) {
+      // Runs after an import / save / delete that itself succeeded, so the
+      // change is on disk — only the list on screen is out of date. Say so
+      // rather than failing the action that worked.
+      console.error("Failed to refresh user skins:", e);
+      notifyRef.current?.("Couldn't refresh your skins list — it may be out of date until you restart.", { kind: "warning" });
     }
-  }, []);
+  }, [notifyRef]);
 
   const importSkin = useCallback(async (path: string): Promise<{ ok: boolean; error?: string }> => {
     try {

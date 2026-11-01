@@ -1852,7 +1852,7 @@ function App() {
   }, [library]);
 
   // Skins
-  const skins = useSkins();
+  const skins = useSkins(notify);
 
   // Extensions
   // Plugins waiting for the user's word on their permissions, asked one at a
@@ -2569,6 +2569,8 @@ function App() {
       }
     };
     const next = replaceChainRef.current.then(run, run);
+    // Not swallowed: `run` already logged and notified, and the caller gets
+    // `next`. The chain only needs to keep going past a failed replacement.
     replaceChainRef.current = next.catch(() => undefined);
     return next;
   }, [notify, currentTrackRef, replaceLiveRef, swapInReplacement]);
@@ -5907,7 +5909,7 @@ function App() {
                 onStartRadio={() => contextMenuActions.startRadio({ title: track.title, artistName: track.artist_name, coverPath: track.image_url ?? null })}
                 onToggleLike={() => rateDetailTrack(track, "like", applyDetailLike)}
                 onToggleDislike={() => rateDetailTrack(track, "dislike", applyDetailLike)}
-                onShowInFolder={async () => { const libId = track.id; if (libId == null) return; try { await invoke("show_in_folder", { trackId: libId }); } catch (e) { console.error("Failed to open containing folder:", e); contextMenuActions.setFolderError(String(e)); } }}
+                onShowInFolder={() => { void contextMenuActions.showTrackInFolder({ libraryId: track.id, path: track.path }); }}
               />
             );
           })()}

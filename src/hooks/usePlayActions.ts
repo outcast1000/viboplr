@@ -120,7 +120,10 @@ function tryEnrichFromCache(
       }
       return false;
     })
-    .catch(() => false);
+    .catch((e) => {
+      console.error("Failed to read the cached description for the queue banner:", e);
+      return false;
+    });
 }
 
 function enrichDescription(
