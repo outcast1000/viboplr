@@ -20,7 +20,6 @@ import { parseLrc, syncedLyricsFitMedia, lyricOffsetKey, clampLyricOffset, coerc
 import { store } from "./store";
 import { parseUrlScheme, localTrackSource, trackToQueueTrack, nextQueueKey, isLocalTrack, effectiveLocalPath, pluginTrackToQueueTrack, trackRowToQueueTrack, trackSelection, queueTrackSelection, isPlayingSelection } from "./queueEntry";
 import { partitionTrackIds, buildDeleteConfirmPayload } from "./utils/deleteTracks";
-import { fetchLikeStates, applyLikeState, applyLikeStates } from "./utils/likeReconcile";
 import { resolveLibraryIds } from "./utils/resolveLibraryIds";
 import { subscribeTrackEvents } from "./trackEvents";
 import { track as trackTelemetry, setTelemetryEnabled as syncTelemetryEnabled, sourceClass } from "./telemetry";
@@ -709,9 +708,6 @@ function App() {
   // queue hook): what to do when playback was held for a backfill tail that
   // never arrived.
   const backfillAbandonedRef = useRef<() => void>(() => {});
-  // Assigned below (it needs the queue hook): reconcile a replaced queue's
-  // like state against the durable store.
-  const reconcileReplacedQueueLikesRef = useRef<(tracks: QueueTrack[]) => void>(() => {});
 
   // Latest play recording. Commit a new list, then delete the snapshot files of
   // sessions that just left the ring (evicted, or replaced by a newer play of
@@ -780,12 +776,6 @@ function App() {
     // Record the "Latest play" session for anything that replaces the queue.
     // Guarded so the startup queue-restore doesn't masquerade as a fresh play.
     if (!restoredRef.current) return;
-    // Every queue-replacing play gets its hearts from the durable store. Most
-    // callers hand in entries whose `liked` is a guess — plugin/shelf tracks
-    // are hardcoded 0, a Latest play snapshot is as old as the snapshot — and
-    // ~20 call sites go straight to playTracks, so reconciling here is the one
-    // place that can't be skipped (a Made for you mix showed no hearts at all).
-    reconcileReplacedQueueLikesRef.current(tracks);
     // Opt-in (issue #136): jump to the Now Playing view on an explicit new play.
     // This callback already fires only for queue-REPLACING plays — never enqueue,
     // play-next, auto-continue, or the startup restore (guard above) — so it is
@@ -843,40 +833,6 @@ function App() {
   // announced via one `queue:changed` event so a plugin can re-push its view
   // without polling.
   const pluginQueueRef = useLatestRef<{ tracks: QueueTrack[]; index: number }>({ tracks: queueHook.queue, index: queueHook.queueIndex });
-  // Plugin/external tracks enter the queue with liked hardcoded 0 (they carry no
-  // DB row). Reconcile the just-added ones against the durable, metadata-keyed
-  // entity_likes store so a song liked in a previous session shows its heart on
-  // enqueue — the reconcile triggers (startup restore / currentTrack identity /
-  // entity-likes-changed) never fire for a plain mid-session add. Applies only
-  // likes/dislikes (never clears), so it can't race-revert an optimistic like on
-  // a pre-existing same-song copy. Patches by metadata via functional setQueue,
-  // so it's correct regardless of the fresh keys useQueue assigns on insert.
-  const reconcileAddedLikeStates = useCallback(async (added: QueueTrack[]) => {
-    if (added.length === 0) return;
-    try {
-      const byId = await fetchLikeStates(added);
-      // onlyNonZero: never clears, so it can't race-revert an optimistic like.
-      queueHook.setQueue(prev => applyLikeStates(prev, byId, { onlyNonZero: true }));
-      playback.setCurrentTrack(prev => (prev ? applyLikeState(prev, byId, { onlyNonZero: true }) : prev));
-    } catch (e) {
-      console.error("Failed to reconcile like state for added tracks:", e);
-    }
-  }, [queueHook, playback]);
-  // A replaced queue, by contrast, may also *clear*: a snapshot entry still
-  // carrying liked:1 for a song since un-liked must lose its heart. Nothing
-  // optimistic can be in flight for entries that were inserted a moment ago.
-  useAssignRef(reconcileReplacedQueueLikesRef, (tracks: QueueTrack[]) => {
-    if (tracks.length === 0) return;
-    (async () => {
-      try {
-        const byId = await fetchLikeStates(tracks);
-        queueHook.setQueue(prev => applyLikeStates(prev, byId));
-        playback.setCurrentTrack(prev => (prev ? applyLikeState(prev, byId) : prev));
-      } catch (e) {
-        console.error("Failed to reconcile like state for the new queue:", e);
-      }
-    })();
-  });
 
   // Map a plugin-supplied play context onto the queue's PlaylistContext. Shared
   // by every plugin play entry point so the banner is identical whichever one a
@@ -908,9 +864,8 @@ function App() {
     findDuplicates: queueHook.findDuplicates,
     queueIndex: () => queueHook.queueIndex,
     playWithBackfill: (opts) => playWithBackfillRef.current(opts),
-    askAboutDuplicates: (pending, onAdded) => askAboutDuplicatesRef.current({ ...pending, onAdded }),
-    reconcileLikes: (added) => { reconcileAddedLikeStates(added); },
-  }), [queueHook, reconcileAddedLikeStates]);
+    askAboutDuplicates: (pending) => askAboutDuplicatesRef.current(pending),
+  }), [queueHook]);
 
   const pluginPlaybackCallbacks = useMemo(() => ({
     playTrack: (track: PluginTrack) => {
@@ -2916,14 +2871,8 @@ function App() {
       if (replaysFromSnapshot(session) && session.snapshotId) {
         try {
           const manifest = await invoke<Manifest>("recent_play_read", { id: session.snapshotId });
-          let tracks = await withLibraryIds(tracksFromManifest(manifest));
+          const tracks = await withLibraryIds(tracksFromManifest(manifest));
           if (tracks.length > 0) {
-            try {
-              const byId = await fetchLikeStates(tracks);
-              tracks = tracks.map((t) => applyLikeState(t, byId));
-            } catch (e) {
-              console.error("Failed to reconcile Latest play like states:", e);
-            }
             const saved = contextFromManifest(manifest, null);
             // A context-less selection was recorded without one; keep it that way.
             const ctx = saved || session.source === "radio"
@@ -3212,8 +3161,7 @@ function App() {
     const track = row
       ? trackToQueueTrack(row)
       : buildExternalQueueTrack(link.title, link.artistName, { albumTitle: link.albumTitle });
-    const inserted = queueHook.insertNextAndPlay(track);
-    reconcileAddedLikeStates([inserted]);
+    queueHook.insertNextAndPlay(track);
   });
 
   // Applies a viboplr://probe command — the remote control that lets
@@ -4111,39 +4059,17 @@ function App() {
   const queueRef = useLatestRef(queueHook.queue);
 
 
-  // Re-reconcile like state when the durable store changes from any surface
-  // (e.g. liking the now-playing song from the Library list, or a same-song
-  // copy whose metadata differs only by case/diacritics so the in-memory
-  // sameSong propagation missed it). Reads authoritative state for currentTrack
-  // + the queue and patches any drift. Our own writes also fire this event —
-  // reconciling to the just-written value is a harmless no-op.
+  // A bulk like change (Import likes file, or a plugin's loved-tracks import)
+  // can move any number of artists, albums and tags too, so reload the library
+  // lists. Track hearts need nothing here: the track-like store reloads itself
+  // on the same event (useTrackLikeStoreSync), and queue entries carry no like.
   useEffect(() => {
-    return subscribe<{ kind?: string }>("entity-likes-changed", async (event) => {
-      const kind = event.payload?.kind;
-      // Only track-level changes can move a track's like state. An artist/
-      // album/tag heart also fires this event, and reconciling then shipped
-      // the title+artist of every queue entry to the backend (30-150 KB for a
-      // large queue) to read back states that cannot have changed. Missing
-      // kind (never emitted today) falls through to the reconcile — a wasted
-      // round-trip is safer than a missed patch.
-      if (kind != null && kind !== "track" && kind !== "bulk") return;
-      // A bulk change (Import likes file, or a plugin's loved-tracks import)
-      // can touch any number of library rows, so refresh the library lists too
-      // — the per-entity optimistic updates that cover single likes don't apply.
-      if (kind === "bulk") {
-        library.loadLibrary().catch(e => console.error("Failed to reload library after likes import:", e));
-        library.loadTracks().catch(e => console.error("Failed to reload tracks after likes import:", e));
-      }
-      try {
-        const byId = await fetchLikeStates([currentTrackRef.current, ...queueRef.current]);
-        if (byId.size === 0) return;
-        playback.setCurrentTrack(prev => (prev ? applyLikeState(prev, byId) : prev));
-        queueHook.setQueue(prev => applyLikeStates(prev, byId));
-      } catch (e) {
-        console.error("Failed to reconcile like states after change:", e);
-      }
+    return subscribe<{ kind?: string }>("entity-likes-changed", (event) => {
+      if (event.payload?.kind !== "bulk") return;
+      library.loadLibrary().catch(e => console.error("Failed to reload library after likes import:", e));
+      library.loadTracks().catch(e => console.error("Failed to reload tracks after likes import:", e));
     });
-  }, [playback.setCurrentTrack, queueHook.setQueue, library.loadLibrary, library.loadTracks, currentTrackRef, queueRef]);
+  }, [library.loadLibrary, library.loadTracks]);
 
   // The session so far, for auto-continue's plugins: the queue (to skip what
   // was just heard) and its first entry (what the user started from).
@@ -6559,8 +6485,6 @@ function App() {
             if (pe) {
               if (pe.position != null) queueHook.insertAtPosition(pe.all, pe.position);
               else queueHook.enqueueTracks(pe.all);
-              // Only queueOps sets onAdded, and it only ever holds QueueTracks.
-              pe.onAdded?.(pe.all as QueueTrack[]);
             }
             contextMenuActions.setPendingEnqueue(null);
           }}
@@ -6569,7 +6493,6 @@ function App() {
             if (pe) {
               if (pe.position != null) queueHook.insertAtPosition(pe.unique, pe.position);
               else queueHook.enqueueTracks(pe.unique);
-              if (pe.unique.length > 0) pe.onAdded?.(pe.unique as QueueTrack[]);
             }
             contextMenuActions.setPendingEnqueue(null);
           }}

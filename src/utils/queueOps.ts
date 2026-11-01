@@ -4,21 +4,17 @@
 // API dispatcher (hooks/useControlApi.ts). Same split as hostOps.ts — the op
 // owns the decisions, the callers own argument shape and responses.
 //
-// The two decisions every entry must make, and that used to be made (or not)
-// per caller:
-//
-//   1. Like reconcile. External/plugin tracks arrive with `liked: 0`; the
-//      durable, metadata-keyed like store is consulted AFTER insertion
-//      (`reconcileLikes`, never clears — see App's reconcileAddedLikeStates),
-//      so the insert itself stays synchronous. The control API's plugin-search
-//      play skipped this, so a liked song queued by an assistant showed no heart.
-//   2. Duplicates (queue.md "Duplicate Detection"). Every enqueue runs
+// The decision every entry must make, and that used to be made (or not) per
+// caller — duplicates (queue.md "Duplicate Detection"). Every enqueue runs
 //      `findDuplicates`; the policy says who answers. `ask` raises the queue
 //      panel's banner — the answer for a user gesture, including one made in a
 //      plugin's own view. `skip` / `allow` answer programmatically — the
 //      control API's sanctioned exception, which reports the skip count to the
 //      machine that asked instead of popping a banner over a user who didn't.
-//      The plugin bridge used to insert with no check at all.
+// The plugin bridge used to insert with no check at all.
+//
+// There is no like step: a queue entry carries no like of its own, every
+// heart reads the track-like store by song (frontend.md → trackLikeStore).
 //
 // Replacing plays (`playNow`, `playWithBackfill`) never run the duplicate
 // check: they replace the queue, and a backfill tail continues a play the user
@@ -56,11 +52,8 @@ export interface QueueOpsDeps {
     resolveTail: () => Promise<QueueTrack[]>;
     tailErrorMessage?: string;
   }) => Promise<QueueTrack[]>;
-  /** Raise the duplicate banner. `onAdded` must run with whatever the user
-   *  lets in, so the tracks that land still get their like reconcile. */
-  askAboutDuplicates: (pending: PendingDuplicates, onAdded: (added: QueueTrack[]) => void) => void;
-  /** Post-insert like reconcile; fire-and-forget, logs its own failure. */
-  reconcileLikes: (added: QueueTrack[]) => void;
+  /** Raise the duplicate banner; the user decides what lands. */
+  askAboutDuplicates: (pending: PendingDuplicates) => void;
 }
 
 export interface AddToQueueOutcome {
@@ -78,9 +71,7 @@ export function playNow(
   tracks: QueueTrack[],
   opts: { startIndex?: number; context?: PlaylistContext | null } = {},
 ): number {
-  const gen = deps.playTracks(tracks, opts.startIndex ?? 0, opts.context);
-  deps.reconcileLikes(tracks);
-  return gen;
+  return deps.playTracks(tracks, opts.startIndex ?? 0, opts.context);
 }
 
 function absolutePosition(position: QueuePosition, queueIndex: number): number | undefined {
@@ -99,7 +90,7 @@ export function addToQueue(
   const at = absolutePosition(opts.position ?? "end", deps.queueIndex());
   const dup = deps.findDuplicates(tracks);
   if (opts.duplicates === "ask" && dup.duplicates.length > 0) {
-    deps.askAboutDuplicates({ all: tracks, duplicates: dup.duplicates, unique: dup.unique, position: at }, deps.reconcileLikes);
+    deps.askAboutDuplicates({ all: tracks, duplicates: dup.duplicates, unique: dup.unique, position: at });
     return { added: 0, skippedDuplicates: 0, awaitingUser: true };
   }
   // `ask` with no duplicates lands everything, same as `allow`.
@@ -107,7 +98,6 @@ export function addToQueue(
   if (toAdd.length > 0) {
     if (at === undefined) deps.enqueueTracks(toAdd);
     else deps.insertAtPosition(toAdd, at);
-    deps.reconcileLikes(toAdd);
   }
   return { added: toAdd.length, skippedDuplicates: skipped, awaitingUser: false };
 }
@@ -124,9 +114,5 @@ export async function playWithBackfill(
   },
 ): Promise<QueueTrack[]> {
   if (opts.head.length === 0) return [];
-  const appended = deps.playWithBackfill(opts);
-  deps.reconcileLikes(opts.head);
-  const tail = await appended;
-  if (tail.length > 0) deps.reconcileLikes(tail);
-  return tail;
+  return deps.playWithBackfill(opts);
 }

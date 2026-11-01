@@ -12,10 +12,6 @@ export interface PendingEnqueue {
   duplicates: Array<Track | QueueTrack>;
   unique: Array<Track | QueueTrack>;
   position?: number;
-  /** Runs with whatever the user lets in (Add all / Skip duplicates). Set by
-   *  `queueOps.addToQueue` so tracks that land through the banner still get
-   *  their like reconcile. */
-  onAdded?: (added: QueueTrack[]) => void;
 }
 
 interface UseQueueDragToInsertDeps {

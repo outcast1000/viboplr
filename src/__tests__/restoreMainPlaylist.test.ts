@@ -22,15 +22,13 @@ function fakeInvoke(answers: Record<string, unknown>) {
   }) as unknown as <T>(cmd: string, args?: Record<string, unknown>) => Promise<T>;
 }
 
-const noLikes = vi.fn(async () => new Map()) as never;
-
 describe("restoreMainPlaylist", () => {
   it("returns nothing to apply when no queue was saved", async () => {
     const invoke = fakeInvoke({
       main_playlist_read: { manifest: null, state: null, thumbs: [] },
       main_playlist_dir: "/p",
     });
-    const r = await restoreMainPlaylist(invoke, noLikes);
+    const r = await restoreMainPlaylist(invoke);
     expect(r).toEqual({ queue: null, thumbs: [], context: null, mode: null });
   });
 
@@ -44,7 +42,7 @@ describe("restoreMainPlaylist", () => {
       main_playlist_dir: "/p",
       find_track_ids_by_paths: [["file:///b.mp3", 42]],
     });
-    const r = await restoreMainPlaylist(invoke, noLikes);
+    const r = await restoreMainPlaylist(invoke);
     expect(r.queue?.tracks.map(t => t.title)).toEqual(["Song", "Other"]);
     expect(r.queue?.index).toBe(1);
     expect(r.queue?.tracks[0].libraryId).toBeUndefined();
@@ -59,23 +57,22 @@ describe("restoreMainPlaylist", () => {
       main_playlist_dir: "/p",
       find_track_ids_by_paths: [],
     });
-    const r = await restoreMainPlaylist(invoke, noLikes);
+    const r = await restoreMainPlaylist(invoke);
     expect(r.queue?.index).toBe(-1);
     expect(r.mode).toBe("normal");
   });
 
-  it("still restores the queue when the like and id lookups fail", async () => {
+  it("still restores the queue when the id lookup fails", async () => {
     const consoleError = vi.spyOn(console, "error").mockImplementation(() => {});
     const invoke = fakeInvoke({
       main_playlist_read: { manifest: manifest([entry()]), state: { queueIndex: 0 }, thumbs: [] },
       main_playlist_dir: "/p",
       find_track_ids_by_paths: new Error("db busy"),
     });
-    const failingLikes = vi.fn(async () => { throw new Error("no likes"); }) as never;
-    const r = await restoreMainPlaylist(invoke, failingLikes);
+    const r = await restoreMainPlaylist(invoke);
     expect(r.queue?.tracks).toHaveLength(1);
     expect(r.queue?.index).toBe(0);
-    expect(consoleError).toHaveBeenCalledTimes(2);
+    expect(consoleError).toHaveBeenCalledTimes(1);
     consoleError.mockRestore();
   });
 });
