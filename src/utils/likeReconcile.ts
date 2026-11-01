@@ -5,7 +5,7 @@
 // dedup, the metadata identity, and the apply-without-churning rules — with
 // the identity helper literally declared twice.
 import { invoke } from "@tauri-apps/api/core";
-import { normalizeForMatch } from "./normalize";
+import { trackLikeKey } from "../likeKeys";
 
 /** Anything carrying the metadata the durable like key is built from. */
 export interface LikeIdentified {
@@ -14,10 +14,11 @@ export interface LikeIdentified {
   liked?: number;
 }
 
-/** Metadata identity for like state — the same dimension (normalized
- *  title + artist) as the backend's entity_likes key. */
+/** Metadata identity for like state — exactly the backend's entity_likes key
+ *  (`trackLikeKey`). It used `normalizeForMatch`, which doesn't trim, so a
+ *  padded title missed its own durable like and every same-song match. */
 export function trackLikeId(title: string | null | undefined, artist: string | null | undefined): string {
-  return `${normalizeForMatch(title ?? "")}:${normalizeForMatch(artist ?? "")}`;
+  return trackLikeKey(title, artist);
 }
 
 /** Dedup by trackLikeId, then batch-read authoritative states from the

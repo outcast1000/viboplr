@@ -1,0 +1,24 @@
+{
+  "_comment": "The entity_likes key fold, pinned for BOTH sides: db::likes::build_entity_key (Rust, the contract shared with the Vibo Community server) and likeKeys.ts entityKey (TS). Each side's test asserts it reproduces every key. Rust is the source of truth: if they disagree, fix the TS fold, never the expected key.",
+  "cases": [
+    { "kind": "track", "name": " Jóga ", "artist": "Björk", "key": "track:bjork:joga" },
+    { "kind": "track", "name": "JOGA", "artist": " BJORK\t", "key": "track:bjork:joga" },
+    { "kind": "track", "name": "Untitled", "artist": null, "key": "track::untitled" },
+    { "kind": "track", "name": "Untitled", "artist": "", "key": "track::untitled" },
+    { "kind": "track", "name": "Roman Holiday", "artist": "Fontaines D.C.", "key": "track:fontaines d.c.:roman holiday" },
+    { "kind": "track", "name": "Re: Stacks", "artist": "Bon Iver", "key": "track:bon iver:re: stacks" },
+    { "kind": "track", "name": "Σίσυφος", "artist": "ΘΑΝΑΣΗΣ", "key": "track:θανασης:σισυφος" },
+    { "kind": "track", "name": "İstanbul", "artist": "Sezen Aksu", "key": "track:sezen aksu:istanbul" },
+    { "kind": "track", "name": "Straße", "artist": "Die Ärzte", "key": "track:die arzte:straße" },
+    { "kind": "track", "name": "Йожин с бажин", "artist": "Иван Младек", "key": "track:иван младек:иожин с бажин" },
+    { "kind": "track", "name": "नमस्ते", "artist": "कलाकार", "key": "track:कलकर:नमसत" },
+    { "kind": "track", "name": "สวัสดี", "artist": "ศิลปิน", "key": "track:ศลปน:สวสด" },
+    { "kind": "track", "name": "Can’t Stop", "artist": "Red Hot Chili Peppers", "key": "track:red hot chili peppers:can’t stop" },
+    { "kind": "track", "name": "Can't Stop", "artist": "Red Hot Chili Peppers", "key": "track:red hot chili peppers:can't stop" },
+    { "kind": "track", "name": " Song　", "artist": "\u0085Band ", "key": "track:band:song" },
+    { "kind": "track", "name": "Song", "artist": "﻿Band", "key": "track:﻿band:song" },
+    { "kind": "album", "name": "OK Computer ", "artist": "Radiohead", "key": "album:radiohead:ok computer" },
+    { "kind": "artist", "name": " Björk ", "artist": null, "key": "artist:bjork" },
+    { "kind": "tag", "name": " Trip-Hop", "artist": null, "key": "tag:trip-hop" }
+  ]
+}

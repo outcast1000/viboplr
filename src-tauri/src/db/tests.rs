@@ -1678,6 +1678,25 @@ fn test_entity_key_fold_matches_the_community_server() {
     assert_eq!(likes::build_entity_key("artist", " Björk ", None), "artist:bjork");
 }
 
+/// The fold fixture shared with the frontend (`src/likeKeys.ts` → `entityKey`,
+/// `__tests__/entityKeyFold.test.ts`). Both sides must reproduce every key; this
+/// side is the source of truth, so a failure here means the fixture is wrong,
+/// and a failure there means the TS port is.
+#[test]
+fn test_entity_key_fold_matches_the_shared_fixture() {
+    let fixture: serde_json::Value =
+        serde_json::from_str(include_str!("../../tests/fixtures/entity-key-fold.json")).unwrap();
+    let cases = fixture["cases"].as_array().unwrap();
+    assert!(!cases.is_empty());
+    for case in cases {
+        let kind = case["kind"].as_str().unwrap();
+        let name = case["name"].as_str().unwrap();
+        let artist = case["artist"].as_str();
+        let want = case["key"].as_str().unwrap();
+        assert_eq!(likes::build_entity_key(kind, name, artist), want, "{kind} {name:?} / {artist:?}");
+    }
+}
+
 /// A like stored under a padded name before the fold trimmed moves to the
 /// trimmed key (`run_migrations`); one keyed some other way is left alone, and a
 /// collision keeps the newer row.

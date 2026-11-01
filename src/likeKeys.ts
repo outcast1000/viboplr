@@ -1,6 +1,38 @@
 import type { Track, QueueTrack } from "./types";
 import type { LikeChange } from "./types/plugin";
 
+// Rust's `char::is_whitespace` (Unicode White_Space), which `str::trim` uses.
+// Not JS's `String.prototype.trim`: that one also trims U+FEFF and leaves
+// U+0085, so a name carrying either folds to a different key than the backend's.
+const WS = "\\t\\n\\v\\f\\r \\u0085\\u00a0\\u1680\\u2000-\\u200a\\u2028\\u2029\\u202f\\u205f\\u3000";
+const TRIM = new RegExp(`^[${WS}]+|[${WS}]+$`, "g");
+
+/** One segment of an entity_likes key: the port of Rust's `db::likes::norm_segment`
+ *  (trim → lowercase → NFD → drop marks). Rust's `is_combining_mark` is
+ *  General_Category=Mark, the same set as `\p{M}`. Pinned against Rust by the
+ *  shared `src-tauri/tests/fixtures/entity-key-fold.json`. Never make it fuzzier:
+ *  the fold is a contract with the Vibo Community server (backend.md "Likes"). */
+export function foldKeySegment(s: string | null | undefined): string {
+  return (s ?? "").replace(TRIM, "").toLowerCase().normalize("NFD").replace(/\p{M}/gu, "");
+}
+
+/** The port of Rust's `build_entity_key`: the exact key `entity_likes` stores. */
+export function entityKey(
+  kind: "track" | "album" | "artist" | "tag",
+  nameOrTitle: string,
+  artistName?: string | null,
+): string {
+  if (kind === "track" || kind === "album") {
+    return `${kind}:${foldKeySegment(artistName)}:${foldKeySegment(nameOrTitle)}`;
+  }
+  return `${kind}:${foldKeySegment(nameOrTitle)}`;
+}
+
+/** A track's entity_likes key — the song's identity for likes. */
+export function trackLikeKey(title: string | null | undefined, artistName: string | null | undefined): string {
+  return entityKey("track", title ?? "", artistName);
+}
+
 /** Payload shape consumed by the `set_entity_like_state` Tauri command. */
 export interface EntityLikePayload {
   title: string;
