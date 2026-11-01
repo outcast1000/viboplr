@@ -158,10 +158,15 @@ export interface SerializedQueueTrack {
   current: boolean;
 }
 
+/** A song's like state (the track-like store's answer). Queue entries carry no
+ *  `liked` of their own, so the serializers are handed this to report one. */
+export type TrackLikeOf = (t: { title: string; artist_name: string | null }) => number;
+
 export function serializeQueue(
   queue: QueueTrack[],
   index: number,
   mode: QueueMode,
+  likedOf: TrackLikeOf,
 ): { index: number; mode: QueueMode; tracks: SerializedQueueTrack[] } {
   return {
     index,
@@ -174,7 +179,7 @@ export function serializeQueue(
       albumTitle: t.album_title ?? null,
       durationSecs: t.duration_secs ?? null,
       path: t.path ?? null,
-      liked: t.liked,
+      liked: likedOf(t),
       current: i === index,
     })),
   };
@@ -196,6 +201,8 @@ export interface StatusInput {
   loadingTrack?: QueueTrack | null;
   /** Bit-perfect mode, when the build/platform supports it at all. */
   bitPerfect?: BitPerfectStatusInput | null;
+  /** The playing song's like state comes from here (see `TrackLikeOf`). */
+  likedOf: TrackLikeOf;
 }
 
 export interface BitPerfectStatusInput {
@@ -249,7 +256,7 @@ export function serializeStatus(input: StatusInput) {
           albumTitle: t.album_title ?? null,
           durationSecs: t.duration_secs ?? null,
           path: t.path ?? null,
-          liked: t.liked,
+          liked: input.likedOf(t),
         }
       : null,
   };

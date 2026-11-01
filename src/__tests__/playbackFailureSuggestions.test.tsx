@@ -10,7 +10,7 @@ import type { FallbackSuggestions } from "../utils/fallbackSuggestions";
 
 const track: QueueTrack = {
   key: "q:1", path: null, title: "Nothingman", artist_name: "Pearl Jam", album_title: "Vitalogy",
-  duration_secs: 276, format: null, liked: 0,
+  duration_secs: 276, format: null,
 };
 const failure: TrackFailure = { stage: "resolve", summary: "No playable source found", at: 0, attempts: [] };
 

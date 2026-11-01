@@ -115,7 +115,7 @@ export function useAutoContinue(
         return null;
       }
       console.debug(`[auto-continue] ${pluginId} suggested "${tracks[index].title}"`);
-      return { ...pluginTrackToQueueTrack(tracks[index]), liked: likeStates[index] ?? 0 };
+      return pluginTrackToQueueTrack(tracks[index]);
     };
     return bridge.suggest({
       current: {

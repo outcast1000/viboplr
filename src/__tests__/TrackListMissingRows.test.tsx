@@ -21,7 +21,7 @@ function libTrack(id: number, title: string, n: number): Track {
 }
 
 function missing(title: string, before: number, number: number): MissingTrackRow {
-  const track: QueueTrack = { key: `q:${title}`, path: null, title, artist_name: "Bjork", album_title: "Homogenic", duration_secs: null, format: null, liked: 0 };
+  const track: QueueTrack = { key: `q:${title}`, path: null, title, artist_name: "Bjork", album_title: "Homogenic", duration_secs: null, format: null };
   return { track, before, number, popularity: 500 };
 }
 

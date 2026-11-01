@@ -11,7 +11,6 @@ function makeTrack(overrides: Partial<QueueTrack> = {}): QueueTrack {
     album_title: "Album",
     duration_secs: 100,
     format: "mp4",
-    liked: 0,
     ...overrides,
   };
 }

@@ -17,7 +17,7 @@ import { useStreamResolution } from "../hooks/useStreamResolution";
 import type { QueueTrack, ResolvedTrackSource } from "../types";
 
 function track(key: string, id: string): QueueTrack {
-  return { key, path: `qbt://${id}`, title: `Song ${id}`, artist_name: "Artist", album_title: null, duration_secs: 200, format: null, liked: 0 };
+  return { key, path: `qbt://${id}`, title: `Song ${id}`, artist_name: "Artist", album_title: null, duration_secs: 200, format: null };
 }
 
 const A = track("q:1", "a");

@@ -20,7 +20,7 @@ function makeQueueTrack(overrides: Partial<QueueTrack> = {}): QueueTrack {
   return {
     key: "q:1", path: "file:///test.mp3", title: "Test",
     artist_name: null, album_title: null, duration_secs: null,
-    format: null, liked: 0,
+    format: null,
     ...overrides,
   };
 }

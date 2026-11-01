@@ -107,7 +107,9 @@ export interface QueueTrack {
   duration_secs: number | null;
   format: string | null;
   image_url?: string;
-  liked: number;
+  // No `liked`, deliberately: a like belongs to the song, not to a queue entry.
+  // Read it from the track-like store (`useTrackLike`, `TrackLikeStore.lookup`)
+  // by title + artist — the one answer every surface shares.
   /** File size in bytes, when known (e.g. converted from a library Track). Not persisted across restarts. */
   file_size?: number | null;
 }

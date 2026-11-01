@@ -19,6 +19,5 @@ export function buildExternalQueueTrack(
     album_title: extra.albumTitle ?? null,
     duration_secs: extra.durationSecs ?? null,
     format: null,
-    liked: 0,
   };
 }

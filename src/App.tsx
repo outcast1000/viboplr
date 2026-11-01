@@ -20,7 +20,7 @@ import { parseLrc, syncedLyricsFitMedia, lyricOffsetKey, clampLyricOffset, coerc
 import { store } from "./store";
 import { parseUrlScheme, localTrackSource, trackToQueueTrack, nextQueueKey, isLocalTrack, effectiveLocalPath, pluginTrackToQueueTrack, trackRowToQueueTrack, trackSelection, queueTrackSelection, isPlayingSelection } from "./queueEntry";
 import { partitionTrackIds, buildDeleteConfirmPayload } from "./utils/deleteTracks";
-import { fetchLikeStates, applyLikeState, applyLikeStates, trackLikeId } from "./utils/likeReconcile";
+import { fetchLikeStates, applyLikeState, applyLikeStates } from "./utils/likeReconcile";
 import { resolveLibraryIds } from "./utils/resolveLibraryIds";
 import { subscribeTrackEvents } from "./trackEvents";
 import { track as trackTelemetry, setTelemetryEnabled as syncTelemetryEnabled, sourceClass } from "./telemetry";
@@ -2065,11 +2065,7 @@ function App() {
   // utils/trackLikeStore.ts). Loaded once, kept current from entity-likes-changed.
   const [trackLikeStore] = useState(() => new TrackLikeStore());
   useTrackLikeStoreSync(trackLikeStore);
-  useTrackLikeCopySync(trackLikeStore, {
-    setLibraryTracks: library.setTracks,
-    setQueue: queueHook.setQueue,
-    setCurrentTrack: playback.setCurrentTrack,
-  });
+  useTrackLikeCopySync(trackLikeStore, { setLibraryTracks: library.setTracks });
 
   const likeActions = useLikeActions({
     library: {
@@ -3916,7 +3912,7 @@ function App() {
           album_artist_name: queueTrack.album_artist_name ?? null, year: null,
           track_number: null, duration_secs: queueTrack.duration_secs,
           format: queueTrack.format, file_size: null, collection_id: null,
-          collection_name: null, liked: queueTrack.liked ?? 0,
+          collection_name: null, liked: trackLikeStore.lookup(queueTrack.title, queueTrack.artist_name),
           added_at: null, modified_at: null,
           image_url: queueTrack.image_url,
         });
@@ -4114,33 +4110,6 @@ function App() {
   const backfillPendingRef = useLatestRef(queueHook.backfillPending);
   const queueRef = useLatestRef(queueHook.queue);
 
-  // Keep the now-playing track's like state in sync with the durable
-  // entity_likes store. currentTrack is seeded verbatim from the queue entry
-  // (often liked:0 for external/restored/plugin copies) and is otherwise never
-  // reconciled after playback starts — a stale value would drive the like
-  // toggle the wrong way and can delete a real like. Re-read the authoritative
-  // state whenever the track *identity* changes (NOT on .liked changes, so an
-  // optimistic like is never reverted by a read of the not-yet-committed row).
-  useEffect(() => {
-    const track = playback.currentTrack;
-    if (!track) return;
-    let cancelled = false;
-    (async () => {
-      try {
-        const byId = await fetchLikeStates([track]);
-        if (cancelled) return;
-        const durable = byId.get(trackLikeId(track.title, track.artist_name ?? null)) ?? 0;
-        playback.setCurrentTrack(prev =>
-          prev && prev.path === track.path && prev.title === track.title && prev.liked !== durable
-            ? { ...prev, liked: durable } : prev);
-      } catch (e) {
-        console.error("Failed to reconcile current track like state:", e);
-      }
-    })();
-    return () => { cancelled = true; };
-    // Identity-only deps: must NOT include .liked (see comment above).
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [playback.currentTrack?.path, playback.currentTrack?.title, playback.currentTrack?.artist_name, playback.setCurrentTrack]);
 
   // Re-reconcile like state when the durable store changes from any surface
   // (e.g. liking the now-playing song from the Library list, or a same-song
@@ -4467,6 +4436,7 @@ function App() {
     playAlbum: playActions.playAlbum,
     playArtist: playActions.playArtist,
     queueOps: queueOpsDeps,
+    trackLikeOf: (t) => trackLikeStore.lookup(t.title, t.artist_name),
     bitPerfect: bitPerfect.control ? { pin: bitPerfect.pin, state: bitPerfect.state, output: bitPerfect.output } : null,
     mini: {
       miniMode: mini.miniMode, toggleMiniMode: mini.toggleMiniMode,
@@ -5310,7 +5280,7 @@ function App() {
         format: t.format,
         source: t.path,
         imageUrl: t.image_url,
-        liked: t.liked,
+        liked: trackLikeStore.lookup(t.title, t.artist_name),
       }),
     });
   });
@@ -5454,7 +5424,7 @@ function App() {
         specs.push({ kind: "item", text: "Next", action: handleNext });
         specs.push({ kind: "item", text: "Previous", action: queueHook.playPrevious });
         specs.push({ kind: "separator" });
-        const rating = trackLikeStore.lookup(t.title, t.artist_name, t.liked);
+        const rating = trackLikeStore.lookup(t.title, t.artist_name);
         const ratingItems: MenuItemSpec[] = [
           { kind: "check", text: "Like", checked: rating === 1, action: () => likeActions.handleToggleLike(t) },
           { kind: "check", text: "None", checked: rating === 0, action: () => { if (rating === 1) likeActions.handleToggleLike(t); else if (rating === -1) likeActions.handleToggleDislike(t); } },

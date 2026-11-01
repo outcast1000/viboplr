@@ -115,7 +115,6 @@ describe("trackToQueueEntry", () => {
       year: 2020,
       format: "mp3",
       image_url: undefined,
-      liked: 0,
     });
   });
 
@@ -137,7 +136,6 @@ describe("trackToQueueEntry", () => {
       year: null,
       format: null,
       image_url: undefined,
-      liked: 0,
     });
   });
 
@@ -159,10 +157,10 @@ describe("trackToQueueEntry", () => {
     expect(entry.url).toBe("subsonic://server.com/sub-id");
   });
 
-  it("includes liked state in QueueEntry", () => {
+  it("carries no like state in QueueEntry (a like lives in the track-like store)", () => {
     const track = makeTrack({ liked: 1 });
     const entry = trackToQueueEntry(track);
-    expect(entry.liked).toBe(1);
+    expect("liked" in entry).toBe(false);
   });
 });
 
@@ -338,7 +336,7 @@ describe("trackToQueueTrack", () => {
     expect(qt.duration_secs).toBe(240);
     expect(qt.format).toBe("mp3");
     expect(qt.image_url).toBe("/path/to/image.jpg");
-    expect(qt.liked).toBe(1);
+    expect("liked" in qt).toBe(false); // a like lives in the track-like store, by song
     // Verify no DB IDs or collection_id exist on the result
     expect("id" in qt).toBe(false);
     expect("album_id" in qt).toBe(false);

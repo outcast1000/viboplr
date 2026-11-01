@@ -34,7 +34,6 @@ function makeTrack(n: number, overrides: Partial<QueueTrack> = {}): QueueTrack {
     album_title: "Album",
     duration_secs: 100,
     format: "mp3",
-    liked: 0,
     ...overrides,
   };
 }

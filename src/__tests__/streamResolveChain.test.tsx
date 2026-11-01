@@ -32,7 +32,6 @@ const QBT_TRACK: QueueTrack = {
   album_title: "Vitalogy",
   duration_secs: 276,
   format: null,
-  liked: 0,
 };
 
 /** The library row that outlived its file — collection root + "/" + relative

@@ -24,12 +24,15 @@ export interface SeedCandidate {
 const POPULARITY_BOOST = 4;
 const LIKED_WEIGHT = 3;
 
-function likedOf(seed: RadioSeed): number {
-  return seed.track.liked ?? 0;
-}
+/** A seed's like state. The caller passes the track-like store's answer
+ *  (`useEntityRadio`); without one, a library row's own mirror is used and a
+ *  provider-only row (no `liked` of its own) counts as unrated. */
+export type SeedLikeOf = (seed: RadioSeed) => number;
+
+export const seedOwnLike: SeedLikeOf = (seed) => (seed.kind === "library" ? seed.track.liked ?? 0 : 0);
 
 /** The pick weight of each candidate, in order (0 = never picked). */
-export function seedWeights(candidates: SeedCandidate[]): number[] {
+export function seedWeights(candidates: SeedCandidate[], likedOf: SeedLikeOf = seedOwnLike): number[] {
   const maxPop = Math.max(0, ...candidates.map(c => c.popularity || 0));
   return candidates.map(c => {
     if (likedOf(c.seed) === -1) return 0;
@@ -40,8 +43,12 @@ export function seedWeights(candidates: SeedCandidate[]): number[] {
 
 /** A weighted-random seed, or null when there is nothing to seed from.
  *  `rand` is injectable for tests; call it from an event handler, never render. */
-export function pickRadioSeed(candidates: SeedCandidate[], rand: () => number = Math.random): RadioSeed | null {
-  const weights = seedWeights(candidates);
+export function pickRadioSeed(
+  candidates: SeedCandidate[],
+  rand: () => number = Math.random,
+  likedOf: SeedLikeOf = seedOwnLike,
+): RadioSeed | null {
+  const weights = seedWeights(candidates, likedOf);
   const total = weights.reduce((a, b) => a + b, 0);
   if (total <= 0) return null;
   let r = rand() * total;

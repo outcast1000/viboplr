@@ -15,7 +15,6 @@ export interface QueueEntry {
   year: number | null;
   format: string | null;
   image_url?: string;
-  liked?: number;
 }
 
 export type ParsedUrl =
@@ -71,7 +70,6 @@ export function pluginTrackToQueueTrack(info: PluginTrack): QueueTrack {
     album_title: info.album_title ?? null,
     duration_secs: info.duration_secs ?? null,
     format: info.kind === "video" ? "mp4" : null,
-    liked: 0,
     image_url: info.image_url ?? undefined,
   };
 }
@@ -244,7 +242,6 @@ export function trackToQueueEntry(track: Track | QueueTrack): QueueEntry {
     year: "year" in track ? track.year : null,
     format: track.format,
     image_url: track.image_url,
-    liked: track.liked,
   };
 }
 
@@ -260,11 +257,10 @@ export function trackToQueueEntry(track: Track | QueueTrack): QueueEntry {
  * a queue entry's identity. Provenance rides in `libraryId` instead.
  */
 export function trackToQueueTrack(track: Track): QueueTrack {
-  // The `?? null` / `?? 0` defaults are load-bearing: some callers hand in a
-  // sparse `Track` (`open_mixtape_for_play` sends only title/artists/album/
-  // duration/format/path/image_url), and QueueTrack's contract is
-  // `null`/`0`, never `undefined` — consumers do strict `=== 0` checks and
-  // `nextTriState` arithmetic on `liked`.
+  // The `?? null` defaults are load-bearing: some callers hand in a sparse
+  // `Track` (`open_mixtape_for_play` sends only title/artists/album/duration/
+  // format/path/image_url), and QueueTrack's contract is `null`, never
+  // `undefined`. No `liked`: a like lives in the track-like store, by song.
   return {
     key: nextQueueKey(),
     // The queue's one durable link back to the library row — shared by every
@@ -280,7 +276,6 @@ export function trackToQueueTrack(track: Track): QueueTrack {
     duration_secs: track.duration_secs ?? null,
     format: track.format ?? null,
     image_url: track.image_url,
-    liked: track.liked ?? 0,
     file_size: track.file_size,
   };
 }
@@ -331,7 +326,6 @@ export function playlistTrackToQueueTrack(t: PlaylistTrackRow): QueueTrack {
     duration_secs: t.duration_secs ?? null,
     format: null,
     image_url: t.image_path ?? undefined,
-    liked: t.liked ?? 0,
   };
 }
 
@@ -351,7 +345,6 @@ export function queueEntryToQueueTrack(entry: QueueEntry): QueueTrack {
     album_artist_name: entry.album_artist_name ?? null,
     duration_secs: entry.duration_secs,
     format: entry.format,
-    liked: entry.liked ?? 0,
     image_url: entry.image_url,
   };
 }

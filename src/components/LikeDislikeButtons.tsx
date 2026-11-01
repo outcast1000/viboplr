@@ -7,10 +7,13 @@ import {
 import { useTrackLike } from "../contexts/TrackLikeContext";
 
 interface LikeDislikeButtonsProps {
-  liked: number;
+  /** The state for an artist / album / tag heart. For a track heart (`track`
+   *  given) it is only the fallback until the store has loaded, and may be
+   *  omitted — a queue entry has no `liked` of its own. */
+  liked?: number;
   /** A track's identity. When given, the shown state comes from the track-like
-   *  store (one answer per song, whichever copy this is), with `liked` only as
-   *  the fallback until the store has loaded. Omit it for artists, albums, tags. */
+   *  store (one answer per song, whichever copy this is). Omit it for artists,
+   *  albums, tags. */
   track?: { title: string; artist_name?: string | null } | null;
   onToggleLike: () => void;
   onToggleDislike?: () => void;
@@ -48,7 +51,7 @@ export function LikeDislikeButtons({
   disabled,
 }: LikeDislikeButtonsProps) {
   const fromStore = useTrackLike(track ?? null, likedProp);
-  const liked = track ? fromStore : likedProp;
+  const liked = track ? fromStore : likedProp ?? 0;
   const current = liked === 1 ? 1 : liked === -1 ? -1 : 0;
   const hasDislike = !!onToggleDislike;
 

@@ -50,7 +50,6 @@ import { homeShelfRoster, isBuiltInShelfId } from "./useHome";
 import { store } from "../store";
 import { getPlaybackPosition } from "../playback/positionStore";
 import { editTrackTags, writeFileMetadata, type FileMetadataEdit, type TagOpsDeps } from "../utils/tagOps";
-import { sameSong } from "./useLikeActions";
 import { trackToQueueTrack, playlistTrackToQueueTrack, pluginTrackToQueueTrack, nextQueueKey, type PlaylistTrackRow } from "../queueEntry";
 import { toPlaylistTrackPayload } from "../utils/playlistPayload";
 import { cueCountBucket, cueErrorField, sameCueSong, splitSheetMeta, type CueSheetRow, type CueSheetTrack } from "../utils/cueSheet";
@@ -88,6 +87,7 @@ import {
   playbackLanded,
   type BitPerfectStatusInput,
   type ControlApiRequest,
+  type TrackLikeOf,
 } from "../utils/controlApi";
 import {
   clampSearchLimit, invokeAssistantTool, listAssistantTools, listSearchProviders, listWebSearchProviders,
@@ -277,6 +277,8 @@ export interface ControlApiDeps {
     /** usePlugins.cancelDownloadResolve — kills the provider's subprocess. */
     cancelResolve: (pluginId: string) => void;
   };
+  /** A song's like state, from the track-like store (queue entries carry none). */
+  trackLikeOf: TrackLikeOf;
   likeActions: {
     setTrackRating: (track: QueueTrack, likeState: number, source?: "like" | "dislike" | "set") => Promise<boolean>;
     setArtistLike: (name: string, likeState: number) => Promise<{ ok: boolean; mirrored: boolean }>;
@@ -684,10 +686,11 @@ export function useControlApi(deps: ControlApiDeps) {
           currentTrack: d.playback.currentTrack,
           loadingTrack: d.playback.loadingTrack,
           bitPerfect: d.bitPerfect,
+          likedOf: d.trackLikeOf,
         });
 
       case "queue.get":
-        return serializeQueue(d.queueHook.queue, d.queueHook.queueIndex, d.queueHook.queueMode);
+        return serializeQueue(d.queueHook.queue, d.queueHook.queueIndex, d.queueHook.queueMode, d.trackLikeOf);
 
       case "playback.set": {
         const parsed = parsePlaybackSet(payload);
@@ -801,13 +804,10 @@ export function useControlApi(deps: ControlApiDeps) {
             album_title: optionalString(payload.albumTitle) ?? null,
             duration_secs: null,
             format: null,
-            liked: 0,
           };
-          // Prefer a live copy (queue / now playing) so the optimistic mirror
-          // starts from its real prior state and keeps its key identity.
-          const existing = [d.playback.currentTrack, ...d.queueHook.queue]
-            .find((t): t is QueueTrack => t !== null && sameSong(t, candidate));
-          const ok = await d.likeActions.setTrackRating(existing ?? candidate, likeState);
+          // By name alone: the like belongs to the song, and the store moves
+          // every copy of it, so there is no live copy to look for first.
+          const ok = await d.likeActions.setTrackRating(candidate, likeState);
           if (!ok) bad("like write failed or is already in flight — retry");
           return { ok: true, likeState };
         }

@@ -25,7 +25,7 @@ afterEach(() => {
 });
 
 function track(key: string, title: string, artist: string | null, path: string | null): QueueTrack {
-  return { key, path, title, artist_name: artist, album_title: null, duration_secs: null, format: null, liked: 0 };
+  return { key, path, title, artist_name: artist, album_title: null, duration_secs: null, format: null };
 }
 
 function mountQueue() {

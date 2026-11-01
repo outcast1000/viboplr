@@ -34,7 +34,6 @@ function entry(over: Partial<QueueTrack> = {}): QueueTrack {
     album_title: "Dire Straits",
     duration_secs: 348,
     format: "mp3",
-    liked: 0,
     ...over,
   };
 }

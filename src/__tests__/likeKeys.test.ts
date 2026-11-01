@@ -5,7 +5,7 @@ import type { QueueTrack } from "../types";
 function makeTrack(over: Partial<QueueTrack> = {}): QueueTrack {
   return {
     key: "ext:1", path: "custom://1", title: "Jóga", artist_name: "Björk",
-    album_title: "Homogenic", duration_secs: 180, format: null, liked: 0, ...over,
+    album_title: "Homogenic", duration_secs: 180, format: null, ...over,
   };
 }
 

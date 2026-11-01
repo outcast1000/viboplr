@@ -11,7 +11,6 @@ function t(title: string, opts?: { path?: string | null; artist?: string | null;
     album_title: null,
     duration_secs: null,
     format: null,
-    liked: 0,
   };
 }
 

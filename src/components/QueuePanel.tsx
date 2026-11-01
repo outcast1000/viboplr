@@ -132,7 +132,6 @@ const QueueRow = memo(function QueueRow({
         {showLikes && (
           <div className="queue-item-like">
             <LikeDislikeButtons
-              liked={t.liked}
               track={t}
               onToggleLike={() => onToggleLike(t)}
               onToggleDislike={showDislike ? () => onToggleDislike(t) : undefined}
@@ -1030,7 +1029,7 @@ export function QueuePanel({
                   ["key", t.key], ["path", t.path],
                   ["artist", t.artist_name], ["album", t.album_title],
                   ["duration_secs", t.duration_secs], ["format", t.format],
-                  ["liked", t.liked], ["image_url", t.image_url],
+                  ["image_url", t.image_url],
                 ] as [string, unknown][]).map(([k, v]) => (
                   <div key={k} className="ds-tooltip-row">
                     <span className="ds-tooltip-key">{k}</span>

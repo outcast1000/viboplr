@@ -24,7 +24,7 @@ function makeTrack(overrides: Partial<QueueTrack> = {}): QueueTrack {
     key: "ext:1", path: "file:///x.mp3", title: "T",
     artist_name: "A", album_title: "Al",
     duration_secs: 200, format: "mp3",
-    liked: 0, image_url: undefined, ...overrides,
+    image_url: undefined, ...overrides,
   };
 }
 

@@ -23,11 +23,11 @@ afterEach(() => {
 
 const inLibrary: QueueTrack = {
   key: "q:1", libraryId: 7, path: "file:///music/Kept.mp3", title: "Kept",
-  artist_name: "A", album_title: null, duration_secs: 100, format: "mp3", liked: 0,
+  artist_name: "A", album_title: null, duration_secs: 100, format: "mp3",
 };
 const loose: QueueTrack = {
   key: "q:2", path: "file:///Users/me/Downloads/Loose.flac", title: "Loose",
-  artist_name: "B", album_title: null, duration_secs: 100, format: "flac", liked: 0,
+  artist_name: "B", album_title: null, duration_secs: 100, format: "flac",
 };
 
 function mount(queue: QueueTrack[], confirmTrashDelete = false) {

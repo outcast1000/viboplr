@@ -238,7 +238,7 @@ export const NowPlayingBar = memo(function NowPlayingBar({
   const miniVolumeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   // The heart beside the mini player's title reads the same store as the
   // like buttons, so the two can't disagree.
-  const currentLiked = useTrackLike(currentTrack, currentTrack?.liked);
+  const currentLiked = useTrackLike(currentTrack);
   const [showMiniVolume, setShowMiniVolume] = useState(false);
   // Cycle phase for the mini info line, shared by the compact (ultra) and
   // expanded rows — each renders its own cycler instance, so the phase must
@@ -469,7 +469,6 @@ export const NowPlayingBar = memo(function NowPlayingBar({
               <div className="mini-extra-left">
                 {currentTrack && (
                   <LikeDislikeButtons
-                    liked={currentTrack.liked}
                     track={currentTrack}
                     onToggleLike={onToggleLike}
                     onToggleDislike={onToggleDislike}
@@ -590,7 +589,6 @@ export const NowPlayingBar = memo(function NowPlayingBar({
           <div className="now-like-col">
             {currentTrack && (
               <LikeDislikeButtons
-                liked={currentTrack.liked}
                 track={currentTrack}
                 onToggleLike={onToggleLike}
                 onToggleDislike={onToggleDislike}

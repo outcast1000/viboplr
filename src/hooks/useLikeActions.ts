@@ -61,7 +61,8 @@ export function useLikeActions(deps: UseLikeActionsDeps) {
   // The song's current state: the store's answer, the copy's own `liked` until
   // the store has loaded (or when there is none). A copy can be stale — a
   // plugin row hardcodes 0 — so the store wins whenever it can answer.
-  const currentLike = (track: Track | QueueTrack) => likeStore.lookupKey(likeIdentity(track), track.liked);
+  const currentLike = (track: Track | QueueTrack) =>
+    likeStore.lookupKey(likeIdentity(track), "liked" in track ? track.liked : undefined);
 
   /** Set a track's rating to an absolute tri-state value. The toggle handlers
    *  route through here (with `nextTriState`) so the two paths can't drift;

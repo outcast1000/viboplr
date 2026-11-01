@@ -13,7 +13,6 @@ describe("toPlaylistTrackPayload", () => {
       duration_secs: 210.5,
       format: "flac",
       image_url: "/imgs/a.jpg",
-      liked: 1,
     };
     expect(toPlaylistTrackPayload(t)).toEqual({
       title: "Song A",
@@ -34,7 +33,6 @@ describe("toPlaylistTrackPayload", () => {
       album_title: null,
       duration_secs: null,
       format: null,
-      liked: 0,
     };
     expect(toPlaylistTrackPayload(t)).toEqual({
       title: "Bare",

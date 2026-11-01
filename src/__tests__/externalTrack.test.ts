@@ -10,7 +10,7 @@ describe("buildExternalQueueTrack", () => {
     expect(t.album_title).toBeNull();
     expect(t.duration_secs).toBeNull();
     expect(t.format).toBeNull();
-    expect(t.liked).toBe(0);
+    expect("liked" in t).toBe(false);
     expect(typeof t.key).toBe("string");
     expect(t.key.length).toBeGreaterThan(0);
   });

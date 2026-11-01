@@ -4,7 +4,7 @@ import { trackLikeKey } from "../likeKeys";
 import { subscribe as subscribeEvent } from "../utils/tauriEvents";
 import { emitTracksLiked } from "../trackEvents";
 import { useLatestRef } from "../hooks/useLatestRef";
-import type { QueueTrack, Track } from "../types";
+import type { Track } from "../types";
 import { TrackLikeStore, applyLikedCopies, likedOfChange, type TrackLikeEntry } from "../utils/trackLikeStore";
 
 /** The app's one track-like store (App provides it). Optional: without a
@@ -63,27 +63,24 @@ export function useTrackLikeStoreSync(store: TrackLikeStore): void {
 
 interface LikeCopyTargets {
   setLibraryTracks: Dispatch<SetStateAction<Track[]>>;
-  setQueue: Dispatch<SetStateAction<QueueTrack[]>>;
-  setCurrentTrack: Dispatch<SetStateAction<QueueTrack | null>>;
 }
 
-/** Keep every copy of a song's `liked` in step with the store, from one place:
- *  the library list, the queue, the playing track, and — through a `liked`
- *  track event — the Library search results, detail-page lists and the track
- *  page. Driven by the store, so a like from any source moves them (a click, a
- *  plugin, the control API, an import), not only a click in this window.
+/** Keep every library `Track` copy's `liked` in step with the store, from one
+ *  place: the library list directly, and — through a `liked` track event — the
+ *  Library search results, detail-page lists and the track page. Driven by the
+ *  store, so a like from any source moves them (a click, a plugin, the control
+ *  API, an import), not only a click in this window.
  *
- *  Hearts don't need this (they read the store). It exists for the code that
- *  still decides from a copy — skip disliked tracks on play, sort by liked,
- *  weight a radio seed, report the queue — until those read the store too. */
+ *  Hearts don't need this (they read the store), and queue entries carry no
+ *  `liked` at all. It exists for the code that decides from a library row's
+ *  `liked` — skip disliked tracks on play, sort by liked — which is also what
+ *  the database's own mirror column holds. */
 export function useTrackLikeCopySync(store: TrackLikeStore, targets: LikeCopyTargets): void {
   const targetsRef = useLatestRef(targets);
   useEffect(() => store.onChange((change) => {
     const likedOf = likedOfChange(store, change);
     const t = targetsRef.current;
     t.setLibraryTracks((prev) => applyLikedCopies(prev, likedOf));
-    t.setQueue((prev) => applyLikedCopies(prev, likedOf));
-    t.setCurrentTrack((prev) => (prev ? applyLikedCopies([prev], likedOf)[0] : prev));
     emitTracksLiked(likedOf);
   }), [store, targetsRef]);
 }

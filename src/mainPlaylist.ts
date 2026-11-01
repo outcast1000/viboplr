@@ -213,7 +213,6 @@ export function tracksFromManifest(manifest: Manifest): QueueTrack[] {
     // stored omit the field → null (audio default). isVideoTrack reads this, so
     // dropping it would misclassify a restored video as audio after restart.
     format: m.format ?? null,
-    liked: 0,
     // Seeded from the entry's OWN `image_url`, never from `m.thumb`: the on-disk
     // thumbnail is resolved separately through `thumbInfo` (seeded from
     // `main_playlist_read` on restore, and from `main-playlist-thumb-ready`

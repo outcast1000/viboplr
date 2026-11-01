@@ -28,7 +28,7 @@ const enginePlay = nativeEngine.play as unknown as ReturnType<typeof vi.fn>;
 
 const song: QueueTrack = {
   key: "q:1", path: "file:///music/song.flac", title: "Song", artist_name: "Artist",
-  album_title: null, duration_secs: 200, format: "flac", liked: 0,
+  album_title: null, duration_secs: 200, format: "flac",
 };
 const clipSource: EngineSource = { kind: "file", path: "/music/clip.flac" } as EngineSource;
 

@@ -31,9 +31,10 @@ interface QueueTrack {
   duration_secs: number | null;
   format: string | null;
   image_url?: string;       // Album art path/URL, set by plugin or async resolution
-  liked: number;            // -1/0/1, synced on-demand
 }
 ```
+
+**No `liked` either.** A like belongs to the song, not to a queue entry: every surface reads it from the track-like store (`useTrackLike` / `TrackLikeStore.lookup`, by title + artist — frontend.md → `utils/trackLikeStore.ts`). It used to be a field, seeded with a guessed `0` by most builders and corrected after the fact by several reconcile passes; don't bring it back.
 
 **No `collection_id`, no `album_id`/`artist_id`, no `youtube_url`.** These are on the library `Track` type only, derivable from `path` (local vs remote), or resolved on-demand via `find_track_by_metadata`.
 
@@ -84,7 +85,7 @@ Operations that need a library ID (delete, show in folder, audio properties) use
 - If found, proceed with the resolved ID
 - If not found, show feedback "Track not in library" via `notify()` (from `useToasts`)
 
-**Like/dislike is the exception** — it does NOT require a library ID. `useLikeActions` persists via `set_entity_like_state` against the metadata-keyed `entity_likes` store, so any `QueueTrack` (library or not) can be liked, and the new state propagates to same-song copies in the queue/`currentTrack` via the `sameSong()` predicate. The `QueueTrack.liked` field drives the like/dislike indicator rendered before the title in `QueuePanel.tsx`.
+**Like/dislike is the exception** — it does NOT require a library ID. `useLikeActions` persists via `set_entity_like_state` against the metadata-keyed `entity_likes` store, so any `QueueTrack` (library or not) can be liked. The indicator before the title in `QueuePanel.tsx` reads the track-like store (`LikeDislikeButtons` `track`), so every copy of the song in the queue shows the same state.
 
 ### Navigation from QueueTracks
 

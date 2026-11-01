@@ -46,7 +46,6 @@ function qt(overrides: Partial<QueueTrack> = {}): QueueTrack {
     album_title: "Album",
     duration_secs: 200,
     format: "mp3",
-    liked: 0,
     ...overrides,
   };
 }
@@ -172,8 +171,24 @@ describe("partitionEnqueue", () => {
 });
 
 describe("serializeQueue / serializeStatus", () => {
+  const unliked = () => 0;
+
+  // Queue entries carry no like of their own; the dispatcher hands in the
+  // track-like store's answer, so a liked song reports liked on every copy.
+  it("reports each song's like from the lookup it is given", () => {
+    const likedOf = (t: { title: string }) => (t.title === "Two" ? 1 : t.title === "Three" ? -1 : 0);
+    const out = serializeQueue([qt(), qt({ key: "ext:2", title: "Two" }), qt({ key: "ext:3", title: "Three" })], 0, "normal", likedOf);
+    expect(out.tracks.map((t) => t.liked)).toEqual([0, 1, -1]);
+    const status = serializeStatus({
+      playing: true, positionSecs: 0, durationSecs: null, volume: 1, muted: false,
+      queueLength: 3, queueIndex: 1, queueMode: "normal", view: "home",
+      currentTrack: qt({ title: "Two" }), likedOf,
+    });
+    expect(status.currentTrack?.liked).toBe(1);
+  });
+
   it("marks the current row and keeps index/mode", () => {
-    const out = serializeQueue([qt(), qt({ key: "ext:2", title: "Two" })], 1, "repeat-all");
+    const out = serializeQueue([qt(), qt({ key: "ext:2", title: "Two" })], 1, "repeat-all", unliked);
     expect(out.index).toBe(1);
     expect(out.mode).toBe("repeat-all");
     expect(out.tracks.map((t) => t.current)).toEqual([false, true]);
@@ -181,12 +196,12 @@ describe("serializeQueue / serializeStatus", () => {
   });
 
   it("carries the entry's libraryId, and null when it has none", () => {
-    const out = serializeQueue([qt({ libraryId: 42 }), qt({})], 0, "normal");
+    const out = serializeQueue([qt({ libraryId: 42 }), qt({})], 0, "normal", unliked);
     expect(out.tracks.map((t) => t.libraryId)).toEqual([42, null]);
     const status = serializeStatus({
       playing: false, positionSecs: 0, durationSecs: null, volume: 1, muted: false,
       queueLength: 1, queueIndex: 0, queueMode: "normal", view: "home",
-      currentTrack: qt({ libraryId: 42 }),
+      currentTrack: qt({ libraryId: 42 }), likedOf: unliked,
     });
     expect(status.currentTrack?.libraryId).toBe(42);
   });
@@ -199,6 +214,7 @@ describe("serializeQueue / serializeStatus", () => {
       [qt({ key: "ext:7", libraryId: 42 }), qt({ key: "lib:9", libraryId: null })],
       0,
       "normal",
+      unliked,
     );
     expect(out.tracks.map((t) => t.libraryId)).toEqual([42, null]);
   });
@@ -206,7 +222,7 @@ describe("serializeQueue / serializeStatus", () => {
   it("serializes a null current track and a full one", () => {
     const base = {
       playing: true, positionSecs: 12.5, durationSecs: 200, volume: 0.8, muted: false,
-      queueLength: 2, queueIndex: 0, queueMode: "normal" as const, view: "home",
+      queueLength: 2, queueIndex: 0, queueMode: "normal" as const, view: "home", likedOf: unliked,
     };
     expect(serializeStatus({ ...base, currentTrack: null }).currentTrack).toBeNull();
     const withTrack = serializeStatus({ ...base, currentTrack: qt() });
@@ -220,7 +236,7 @@ describe("serializeQueue / serializeStatus", () => {
   it("is unsettled while a play is still loading, and names what is loading", () => {
     const base = {
       playing: true, positionSecs: 0, durationSecs: 200, volume: 1, muted: false,
-      queueLength: 2, queueIndex: 1, queueMode: "normal" as const, view: "home",
+      queueLength: 2, queueIndex: 1, queueMode: "normal" as const, view: "home", likedOf: unliked,
       currentTrack: qt({ title: "Old" }),
     };
     expect(serializeStatus(base)).toMatchObject({ settled: true, loading: null });

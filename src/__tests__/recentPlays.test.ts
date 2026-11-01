@@ -28,7 +28,6 @@ function track(partial: Partial<QueueTrack> = {}): QueueTrack {
     album_title: "Album",
     duration_secs: 200,
     format: "mp3",
-    liked: 0,
     ...partial,
   };
 }

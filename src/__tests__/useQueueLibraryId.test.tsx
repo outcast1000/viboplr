@@ -35,7 +35,6 @@ function libTrack(n: number): QueueTrack {
     album_title: "Album",
     duration_secs: 100,
     format: "mp3",
-    liked: 0,
   };
 }
 

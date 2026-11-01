@@ -14,7 +14,7 @@ import type { Album, Artist, QueueTrack } from "../types";
 
 const TRACK: QueueTrack = {
   key: "q:1", path: "file:///m/joga.flac", title: "Jóga", artist_name: "Björk",
-  album_title: "Homogenic", album_artist_name: "Björk", duration_secs: 305, format: "flac", liked: 0,
+  album_title: "Homogenic", album_artist_name: "Björk", duration_secs: 305, format: "flac",
 };
 
 function setup(over: { artists?: Artist[]; albums?: Album[] } = {}) {

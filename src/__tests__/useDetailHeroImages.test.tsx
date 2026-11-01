@@ -24,7 +24,6 @@ function audioTrack(): QueueTrack {
     album_title: "A",
     duration_secs: 60,
     format: "mp3",
-    liked: 0,
   };
 }
 
@@ -37,7 +36,6 @@ function videoTrack(): QueueTrack {
     album_title: null,
     duration_secs: 60,
     format: "mp4",
-    liked: 0,
   };
 }
 

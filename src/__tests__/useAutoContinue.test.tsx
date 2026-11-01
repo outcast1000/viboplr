@@ -28,7 +28,7 @@ afterEach(() => {
 
 const current: QueueTrack = {
   key: "q:1", path: null, title: "Jóga", artist_name: "Björk", album_title: "Homogenic",
-  duration_secs: 300, format: null, liked: 0,
+  duration_secs: 300, format: null,
 };
 
 const libraryTrack = { id: 7, path: "file:///x.mp3", title: "Owned", artist_name: "A", album_title: null, format: "mp3", duration_secs: 200, liked: 0 } as unknown as Track;

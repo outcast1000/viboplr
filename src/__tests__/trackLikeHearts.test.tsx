@@ -123,7 +123,7 @@ describe("useTrackLikeStoreSync", () => {
 describe("like actions read and write the store", () => {
   const TRACK: QueueTrack = {
     key: "q:1", path: null, title: "Jóga", artist_name: "Björk",
-    album_title: null, duration_secs: 305, format: null, liked: 0,
+    album_title: null, duration_secs: 305, format: null,
   };
 
   function setup(store: TrackLikeStore) {
