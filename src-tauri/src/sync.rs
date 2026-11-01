@@ -74,12 +74,6 @@ pub fn sync_collection(
             .get_or_create_album(&album.name, artist_id, album.year)
             .ok();
 
-        // Store album genre as a tag
-        let album_genre_tag_id = album
-            .genre
-            .as_deref()
-            .and_then(|g| db.get_or_create_tag(g).ok());
-
         for track in &tracks {
             let track_artist_id = track
                 .artist
@@ -106,14 +100,18 @@ pub fn sync_collection(
                 // reached the server rather than when Vibo first synced it.
                 track.created.or(album.created),
             ) {
-                // Tag from track genre or album genre
+                // Tag from track genre or album genre — split like a file's
+                // genre ("Rock; Metal" is two tags, not one).
                 let genre = track.genre.as_deref().or(album.genre.as_deref());
-                if let Some(genre_name) = genre {
-                    if let Ok(tag_id) = db.get_or_create_tag(genre_name) {
-                        let _ = db.add_track_tag(track_db_id, tag_id);
+                for genre_name in crate::scanner::split_genres(genre) {
+                    match db.get_or_create_tag(&genre_name) {
+                        Ok(tag_id) => {
+                            if let Err(e) = db.add_track_tag(track_db_id, tag_id) {
+                                log::warn!("Failed to tag synced track {}: {}", track_db_id, e);
+                            }
+                        }
+                        Err(e) => log::warn!("Failed to create tag {:?}: {}", genre_name, e),
                     }
-                } else if let Some(tag_id) = album_genre_tag_id {
-                    let _ = db.add_track_tag(track_db_id, tag_id);
                 }
                 // OpenSubsonic ReplayGain → extra_tags, under the same keys as
                 // file-tag RG — for display only (track page → Details). Playback

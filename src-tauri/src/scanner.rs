@@ -55,7 +55,8 @@ struct ParsedTags {
     /// unaffected and only tagged compilations group under one album.
     album_artist: Option<String>,
     album: Option<String>,
-    genre: Option<String>,
+    /// Every genre the file carries, already split ([`split_genres`]).
+    genres: Vec<String>,
     year: Option<i32>,
     track_number: Option<i32>,
     duration_secs: Option<f64>,
@@ -171,6 +172,36 @@ fn clean_tag(s: &str) -> Option<String> {
     (!trimmed.is_empty()).then(|| trimmed.to_string())
 }
 
+/// Characters that separate several genres inside one genre value.
+const GENRE_SEPARATORS: &[char] = &[',', ';', '|', '/', '\0'];
+
+/// Turn a file's (or a server's) genre values into tag names: every value is
+/// split on [`GENRE_SEPARATORS`], each part cleaned like any tag string, and
+/// repeats dropped (case-insensitively, first spelling kept).
+///
+/// Splitting is load-bearing, not cosmetic: the tag writer stores a track's
+/// whole tag set as one `"A, B"` genre string (`bulk_update_tracks`), and
+/// other taggers use `;`, `/` or `|`. Read back as one value, every edit
+/// minted a new combined tag ("Pop, Rock") on the next scan.
+pub(crate) fn split_genres<I, S>(values: I) -> Vec<String>
+where
+    I: IntoIterator<Item = S>,
+    S: AsRef<str>,
+{
+    let mut out: Vec<String> = Vec::new();
+    for value in values {
+        for part in fix_encoding(value.as_ref()).split(GENRE_SEPARATORS) {
+            if let Some(name) = clean_tag(part) {
+                let folded = name.to_lowercase();
+                if !out.iter().any(|n| n.to_lowercase() == folded) {
+                    out.push(name);
+                }
+            }
+        }
+    }
+    out
+}
+
 fn read_tags(path: &Path) -> ParsedTags {
     if let Ok(tagged_file) = crate::tag_writer::read_tagged_file(path) {
         let tag = tagged_file.primary_tag().or_else(|| tagged_file.first_tag());
@@ -185,7 +216,8 @@ fn read_tags(path: &Path) -> ParsedTags {
                 .get_string(lofty::tag::ItemKey::AlbumArtist)
                 .and_then(clean_tag);
             let album = tag.album().and_then(|s| clean_tag(&s));
-            let genre = tag.genre().and_then(|s| clean_tag(&s));
+            // All genre items, not `tag.genre()` — that is only the first one.
+            let genres = split_genres(tag.get_strings(lofty::tag::ItemKey::Genre));
             let year = tag.date().map(|d| d.year as i32);
             let track_number = tag.track().map(|t| t as i32);
             let extra_tags = collect_extra_tags(tag);
@@ -196,7 +228,7 @@ fn read_tags(path: &Path) -> ParsedTags {
                     artist,
                     album_artist,
                     album,
-                    genre,
+                    genres,
                     year,
                     track_number,
                     duration_secs,
@@ -291,7 +323,7 @@ fn fallback_from_filename(path: &Path, duration_secs: Option<f64>) -> ParsedTags
                 artist: caps.name("artist").map(|m| m.as_str().trim().to_string()),
                 album_artist: None,
                 album: caps.name("album").map(|m| m.as_str().trim().to_string()),
-                genre: None,
+                genres: Vec::new(),
                 year: None,
                 track_number: caps.name("track").and_then(|m| m.as_str().parse().ok()),
                 duration_secs,
@@ -306,7 +338,7 @@ fn fallback_from_filename(path: &Path, duration_secs: Option<f64>) -> ParsedTags
         artist: None,
         album_artist: None,
         album: None,
-        genre: None,
+        genres: Vec::new(),
         year: None,
         track_number: None,
         duration_secs,
@@ -621,7 +653,7 @@ fn prepare_media_file(db: &Arc<Database>, path: &Path, collection_id: Option<i64
         format,
         file_size,
         modified_at,
-        tag_names: tags.genre.into_iter().collect(),
+        tag_names: tags.genres,
         extra_tags: tags.extra_tags,
         write_extra_tags: true,
     })
@@ -1011,6 +1043,25 @@ mod tests {
         assert_eq!(clean_tag("Massive  Attack"), Some("Massive  Attack".to_string()));
         assert_eq!(clean_tag("   "), None);
         assert_eq!(clean_tag(""), None);
+    }
+
+    #[test]
+    fn test_split_genres_splits_joined_values() {
+        // What the tag writer itself produces from a track's tag set.
+        assert_eq!(split_genres(["Pop, Rock"]), vec!["Pop", "Rock"]);
+        // Other taggers' separators.
+        assert_eq!(split_genres(["Rock; Metal"]), vec!["Rock", "Metal"]);
+        assert_eq!(
+            split_genres(["Garage Rock|Psychedelic Rock|Rock & Roll"]),
+            vec!["Garage Rock", "Psychedelic Rock", "Rock & Roll"]
+        );
+        assert_eq!(split_genres(["Folk/Rock"]), vec!["Folk", "Rock"]);
+        // Several genre items, repeats folded case-insensitively, first spelling kept.
+        assert_eq!(split_genres(["rock", "Jazz, Rock", " jazz "]), vec!["rock", "Jazz"]);
+        // Blanks and padding vanish; a lone genre is untouched.
+        assert_eq!(split_genres(["Ελληνικό Ροκ\0", " , ;"]), vec!["Ελληνικό Ροκ"]);
+        assert!(split_genres(Vec::<String>::new()).is_empty());
+        assert!(split_genres(None::<&str>).is_empty());
     }
 
     #[test]
