@@ -135,6 +135,7 @@ macro_rules! invoke_handler {
             commands::pick_never_played_tracks,
             commands::pick_forgotten_mixes,
             commands::get_track_like_states,
+            commands::list_track_likes,
             commands::export_likes,
             commands::import_likes,
             commands::show_in_folder,

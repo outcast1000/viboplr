@@ -1678,6 +1678,26 @@ fn test_entity_key_fold_matches_the_community_server() {
     assert_eq!(likes::build_entity_key("artist", " Björk ", None), "artist:bjork");
 }
 
+/// `list_track_likes` is what the frontend's like store loads: every track like
+/// and dislike by key, library or not, and nothing else — not artists, not
+/// cleared likes.
+#[test]
+fn test_list_track_likes_returns_every_track_opinion_and_nothing_else() {
+    let db = test_db();
+    let track = |t: &str, a: &str| likes::build_entity_key("track", t, Some(a));
+    // A song that is in no library: likes are metadata-keyed.
+    db.set_entity_like("track", &track("Jóga", "Björk"), 1, None, 1).unwrap();
+    db.set_entity_like("track", &track("Creep", "Radiohead"), -1, None, 2).unwrap();
+    db.set_entity_like("track", &track("Gone", "Band"), 1, None, 3).unwrap();
+    db.set_entity_like("track", &track("Gone", "Band"), 0, None, 4).unwrap();
+    db.set_entity_like("artist", &likes::build_entity_key("artist", "Björk", None), 1, None, 5).unwrap();
+
+    assert_eq!(
+        db.list_track_likes().unwrap(),
+        vec![("track:bjork:joga".to_string(), 1), ("track:radiohead:creep".to_string(), -1)],
+    );
+}
+
 /// The fold fixture shared with the frontend (`src/likeKeys.ts` → `entityKey`,
 /// `__tests__/entityKeyFold.test.ts`). Both sides must reproduce every key; this
 /// side is the source of truth, so a failure here means the fixture is wrong,

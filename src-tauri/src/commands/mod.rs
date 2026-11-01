@@ -519,6 +519,21 @@ pub struct AppendPlaylistResult {
     pub skipped_indices: Vec<usize>,
 }
 
+/// One track like for the frontend's like store: the `entity_likes` key and its
+/// state (1 liked, -1 disliked — never 0, that is no row).
+#[derive(Debug, Serialize, PartialEq)]
+pub struct TrackLikeEntry {
+    pub key: String,
+    pub liked: i32,
+}
+
+/// The `entity-likes-changed` payload for one write. `key` + `liked` let the
+/// frontend apply the change without re-reading the store; a bulk change sends
+/// `{ kind: "bulk" }` and means "reload everything".
+pub fn like_changed_payload(kind: &str, entity_key: &str, liked: i32) -> serde_json::Value {
+    serde_json::json!({ "kind": kind, "key": entity_key, "liked": liked })
+}
+
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct TrackLikeQuery {

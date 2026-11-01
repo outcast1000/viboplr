@@ -192,6 +192,21 @@ impl Database {
         Ok(out)
     }
 
+    /// Every track like and dislike, as `(entity_key, liked)`. The frontend's
+    /// in-memory like store loads from this once and keeps itself current from
+    /// `entity-likes-changed`. A 0 deletes the row (`set_entity_like`), so only
+    /// real opinions exist; the `liked != 0` filter guards a row written by
+    /// another path. Sorted by key so the answer is stable.
+    pub fn list_track_likes(&self) -> SqlResult<Vec<(String, i32)>> {
+        let conn = self.reader();
+        let mut stmt = conn.prepare(
+            "SELECT entity_key, liked FROM entity_likes
+             WHERE kind = 'track' AND liked != 0 ORDER BY entity_key",
+        )?;
+        let rows = stmt.query_map([], |r| Ok((r.get(0)?, r.get(1)?)))?;
+        rows.collect()
+    }
+
     /// List liked entities of a given `kind` ("track" | "artist" | "album")
     /// straight from the durable entity_likes table, newest-first
     /// (`order == "recent"`, by updated_at) or shuffled (`order == "random"`).

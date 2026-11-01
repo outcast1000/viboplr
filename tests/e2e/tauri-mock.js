@@ -544,6 +544,12 @@ window.__TAURI_INTERNALS__.invoke = async function (cmd, args) {
       else store[key] = likeState;
       return previous;
     }
+    case 'list_track_likes': {
+      const store = (window.__TEST_LIKES__ = window.__TEST_LIKES__ || {});
+      return Object.entries(store)
+        .filter(([key, liked]) => key.startsWith('track:') && liked !== 0)
+        .map(([key, liked]) => ({ key, liked }));
+    }
     case 'get_track_like_states': {
       const store = (window.__TEST_LIKES__ = window.__TEST_LIKES__ || {});
       const norm = (s) => (s || '').toLowerCase();

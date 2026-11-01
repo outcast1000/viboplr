@@ -615,9 +615,20 @@ pub fn set_entity_like_state(
         log::warn!("Failed to mirror like into library (durable like is saved): {}", e);
     }
 
-    let _ = app.emit("entity-likes-changed", serde_json::json!({ "kind": kind }));
+    let _ = app.emit("entity-likes-changed", like_changed_payload(&kind, &entity_key, like_state));
 
     Ok(previous)
+}
+
+/// Every track like and dislike in the durable store, for the frontend's
+/// in-memory like store (loaded once at startup, and again after a bulk change).
+#[tauri::command]
+pub async fn list_track_likes(state: State<'_, AppState>) -> Result<Vec<TrackLikeEntry>, String> {
+    with_db(&state, move |db| {
+        db.list_track_likes()
+            .map(|rows| rows.into_iter().map(|(key, liked)| TrackLikeEntry { key, liked }).collect())
+    })
+    .await
 }
 
 /// Batch-resolve persisted track like states by metadata, for reconciling the
@@ -1105,6 +1116,17 @@ pub fn delete_tag(state: State<'_, AppState>, tag_id: i64) -> Result<(), String>
 mod tests {
     use super::queue_file_refusal;
     use std::collections::HashSet;
+
+    /// A single write tells the frontend which key moved and to what, so its
+    /// like store applies it without re-reading; `kind` stays for the
+    /// listeners that only filter on it.
+    #[test]
+    fn test_like_changed_payload_names_the_key_and_state() {
+        let p = super::like_changed_payload("track", "track:bjork:joga", -1);
+        assert_eq!(p, serde_json::json!({ "kind": "track", "key": "track:bjork:joga", "liked": -1 }));
+        let cleared = super::like_changed_payload("album", "album:radiohead:ok computer", 0);
+        assert_eq!(cleared["liked"], 0);
+    }
 
     fn set(items: &[&str]) -> HashSet<String> {
         items.iter().map(|s| s.to_string()).collect()
