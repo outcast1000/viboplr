@@ -157,6 +157,7 @@ import { AddServerModal } from "./components/AddServerModal";
 import { showNativeMenu, type MenuItemSpec } from "./nativeMenu";
 import { buildPluginMenuSpecs } from "./contextMenu/pluginMenuGroups";
 import { toPluginTarget } from "./types/contextMenu";
+import { buildRatingMenuSpecs } from "./contextMenu/ratingMenu";
 import { buildContextMenuSpecs } from "./contextMenu/buildContextMenuSpecs";
 import { ArtistDetail } from "./components/ArtistDetail";
 import { AlbumDetail } from "./components/AlbumDetail";
@@ -3971,6 +3972,7 @@ function App() {
 
 
   const handleToggleLikeRef = useRef((_track: QueueTrack) => {});
+  const handleToggleDislikeRef = useRef((_track: QueueTrack) => {});
 
   // In-app keyboard shortcuts (window keydown). OS-level media keys are handled
   // separately by useGlobalShortcuts above.
@@ -3982,6 +3984,7 @@ function App() {
     currentTrack: playback.currentTrack,
     goBack: () => goBackRef.current(),
     toggleLike: (t) => handleToggleLikeRef.current(t),
+    toggleDislike: (t) => handleToggleDislikeRef.current(t),
     focusSearch: () => searchInputRef.current?.focus(),
     handleNext: () => handleNext(),
     handleToggleQueueCollapsed,
@@ -5132,6 +5135,7 @@ function App() {
 
   // Bridge for keyboard shortcuts
   useAssignRef(handleToggleLikeRef, likeActions.handleToggleLike);
+  useAssignRef(handleToggleDislikeRef, likeActions.handleToggleDislike);
   useAssignRef(handleExportAsMixtapeRef, handleExportAsMixtape);
   useAssignRef(openPublishMusicSourceRef, (ids) => setPublishTarget({ trackIds: ids, trackCount: ids.length }));
   useAssignRef(openEditTrackInfoRef, (index) => {
@@ -5296,12 +5300,10 @@ function App() {
         specs.push({ kind: "item", text: "Previous", action: queueHook.playPrevious });
         specs.push({ kind: "separator" });
         const rating = trackLikeStore.lookup(t.title, t.artist_name);
-        const ratingItems: MenuItemSpec[] = [
-          { kind: "check", text: "Like", checked: rating === 1, action: () => likeActions.handleToggleLike(t) },
-          { kind: "check", text: "None", checked: rating === 0, action: () => { if (rating === 1) likeActions.handleToggleLike(t); else if (rating === -1) likeActions.handleToggleDislike(t); } },
-          { kind: "check", text: "Dislike", checked: rating === -1, action: () => likeActions.handleToggleDislike(t) },
-        ];
-        specs.push({ kind: "submenu", text: "Rating", items: ratingItems });
+        specs.push({ kind: "submenu", text: "Rating", items: buildRatingMenuSpecs(rating, {
+          like: () => { likeActions.handleToggleLike(t); },
+          dislike: () => { likeActions.handleToggleDislike(t); },
+        }) });
         specs.push({ kind: "item", text: "Start radio from this track", action: () => {
           contextMenuActions.startRadio({ title: t.title, artistName: t.artist_name, coverPath: t.image_url ?? null });
         } });

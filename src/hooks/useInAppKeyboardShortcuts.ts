@@ -30,6 +30,9 @@ export interface KeyboardShortcutDeps {
   // Stable refs / callbacks owned by App.tsx.
   goBack: () => void;
   toggleLike: (track: QueueTrack) => void;
+  /** Cmd/Ctrl+Shift+L: dislike the playing song (again: clear it). The heart's
+   *  click never dislikes, so this and its right-click menu are the way there. */
+  toggleDislike: (track: QueueTrack) => void;
   focusSearch: () => void;
   handleNext: () => void;
   handleToggleQueueCollapsed: () => void;
@@ -194,6 +197,10 @@ export function useInAppKeyboardShortcuts(deps: KeyboardShortcutDeps) {
         case "l":
           e.preventDefault();
           if (d.currentTrack) d.toggleLike(d.currentTrack);
+          break;
+        case "L":
+          e.preventDefault();
+          if (d.currentTrack) d.toggleDislike(d.currentTrack);
           break;
         case "p":
           e.preventDefault();

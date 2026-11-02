@@ -35,7 +35,7 @@ function wrap(store: TrackLikeStore) {
 }
 
 function heartState(label: string): string {
-  const btn = screen.getByTitle(new RegExp(`^(Liked|Disliked|Rate) ${label}$`));
+  const btn = screen.getByTitle(new RegExp(`^(Like|Liked|Disliked) ${label}(\\s|$)`));
   return btn.className.includes(" liked") ? "liked" : btn.className.includes(" disliked") ? "disliked" : "none";
 }
 

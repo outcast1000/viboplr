@@ -100,7 +100,7 @@ test('the hero plays the Top Songs, starts a radio from one, and likes the artis
   expect(radio.seedArtist).toBe('Artist A');
   expect(topSongs).toContain(radio.seedTitle);
 
-  await hero.getByRole('button', { name: 'Rate artist' }).click();
+  await hero.getByRole('button', { name: 'Like artist' }).click();
   await expect(hero.getByRole('button', { name: 'Liked artist' })).toBeVisible();
   await expect.poll(() => page.evaluate(() => window.__likeWrites.length)).toBe(1);
   const write = await page.evaluate(() => window.__likeWrites[0]);

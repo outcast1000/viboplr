@@ -22,7 +22,7 @@ test.beforeEach(async ({ page }) => {
   await page.locator('.entity-list-item').first().waitFor({ state: 'visible', timeout: 10000 });
 });
 
-test('now-playing bar like cycles through tri-state and persists to the durable store', async ({ page }) => {
+test('now-playing bar heart toggles like, dislikes only on purpose, and persists to the durable store', async ({ page }) => {
   // Play the first track so it becomes the now-playing track.
   await page.locator('.entity-list-item').first().dblclick();
   await expect(page.locator('.now-title')).toContainText('First Song');
@@ -34,13 +34,16 @@ test('now-playing bar like cycles through tri-state and persists to the durable 
   await likeBtn.click();
   await expect.poll(() => readLike(page)).toBe(1);
 
-  // Like → dislike (-1): one deterministic cycle step (the bar's like control
-  // is a single cycling button: neutral → like → dislike → neutral).
+  // Like → neutral (0): a click takes the like back; it never dislikes.
   await likeBtn.click();
+  await expect.poll(() => readLike(page)).toBe(0);
+
+  // Dislike is deliberate: Cmd/Ctrl+Shift+L on the playing song (-1).
+  await page.keyboard.press('ControlOrMeta+Shift+L');
   await expect.poll(() => readLike(page)).toBe(-1);
 
-  // Dislike → neutral (0): the durable row is DELETEd (mock, like the backend,
-  // removes the row at liked == 0).
+  // Dislike → neutral (0): clicking the ban icon clears it; the durable row is
+  // DELETEd (mock, like the backend, removes the row at liked == 0).
   await likeBtn.click();
   await expect.poll(() => readLike(page)).toBe(0);
 });
