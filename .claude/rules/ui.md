@@ -281,7 +281,7 @@ Two states:
 
 Queue items show: thumbnail, a like/dislike indicator before the title (read from the track-like store by song, using `var(--error)` to match the other like buttons), title + duration, artist + album (each a link to its page — subtle underline on hover, plain click only; see queue.md "Navigation from QueueTracks"), and an inline play/locate icon. The hover-action tray's primary button is a **Play** button on non-current rows, but a **play/pause toggle** on the currently-playing row (wired to `onTogglePlayPause` → `playback.handlePause`), so the current track can be paused/resumed directly from the queue.
 
-Features: drag-and-drop reorder, multi-select (Shift/Cmd+Click), right-click context menu, duplicate detection on enqueue, resizable width via drag handle.
+Features: drag-and-drop reorder, multi-select (Shift/Cmd+Click), right-click context menu, resizable width via drag handle.
 
 **Failed entries say so, and say why.** An entry that didn't play carries a red **"Couldn't play · …"** note under its artist line; clicking it opens `PlaybackFailureModal` (what failed, the source the player was handed, the player's own error, how many times it tried, every resolver the chain asked and how each ended; Try again / Report a problem / Close). One record per entry (`playback/trackFailures.ts`, state in `useStreamResolution` → `trackFailures`), three stages — how far the play got:
 - **`engine`** — libmpv isn't loaded, so no resolver ran. No source, no attempts.

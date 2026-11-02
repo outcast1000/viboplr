@@ -35,14 +35,6 @@ async function setupNowPlaying(page) {
   await page.locator('.track-row .col-title').first().dblclick();
   await page.waitForTimeout(500);
 
-  // Settle the duplicate-enqueue banner if the double-click raised one. Left
-  // alone it auto-approves on a 5s countdown and re-renders mid-assertion.
-  const cancelDupe = page.locator('.queue-duplicate-actions button', { hasText: 'Cancel' });
-  if (await cancelDupe.isVisible().catch(() => false)) {
-    await cancelDupe.click();
-    await page.waitForTimeout(200);
-  }
-
   await page.locator('.nav .nav-btn').filter({ hasText: 'Now Playing' }).click();
   await page.locator('.now-playing-view').waitFor({ state: 'visible', timeout: 10000 });
 }

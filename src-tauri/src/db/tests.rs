@@ -558,23 +558,26 @@ fn test_apply_tags_bulk_updates_fts_per_track() {
 }
 
 #[test]
-fn test_recompute_tag_counts_surfaces_bulk_added_tags() {
-    // apply_tags_bulk (the plugin / control-API add path) doesn't recount, and
-    // get_tags lists only track_count > 0 — so a tag it creates is invisible
-    // in the Library until recompute_tag_counts runs.
+fn test_refresh_after_bulk_add_surfaces_tags_and_their_likes() {
+    // apply_tags_bulk (every in-app add, via utils/tagOps.ts) doesn't recount,
+    // and get_tags lists only track_count > 0 — so a tag it creates is
+    // invisible in the Library until recompute_after_tag_add runs. That run
+    // must also restore a like the tag row lost when it was reaped.
     let db = test_db();
     let t1 = insert_track(&db, "a.mp3", "Alpha", None, None);
     let t2 = insert_track(&db, "b.mp3", "Beta", None, None);
+    db.set_entity_like("tag", &likes::build_entity_key("tag", "shoegaze", None), 1, None, 1).unwrap();
     db.apply_tags_bulk(&[
         (t1, vec!["shoegaze".to_string()]),
         (t2, vec!["shoegaze".to_string()]),
     ]).unwrap();
     assert!(!db.get_tags(None, None).unwrap().iter().any(|t| t.name == "shoegaze"));
 
-    db.recompute_tag_counts().unwrap();
+    db.recompute_after_tag_add().unwrap();
     let tags = db.get_tags(None, None).unwrap();
     let tag = tags.iter().find(|t| t.name == "shoegaze").expect("tag listed after recount");
     assert_eq!(tag.track_count, 2);
+    assert_eq!(tag.liked, 1, "the stored tag like is mirrored onto the re-created row");
 }
 
 #[test]
@@ -4282,6 +4285,30 @@ fn test_bulk_update_title_and_track_number() {
     let track = db.get_track_by_id(t1).unwrap();
     assert_eq!(track.title, "New Title");
     assert_eq!(track.track_number, Some(7));
+}
+
+#[test]
+fn test_refresh_after_add_never_reaps_a_tag_still_being_attached() {
+    // Subsonic sync creates a tag and attaches it in two steps. A debounced
+    // refresh_tag_counts landing between them must not delete the new row.
+    let db = test_db();
+    let t1 = insert_track(&db, "a.mp3", "Alpha", None, None);
+    let tag_id = db.get_or_create_tag("krautrock").unwrap();
+    db.recompute_after_tag_add().unwrap();
+    db.add_track_tag(t1, tag_id).expect("tag row survived the refresh");
+    db.recompute_after_tag_add().unwrap();
+    let tags = db.get_tags(None, None).unwrap();
+    assert_eq!(tags.iter().find(|t| t.name == "krautrock").map(|t| t.track_count), Some(1));
+}
+
+#[test]
+fn test_tag_mode_has_no_default() {
+    // A missing mode used to read as Replace, wiping every other tag.
+    assert_eq!(TagMode::parse(Some("add")), Ok(TagMode::Add));
+    assert_eq!(TagMode::parse(Some("remove")), Ok(TagMode::Remove));
+    assert_eq!(TagMode::parse(Some("replace")), Ok(TagMode::Replace));
+    assert!(TagMode::parse(None).is_err());
+    assert!(TagMode::parse(Some("Replace")).is_err());
 }
 
 #[test]

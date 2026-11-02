@@ -62,6 +62,22 @@ export interface AppendedTail {
   tracks: QueueTrack[];
 }
 
+export interface EnqueueOptions {
+  /** Absolute insert index; undefined appends. */
+  position?: number;
+  /** Leave out tracks already in the queue (queue.md "Duplicate Detection").
+   *  Only the control API asks for this — an assistant that retries a call
+   *  would otherwise stack copies. A user's enqueue adds what they asked for. */
+  skipDuplicates?: boolean;
+}
+
+export interface EnqueueOutcome {
+  /** Placed in the queue. */
+  added: number;
+  /** Left out by `skipDuplicates`. */
+  skippedDuplicates: number;
+}
+
 export function useQueue(
   restoredRef: React.RefObject<boolean>,
   handlePlay: (track: QueueTrack, source?: "user" | "auto") => void,
@@ -438,13 +454,10 @@ export function useQueue(
   // (and appends nothing) once the queue has been replaced or cleared — those
   // tracks belong to a station the user has already moved on from.
   //
-  // This deliberately bypasses the `findDuplicates` banner that normal enqueue
-  // entry points must run: the tail is the continuation of a play the user
-  // already made, so prompting over already-playing audio would be wrong. It is
-  // the one sanctioned exception (see conventions.md "Play With Backfill").
+  // See conventions.md "Play With Backfill".
   function appendToPlaySession(gen: number, tracks: QueueTrack[]): AppendedTail | null {
     if (gen !== playGenRef.current || tracks.length === 0) return null;
-    // Prepared here rather than inside enqueueTracks so a waiter plays the
+    // Prepared here rather than inside appendTracks so a waiter plays the
     // *queued* object — withUniqueKeys may have re-keyed it, and handing
     // handlePlay the pre-key copy would give the now-playing row an identity
     // no queue entry has.
@@ -503,9 +516,25 @@ export function useQueue(
     });
   }
 
-  function enqueueTracks(newTracks: Array<Track | QueueTrack>) {
-    const tracks = withUniqueKeys(toQueueTracks(newTracks));
-    setQueue(prev => [...prev, ...tracks]);
+  /** Add tracks to the queue without interrupting playback — at the end, or
+   *  at an absolute `position`. */
+  function enqueueTracks(newTracks: Array<Track | QueueTrack>, opts: EnqueueOptions = {}): EnqueueOutcome {
+    const toAdd = opts.skipDuplicates ? findDuplicates(newTracks).unique : newTracks;
+    const skippedDuplicates = newTracks.length - toAdd.length;
+    if (toAdd.length === 0) return { added: 0, skippedDuplicates };
+    const tracks = withUniqueKeys(toQueueTracks(toAdd));
+    const { position } = opts;
+    if (position === undefined) {
+      setQueue(prev => [...prev, ...tracks]);
+    } else {
+      setQueue(prev => {
+        const next = [...prev];
+        next.splice(position, 0, ...tracks);
+        return next;
+      });
+      setQueueIndex(prev => position <= prev ? prev + tracks.length : prev);
+    }
+    return { added: tracks.length, skippedDuplicates };
   }
 
   function playNext(source: "user" | "auto" = "user"): boolean {
@@ -829,16 +858,6 @@ export function useQueue(
     return true;
   }
 
-  function insertAtPosition(newTracks: Array<Track | QueueTrack>, position: number) {
-    const tracks = withUniqueKeys(toQueueTracks(newTracks));
-    setQueue(prev => {
-      const next = [...prev];
-      next.splice(position, 0, ...tracks);
-      return next;
-    });
-    setQueueIndex(prev => position <= prev ? prev + tracks.length : prev);
-  }
-
   function playNextInQueue(track: Track | QueueTrack) {
     const [unique] = withUniqueKeys(toQueueTracks([track]));
     const idx = queueIndexRef.current;
@@ -934,7 +953,7 @@ export function useQueue(
     loadingPlay, playbackWaiting, loadFailure,
     beginLoadingPlay, isLoadingPlayLive, endLoadingPlay, cancelLoadingPlay, waitForLoadingPlay,
     playNext, playPrevious,
-    removeFromQueue, removeMultiple, removeAndAdvance, updateTrackMetadata, patchTrackFormat, rewritePathPrefix, replaceTrackPath, moveInQueue, moveMultiple, moveToTop, moveToBottom, clearQueue, insertAtPosition,
+    removeFromQueue, removeMultiple, removeAndAdvance, updateTrackMetadata, patchTrackFormat, rewritePathPrefix, replaceTrackPath, moveInQueue, moveMultiple, moveToTop, moveToBottom, clearQueue,
     toggleQueueMode, randomizeQueue, playNextInQueue, addToQueue, addToQueueAndPlay, insertNextAndPlay,
     peekNext, advanceIndex, reconcileLibraryIds,
     playlistContext, setPlaylistContext, savePlaylist, loadPlaylist,

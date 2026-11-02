@@ -199,6 +199,9 @@ impl Database {
     /// `apply_tags_bulk` for the row writes + per-track FTS refresh, then
     /// recomputes counts. Returns the canonical (existing-cased) tag name so the
     /// frontend can reconcile a case/diacritic merge. No-op for an empty id set.
+    /// Test helper only — the app adds tags through `apply_tags_bulk` plus the
+    /// debounced `refresh_tag_counts` (utils/tagOps.ts).
+    #[cfg(test)]
     pub fn apply_tag_to_tracks(&self, track_ids: &[i64], tag_name: &str) -> SqlResult<String> {
         if track_ids.is_empty() {
             return Ok(tag_name.to_string());
@@ -261,33 +264,26 @@ impl Database {
         Ok(())
     }
 
-    /// What a tag add/remove can change, and nothing else: reap tags left with
-    /// no track, recount tags, and mirror tag likes onto rows the add created
-    /// (a liked tag reaped earlier and re-added comes back `liked = 0`). The
-    /// full `recompute_counts` rebuilt every artist and album count and like
-    /// on every chip click, holding the writer lock through it; a tag edit
-    /// moves no track between artists or albums.
-    fn recompute_after_tag_edit(&self) -> SqlResult<()> {
-        let conn = self.conn.lock().unwrap();
-        conn.execute_batch(&format!(
-            "DELETE FROM tags WHERE id NOT IN (SELECT DISTINCT tag_id FROM track_tags);
-             UPDATE tags SET track_count = (
-               SELECT COUNT(*) FROM track_tags tt
-               JOIN tracks t ON t.id = tt.track_id
-               WHERE tt.tag_id = tags.id {cf}
-             );",
-            cf = ENABLED_COLLECTION_FILTER_STANDALONE
-        ))?;
-        conn.execute_batch(super::likes::TAG_LIKE_MIRROR_SQL)
+    /// What a tag remove can change, and nothing else: reap tags left with no
+    /// track, then everything `recompute_after_tag_add` does. The full
+    /// `recompute_counts` rebuilt every artist and album count and like on
+    /// every chip click, holding the writer lock through it; a tag edit moves
+    /// no track between artists or albums.
+    pub fn recompute_after_tag_edit(&self) -> SqlResult<()> {
+        self.conn.lock().unwrap()
+            .execute("DELETE FROM tags WHERE id NOT IN (SELECT DISTINCT tag_id FROM track_tags)", [])?;
+        self.recompute_after_tag_add()
     }
 
-    /// Recount `tags.track_count` only — the tag third of `recompute_counts`,
-    /// without its artist/album recount or orphan reaping. For DB-only tag
-    /// adds that bypass `apply_tag_to_tracks` (`plugin_apply_tags_bulk`):
-    /// `get_tags` lists only `track_count > 0`, so without a recount a tag
-    /// they create never appears in the Library at all. Cheap enough for the
-    /// frontend to run once per burst of adds (utils/tagOps.ts debounces it).
-    pub fn recompute_tag_counts(&self) -> SqlResult<()> {
+    /// The aftermath of DB-only adds (`apply_tags_bulk`, which `get_tags`
+    /// can't see until a recount): recount tags and mirror tag likes onto rows
+    /// the add created (a liked tag reaped earlier and re-added comes back
+    /// `liked = 0`). Run by the debounced `refresh_tag_counts` command
+    /// (utils/tagOps.ts). **It never reaps**: an add leaves no orphan, and a
+    /// reap here would race writers that create a tag and attach it in two
+    /// steps (Subsonic sync: `get_or_create_tag`, then `add_track_tag`) —
+    /// a reap landing between them deletes the tag and the attach fails.
+    pub fn recompute_after_tag_add(&self) -> SqlResult<()> {
         let conn = self.conn.lock().unwrap();
         conn.execute_batch(&format!(
             "UPDATE tags SET track_count = (
@@ -296,6 +292,7 @@ impl Database {
                WHERE tt.tag_id = tags.id {cf}
              );",
             cf = ENABLED_COLLECTION_FILTER_STANDALONE
-        ))
+        ))?;
+        conn.execute_batch(super::likes::TAG_LIKE_MIRROR_SQL)
     }
 }

@@ -1,5 +1,9 @@
-// Tag operations shared by the control API dispatcher (hooks/useControlApi.ts)
-// and the plugin API (usePlugins.buildAPI → api.library). Same split as
+// Tag operations shared by every surface that edits tags in the library: the
+// control API dispatcher (hooks/useControlApi.ts), the plugin API
+// (usePlugins.buildAPI → api.library), the Now Playing quick edit
+// (hooks/useTagActions.ts) and the detail pages' entity tags
+// (hooks/useEntityTags.ts). BulkEditModal writes files with its own mode
+// selector, through the same `bulk_update_tracks` command. Same split as
 // hostOps.ts / queueOps.ts: the op owns what runs and what the app is told
 // afterwards; each caller owns argument shape and its response.
 //
@@ -9,7 +13,8 @@
 //     `plugin_apply_tags_bulk`, which updates FTS but does not recount — and
 //     `get_tags` lists only `track_count > 0`, so a tag created this way was
 //     invisible in the Library until the next scan. `tagsChanged` is App's
-//     debounced `refresh_tag_counts` + library reload, so a burst (the
+//     debounced `refresh_tag_counts` (recount + tag-like mirror; never a
+//     reap, see `recompute_after_tag_add`) + library reload, so a burst (the
 //     auto-tagger tags every scanned track) costs one recount, not one per call.
 //     Removes go through `remove_tag_from_tracks`, the detail pages' path,
 //     which recounts itself; `tagsChanged` still reloads the lists.
@@ -20,8 +25,9 @@
 // Before this module the three callers disagreed: the control API removed a
 // tag via `replace_track_tags` (case-insensitive, not diacritic-insensitive
 // like everything else), plugins could not remove tags at all, and a plugin's
-// `bulkUpdateTracks({ tag_names })` never sent a mode — which the backend
-// reads as REPLACE, silently wiping every other tag on the tracks.
+// `bulkUpdateTracks({ tag_names })` never sent a mode — which the backend then
+// read as REPLACE, silently wiping every other tag on the tracks. The backend
+// now refuses tag names without a mode (`TagMode::parse`).
 
 import { invoke } from "@tauri-apps/api/core";
 import { emitTrackPatch } from "../trackEvents";
@@ -114,7 +120,7 @@ export interface FileMetadataEdit {
   title?: unknown;
   tagNames?: unknown;
   /** Defaults to `"add"`. Replace is the destructive reading, so it is never
-   *  implied — the backend's own default for a missing mode is replace. */
+   *  implied. (The backend has no default: tag names without a mode fail.) */
   tagMode?: unknown;
 }
 

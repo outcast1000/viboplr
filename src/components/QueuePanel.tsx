@@ -21,11 +21,6 @@ import { buildQueueHeaderMenuSpecs } from "../contextMenu/buildQueueHeaderMenuSp
 import { useAssignRef } from "../hooks/useLatestRef";
 import "./QueuePanel.css";
 
-// The one PendingEnqueue definition lives with its producer; this component
-// only reads the counts. (A local duplicate of the shape used to live here and
-// drifted the moment the producer widened.)
-import type { PendingEnqueue } from "../hooks/useQueueDragToInsert";
-export type { PendingEnqueue };
 
 function formatTotalDuration(tracks: QueueTrack[]): string {
   const totalSecs = tracks.reduce((sum, t) => sum + (t.duration_secs ?? 0), 0);
@@ -266,10 +261,6 @@ interface QueuePanelProps {
   queueIndex: number;
   queuePanelRef: React.RefObject<HTMLDivElement | null>;
   playlistContext: PlaylistContext | null;
-  pendingEnqueue: PendingEnqueue | null;
-  onAllowAll: () => void;
-  onSkipDuplicates: () => void;
-  onCancelEnqueue: () => void;
   onPlay: (track: QueueTrack, index: number) => void;
   onTogglePlayPause: () => void;
   onRemove: (index: number) => void;
@@ -334,7 +325,6 @@ interface QueuePanelProps {
   onCancelLoadingPlay?: () => void;
 }
 
-const AUTO_APPROVE_SECS = 10;
 
 const QUEUE_MODE_LABELS: Record<QueueMode, string> = {
   "normal": "Normal",
@@ -412,7 +402,7 @@ function QueueItemThumb({ localThumb, fallback, track }: { localThumb: string | 
 
 export function QueuePanel({
   queue, queueIndex, queuePanelRef, playlistContext,
-  pendingEnqueue, onAllowAll, onSkipDuplicates, onCancelEnqueue,
+
   onPlay, onTogglePlayPause, onRemove: _onRemove, onLocateTrack, onStartRadio, onNavigateToArtist, onNavigateToAlbum, onMoveMultiple, onClear, onSaveAsM3U, onSaveToPlaylists, onExportAsMixtape, onLoadPlaylist, onPublishQueue, preferVideoResolution, onPreferVideoResolutionChange, onRandomize, queueMode, onToggleQueueMode, autoContinueEnabled, onToggleAutoContinue, onOpenAutoContinueSettings, onContextMenu, onToggleLike, onToggleDislike,
   externalDropTarget,
   collapsed, fsRevealed, onToggleCollapsed, onResizeWidth, isPlaying, debugMode,
@@ -424,7 +414,6 @@ export function QueuePanel({
   const [selectedIndices, setSelectedIndices] = useState<Set<number>>(new Set());
   const [dropTarget, setDropTarget] = useState<number | null>(null);
   const [isDragging, setIsDragging] = useState(false);
-  const [countdown, setCountdown] = useState(AUTO_APPROVE_SECS);
   const [tooltip, setTooltip] = useState<{ track: QueueTrack; anchorX: number; anchorY: number } | null>(null);
   const [contextInfoAnchor, setContextInfoAnchor] = useState<{ x: number; y: number } | null>(null);
   const [contextInfoPos, setContextInfoPos] = useState<{ left: number; top: number } | null>(null);
@@ -625,23 +614,6 @@ export function QueuePanel({
       });
     }
   }, [collapsed, fsRevealed]);
-
-  // Auto-approve countdown for duplicate warning
-  useEffect(() => {
-    if (!pendingEnqueue) { setCountdown(AUTO_APPROVE_SECS); return; }
-    setCountdown(AUTO_APPROVE_SECS);
-    const interval = setInterval(() => {
-      setCountdown(prev => {
-        if (prev <= 1) { clearInterval(interval); return 0; }
-        return prev - 1;
-      });
-    }, 1000);
-    return () => clearInterval(interval);
-  }, [pendingEnqueue]);
-
-  useEffect(() => {
-    if (pendingEnqueue && countdown === 0) onAllowAll();
-  }, [countdown, pendingEnqueue]);
 
   const handleRowClick = useCallback((e: React.MouseEvent, index: number) => {
     // Ignore click if we just finished a drag
@@ -883,24 +855,6 @@ export function QueuePanel({
           </div>
         </div>
       </div>
-      {pendingEnqueue && (
-        <div className="queue-duplicate-banner">
-          <span className="queue-duplicate-text">
-            {pendingEnqueue.duplicates.length} duplicate{pendingEnqueue.duplicates.length !== 1 ? "s" : ""} found
-          </span>
-          <div className="queue-duplicate-actions">
-            <button className="queue-duplicate-btn" onClick={onAllowAll}>
-              Add all ({countdown}s)
-            </button>
-            {pendingEnqueue.unique.length > 0 && (
-              <button className="queue-duplicate-btn queue-duplicate-btn-primary" onClick={onSkipDuplicates}>
-                Add {pendingEnqueue.unique.length} new
-              </button>
-            )}
-            <button className="queue-duplicate-btn" onClick={onCancelEnqueue}>Cancel</button>
-          </div>
-        </div>
-      )}
       {playlistContext && queue.length > 0 && (
         <div className="queue-context-banner" style={bannerStyle}>
           <div className="queue-context-cover">

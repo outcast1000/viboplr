@@ -2,6 +2,8 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 
 import { useAssignRef } from "./useLatestRef";
+import { useTagOpsDeps } from "../contexts/TagOpsContext";
+import { addTags, removeTags } from "../utils/tagOps";
 /** A tag present on only some of an entity's tracks. */
 export interface PartialTag {
   name: string;
@@ -53,11 +55,6 @@ function dedupCI(names: string[]): string[] {
   return out;
 }
 
-export interface UseEntityTagsOptions {
-  /** Called after a successful write so the host can refresh library tag state. */
-  onMutated?: () => void;
-}
-
 export interface UseEntityTags extends EntityTagState {
   /** True until the first aggregation resolves (re-aggregations are silent). */
   loading: boolean;
@@ -77,14 +74,13 @@ export interface UseEntityTags extends EntityTagState {
  *
  * Reads `get_tag_counts_for_tracks` over the non-null track IDs (the same
  * collection-filtered set the detail page lists), classifies full vs partial,
- * and exposes optimistic mutators that call the batched commands, revert on
- * failure (console.error), and re-confirm from the DB via a `refetchKey` bump —
- * distinct from the track-set key, since a tag write doesn't change the tracks.
+ * and exposes optimistic mutators that write through the shared tag ops
+ * (utils/tagOps.ts — the path every tag surface takes, so the library refresh
+ * afterwards is the shared debounced one), revert on failure (console.error),
+ * and re-confirm from the DB via a `refetchKey` bump — distinct from the
+ * track-set key, since a tag write doesn't change the tracks.
  */
-export function useEntityTags(
-  tracks: ReadonlyArray<{ id: number | null }>,
-  opts?: UseEntityTagsOptions,
-): UseEntityTags {
+export function useEntityTags(tracks: ReadonlyArray<{ id: number | null }>): UseEntityTags {
   const trackIds = useMemo(
     () => tracks.map((t) => t.id).filter((id): id is number => id != null),
     [tracks],
@@ -107,7 +103,7 @@ export function useEntityTags(
     };
   }, []);
 
-  const onMutated = opts?.onMutated;
+  const tagOpsDeps = useTagOpsDeps();
 
   // New entity → show loading and clear stale chips. Keyed on the track set only,
   // so a post-write refetch (refetchKey bump) stays silent.
@@ -144,7 +140,7 @@ export function useEntityTags(
 
   const runWrite = useCallback(
     async (
-      command: "apply_tag_to_tracks" | "remove_tag_from_tracks",
+      kind: "apply" | "remove",
       tagName: string,
       optimistic: (prev: EntityTagState) => EntityTagState,
     ) => {
@@ -153,22 +149,22 @@ export function useEntityTags(
       setState(optimistic(prev));
       setPending(true);
       try {
-        await invoke(command, { trackIds, tagName });
-        onMutated?.();
+        if (kind === "apply") await addTags(tagOpsDeps, trackIds.map((id): [number, string[]] => [id, [tagName]]));
+        else await removeTags(tagOpsDeps, trackIds, [tagName]);
         if (mountedRef.current) setRefetchKey((k) => k + 1);
       } catch (e) {
-        console.error(`Failed to ${command === "apply_tag_to_tracks" ? "apply" : "remove"} tag:`, e);
+        console.error(`Failed to ${kind} tag:`, e);
         if (mountedRef.current) setState(prev);
       } finally {
         if (mountedRef.current) setPending(false);
       }
     },
-    [total, trackIds, onMutated],
+    [total, trackIds, tagOpsDeps],
   );
 
   const apply = useCallback(
     (name: string) =>
-      void runWrite("apply_tag_to_tracks", name, (prev) => ({
+      void runWrite("apply", name, (prev) => ({
         applied: dedupCI([...prev.applied, name]),
         partial: prev.partial.filter((p) => ci(p.name) !== ci(name)),
       })),
@@ -177,7 +173,7 @@ export function useEntityTags(
 
   const remove = useCallback(
     (name: string) =>
-      void runWrite("remove_tag_from_tracks", name, (prev) => ({
+      void runWrite("remove", name, (prev) => ({
         applied: prev.applied.filter((t) => ci(t) !== ci(name)),
         partial: prev.partial.filter((p) => ci(p.name) !== ci(name)),
       })),

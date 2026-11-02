@@ -1215,21 +1215,6 @@
   margin: -4px 0 12px;
 }
 
-.queue-duplicate-banner {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  padding: 8px 10px;
-  background: rgba(var(--warning-rgb), 0.12);
-  border-bottom: 1px solid rgba(var(--warning-rgb), 0.25);
-  font-size: var(--fs-sm);
-  flex-shrink: 0;
-}
-
-.queue-duplicate-text {
-  color: var(--warning);
-}
-
 /* The bottom-right notice corner, over the content above the now-playing bar:
    one right-anchored row of [toast][assistant segment]. The segment is the
    rightmost thing, so a toast arriving or leaving never moves its Pause
@@ -1411,39 +1396,6 @@
 .toast-close:hover {
   background: var(--bg-hover);
   color: var(--text-primary);
-}
-
-.queue-duplicate-actions {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-}
-
-.queue-duplicate-btn {
-  background: rgba(var(--overlay-base), 0.03);
-  border: 1px solid rgba(var(--overlay-base), 0.08);
-  color: var(--text-secondary);
-  padding: 4px 8px;
-  border-radius: 4px;
-  cursor: pointer;
-  font-size: var(--fs-xs);
-  text-align: center;
-}
-
-.queue-duplicate-btn:hover {
-  background: rgba(var(--overlay-base), 0.08);
-  border-color: rgba(var(--overlay-base), 0.12);
-  color: var(--text-primary);
-}
-
-.queue-duplicate-btn-primary {
-  background: var(--accent);
-  border-color: var(--accent);
-  color: var(--accent-text, #fff);
-}
-
-.queue-duplicate-btn-primary:hover {
-  filter: brightness(1.1);
 }
 
 .delete-confirm-warning {

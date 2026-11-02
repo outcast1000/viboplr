@@ -150,7 +150,6 @@ macro_rules! invoke_handler {
             commands::find_tag_by_name,
             commands::get_tags_for_track,
             commands::get_tag_counts_for_tracks,
-            commands::apply_tag_to_tracks,
             commands::refresh_tag_counts,
             commands::remove_tag_from_tracks,
             commands::get_tracks_by_tag,

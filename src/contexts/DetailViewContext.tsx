@@ -70,8 +70,6 @@ export interface DetailViewActions {
   buildPluginOverflowItems: (target: PluginContextMenuTarget) => HeroOverflowItem[];
   /** Ranked library tag pool (buildTagSuggestionPool output) for tag editors. */
   tagSuggestionPool: string[];
-  /** Refresh library tag state after an entity-wide tag write (counts, removals). */
-  refreshLibraryTags: () => void;
   /** Opens the centered Retrieve modal for a user-triggered info-section refresh. */
   retrieve: {
     openInfo: (args: OpenInfoArgs) => void;
@@ -145,7 +143,7 @@ export function DetailViewProvider({ actions, state, children }: DetailViewProvi
     actions.getArtistImage, actions.getAlbumImage, actions.getTagImage,
     actions.invalidateImage, actions.requestFetchImage, actions.autoFetchImage,
     actions.invokeInfoFetch, actions.pluginsLoaded, actions.pluginNames, actions.buildPluginOverflowItems,
-    actions.tagSuggestionPool, actions.refreshLibraryTags,
+    actions.tagSuggestionPool,
     actions.retrieve,
   ]);
 

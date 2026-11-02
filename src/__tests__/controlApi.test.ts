@@ -12,7 +12,6 @@ import {
   orderTracksByIds,
   parseQueueItems,
   MAX_QUEUE_ITEMS,
-  partitionEnqueue,
   serializeQueue,
   serializeStatus,
   playbackLanded,
@@ -154,19 +153,6 @@ describe("orderTracksByIds", () => {
     const tracks = [{ id: 1 }, { id: 2 }, { id: 3 }] as Track[];
     const ordered = orderTracksByIds(tracks, [3, 99, 1]);
     expect(ordered.map((t) => t.id)).toEqual([3, 1]);
-  });
-});
-
-describe("partitionEnqueue", () => {
-  const all = [qt({ key: "a" }), qt({ key: "b", path: "file:///b.mp3" })];
-  const dup = { duplicates: [all[0]], unique: [all[1]] };
-
-  it("skips duplicates by default and reports the count", () => {
-    expect(partitionEnqueue(all, dup, false)).toEqual({ toAdd: [all[1]], skipped: 1 });
-  });
-
-  it("adds everything when the caller allowed duplicates", () => {
-    expect(partitionEnqueue(all, dup, true)).toEqual({ toAdd: all, skipped: 0 });
   });
 });
 

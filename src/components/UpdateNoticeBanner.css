@@ -3,7 +3,7 @@
    Opaque, not a translucent wash: with the native mpv engine the app punches a
    CSS hole through the window for the video surface, and anything semi-
    transparent above it reads over that hole instead of over the app (the same
-   correction `.queue-duplicate-banner` and `.queue-context-banner` carry). The
+   correction `.queue-context-banner` carries). The
    accent is therefore mixed INTO a skin surface colour rather than laid over
    it with alpha. */
 .update-notice {

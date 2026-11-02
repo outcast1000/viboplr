@@ -87,12 +87,16 @@ pub enum TagMode {
 }
 
 impl TagMode {
-    /// Parse from the string the command layer receives. Unknown / None → Replace.
-    pub fn from_opt(s: Option<&str>) -> TagMode {
+    /// Parse the mode the command layer receives. There is no default: a
+    /// missing or unknown mode is an error, never a silent Replace (which
+    /// wipes every other tag on the tracks).
+    pub fn parse(s: Option<&str>) -> Result<TagMode, String> {
         match s {
-            Some("add") => TagMode::Add,
-            Some("remove") => TagMode::Remove,
-            _ => TagMode::Replace,
+            Some("add") => Ok(TagMode::Add),
+            Some("remove") => Ok(TagMode::Remove),
+            Some("replace") => Ok(TagMode::Replace),
+            Some(other) => Err(format!("unknown tag_mode \"{other}\" — expected add, remove or replace")),
+            None => Err("tag_mode is required with tag_names (add, remove or replace)".to_string()),
         }
     }
 }

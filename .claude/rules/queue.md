@@ -56,7 +56,7 @@ They look redundant and are not: they have **opposite uniqueness requirements**,
 - **It is deliberately not persisted.** `tracks.id` is `INTEGER PRIMARY KEY` without `AUTOINCREMENT`, so SQLite reuses the rowids of deleted tracks; a persisted id could come back pointing at a *different* track, and a stale id is worse than none because consumers stop falling back. Queue restore (`App.tsx`) re-resolves the whole queue in one `find_track_ids_by_paths` call instead. Do not add a `library_id` to the main-playlist manifest.
 - Re-keying preserves it because the de-dupers replace only `key` and spread the rest. Pinned by `useQueueLibraryId.test.tsx` and `trackKey.test.ts`.
 
-**Conversion:** Use `trackToQueueTrack(track: Track): QueueTrack` when adding library tracks to the queue. This drops `album_id`/`artist_id`/`collection_id`, keeps portable metadata, and carries `track.id` across as `libraryId`. **`useQueue` also converts at the door**: every entry path (`playTracks`, `enqueueTracks`, `insertAtPosition`, `playNextInQueue`, `addToQueue`, `addToQueueAndPlay`) runs its input through `toQueueTracks`, which converts anything carrying an `id` field (i.e. a raw `Track`, which type-checks structurally) and passes real `QueueTrack`s through untouched — so a surface that forgets to convert still yields entries with `libraryId` stamped. Don't rely on the door for *new* code (convert at the source, where you know the type); the door exists so a missed conversion degrades to nothing instead of to id-less entries.
+**Conversion:** Use `trackToQueueTrack(track: Track): QueueTrack` when adding library tracks to the queue. This drops `album_id`/`artist_id`/`collection_id`, keeps portable metadata, and carries `track.id` across as `libraryId`. **`useQueue` also converts at the door**: every entry path (`playTracks`, `enqueueTracks`, `playNextInQueue`, `addToQueue`, `addToQueueAndPlay`) runs its input through `toQueueTracks`, which converts anything carrying an `id` field (i.e. a raw `Track`, which type-checks structurally) and passes real `QueueTrack`s through untouched — so a surface that forgets to convert still yields entries with `libraryId` stamped. Don't rely on the door for *new* code (convert at the source, where you know the type); the door exists so a missed conversion degrades to nothing instead of to id-less entries.
 
 **Staleness:** `useQueue.reconcileLibraryIds()` re-resolves every entry's cached id from its path in one `find_track_ids_by_paths` call (clearing ids whose path no longer resolves). App calls it from `notifyLibraryChanged` — scan-complete, sync-complete, collection enable/disable/remove — because `tracks.id` is a reusable SQLite rowid and a library mutation can leave a cached id addressing a different row (the same hazard that keeps `libraryId` unpersisted). It returns the path→id map so App also patches `playback.currentTrack` from the same lookup.
 
@@ -102,12 +102,11 @@ Every way tracks enter the queue and what each must maintain.
 | Operation | Canonical | Invariants |
 |---|---|---|
 | **Play tracks** | `playTracks(tracks, startIndex, context?)` | Replaces entire queue. Sets `queueIndex` to `startIndex`. Sets or clears `playlistContext`. Queue mode is unaffected (no shuffle order to rebuild). **Continuation:** when `startIndex` is 0 and the first entry is the song already audibly playing (`sameSong` — a radio station seeded from the current track), `handlePlay` is skipped so the music keeps running; the entry adopts the playing copy's key (when free) so key-based identity stays one song. Everything else — context, play-generation bump, `onPlay` — still happens. |
-| **Enqueue tracks** | `enqueueTracks(tracks)` | Appends to end. Does NOT change `queueIndex`. Does NOT clear `playlistContext`. Caller must run `findDuplicates()` first and present the duplicate banner — `enqueueTracks` itself has no dedup guard. |
+| **Enqueue tracks** | `enqueueTracks(tracks, { position?, skipDuplicates? })` | Appends to end, or inserts at the absolute `position` (if `position <= queueIndex`, the index shifts up by what was inserted). Does NOT clear `playlistContext`. Adds duplicates; `skipDuplicates` (control API only) leaves them out — see "Duplicate Detection". Returns `{ added, skippedDuplicates }`. |
 | **Play next** | `playNextInQueue(track)` | Inserts single track at `queueIndex + 1`. Does NOT advance index or trigger playback. |
-| **Insert at position** | `insertAtPosition(tracks, position)` | Inserts at arbitrary index. If `position <= queueIndex`, shifts index up by `tracks.length`. |
 | **Add single** | `addToQueue(track)` | Appends one track. No index change. |
 | **Add and play** | `addToQueueAndPlay(track, source?)` | Appends one track, sets `queueIndex` to new last position, calls `handlePlay`. |
-| **Append play-session tail** | `appendToPlaySession(gen, tracks)` | Appends the asynchronously-resolved remainder of a play started by `playTracks` (which returns `gen`). No-op once the queue has been replaced or cleared — the generation check makes a stale resolve harmless. Does NOT change `queueIndex`, does NOT touch `playlistContext`, and deliberately skips `findDuplicates`. Only reachable through `usePlayActions.playWithBackfill` — see conventions.md "Play With Backfill". Returns `{ index, tracks }` (the queued, possibly re-keyed copies and where the first landed) or `null`. While the tail is outstanding the play is a **loading play** (`loadingPlay`, mode `extend`) and `QueuePanel` renders its loading block (source, elapsed time, 10 placeholder rows). |
+| **Append play-session tail** | `appendToPlaySession(gen, tracks)` | Appends the asynchronously-resolved remainder of a play started by `playTracks` (which returns `gen`). No-op once the queue has been replaced or cleared — the generation check makes a stale resolve harmless. Does NOT change `queueIndex`, does NOT touch `playlistContext`. Only reachable through `usePlayActions.playWithBackfill` — see conventions.md "Play With Backfill". Returns `{ index, tracks }` (the queued, possibly re-keyed copies and where the first landed) or `null`. While the tail is outstanding the play is a **loading play** (`loadingPlay`, mode `extend`) and `QueuePanel` renders its loading block (source, elapsed time, 10 placeholder rows). |
 | **Load playlist** | `loadPlaylist()` | Replaces entire queue from `.m3u`/`.m3u8` file. Converts entries via `queueEntryToQueueTrack`. Sets index to 0, plays first track, sets context to filename. `.mixtape` files delegate to `onOpenMixtape`. |
 
 **Image resolution rule:** There is no synchronous image stamping. Image resolution happens asynchronously in `QueuePanel.tsx` (for queue thumbnails) and in the `currentTrack` effect in `App.tsx` (for now-playing art). Both use the same priority chain defined in "Image Resolution (Queue/NowPlaying)" above.
@@ -149,7 +148,7 @@ Every mutation that changes the queue array must also recalculate `queueIndex` s
 | **Move multiple** (`moveMultiple`) | Computes insertion point in the "remaining" array (after extracting moved items). If current track is being moved: its new position is `insertAt + positionInMovedGroup`. If not: adjusts based on whether insertAt falls before or after its new position. |
 | **Move to top** (`moveToTop`) | If current track is in set: new index is its position in the sorted moved array. Otherwise: shifts right by `movedSet.length` minus items that were already above it. |
 | **Move to bottom** (`moveToBottom`) | Mirror of move-to-top. Current track in set: `remainingLength + posInSorted`. Not in set: decrements by count of moved items before it. |
-| **Insert at position** (`insertAtPosition`) | If `position <= index`: index shifts by `insertedCount`. Otherwise: no change. |
+| **Enqueue at a position** (`enqueueTracks` with `position`) | If `position <= index`: index shifts by `insertedCount`. Otherwise: no change. |
 | **Play next in queue** (`playNextInQueue`) | Inserts at `index + 1`. Index does not change (inserted item is after current). |
 | **Update track metadata** (`updateTrackMetadata`) | Overrides one entry's title/artist/album in place. Index unchanged (the entry stays put). Not an array-shape change, so no recalc — but it IS a queue mutation, so the debounced `main_playlist` write persists it. See conventions.md "Edit Track Info". |
 | **Clear** (`clearQueue`) | Index resets to -1. Playlist context cleared. Ends the play session (`endPlaySession`, shared with `playTracks` and `loadPlaylist`): bumps the play generation and drops any loading play, so an in-flight backfill tail can't splice into the emptied queue and a pending switch can't land. Also invokes `main_playlist_clear` on backend. Covered by `useQueueClear.test.tsx`. |
@@ -198,31 +197,17 @@ How the queue survives app restarts.
 
 ## Duplicate Detection
 
-How the app prevents accidental duplicate enqueues.
+**There is no duplicate prompt** (owner decision, 2026-11-02). An enqueue adds what the user asked for, duplicates included — a second copy is one click to remove. A confirmation banner (Add all / Add new / Cancel, auto-approving in 10s) existed and was removed: it defaulted to adding the duplicates anyway, it couldn't be seen in mini mode or audio fullscreen, a second batch silently replaced a first one waiting on it, and its stored insert position went stale while it waited. Don't bring it back.
 
-**Detection:** `findDuplicates(newTracks)` compares incoming tracks against current queue by `track.path`. Returns `{ duplicates, unique }`. Path-based comparison means:
+**The control API is the one caller that leaves duplicates out.** Its enqueue verbs (`queue.add`, `queue.playSearch`, `playlists.enqueue`) pass `skipDuplicates` unless the request says `allowDuplicates: true`, and report the skip count — an assistant that retries a call would otherwise stack copies. `enqueueTracks(tracks, { skipDuplicates: true })` filters through `findDuplicates(newTracks)`, which compares incoming tracks against the current queue by `track.path`:
 - Same file from different collections = duplicate (same path)
 - Different formats of the same song = NOT detected (different paths)
 - A metadata-only entry (`path: null` — a "Not in library" row, a control-API `tracks` entry named by title/artist) has no path to compare, so it matches only another path-less entry, by song identity (`trackLikeId`: normalized title + artist). Comparing the nulls as paths used to flag every such entry as a duplicate of every other.
 
-**UX flow:**
-1. Caller (typically `useContextMenuActions`) calls `findDuplicates()` before enqueueing
-2. If duplicates found, sets `pendingEnqueue: { all, duplicates, unique }` state
-3. QueuePanel renders the duplicate banner with three options:
-   - **"Add all (Ns)"** — enqueues everything including duplicates. Has a 10-second auto-approve countdown.
-   - **"Add N new"** — enqueues only `unique` tracks. Only shown when `unique.length > 0`.
-   - **"Cancel"** — discards the pending enqueue entirely.
-4. Countdown starts at 10s, decrements every 1s. At 0, auto-triggers "Add all" via `onAllowAll`.
-5. Any of the three actions clears `pendingEnqueue`.
-
 **Invariants:**
-- `enqueueTracks()` itself has NO built-in dedup. Callers are responsible for running `findDuplicates()` and presenting the banner. If you add a new enqueue entry point, it must follow this pattern.
-- **Two sanctioned exceptions to the banner, and only these:** `appendToPlaySession()` (the backfill tail of a play already in progress) skips the check entirely — see conventions.md "Play With Backfill". And the **control API's enqueue verbs** (`queue.add`, `queue.playSearch`, `playlists.enqueue` in `useControlApi.ts`) *run* `findDuplicates()` but resolve the answer programmatically instead of showing the banner: duplicates are skipped and their count reported in the HTTP response, or added when the request said `allowDuplicates: true` — a modal popping over a user who didn't act (and auto-approving in 10s) would be strictly worse than a machine-readable answer to the machine that asked. A new enqueue surface is neither of these.
-- **Entry points outside the queue's own UI go through `utils/queueOps.ts`** — `playNow` / `addToQueue` / `playWithBackfill`, over one `QueueOpsDeps` object App builds (`queueOpsDeps`) and hands to the plugin playback bridge, the Cmd+K plugin-result actions and the control API. `addToQueue` always runs `findDuplicates()`; its `DuplicatePolicy` only says who answers: `ask` (the banner — every user gesture, **including one made inside a plugin's view**: `api.playback.insertTrack(s)` used to insert with no check at all) or `skip` / `allow` (the control API's programmatic answer above). A new outside entry point uses these ops rather than calling `useQueue` directly.
-- **No like step anywhere on the way in.** Entries used to carry a guessed `liked` (`pluginTrackToQueueTrack` hardcoded 0, a Latest play snapshot was as old as the snapshot), corrected by two reconcile passes — one for replacing plays (in `onPlay`), one for inserts (in every queue op and the duplicate banner). Both are gone with the field: every heart reads the track-like store by song, so whatever lands shows its real state at once. Don't add a like pass to a new entry path.
-- The countdown resets to 10s whenever `pendingEnqueue` changes (new batch replaces previous).
-- Auto-approve fires via a `useEffect` watching `[countdown, pendingEnqueue]` — when `countdown === 0 && pendingEnqueue !== null`, calls `onAllowAll`.
-- Image resolution happens async after tracks are added to the queue, regardless of which duplicate resolution path the user picks.
+- **Entry points outside the queue's own UI go through `utils/queueOps.ts`** — `playNow` / `addToQueue` / `playWithBackfill`, over one `QueueOpsDeps` object App builds (`queueOpsDeps`) and hands to the plugin playback bridge, the Cmd+K plugin-result actions and the control API. `addToQueue` turns its `position` ("end" / "next" / an index) into an absolute index for `enqueueTracks`. A new outside entry point uses these ops rather than calling `useQueue` directly.
+- **No like step anywhere on the way in.** Entries used to carry a guessed `liked` (`pluginTrackToQueueTrack` hardcoded 0, a Latest play snapshot was as old as the snapshot), corrected by two reconcile passes. Both are gone with the field: every heart reads the track-like store by song, so whatever lands shows its real state at once. Don't add a like pass to a new entry path.
+- Image resolution happens async after tracks are added to the queue.
 
 ## Queue Panel UI
 
@@ -327,7 +312,7 @@ Queue tracks may not have playable URLs at enqueue time. URL resolution happens 
 Randomization is a one-shot reorder of the `queue` array (`randomizeQueue`), not a persistent mode. There is no `shuffleOrder`/`shufflePosition` to keep in sync with mutations — the queue array IS the order. This deliberately avoids the old shuffle-state fragility class (stale shuffle indices on add/remove/reorder). After Randomize, the current track sits at index 0 and normal index-recalc rules apply to any further mutations.
 
 1. Using state variables instead of refs inside callbacks — causes stale reads
-2. Calling `enqueueTracks` without running `findDuplicates` first — bypasses the duplicate banner
+2. Adding a second placement path for an enqueue instead of calling `enqueueTracks` — index recalculation and `withUniqueKeys` live there
 3. Forgetting to pass `PlaylistContext` when calling `playTracks` — loses the queue banner
 4. Mutating the queue array without recalculating `queueIndex` — breaks "what's playing"
 5. Adding a new persistence effect without the `restoredRef` guard — overwrites saved state on startup

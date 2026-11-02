@@ -28,14 +28,8 @@ interface DroppedTrack {
 }
 
 interface UseFileDropDeps {
-  /** Dedup-aware enqueue (App's `contextMenuActions.handleEnqueue`). Loosely
-   * typed there — it only touches `path`/`key`, so QueueTracks are fine. When
-   * duplicates are already queued it defers to the confirmation banner instead
-   * of appending, so the "added" toast below is gated on `findDuplicates`. */
-  enqueue: (tracks: QueueTrack[]) => void;
-  /** Duplicate check against the current queue (App's `queueHook.findDuplicates`),
-   * so we only toast "added" when the enqueue actually appended. */
-  findDuplicates: (tracks: QueueTrack[]) => { duplicates: QueueTrack[]; unique: QueueTrack[] };
+  /** useQueue.enqueueTracks. */
+  enqueue: (tracks: QueueTrack[]) => { added: number };
   /** Reveal the queue so the just-added tracks are visible. */
   expandQueue: () => void;
   /** Lightweight user feedback (toast). */
@@ -66,7 +60,7 @@ export function useFileDrop(deps: UseFileDropDeps) {
 
   useEffect(() => {
     async function handleDrop(paths: string[]) {
-      const { enqueue, findDuplicates, expandQueue, notify } = depsRef.current;
+      const { enqueue, expandQueue, notify } = depsRef.current;
       try {
         const resolved = await invoke<DroppedTrack[]>("resolve_dropped_paths", { paths });
         if (resolved.length === 0) {
@@ -84,14 +78,10 @@ export function useFileDrop(deps: UseFileDropDeps) {
           format: d.format,
           liked: 0,
         }));
-        // When some are already queued, `enqueue` raises the duplicate banner
-        // (its own feedback) instead of appending — so only toast the count when
-        // the enqueue will actually append everything now.
-        const willAppend = findDuplicates(tracks).duplicates.length === 0;
-        enqueue(tracks);
+        const { added } = enqueue(tracks);
         expandQueue();
-        if (willAppend) {
-          notify(`Added ${tracks.length} track${tracks.length > 1 ? "s" : ""} to the queue`, { kind: "success" });
+        if (added > 0) {
+          notify(`Added ${added} track${added > 1 ? "s" : ""} to the queue`, { kind: "success" });
         }
       } catch (e) {
         console.error("Failed to enqueue dropped files:", e);

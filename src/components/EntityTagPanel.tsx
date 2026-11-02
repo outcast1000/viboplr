@@ -35,10 +35,7 @@ export function EntityTagPanel({ tracks, embedded, intro, addFirst, emptyText }:
   // (Track Details) reads better without it.
   const placeholder = libraryTrackCount === 1 ? "Add a tag…" : "Add a tag to all tracks…";
 
-  const { applied, partial, loading, pending, apply, fillToAll, remove } = useEntityTags(
-    tracks,
-    { onMutated: actions.refreshLibraryTags },
-  );
+  const { applied, partial, loading, pending, apply, fillToAll, remove } = useEntityTags(tracks);
 
   const { tags: communityTags, loading: communityLoading } = useCommunityTagsForTracks({
     tracks,

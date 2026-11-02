@@ -44,7 +44,7 @@ For each canonical action in `conventions.md`, find callers that reimplement the
 - **Show in Folder:** Grep for `invoke("show_in_folder"` outside `useContextMenuActions.ts`.
 - **Download Track:** Grep for `invoke("download_track"` outside `useDownloads.ts`.
 - **Record Play / Scrobble:** Grep for `invoke("record_play"` outside `usePlayback.ts` / `App.tsx`. Grep for duplicated scrobble-threshold logic (look for `>= 240` or `0.5 * duration` patterns).
-- **Tag Operations:** Grep for `invoke("plugin_apply_tags_bulk"` outside `utils/tagOps.ts`, and `invoke("apply_tag_to_tracks"` / `invoke("remove_tag_from_tracks"` outside `tagOps.ts` / `useEntityTags.ts`.
+- **Tag Operations:** One write path for library tags — grep for `invoke("plugin_apply_tags_bulk"` / `invoke("remove_tag_from_tracks"` / `invoke("refresh_tag_counts"` outside `utils/tagOps.ts` (and App's coalesced refresh, for the last). `bulk_update_tracks` belongs to `tagOps.writeFileMetadata` and `BulkEditModal` only.
 
 **Report format:** `file:line — <action> reimplemented; route through <canonical hook/function>`
 

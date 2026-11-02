@@ -60,7 +60,6 @@ import { useQueue } from "./hooks/useQueue";
 import type { PlaylistContext } from "./hooks/useQueue";
 import { usePlayActions } from "./hooks/usePlayActions";
 import type { BackfillPlay } from "./hooks/usePlayActions";
-import type { PendingEnqueue } from "./hooks/useQueueDragToInsert";
 import * as queueOps from "./utils/queueOps";
 import type { QueueOpsDeps } from "./utils/queueOps";
 import type { TagOpsDeps } from "./utils/tagOps";
@@ -348,8 +347,6 @@ const restorePluginViewMode = restoreOneOf<PluginViewMode>(["cards", "list"]);
 
 function App() {
   const restoredRef = useRef(false);
-  const handleEnqueueRef = useRef<(tracks: Track[]) => void>(() => {});
-  const askAboutDuplicatesRef = useRef<(pending: PendingEnqueue) => void>(() => {});
   // Late-bound so the plugin playback bridge (built above playActions) can reach
   // the canonical backfill action. Resolves with the tracks actually appended.
   const playWithBackfillRef = useRef<(opts: BackfillPlay) => Promise<QueueTrack[]>>(() => Promise.resolve([]));
@@ -853,11 +850,8 @@ function App() {
   const queueOpsDeps = useMemo<QueueOpsDeps>(() => ({
     playTracks: queueHook.playTracks,
     enqueueTracks: queueHook.enqueueTracks,
-    insertAtPosition: queueHook.insertAtPosition,
-    findDuplicates: queueHook.findDuplicates,
     queueIndex: () => queueHook.queueIndex,
     playWithBackfill: (opts) => playWithBackfillRef.current(opts),
-    askAboutDuplicates: (pending) => askAboutDuplicatesRef.current(pending),
   }), [queueHook]);
 
   const pluginPlaybackCallbacks = useMemo(() => ({
@@ -895,12 +889,12 @@ function App() {
     // duplicate raises the same banner the context menu does. -1 = append.
     insertTrack: (track: PluginTrack, position: number) => {
       queueOps.addToQueue(queueOpsDeps, [pluginTrackToQueueTrack(track)], {
-        position: position === -1 ? "end" : position, duplicates: "ask",
+        position: position === -1 ? "end" : position,
       });
     },
     insertTracks: (tracks: PluginTrack[], position: number) => {
       queueOps.addToQueue(queueOpsDeps, tracks.map(pluginTrackToQueueTrack), {
-        position: position === -1 ? "end" : position, duplicates: "ask",
+        position: position === -1 ? "end" : position,
       });
     },
   }), [queueOpsDeps, pluginPlaylistContext]);
@@ -1655,7 +1649,7 @@ function App() {
       queueOps.playNow(queueOpsDeps, [pluginTrackToQueueTrack(track)]);
     },
     onEnqueuePluginTrack: (track) => {
-      queueOps.addToQueue(queueOpsDeps, [pluginTrackToQueueTrack(track)], { duplicates: "ask" });
+      queueOps.addToQueue(queueOpsDeps, [pluginTrackToQueueTrack(track)]);
     },
     // A catalog album/artist has no library id: open its page by name, which
     // resolves to the library row when there is one and builds the page from
@@ -2113,9 +2107,9 @@ function App() {
 
   const playActions = usePlayActions({
     playTracks: queueHook.playTracks,
-    enqueueTracks: (tracks: Track[]) => handleEnqueueRef.current(tracks),
-    // Raw guarded append (no duplicate banner) — a backfill continues a play
-    // the user already made. See useQueue.appendToPlaySession.
+    enqueueTracks: queueHook.enqueueTracks,
+    // Guarded append — a backfill continues a play the user already made.
+    // See useQueue.appendToPlaySession.
     appendToPlaySession: queueHook.appendToPlaySession,
     beginLoadingPlay: queueHook.beginLoadingPlay,
     isLoadingPlayLive: queueHook.isLoadingPlayLive,
@@ -2227,8 +2221,6 @@ function App() {
     queueHook: {
       playTracks: queueHook.playTracks,
       enqueueTracks: queueHook.enqueueTracks,
-      findDuplicates: queueHook.findDuplicates,
-      insertAtPosition: queueHook.insertAtPosition,
       removeMultiple: queueHook.removeMultiple,
       moveToTop: queueHook.moveToTop,
       moveToBottom: queueHook.moveToBottom,
@@ -2266,15 +2258,9 @@ function App() {
     onShowMenu: (state) => showNativeMenuRef.current?.(state),
   });
 
-  // playActions is constructed before contextMenuActions, so the enqueue-entity
-  // actions reach the dedup-aware handleEnqueue through this ref (updated each render).
-  useAssignRef(handleEnqueueRef, contextMenuActions.handleEnqueue);
-  useAssignRef(askAboutDuplicatesRef, contextMenuActions.askAboutDuplicates);
-
   // Drag files/folders from the OS file manager into the app to enqueue them.
   const { isDragging: fileDragOver } = useFileDrop({
-    enqueue: (tracks) => contextMenuActions.handleEnqueue(tracks as unknown as Track[]),
-    findDuplicates: queueHook.findDuplicates,
+    enqueue: queueHook.enqueueTracks,
     expandQueue: () => {
       if (queueCollapsed) setQueueCollapsed(false); // persistence: usePersistedSetting
     },
@@ -4666,7 +4652,7 @@ function App() {
     playTracks: queueHook.playTracks,
     playEntityAll: handlePlayEntityAll,
     playAlbum: playActions.playAlbum,
-    enqueueTracks: contextMenuActions.handleEnqueue,
+    enqueueTracks: queueHook.enqueueTracks,
     playExternal: (tracks, startIndex = 0, context) => queueHook.playTracks(tracks, startIndex, context),
     enqueueExternal: queueHook.enqueueTracks,
     startRadio: (t) => contextMenuActions.startRadio({ title: t.title, artistName: t.artist_name, coverPath: t.image_url ?? null }),
@@ -4732,7 +4718,6 @@ function App() {
       plugins.dispatchContextMenuAction,
     ),
     tagSuggestionPool,
-    refreshLibraryTags: library.loadLibrary,
     retrieve: {
       openInfo: openRetrieveInfo,
     },
@@ -4740,7 +4725,7 @@ function App() {
     library.handleArtistClick, library.handleAlbumClick, library.handleTagClick, library.navigateToTagByName,
     library.handleTrackClick, library.navigateToTrackByName, contextMenuActions.startRadio,
     goBack, canGoBack,
-    queueHook.playTracks, queueHook.enqueueTracks, handlePlayEntityAll, playActions.playAlbum, contextMenuActions.handleEnqueue,
+    queueHook.playTracks, queueHook.enqueueTracks, handlePlayEntityAll, playActions.playAlbum,
     likeActions.handleToggleLike, likeActions.handleToggleDislike,
     likeActions.handleToggleArtistLike, likeActions.handleToggleArtistDislike,
     likeActions.handleToggleAlbumLike, likeActions.handleToggleAlbumDislike,
@@ -4755,7 +4740,7 @@ function App() {
     artistImageCache.requestFetch, albumImageCache.requestFetch, tagImageCache.requestFetch,
     plugins.invokeInfoFetch, plugins.pluginsLoaded, plugins.pluginNames,
     plugins.menuItems, plugins.dispatchContextMenuAction,
-    tagSuggestionPool, library.loadLibrary,
+    tagSuggestionPool,
     beginRetrieveImage, openRetrieveInfo,
   ]);
 
@@ -4900,7 +4885,7 @@ function App() {
       const n = qts.length;
       const specs: MenuItemSpec[] = [
         { kind: "item", text: n > 1 ? `Play ${n} tracks` : "Play", action: () => queueHook.playTracks(qts, 0) },
-        { kind: "item", text: n > 1 ? `Enqueue ${n} tracks` : "Enqueue", action: () => contextMenuActions.handleEnqueue(qts as unknown as Track[]) },
+        { kind: "item", text: n > 1 ? `Enqueue ${n} tracks` : "Enqueue", action: () => queueHook.enqueueTracks(qts) },
         { kind: "item", text: "Play Next", action: () => { for (let i = qts.length - 1; i >= 0; i--) queueHook.playNextInQueue(qts[i]); } },
       ];
       // Append plugin-registered actions (Universal Track Actions). A
@@ -5876,7 +5861,7 @@ function App() {
             getAlbumImage={albumImageCache.getImage}
             getTagImage={tagImageCache.getImage}
             onPlayTracks={queueHook.playTracks}
-            onEnqueueTrack={(t) => contextMenuActions.handleEnqueue([t])}
+            onEnqueueTrack={(t) => queueHook.enqueueTracks([t])}
             onStartRadio={(t) => contextMenuActions.startRadio({ title: t.title, artistName: t.artist_name, coverPath: t.image_url ?? null })}
             onLocateTrack={(t) => { const sel = trackSelection(t); if (sel) library.handleTrackClick(sel); }}
             onPlayAlbum={playActions.playAlbum}
@@ -5960,7 +5945,7 @@ function App() {
                 placeholder="Search history..."
                 {...historySearchNav}
               />
-              <HistoryView ref={historyRef} searchQuery={viewSearch.getQuery("history")} highlightedIndex={highlightedListIndex} onPlayTrack={queueHook.playTracks} onEnqueueTrack={contextMenuActions.handleEnqueue} onLocateTrack={(t) => { const sel = trackSelection(t); if (sel) library.handleTrackClick(sel); }} onArtistClick={library.handleArtistClick} onPlayArtist={playActions.playArtist} onEnqueueArtist={playActions.enqueueArtist} onStartRadio={contextMenuActions.startRadio} onShowContextMenu={(x, y, target) => buildAndShowNativeMenu({ x, y, target })} />
+              <HistoryView ref={historyRef} searchQuery={viewSearch.getQuery("history")} highlightedIndex={highlightedListIndex} onPlayTrack={queueHook.playTracks} onEnqueueTrack={queueHook.enqueueTracks} onLocateTrack={(t) => { const sel = trackSelection(t); if (sel) library.handleTrackClick(sel); }} onArtistClick={library.handleArtistClick} onPlayArtist={playActions.playArtist} onEnqueueArtist={playActions.enqueueArtist} onStartRadio={contextMenuActions.startRadio} onShowContextMenu={(x, y, target) => buildAndShowNativeMenu({ x, y, target })} />
             </>
           )}
 
@@ -6440,24 +6425,6 @@ function App() {
           queueIndex={queueHook.queueIndex}
           queuePanelRef={queueHook.queuePanelRef}
           playlistContext={queueHook.playlistContext}
-          pendingEnqueue={contextMenuActions.pendingEnqueue}
-          onAllowAll={() => {
-            const pe = contextMenuActions.pendingEnqueue;
-            if (pe) {
-              if (pe.position != null) queueHook.insertAtPosition(pe.all, pe.position);
-              else queueHook.enqueueTracks(pe.all);
-            }
-            contextMenuActions.setPendingEnqueue(null);
-          }}
-          onSkipDuplicates={() => {
-            const pe = contextMenuActions.pendingEnqueue;
-            if (pe) {
-              if (pe.position != null) queueHook.insertAtPosition(pe.unique, pe.position);
-              else queueHook.enqueueTracks(pe.unique);
-            }
-            contextMenuActions.setPendingEnqueue(null);
-          }}
-          onCancelEnqueue={() => contextMenuActions.setPendingEnqueue(null)}
           onPlay={(track, index) => { queueHook.setQueueIndex(index); playback.handlePlay(track); }}
           onTogglePlayPause={playback.handlePause}
           onRemove={queueHook.removeFromQueue}

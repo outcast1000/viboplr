@@ -93,7 +93,7 @@ import {
   clampSearchLimit, invokeAssistantTool, listAssistantTools, listSearchProviders, listWebSearchProviders,
   searchCatalog, webSearch,
 } from "../utils/hostOps";
-import { addToQueue, playNow, playWithBackfill, type DuplicatePolicy, type QueueOpsDeps } from "../utils/queueOps";
+import { addToQueue, playNow, playWithBackfill, type QueueOpsDeps } from "../utils/queueOps";
 import { homeCardOriginKey } from "../utils/homeCardOrigin";
 import { isCoreImageProvider } from "../utils/coreImageProviders";
 import { permissionReasons } from "../pluginWorker/permissions";
@@ -429,10 +429,11 @@ const FILE_METADATA_KEYS = [
   "artistName", "albumArtistName", "albumTitle", "year", "trackNumber", "title", "tagNames", "tagMode",
 ] as const satisfies ReadonlyArray<keyof FileMetadataEdit>;
 
-/** The control API never shows the duplicate banner: duplicates are skipped
- *  and counted, or added when the request says `allowDuplicates: true`. */
-function duplicatePolicy(payload: Record<string, unknown>): DuplicatePolicy {
-  return payload.allowDuplicates === true ? "allow" : "skip";
+/** The API skips tracks already queued (and reports how many) unless the
+ *  request says `allowDuplicates: true` — an assistant that retries a call
+ *  would otherwise stack copies. */
+function skipDuplicates(payload: Record<string, unknown>): boolean {
+  return payload.allowDuplicates !== true;
 }
 
 /** Playlist mutations apply only to user playlists — auto/system rows are
@@ -730,10 +731,8 @@ export function useControlApi(deps: ControlApiDeps) {
         const mode = payload.mode ?? "end";
         if (mode !== "end" && mode !== "next") bad('mode must be "end" or "next"');
         const { tracks, external } = await resolveQueueItems(payload);
-        // The API answers the duplicate banner's question programmatically
-        // instead of popping it over a user who didn't act — skips are reported.
         const { added, skippedDuplicates } = addToQueue(d.queueOps, tracks, {
-          position: mode, duplicates: duplicatePolicy(payload),
+          position: mode, skipDuplicates: skipDuplicates(payload),
         });
         return { added, skippedDuplicates, external };
       }
@@ -1098,7 +1097,7 @@ export function useControlApi(deps: ControlApiDeps) {
           return { queued: tracks.length, name: entry.label };
         }
         const { added, skippedDuplicates } = addToQueue(d.queueOps, tracks, {
-          position: mode, duplicates: duplicatePolicy(payload),
+          position: mode, skipDuplicates: skipDuplicates(payload),
         });
         return { added, skippedDuplicates, name: entry.label };
       }
@@ -1901,7 +1900,7 @@ export function useControlApi(deps: ControlApiDeps) {
         if (rows.length === 0) bad("playlist is empty");
         // Same duplicate semantics as queue.add.
         const { added, skippedDuplicates } = addToQueue(d.queueOps, rows.map(playlistTrackToQueueTrack), {
-          position: mode, duplicates: duplicatePolicy(payload),
+          position: mode, skipDuplicates: skipDuplicates(payload),
         });
         return { added, skippedDuplicates, name: playlist.name };
       }

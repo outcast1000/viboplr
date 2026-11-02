@@ -4,7 +4,7 @@ import type { Track, Artist, Album, QueueTrack } from "../types";
 import { isLocalTrack, isNetworkSharePath } from "../queueEntry";
 import type { ContextMenuState, ContextMenuTarget } from "../types/contextMenu";
 import type { PlaylistContext } from "./useQueue";
-import { useQueueDragToInsert, type PendingEnqueue } from "./useQueueDragToInsert";
+import { useQueueDragToInsert } from "./useQueueDragToInsert";
 import { trashLabel } from "../utils";
 import { emitTracksDeleted } from "../trackEvents";
 import { fadeOutTrackRows } from "../utils/rowRemoval";
@@ -31,9 +31,8 @@ interface UseContextMenuActionsDeps {
     // Raw `Track`s are welcome on every entry path — useQueue converts at the
     // door (`toQueueTracks`), which is what stamps `libraryId`.
     playTracks: (tracks: Array<Track | QueueTrack>, index: number, context?: PlaylistContext | null) => void;
-    enqueueTracks: (tracks: Array<Track | QueueTrack>) => void;
-    findDuplicates: (tracks: Array<Track | QueueTrack>) => { duplicates: Array<Track | QueueTrack>; unique: Array<Track | QueueTrack> };
-    insertAtPosition: (tracks: Array<Track | QueueTrack>, pos: number) => void;
+    /** useQueue.enqueueTracks. */
+    enqueueTracks: (tracks: Array<Track | QueueTrack>, opts?: { position?: number }) => unknown;
     removeMultiple: (indices: number[]) => void;
     moveToTop: (indices: number[]) => void;
     moveToBottom: (indices: number[]) => void;
@@ -85,13 +84,12 @@ export function useContextMenuActions(deps: UseContextMenuActionsDeps) {
   const [deleteConfirm, setDeleteConfirm] = useState<{ trackIds: number[]; paths?: string[]; title: string; network?: boolean } | null>(null);
   const [deleteError, setDeleteError] = useState<{ message: string; failures: { title: string; reason: string }[] } | null>(null);
   const [folderError, setFolderError] = useState<string | null>(null);
-  const [pendingEnqueue, setPendingEnqueue] = useState<PendingEnqueue | null>(null);
 
   // Drag-to-queue and download actions live in focused hooks; this hook composes
   // them and re-exports their surface so every context-menu consumer keeps
   // reaching them via `contextMenuActions.*`.
   const { externalDropTarget, handleTrackDragStart } = useQueueDragToInsert({
-    queueHook, queueCollapsed, setQueueCollapsed, setPendingEnqueue,
+    queueHook, queueCollapsed, setQueueCollapsed,
   });
 
   function setContextMenu(state: ContextMenuState | null) {
@@ -206,22 +204,6 @@ export function useContextMenuActions(deps: UseContextMenuActionsDeps) {
     return results;
   }
 
-  /** Raise the duplicate banner (expanding the queue so it's visible). */
-  function askAboutDuplicates(pending: PendingEnqueue) {
-    setPendingEnqueue(pending);
-    if (queueCollapsed) setQueueCollapsed(false); // persistence: usePersistedSetting
-  }
-
-  function handleEnqueue(tracks: Array<Track | QueueTrack>) {
-    if (tracks.length === 0) return;
-    const { duplicates, unique } = queueHook.findDuplicates(tracks);
-    if (duplicates.length > 0) {
-      askAboutDuplicates({ all: tracks, duplicates, unique });
-    } else {
-      queueHook.enqueueTracks(tracks);
-    }
-  }
-
   /** Resolve the tracks a context-menu target refers to. Shared by enqueue
    *  and add-to-playlist so the two resolutions can't drift. Queue targets
    *  come back as the queue's own QueueTracks (no DB round-trip); everything
@@ -251,7 +233,7 @@ export function useContextMenuActions(deps: UseContextMenuActionsDeps) {
     if (!cm) return;
     try {
       const tracks = await fetchTargetTracks(cm.target);
-      handleEnqueue(tracks);
+      queueHook.enqueueTracks(tracks);
     } catch (e) { console.error("Failed to enqueue tracks:", e); }
   }
 
@@ -533,9 +515,6 @@ export function useContextMenuActions(deps: UseContextMenuActionsDeps) {
     setDeleteError,
     folderError,
     setFolderError,
-    pendingEnqueue,
-    setPendingEnqueue,
-    askAboutDuplicates,
     externalDropTarget,
     handleTrackContextMenu,
     handleAlbumContextMenu,
@@ -549,7 +528,6 @@ export function useContextMenuActions(deps: UseContextMenuActionsDeps) {
     handleContextPlay,
     startRadio: playActions.startRadio,
     handleContextEnqueue,
-    handleEnqueue,
     handleShowInFolder,
     showTrackInFolder,
     handleBulkEdit,

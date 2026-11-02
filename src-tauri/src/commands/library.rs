@@ -419,23 +419,12 @@ pub async fn get_tag_counts_for_tracks(
     with_db(&state, move |db| db.get_tag_counts_for_tracks(&track_ids)).await
 }
 
-#[tauri::command]
-pub fn apply_tag_to_tracks(
-    state: State<'_, AppState>,
-    track_ids: Vec<i64>,
-    tag_name: String,
-) -> Result<String, String> {
-    state
-        .db
-        .apply_tag_to_tracks(&track_ids, &tag_name)
-        .map_err(|e| e.to_string())
-}
-
-/// Recount tag usage after DB-only adds that don't recount themselves
-/// (`plugin_apply_tags_bulk`) — see `Database::recompute_tag_counts`.
+/// The aftermath of DB-only tag adds (`plugin_apply_tags_bulk`), which don't
+/// recount themselves so a burst costs one run — see
+/// `Database::recompute_after_tag_add`. utils/tagOps.ts debounces it.
 #[tauri::command]
 pub fn refresh_tag_counts(state: State<'_, AppState>) -> Result<(), String> {
-    state.db.recompute_tag_counts().map_err(|e| e.to_string())
+    state.db.recompute_after_tag_add().map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -1026,6 +1015,11 @@ pub async fn bulk_update_tracks(
     let album_u = crate::models::FieldUpdate::from_double_opt(fields.album_title).trimmed_name();
     let year_u = crate::models::FieldUpdate::from_double_opt(fields.year);
     let track_number_u = crate::models::FieldUpdate::from_double_opt(fields.track_number);
+    // The mode only matters with tag names; without them nothing reads it.
+    let tag_mode = match fields.tag_names {
+        Some(_) => crate::db::collections::TagMode::parse(fields.tag_mode.as_deref())?,
+        None => crate::db::collections::TagMode::Add,
+    };
 
     // Perform DB updates
     let track_info = db.bulk_update_tracks(
@@ -1037,7 +1031,7 @@ pub async fn bulk_update_tracks(
         fields.title.as_deref(),
         track_number_u,
         fields.tag_names.as_deref(),
-        crate::db::collections::TagMode::from_opt(fields.tag_mode.as_deref()),
+        tag_mode,
     ).map_err(|e| e.to_string())?;
 
     // Write tags to local files. Genre is written per-track from the FINAL tag set

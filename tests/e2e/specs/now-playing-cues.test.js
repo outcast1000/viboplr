@@ -52,12 +52,6 @@ async function setupNowPlaying(page, { withCues, sheet = SHEET }) {
   await page.locator('.track-row .col-title').first().dblclick();
   await page.waitForTimeout(500);
 
-  const cancelDupe = page.locator('.queue-duplicate-actions button', { hasText: 'Cancel' });
-  if (await cancelDupe.isVisible().catch(() => false)) {
-    await cancelDupe.click();
-    await page.waitForTimeout(200);
-  }
-
   await page.locator('.nav .nav-btn').filter({ hasText: 'Now Playing' }).click();
   await page.locator('.now-playing-view').waitFor({ state: 'visible', timeout: 10000 });
 }

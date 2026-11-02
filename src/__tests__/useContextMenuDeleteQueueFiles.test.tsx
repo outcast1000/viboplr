@@ -42,8 +42,7 @@ function mount(queue: QueueTrack[], confirmTrashDelete = false) {
     },
     queueHook: {
       playTracks: noop, enqueueTracks: noop,
-      findDuplicates: () => ({ duplicates: [], unique: [] }),
-      insertAtPosition: noop, removeMultiple, moveToTop: noop, moveToBottom: noop,
+      removeMultiple, moveToTop: noop, moveToBottom: noop,
       queue, addToQueue: noop, flushNow,
     },
     playback: { currentTrack: null, handleStop: noop },

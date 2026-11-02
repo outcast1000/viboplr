@@ -1,38 +1,24 @@
 import { useState } from "react";
 import type { Track, QueueTrack } from "../types";
 
-/** Pending enqueue captured when a drop (or enqueue) hits duplicates already in
- * the queue. `position` is set only for drag-to-insert drops; a plain enqueue
- * leaves it undefined (append). Owned by `useContextMenuActions` because both the
- * enqueue path and this drag path populate it; the duplicate banner reads it.
- * Raw library `Track`s ride through unconverted — the banner only counts them,
- * and the eventual enqueue/insert converts at the queue's door (`toQueueTracks`). */
-export interface PendingEnqueue {
-  all: Array<Track | QueueTrack>;
-  duplicates: Array<Track | QueueTrack>;
-  unique: Array<Track | QueueTrack>;
-  position?: number;
-}
-
 interface UseQueueDragToInsertDeps {
   queueHook: {
-    findDuplicates: (tracks: Array<Track | QueueTrack>) => { duplicates: Array<Track | QueueTrack>; unique: Array<Track | QueueTrack> };
-    insertAtPosition: (tracks: Array<Track | QueueTrack>, pos: number) => void;
+    /** useQueue.enqueueTracks. */
+    enqueueTracks: (tracks: Array<Track | QueueTrack>, opts?: { position?: number }) => unknown;
     queue: QueueTrack[];
   };
   queueCollapsed: boolean;
   setQueueCollapsed: React.Dispatch<React.SetStateAction<boolean>>;
-  setPendingEnqueue: React.Dispatch<React.SetStateAction<PendingEnqueue | null>>;
 }
 
 /**
  * Drag-to-queue: dragging tracks (from any list) onto the queue panel inserts
  * them at the drop position. Owns the `externalDropTarget` indicator state and
  * the raw mouse-listener / ghost-element DOM handshake (the WKWebView pattern
- * documented by the drag-and-drop skill). Duplicate drops defer to the shared
- * `pendingEnqueue` banner instead of inserting immediately.
+ * documented by the drag-and-drop skill). The drop is an ordinary enqueue at a
+ * position.
  */
-export function useQueueDragToInsert({ queueHook, queueCollapsed, setQueueCollapsed, setPendingEnqueue }: UseQueueDragToInsertDeps) {
+export function useQueueDragToInsert({ queueHook, queueCollapsed, setQueueCollapsed }: UseQueueDragToInsertDeps) {
   const [externalDropTarget, setExternalDropTarget] = useState<number | null>(null);
 
   function handleTrackDragStart(dragTracks: Array<Track | QueueTrack>) {
@@ -88,15 +74,8 @@ export function useQueueDragToInsert({ queueHook, queueCollapsed, setQueueCollap
       if (ghost) { ghost.remove(); ghost = null; }
 
       if (dropTargetRef.current !== null) {
-        const pos = dropTargetRef.current;
-        const { duplicates, unique } = queueHook.findDuplicates(dragTracks);
-        if (duplicates.length > 0) {
-          setPendingEnqueue({ all: dragTracks, duplicates, unique, position: pos });
-          if (queueCollapsed) setQueueCollapsed(false); // persistence: usePersistedSetting
-        } else {
-          queueHook.insertAtPosition(dragTracks, pos);
-          if (queueCollapsed) setQueueCollapsed(false); // persistence: usePersistedSetting
-        }
+        queueHook.enqueueTracks(dragTracks, { position: dropTargetRef.current });
+        if (queueCollapsed) setQueueCollapsed(false); // persistence: usePersistedSetting
       }
 
       setExternalDropTarget(null);

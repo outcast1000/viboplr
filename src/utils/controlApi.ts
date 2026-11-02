@@ -131,19 +131,6 @@ export function parseQueueItems(raw: unknown): QueueItemRequest[] | string {
   return items;
 }
 
-/** How an API enqueue resolves the duplicate question that the UI resolves
- *  with the banner: the caller answered in the request (`allowDuplicates`),
- *  and skips are *reported* instead of silently dropped. The findDuplicates
- *  check itself still runs — this only replaces the modal. */
-export function partitionEnqueue(
-  all: QueueTrack[],
-  dup: { duplicates: QueueTrack[]; unique: QueueTrack[] },
-  allowDuplicates: boolean,
-): { toAdd: QueueTrack[]; skipped: number } {
-  if (allowDuplicates) return { toAdd: all, skipped: 0 };
-  return { toAdd: dup.unique, skipped: dup.duplicates.length };
-}
-
 export interface SerializedQueueTrack {
   index: number;
   /** The entry's cached library row id (`QueueTrack.libraryId`) — what
