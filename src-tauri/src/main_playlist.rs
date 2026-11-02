@@ -426,7 +426,6 @@ mod tests {
                 thumb: None,
                 format: None,
                 image_url: None,
-                file_size: None,
             },
             crate::models::BundleTrack {
                 title: "No file".into(),
@@ -438,7 +437,6 @@ mod tests {
                 thumb: None,
                 format: None,
                 image_url: None,
-                file_size: None,
             },
         ];
         write(t.path(), Some(&m), None).unwrap();
@@ -531,7 +529,6 @@ mod tests {
             thumb: Some(format!("thumbs/{}.jpg", canonical_slug(file))),
             format: None,
             image_url: None,
-            file_size: None,
         }
     }
 
@@ -578,7 +575,6 @@ mod tests {
             thumb: Some("thumbs/this-string-is-intentionally-wrong.jpg".into()),
             format: None,
             image_url: None,
-            file_size: None,
         });
         write(t.path(), Some(&m), None).unwrap();
         gc(t.path()).unwrap();
@@ -612,7 +608,6 @@ mod tests {
             thumb: None, // gc must NOT consult this; slug(file) is the truth
             format: None,
             image_url: None,
-            file_size: None,
         });
         write(t.path(), Some(&m), None).unwrap();
         gc(t.path()).unwrap();

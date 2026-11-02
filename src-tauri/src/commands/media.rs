@@ -1055,6 +1055,27 @@ pub fn get_file_size(path: String) -> Option<u64> {
     std::fs::metadata(bare_path).ok().map(|m| m.len())
 }
 
+/// The size a queue row shows: the library row's — which also covers Subsonic,
+/// whose size the server reported at sync — then, for a local file the library
+/// doesn't hold, the file on disk. Queue entries carry no size of their own,
+/// so this is the one answer. `None` = unknown (a stream, a missing file).
+///
+/// The disk read runs after the database work, on its own blocking task: a
+/// file on an offline network share can take seconds to stat, and must not
+/// hold the database closure (and the commands queued behind it) meanwhile.
+#[tauri::command]
+pub async fn queue_entry_file_size(state: State<'_, AppState>, path: String) -> Result<Option<u64>, String> {
+    let lookup = path.clone();
+    let stored = with_db(&state, move |db| db.library_file_size(&lookup)).await?;
+    if let Some(size) = stored.filter(|s| *s >= 0) {
+        return Ok(Some(size as u64));
+    }
+    if !path.starts_with("file://") {
+        return Ok(None);
+    }
+    run_blocking(move || Ok::<_, String>(get_file_size(path))).await
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

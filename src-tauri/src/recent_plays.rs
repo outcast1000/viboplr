@@ -144,7 +144,6 @@ mod tests {
                     thumb: None,
                     format: Some("flac".into()),
                     image_url: None,
-                    file_size: None,
                 })
                 .collect(),
         }

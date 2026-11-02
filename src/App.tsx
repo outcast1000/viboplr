@@ -238,6 +238,7 @@ import { homeCardOriginKey } from "./utils/homeCardOrigin";
 
 
 import { useAssignRef, useLatestRef } from "./hooks/useLatestRef";
+import { forgetFileSizes } from "./hooks/useFileSize";
 import { useBitPerfect } from "./hooks/useBitPerfect";
 
 /** One identity for "no markers", so the bars' memo doesn't see a new array. */
@@ -1764,6 +1765,9 @@ function App() {
     }
     libraryRefreshRef.current.loadLibrary();
     if (files) {
+      // A file write (tags, a replaced file) changes its size; queue rows look
+      // theirs up again rather than showing the old one.
+      forgetFileSizes();
       libraryRefreshRef.current.loadTracks();
       setSearchBulkEditKey((k) => k + 1);
     }
@@ -2041,6 +2045,8 @@ function App() {
   // `currentTrack` is playback's own copy of its queue entry, so it's patched
   // here from the same bulk lookup.
   const notifyLibraryChanged = () => {
+    // Queue rows look their size up from the library; a rescan can change it.
+    forgetFileSizes();
     setSearchLibraryKey(k => k + 1);
     setLibraryRevision(k => k + 1);
     void queueHook.reconcileLibraryIds().then(idByPath => {
@@ -6688,7 +6694,14 @@ function App() {
             if (fromPlugin) plugins.cancelDownloadResolve(pluginId);
           }}
           onClose={() => setDownloadModal(null)}
-          onComplete={(_msg) => { setDownloadModal(null); library.loadLibrary(); library.loadTracks(); }}
+          onComplete={(_msg) => {
+            setDownloadModal(null);
+            // An upgrade can replace a file under the same path, so a size the
+            // queue looked up may be the old file's.
+            forgetFileSizes();
+            library.loadLibrary();
+            library.loadTracks();
+          }}
           onPlay={async (path) => {
             const uri = `file://${path}`;
             try {

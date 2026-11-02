@@ -110,8 +110,9 @@ export interface QueueTrack {
   // No `liked`, deliberately: a like belongs to the song, not to a queue entry.
   // Read it from the track-like store (`useTrackLike`, `TrackLikeStore.lookup`)
   // by title + artist — the one answer every surface shares.
-  /** File size in bytes, when known (e.g. converted from a library Track). Not persisted across restarts. */
-  file_size?: number | null;
+  // No `file_size` either: a copy goes stale (an upgraded file) and most entry
+  // paths never had one. The queue row looks it up (`useFileSize` →
+  // `queue_entry_file_size`: the library row, else the file on disk).
 }
 
 // What the engine opens for a resolved track: a raw filesystem path, a byte

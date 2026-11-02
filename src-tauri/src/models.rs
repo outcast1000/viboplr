@@ -672,10 +672,9 @@ pub struct BundleTrack {
     /// through to the next candidate, then the placeholder.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub image_url: Option<String>,
-    /// Bytes on disk, when known. Restores the queue row's size/bitrate readout
-    /// without re-probing the file.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub file_size: Option<i64>,
+    // No `file_size`: the queue row looks the size up (`queue_entry_file_size`)
+    // rather than trusting a copy. Manifests written while the field existed
+    // still carry it; serde ignores it.
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -885,11 +884,10 @@ mod bundle_track_wire_tests {
 
     /// `BundleTrack` is shared by the **live queue manifest** and **`.mixtape`
     /// export**, so a field added for the queue must not turn up in an exported
-    /// mixtape. `image_url` is a machine-local or expiring reference and
-    /// `file_size` describes a file the recipient does not have — neither
-    /// belongs in a portable archive.
+    /// mixtape. `image_url` is a machine-local or expiring reference that
+    /// doesn't belong in a portable archive.
     ///
-    /// Safe by construction (the mixtape constructors set both to `None`) plus
+    /// Safe by construction (the mixtape constructors set it to `None`) plus
     /// `skip_serializing_if`, which is what this pins: `None` must serialize to
     /// *absent*, not `null`.
     #[test]
@@ -904,15 +902,15 @@ mod bundle_track_wire_tests {
             thumb: None,
             format: None,
             image_url: None,
-            file_size: None,
         };
         let json = serde_json::to_string(&exported).unwrap();
         assert!(!json.contains("image_url"), "leaked image_url: {json}");
-        assert!(!json.contains("file_size"), "leaked file_size: {json}");
     }
 
-    /// The live queue's own manifest does carry them, and a manifest written
-    /// before they existed must still deserialize (`serde(default)`).
+    /// The live queue's own manifest does carry `image_url`, a manifest written
+    /// before it existed must still deserialize (`serde(default)`), and one
+    /// written while `file_size` was a field still parses — the field is gone,
+    /// the stored value is ignored.
     #[test]
     fn queue_fields_round_trip_and_legacy_manifests_still_parse() {
         let queued = BundleTrack {
@@ -925,16 +923,17 @@ mod bundle_track_wire_tests {
             thumb: None,
             format: None,
             image_url: Some("https://cdn.example/art.jpg".into()),
-            file_size: Some(5_242_880),
         };
         let json = serde_json::to_string(&queued).unwrap();
         let back: BundleTrack = serde_json::from_str(&json).unwrap();
         assert_eq!(back.image_url.as_deref(), Some("https://cdn.example/art.jpg"));
-        assert_eq!(back.file_size, Some(5_242_880));
 
         let legacy: BundleTrack =
             serde_json::from_str(r#"{"title":"T","artist":"A"}"#).unwrap();
         assert_eq!(legacy.image_url, None);
-        assert_eq!(legacy.file_size, None);
+
+        let with_old_size: BundleTrack =
+            serde_json::from_str(r#"{"title":"T","artist":"A","file_size":5242880}"#).unwrap();
+        assert_eq!(with_old_size.title, "T");
     }
 }

@@ -97,7 +97,7 @@ describe("buildManifest", () => {
 // fields exist for: it can have no cached thumb, because the thumb filename is
 // derived from the file URI and there is no URI to key one under — so before
 // this it came back from a restart with no artwork at all.
-describe("image_url / file_size round-trip", () => {
+describe("image_url round-trip", () => {
   it("carries a path-less entry's own artwork through a restart", () => {
     const entry = {
       key: "ext:7", path: null, title: "Roygbiv", artist_name: "Boards of Canada",
@@ -109,10 +109,13 @@ describe("image_url / file_size round-trip", () => {
     expect(restored[0].path).toBeNull();
   });
 
-  it("carries file_size, so a restored row keeps its size readout", () => {
-    const t = makeTrack({ file_size: 5_242_880 });
-    const restored = tracksFromManifest(buildManifest([t], null));
-    expect(restored[0].file_size).toBe(5_242_880);
+  // The size is looked up by the queue row, never stored: a manifest written
+  // while it was stored still restores, and the old value is not carried over.
+  it("persists no file size, and ignores one an older manifest carries", () => {
+    const m = buildManifest([makeTrack()], null);
+    expect(m.tracks[0]).not.toHaveProperty("file_size");
+    const old = { ...m, tracks: [{ ...m.tracks[0], file_size: 5_242_880 }] } as unknown as Manifest;
+    expect(tracksFromManifest(old)[0]).not.toHaveProperty("file_size");
   });
 
   it("leaves a library track's art to the entity cache", () => {
@@ -125,8 +128,8 @@ describe("image_url / file_size round-trip", () => {
     expect(tracksFromManifest(m)[0].image_url).toBeUndefined();
   });
 
-  // A manifest written before these fields existed must restore unchanged.
-  it("tolerates a manifest with neither field", () => {
+  // A manifest written before the field existed must restore unchanged.
+  it("tolerates a manifest without image_url", () => {
     const legacy: Manifest = {
       version: 1, title: "Old", type: "custom", created_at: "", created_by: null,
       cover: null,
@@ -134,7 +137,6 @@ describe("image_url / file_size round-trip", () => {
     };
     const restored = tracksFromManifest(legacy);
     expect(restored[0].image_url).toBeUndefined();
-    expect(restored[0].file_size).toBeNull();
   });
 
   // libraryId stays out of the manifest on purpose: SQLite reuses the rowids of

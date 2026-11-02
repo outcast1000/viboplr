@@ -18,8 +18,8 @@ export interface ManifestTrack {
    *  queue never sets: Rust names that from `file`). Optional so manifests
    *  written before it existed restore unchanged. */
   image_url?: string | null;
-  /** Bytes on disk, when known. Optional for the same reason. */
-  file_size?: number | null;
+  // No `file_size`: the queue row looks it up instead. Manifests written while
+  // it existed still carry one; it is ignored.
 }
 
 export interface Manifest {
@@ -160,7 +160,6 @@ export function buildManifest(queue: QueueTrack[], context: PlaylistContext | nu
       // tracks carry no `image_url` at all, so this is null for them and the
       // entity-image chain still owns their art.
       image_url: t.image_url ?? null,
-      file_size: t.file_size ?? null,
     })),
   };
 }
@@ -224,7 +223,6 @@ export function tracksFromManifest(manifest: Manifest): QueueTrack[] {
     // Library tracks have no `image_url`, so this is undefined for them and
     // their art still resolves via the entity cache.
     image_url: m.image_url ?? undefined,
-    file_size: m.file_size ?? null,
     // libraryId is intentionally NOT persisted or seeded here. A stored rowid
     // can go stale — SQLite reuses the ids of deleted rows — and a stale id is
     // worse than none, because consumers stop falling back. It is also

@@ -236,6 +236,7 @@ macro_rules! invoke_handler {
             commands::read_file_tags,
             commands::get_local_lyrics,
             commands::get_file_size,
+            commands::queue_entry_file_size,
             commands::get_track_extra_tags,
             commands::resolve_subsonic_download_url,
             commands::download_preview,

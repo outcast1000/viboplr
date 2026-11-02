@@ -101,7 +101,6 @@ pub fn export_mixtape_playlist_only(
             thumb: None,
             format: None,
             image_url: None,
-            file_size: None,
         }
     }).collect();
 

@@ -19,6 +19,7 @@ import { LikeDislikeButtons } from "./LikeDislikeButtons";
 import { showNativeMenu } from "../nativeMenu";
 import { buildQueueHeaderMenuSpecs } from "../contextMenu/buildQueueHeaderMenuSpecs";
 import { useAssignRef } from "../hooks/useLatestRef";
+import { useFileSize } from "../hooks/useFileSize";
 import "./QueuePanel.css";
 
 
@@ -108,6 +109,9 @@ const QueueRow = memo(function QueueRow({
     if (!el) return;
     return observeVisible(el, () => setVisible(true));
   }, [observeVisible]);
+  // Looked up once on screen (same gate as the art lookup): the library row's
+  // size, else the file on disk. Queue entries don't carry one.
+  const fileSize = useFileSize(t.path, visible);
 
   return (
     <div
@@ -190,7 +194,7 @@ const QueueRow = memo(function QueueRow({
                 </>
               )}
             </span>
-            {t.file_size != null && <span className="queue-item-size">{formatFileSize(t.file_size)}</span>}
+            {fileSize != null && <span className="queue-item-size">{formatFileSize(fileSize)}</span>}
           </div>
           {failure && !resolving ? (
             <button

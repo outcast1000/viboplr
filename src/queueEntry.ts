@@ -276,7 +276,6 @@ export function trackToQueueTrack(track: Track): QueueTrack {
     duration_secs: track.duration_secs ?? null,
     format: track.format ?? null,
     image_url: track.image_url,
-    file_size: track.file_size,
   };
 }
 

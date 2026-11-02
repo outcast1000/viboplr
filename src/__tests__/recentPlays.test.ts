@@ -283,12 +283,12 @@ describe("session lead track identity", () => {
 
 describe("cleanStoredSession", () => {
   it("strips the key and rowid a card saved before stripping existed still holds", () => {
-    const legacy = { ...session({ source: "track", name: "King Park" }), track: track({ key: "q:4", libraryId: 12856, file_size: 9_000_000 }) } as unknown as RecentPlaySession;
+    const legacy = { ...session({ source: "track", name: "King Park" }), track: track({ key: "q:4", libraryId: 12856, image_url: "https://cdn.example/a.jpg" }) } as unknown as RecentPlaySession;
     const cleaned = cleanStoredSession(legacy);
     expect(cleaned.track).not.toHaveProperty("key");
     expect(cleaned.track).not.toHaveProperty("libraryId");
     // Everything a card shows survives.
-    expect(cleaned.track?.file_size).toBe(9_000_000);
+    expect(cleaned.track?.image_url).toBe("https://cdn.example/a.jpg");
     expect(cleaned.track?.title).toBe("Song");
     expect(cleaned.name).toBe("King Park");
   });

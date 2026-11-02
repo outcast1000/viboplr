@@ -623,6 +623,30 @@ impl Database {
         query_tier(&sql, title_v)
     }
 
+    /// The library's stored size for the file a queue entry names (its full,
+    /// scheme-prefixed URI). `None` = no enabled library row for it, or a row
+    /// with no size.
+    ///
+    /// Indexed, unlike `find_track_id_by_path`: a queue row asks this as it
+    /// scrolls into view, so a scan per row was a scan per visible row. Each
+    /// enabled collection's URI prefix is `PATH_EXPR` with an empty track path
+    /// (derived, so it can't drift from how URIs are built); the URI is matched
+    /// against it and the rest looked up through the `(collection_id, path)`
+    /// unique index. A collection kind that stores full URIs has an empty
+    /// prefix, so the whole URI is its track path. Same tie-break (lowest
+    /// collection id) as the path lookups.
+    pub fn library_file_size(&self, full_path: &str) -> SqlResult<Option<i64>> {
+        let conn = self.reader();
+        let prefix = PATH_EXPR.replace("t.path", "''");
+        let sql = format!(
+            "WITH c AS (SELECT co.id AS id, {prefix} AS pfx FROM collections co WHERE co.enabled = 1)              SELECT t.file_size FROM c JOIN tracks t                ON t.collection_id = c.id AND t.path = substr(?1, length(c.pfx) + 1)              WHERE substr(?1, 1, length(c.pfx)) = c.pfx              ORDER BY c.id LIMIT 1"
+        );
+        Ok(conn
+            .query_row(&sql, params![full_path], |row| row.get::<_, Option<i64>>(0))
+            .optional()?
+            .flatten())
+    }
+
     pub fn find_track_id_by_path(&self, full_path: &str) -> SqlResult<Option<i64>> {
         let conn = self.reader();
         // ORDER BY mirrors `find_track_ids_by_paths`' tie-break: the same
@@ -1427,6 +1451,54 @@ mod tests {
             nulls.iter().map(|v| v as &dyn rusqlite::types::ToSql).collect();
         let rows = stmt.query_map(refs.as_slice(), |r| r.get::<_, String>(3)).unwrap();
         rows.collect::<SqlResult<Vec<_>>>().unwrap()
+    }
+
+    #[test]
+    fn test_library_file_size_finds_local_and_subsonic_rows_through_the_index() {
+        let db = Database::new_in_memory().unwrap();
+        let local = db
+            .add_collection("local", "music", Some("/music"), None, None, None, None, None)
+            .unwrap();
+        let sub = db
+            .add_collection("subsonic", "nas", None, Some("https://nas.example/"), None, None, None, None)
+            .unwrap();
+        let artist = db.get_or_create_artist("Low").unwrap();
+        db.upsert_track("Words.flac", "Words", Some(artist), None, None, None, Some("flac"), Some(31_000_000), None, Some(local.id), None)
+            .unwrap();
+        db.upsert_track("abc123", "Lazy", Some(artist), None, None, None, Some("mp3"), Some(4_000_000), None, Some(sub.id), None)
+            .unwrap();
+
+        // Each answer must agree with the path lookup about which row the URI names.
+        for (uri, size) in [("file:///music/Words.flac", 31_000_000), ("subsonic://nas.example/abc123", 4_000_000)] {
+            assert!(db.find_track_id_by_path(uri).unwrap().is_some(), "fixture must resolve {uri}");
+            assert_eq!(db.library_file_size(uri).unwrap(), Some(size), "{uri}");
+        }
+        // No row for the file → unknown, never a guess; a prefix alone is not a match.
+        assert_eq!(db.library_file_size("file:///music/Missing.flac").unwrap(), None);
+        assert_eq!(db.library_file_size("file:///music/").unwrap(), None);
+        assert_eq!(db.library_file_size("ytdlp://abc").unwrap(), None);
+
+        // A disabled collection's rows are not the library's answer.
+        db.update_collection(sub.id, "nas", false, 24, false).unwrap();
+        assert_eq!(db.library_file_size("subsonic://nas.example/abc123").unwrap(), None);
+
+        // Through the unique (collection_id, path) index, never a scan of tracks.
+        let prefix = PATH_EXPR.replace("t.path", "''");
+        let sql = format!(
+            "EXPLAIN QUERY PLAN WITH c AS (SELECT co.id AS id, {prefix} AS pfx FROM collections co WHERE co.enabled = 1)              SELECT t.file_size FROM c JOIN tracks t                ON t.collection_id = c.id AND t.path = substr(?1, length(c.pfx) + 1)              WHERE substr(?1, 1, length(c.pfx)) = c.pfx ORDER BY c.id LIMIT 1"
+        );
+        let conn = db.reader();
+        let mut stmt = conn.prepare(&sql).unwrap();
+        let plan: Vec<String> = stmt
+            .query_map(params!["file:///music/Words.flac"], |r| r.get::<_, String>(3))
+            .unwrap()
+            .collect::<SqlResult<_>>()
+            .unwrap();
+        assert!(
+            plan.iter().any(|d| d.contains("SEARCH t USING INDEX")),
+            "tracks must be searched through an index: {plan:?}"
+        );
+        assert!(!plan.iter().any(|d| d.starts_with("SCAN t")), "tracks scanned: {plan:?}");
     }
 
     /// The bulk lookup backs queue restore, which re-resolves every entry's

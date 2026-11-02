@@ -275,7 +275,6 @@ where
                 thumb: None,
                 format: None,
                 image_url: None,
-                file_size: None,
             });
         }
 
@@ -831,7 +830,6 @@ mod tests {
                 thumb: None,
                 format: None,
                 image_url: None,
-                file_size: None,
             }],
         );
         assert_eq!(manifest.version, 1);
@@ -1107,7 +1105,6 @@ mod tests {
                 thumb: Some("../escape.jpg".into()),
                 format: None,
                 image_url: None,
-                file_size: None,
             }],
         );
         {
@@ -1235,7 +1232,6 @@ mod tests {
                     thumb: Some(thumb.into()),
                     format: None,
                     image_url: None,
-                    file_size: None,
                 }],
             );
             let mut zip = ZipWriter::new(File::create(&path).unwrap());
@@ -1286,7 +1282,6 @@ mod tests {
             thumb: None,
             format: None,
             image_url: None,
-            file_size: None,
         };
         let manifest = build_manifest(
             "Gap".into(),

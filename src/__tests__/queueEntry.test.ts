@@ -342,6 +342,7 @@ describe("trackToQueueTrack", () => {
     expect("album_id" in qt).toBe(false);
     expect("artist_id" in qt).toBe(false);
     expect("collection_id" in qt).toBe(false);
+    expect("file_size" in qt).toBe(false); // looked up by the queue row, never copied
   });
 });
 
