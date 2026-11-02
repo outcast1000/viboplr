@@ -7,17 +7,22 @@
 // preview must show the frame AT the hovered timestamp, so it deliberately does not
 // use the `thumbnail` filter's "most representative frame" selection.
 //
-// One `ffmpeg` pass per video: `-skip_frame nokey` (decode keyframes only) keeps a
-// 1080p 5-minute source at ~0.3 s / ~85 MB peak, versus ~3.2 s / ~161 MB for a full
-// decode. The cost is granularity — grid slots that fall between keyframes repeat
-// the previous frame, which is harmless to render.
+// One `ffmpeg` run per video, and it SEEKS rather than reads the file through
+// (`PassMode::Seeks`): an ffconcat list names the source once per tile with an
+// `inpoint` at that tile's time, so the concat demuxer seeks to the keyframe at or
+// before each spot and `-skip_frame nokey` decodes only that keyframe. Cost follows
+// the tile count, not the length of the video. The pass it replaced decoded every
+// keyframe of the whole file and threw most away: on a 30-min 1080p file 3.8 s and
+// the whole 3.5 GB read, against 0.8 s here — and the gap only widens with length
+// and resolution, which is where the machine used to suffer.
 //
 // That saving depends on the decoder honouring `-skip_frame`, and libaom (the AV1
-// decoder an ffmpeg without libdav1d falls back to) ignores it: the "keyframe" pass
-// silently becomes a full decode. For those (`DECODERS_IGNORING_SKIP_FRAME`) the pass
-// is one short `-noaccurate_seek` ffmpeg per tile instead (`PassMode::SeekPerTile`),
-// bounded by the tile count. Either way ffmpeg runs below normal priority on half the
-// cores — a 4K decode will otherwise take the whole machine.
+// decoder an ffmpeg without libdav1d falls back to) ignores it: after every seek it
+// would decode on to the tile's time, up to a whole GOP. For those
+// (`DECODERS_IGNORING_SKIP_FRAME`) the pass is one short `-noaccurate_seek` ffmpeg per
+// tile instead (`PassMode::SeekPerTile`), which stops after the first frame. Either
+// way ffmpeg runs below normal priority on half the cores — a 4K decode will
+// otherwise take the whole machine.
 
 use std::path::{Path, PathBuf};
 
@@ -25,13 +30,26 @@ use crate::dependencies;
 
 /// Never generate tiles closer together than this, even for short videos.
 pub const MIN_INTERVAL_SECS: f64 = 10.0;
-/// Hard cap on tiles per video, so one sheet always suffices.
-pub const MAX_TILES: usize = 100;
+/// Hard cap on tiles per video, so one sheet always suffices. 36 fills a 6x6 grid
+/// at the full `MAX_TILE_WIDTH` inside `MAX_SHEET_WIDTH`, so every video gets the
+/// sharpest tile the budget allows. Fewer, larger tiles is the deliberate trade:
+/// the hover bubble shows one tile at 240px, and the seek pass costs per tile.
+pub const MAX_TILES: usize = 36;
+/// Videos shorter than this get no generated storyboard. A clip under a minute is
+/// scrubbed by eye, and its six tiles at the 10 s floor would add little. Sheets
+/// the source publishes itself (plugin schemes) are still shown — they cost nothing.
+pub const MIN_DURATION_SECS: f64 = 60.0;
+
+/// Whether a local video of this length gets a storyboard pass at all.
+pub fn worth_generating(duration_secs: f64) -> bool {
+    duration_secs >= MIN_DURATION_SECS
+}
 /// Sheet width budget. The single-sheet invariant means every tile must fit inside
-/// one image, so this is the real constraint on tile size. 2000 keeps the worst case
-/// (a 4:3 source at 10x10 => 2000x1500) comfortably inside desktop WebView texture
-/// limits.
-pub const MAX_SHEET_WIDTH: u32 = 2000;
+/// one image, so this is the real constraint on tile size. 2400 is six 400px
+/// columns — what `MAX_TILES` needs to keep every tile at `MAX_TILE_WIDTH` — and
+/// keeps the worst case (a 4:3 source at 6x6 => 2400x1800) comfortably inside
+/// desktop WebView texture limits.
+pub const MAX_SHEET_WIDTH: u32 = 2400;
 /// Ceiling on tile width, so short videos don't produce needlessly large sheets.
 /// 400 is set by the largest consumer: the detail-page hero art renders a tile
 /// cover-cropped into a ~240 px square, i.e. ~480 device px on retina.
@@ -39,10 +57,9 @@ pub const MAX_TILE_WIDTH: u32 = 400;
 
 /// Tile width for a grid of `cols` columns — as large as the sheet budget allows.
 ///
-/// Deliberately adaptive rather than fixed: the budget is per *sheet*, so a short
-/// video (5x5) affords 400 px tiles while only a long one (10x10) is squeezed to 200.
-/// A fixed 200 would have softened hero art on every video to accommodate the rare
-/// long one. Sheet pixel count — and so disk — stays roughly constant either way.
+/// With `MAX_TILES` at 36 no grid is wider than six columns, so every video gets the
+/// full 400px; the formula stays as the guard should the cap and the budget ever
+/// drift apart (`test_every_video_gets_the_full_tile_width` pins that they don't).
 pub fn tile_width(cols: usize) -> u32 {
     (MAX_SHEET_WIDTH / cols.max(1) as u32).min(MAX_TILE_WIDTH)
 }
@@ -95,14 +112,15 @@ fn dir(app_dir: &Path) -> PathBuf {
 /// a live take) and would then swap frames; `shelfVideoKey` in the frontend already
 /// keys by path for exactly this reason.
 ///
-/// The `v2::` prefix is a recipe stamp, the same device the waveform cache uses:
+/// The `v3::` prefix is a recipe stamp, the same device the waveform cache uses:
 /// **bump it whenever the tiles themselves change**, and every entry cut by the old
 /// recipe becomes an orphan that the startup `gc` sweeps, rather than a wrong sheet
 /// that outlives the fix. `v2` is the display-aspect scaling — `v1` sheets were cut
 /// with `scale=W:-2`, which stretched anamorphic sources, and there is no way to tell
-/// from a cached sheet whether its source was anamorphic.
+/// from a cached sheet whether its source was anamorphic. `v3` is the 36-tile cap:
+/// a `v2` sheet of a long video carries 100 tiles at 200px, softer in the bubble.
 fn key(track_path: &str) -> String {
-    format!("{:x}", md5::compute(format!("v2::{}", track_path)))
+    format!("{:x}", md5::compute(format!("v3::{}", track_path)))
 }
 
 fn sheet_path(app_dir: &Path, k: &str) -> PathBuf {
@@ -205,7 +223,7 @@ fn entry_key(path: &Path) -> Option<String> {
 /// Bump when anything about the tiles themselves changes — the interval/grid maths,
 /// the scale filter, the encoder. A partial cut by an older recipe cannot be extended
 /// by a newer one, and the seam would be the only symptom.
-const RESUME_RECIPE: u32 = 1;
+const RESUME_RECIPE: u32 = 2;
 
 /// Only keep a partial when the pass had already been running this long. What a
 /// resume saves is roughly the time already spent, and a typical music video's whole
@@ -461,9 +479,10 @@ fn decode_threads() -> String {
 /// How a pass gets its frames.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum PassMode {
-    /// One ffmpeg over the whole file with `-skip_frame nokey`: cheap only because
-    /// the decoder throws non-keyframes away unseen.
-    Keyframes,
+    /// One ffmpeg over an ffconcat list that seeks to each tile (`concat_list`),
+    /// decoding one keyframe per tile with `-skip_frame nokey` — cheap only because
+    /// the decoder throws non-keyframes away unseen. Cost follows the tile count.
+    Seeks,
     /// One short ffmpeg per tile: input-seek to the keyframe at or before the tile's
     /// time (`-noaccurate_seek`) and decode that single frame. Costs a process start
     /// per tile, but is bounded by the tile count whatever the decoder does.
@@ -471,10 +490,12 @@ enum PassMode {
 }
 
 /// Decoders that accept `-skip_frame nokey` and then decode every frame anyway.
-/// With one of these the keyframe pass becomes a full decode: on a 24-minute 4K60
-/// AV1 file under libaom (the decoder ffmpeg builds without libdav1d fall back to,
-/// e.g. gyan.dev's "essentials") it ran ~40 min at ~2.7 cores and ~1 GB, where a
-/// seek per tile took ~0.7 s each. libdav1d honours the flag and is not listed.
+/// With one of these the seek pass would decode on from each seek to its tile's time,
+/// up to a whole GOP per tile; the whole-file keyframe read it replaced became a full
+/// decode — a 24-minute 4K60 AV1 file under libaom (the decoder ffmpeg builds without
+/// libdav1d fall back to, e.g. gyan.dev's "essentials") ran ~40 min at ~2.7 cores and
+/// ~1 GB, where a seek per tile took ~0.7 s each. libdav1d honours the flag and is not
+/// listed.
 const DECODERS_IGNORING_SKIP_FRAME: &[&str] = &["libaom-av1"];
 
 /// The decoder ffmpeg names for the first video stream in its `-i` banner:
@@ -493,17 +514,17 @@ fn parse_video_decoder(ffmpeg_banner: &str) -> Option<String> {
 fn pass_mode_for(decoder: Option<&str>) -> PassMode {
     match decoder {
         Some(d) if DECODERS_IGNORING_SKIP_FRAME.contains(&d) => PassMode::SeekPerTile,
-        _ => PassMode::Keyframes,
+        _ => PassMode::Seeks,
     }
 }
 
-/// Asks ffmpeg which decoder it would use. Anything unreadable keeps the keyframe
+/// Asks ffmpeg which decoder it would use. Anything unreadable keeps the seek
 /// pass, which is right for every decoder not known to ignore `skip_frame`.
 fn probe_pass_mode(video_path: &Path) -> PassMode {
     let mut cmd = ffmpeg_command();
     cmd.args(["-hide_banner", "-i", &video_path.to_string_lossy()]);
     cmd.stdin(std::process::Stdio::null());
-    let Ok(out) = cmd.output() else { return PassMode::Keyframes };
+    let Ok(out) = cmd.output() else { return PassMode::Seeks };
     let decoder = parse_video_decoder(&String::from_utf8_lossy(&out.stderr));
     let mode = pass_mode_for(decoder.as_deref());
     if mode == PassMode::SeekPerTile {
@@ -681,26 +702,100 @@ impl Drop for InflightGuard {
     }
 }
 
-/// Frames in `dir` that are safely complete. The image2 muxer writes files in
-/// sequence and only opens frame N+1 after closing frame N, so while ffmpeg is
-/// still running the highest-numbered file may be mid-write and is held back;
-/// once it has exited (`finished`) everything on disk is complete.
+/// Frames in `dir` that are safely complete, as the unbroken run `001.jpg`,
+/// `002.jpg`, … from the start. The image2 muxer writes files in sequence and only
+/// opens frame N+1 after closing frame N, so while ffmpeg is still running the
+/// highest-numbered file may be mid-write and is held back; once it has exited
+/// (`finished`) everything on disk is complete.
+///
+/// The run stops at the first missing number. A seek pass names each file by its
+/// slot (`-frame_pts`), so a spot that produced no frame leaves a hole, and every
+/// consumer reads this list positionally — the progress events, the partial a
+/// cancel keeps — so a frame past the hole would be captioned with the wrong time.
+/// `fill_gaps` closes the holes once the pass is done.
 fn completed_frames(dir: &Path, finished: bool) -> Vec<String> {
     let Ok(entries) = std::fs::read_dir(dir) else { return Vec::new() };
-    let mut names: Vec<String> = entries
+    let mut numbered: Vec<(usize, String)> = entries
         .flatten()
         .filter_map(|e| {
             let p = e.path();
-            (p.extension().and_then(|x| x.to_str()) == Some("jpg"))
-                .then(|| p.to_string_lossy().to_string())
+            if p.extension().and_then(|x| x.to_str()) != Some("jpg") {
+                return None;
+            }
+            Some((frame_number(&p)?, p.to_string_lossy().to_string()))
         })
         .collect();
-    // %03d names sort lexicographically in frame order.
-    names.sort();
+    numbered.sort();
     if !finished {
-        names.pop();
+        numbered.pop();
     }
-    names
+    numbered
+        .into_iter()
+        .enumerate()
+        .take_while(|(i, (n, _))| *n == i + 1)
+        .map(|(_, (_, f))| f)
+        .collect()
+}
+
+/// `NNN` of a `NNN.jpg` frame file; `None` for anything else.
+fn frame_number(path: &Path) -> Option<usize> {
+    path.file_stem()?.to_str()?.parse().ok().filter(|&n| n > 0)
+}
+
+/// Close the holes a seek pass left (see `completed_frames`), so the run holds
+/// frames `1..=expected`. A missing slot repeats the frame before it — what the
+/// grid has always shown for a slot with no keyframe of its own — or, for a hole
+/// at the very start, the first frame after it. Returns whether anything was
+/// filled (the caller then composes the sheet itself, since ffmpeg's `tile` laid
+/// the frames out without the holes), or an error when the pass produced nothing.
+fn fill_gaps(dir: &Path, expected: usize) -> Result<bool, String> {
+    let path = |n: usize| dir.join(format!("{:03}.jpg", n));
+    let present: Vec<bool> = (1..=expected).map(|n| path(n).exists()).collect();
+    let Some(first) = present.iter().position(|&p| p) else {
+        return Err("no frames extracted".to_string());
+    };
+    let mut filled = false;
+    let mut source = first + 1;
+    for n in 1..=expected {
+        if present[n - 1] {
+            source = n;
+            continue;
+        }
+        std::fs::copy(path(source), path(n))
+            .map_err(|e| format!("Failed to fill storyboard slot {}: {}", n, e))?;
+        filled = true;
+    }
+    Ok(filled)
+}
+
+/// Spacing of the concat list's entries on the output timeline. Each entry's frame
+/// is the keyframe at or before its `inpoint`, so it lands up to one GOP *before*
+/// its slot's start; a slot this wide keeps any real GOP inside its own slot, and
+/// rounding the timestamp by it recovers the slot number exactly.
+const CONCAT_SLOT_SECS: u32 = 1000;
+
+/// `path` as an ffconcat string: single-quoted, with each `'` closed, escaped and
+/// reopened. Inside quotes everything else is literal, Windows backslashes too.
+fn ffconcat_quote(path: &str) -> String {
+    format!("'{}'", path.replace('\'', r"'\''"))
+}
+
+/// The ffconcat list behind a seek pass: the source once per tile from
+/// `start_tile`, each entry cut to the instant at its tile's time. `inpoint` makes
+/// the demuxer seek to the keyframe at or before it; the 1 ms `outpoint` drops every
+/// packet after it, so with `-skip_frame nokey` that keyframe is all that decodes.
+/// `duration` spaces the entries `CONCAT_SLOT_SECS` apart (see there).
+fn concat_list(video_path: &str, g: &Geometry, start_tile: usize) -> String {
+    let file = ffconcat_quote(video_path);
+    let mut list = String::from("ffconcat version 1.0\n");
+    for tile in start_tile..g.count {
+        let at = tile as f64 * g.interval_secs;
+        list.push_str(&format!(
+            "file {}\ninpoint {:.4}\noutpoint {:.4}\nduration {}\n",
+            file, at, at + 0.001, CONCAT_SLOT_SECS
+        ));
+    }
+    list
 }
 
 /// `completed_frames` paired with the tile index each file depicts. The pattern
@@ -823,7 +918,7 @@ fn wait_polling(
                     return Waited::Abandoned;
                 }
                 on_tick();
-                // 80ms, not something lazier: a typical music video's keyframe pass
+                // 80ms, not something lazier: a typical music video's seek pass
                 // finishes in ~0.3-0.5s, so a slow poll would collapse the whole
                 // progression into one late event.
                 std::thread::sleep(std::time::Duration::from_millis(80));
@@ -932,7 +1027,11 @@ fn generate(
     // undoes it, rounded to even for yuvj420p; `setsar=1` then stops the encoder
     // recording a non-square ratio that nothing downstream reads anyway.
     let scale = format!("scale={w}:trunc({w}/dar/2)*2,setsar=1", w = g.tile_w);
-    let mode = mode_override.unwrap_or_else(|| probe_pass_mode(video_path));
+    let mode = match mode_override.unwrap_or_else(|| probe_pass_mode(video_path)) {
+        // An ffconcat entry is one line, so a path with a line break can't be listed.
+        PassMode::Seeks if video_path.to_string_lossy().contains(['\n', '\r']) => PassMode::SeekPerTile,
+        m => m,
+    };
     let threads = decode_threads();
 
     // Every failure exit: the scratch frames and any half-written sheet go now.
@@ -958,54 +1057,61 @@ fn generate(
     };
 
     match mode {
-        PassMode::Keyframes => {
-            let mut cmd = ffmpeg_command();
-            cmd.args(["-hide_banner", "-loglevel", "error", "-y"]);
-            let seek = format!("{:.4}", start_tile as f64 * g.interval_secs);
-            if start_tile > 0 {
-                // Input seek, so the skipped span is never decoded — that saving is the whole
-                // point of resuming. Output timestamps restart at the seek point, so
-                // `fps=1/interval` lands the remaining tiles on the same grid as a
-                // straight-through pass.
-                cmd.args(["-ss", &seek]);
+        PassMode::Seeks => {
+            // The list lives in the scratch dir (`completed_frames` reads only `.jpg`), so
+            // it goes wherever the frames go. A resumed pass simply lists the remaining
+            // tiles: nothing before them is ever read.
+            let list_path = fdir.join("tiles.ffconcat");
+            if let Err(e) = std::fs::write(&list_path, concat_list(&video_path.to_string_lossy(), &g, start_tile)) {
+                discard_failed();
+                return Err(format!("Failed to write storyboard seek list: {}", e));
             }
+            // Each frame's timestamp becomes its slot number, 1-based, so `-frame_pts`
+            // names the file after its tile. Frames do NOT arrive in slot order: a
+            // decoder holds a picture back until the next one decodes, and an entry whose
+            // keyframe sits exactly on its `inpoint` came out after the next entry's
+            // (every third tile of a 4K HEVC test file). So nothing here may assume
+            // order — no "first frame per slot" filter (it dropped those late frames) and
+            // no `tile` filter (it lays frames out as they arrive); the sheet is composed
+            // from the files by number once the run is done. A spot that yields nothing
+            // leaves a hole rather than shifting later frames, and a second keyframe
+            // inside the 1 ms cut would just overwrite its own slot's file.
+            let pick = format!(
+                "settb=1,setpts='round(T/{slot})+1',{scale}[strip]",
+                slot = CONCAT_SLOT_SECS, scale = scale
+            );
+            let mut cmd = ffmpeg_command();
             cmd.args([
-                "-threads", &threads,
-                // Keyframes only — this is what makes one pass cheap. Must precede -i.
+                "-hide_banner", "-loglevel", "error", "-y",
+                // One decoder thread, not `decode_threads()`: each seek decodes a single
+                // frame, so frame threads have nothing to share and only hold memory —
+                // on a 10-min 4K HEVC file 1 thread peaked at 155 MB and 5 at 422 MB,
+                // both in 0.6 s.
+                "-threads", "1",
+                // Keyframes only: after each seek, the keyframe is all that decodes.
+                // Must precede -i.
                 "-skip_frame", "nokey",
-                "-i", &video_path.to_string_lossy(),
+                // Absolute paths in the list need `-safe 0`.
+                "-f", "concat", "-safe", "0",
+                "-i", &list_path.to_string_lossy(),
                 "-an",
             ]);
-            if start_tile > 0 {
-                // Resuming: frames only. A `tile` filter here would build a grid of just the
-                // remainder, so the finished sheet is composed from the partial plus these.
-                cmd.args([
-                    "-filter_complex", &format!("fps=1/{:.4},{}[strip]", g.interval_secs, scale),
-                    "-map", "[strip]",
-                    // Stops the decode at the last tile we still need instead of running to EOF.
-                    "-frames:v", &remaining.to_string(),
-                    "-c:v", "mjpeg", "-q:v", "5", "-pix_fmt", "yuvj420p",
-                    &frame_pattern,
-                ]);
-            } else {
-                cmd.args([
-                    // One decode pass, two outputs: the individual frames (progress, scratch)
-                    // and the tiled sheet (the cached artifact).
-                    "-filter_complex", &format!(
-                        "fps=1/{:.4},{},split=2[strip][grid];[grid]tile={}x{}[sheet]",
-                        g.interval_secs, scale, g.cols, g.rows
-                    ),
-                    // MJPEG unconditionally: `webp_supported()` is false on stock homebrew
-                    // ffmpeg, so the WebP path already falls back in practice. Sheets are small.
-                    "-map", "[strip]",
-                    "-c:v", "mjpeg", "-q:v", "5", "-pix_fmt", "yuvj420p",
-                    &frame_pattern,
-                    "-map", "[sheet]",
-                    "-frames:v", "1",
-                    "-c:v", "mjpeg", "-q:v", "5", "-pix_fmt", "yuvj420p",
-                    &out_str,
-                ]);
-            }
+            // MJPEG unconditionally: `webp_supported()` is false on stock homebrew
+            // ffmpeg, so the WebP path already falls back in practice. Frames are small.
+            // `-enc_time_base 1` keeps the slot-number timestamps intact for
+            // `-frame_pts` (the encoder would otherwise rescale them to the frame rate);
+            // the muxer logs the out-of-order ones as "non monotonically increasing dts"
+            // and writes them anyway. `-atomic_writing` renames each file into place
+            // once written, so with frames landing out of order, a `NNN.jpg` on disk is
+            // always a whole one (the temp name isn't `.jpg`, so nothing reads it).
+            cmd.args([
+                "-filter_complex", &pick,
+                "-map", "[strip]",
+                "-fps_mode", "passthrough", "-enc_time_base", "1", "-frame_pts", "1",
+                "-c:v", "mjpeg", "-q:v", "5", "-pix_fmt", "yuvj420p",
+                "-f", "image2", "-atomic_writing", "1",
+            ]);
+            cmd.arg(&frame_pattern);
             let (child, stderr_handle) = match spawn_published(cmd, track_path) {
                 Ok(c) => c,
                 Err(e) => {
@@ -1015,7 +1121,9 @@ fn generate(
             };
             let mut reported = 0usize;
             let waited = wait_polling(&child, track_path, cancellable, || {
-                let done = completed_frames(&fdir, false);
+                // `true`: atomic writing means every `NNN.jpg` present is complete; the
+                // newest file is not necessarily the highest-numbered one here.
+                let done = completed_frames(&fdir, true);
                 if done.len() > reported {
                     reported = done.len();
                     on_partial(start_tile, &done);
@@ -1035,6 +1143,17 @@ fn generate(
                 discard_failed();
                 return Err(format!("ffmpeg storyboard generation failed: {}", stderr_text));
             }
+            match fill_gaps(&fdir, remaining) {
+                Ok(true) => log::debug!(
+                    "Storyboard for {}: some spots yielded no frame, repeating neighbours",
+                    video_path.display()
+                ),
+                Ok(false) => {}
+                Err(e) => {
+                    discard_failed();
+                    return Err(format!("ffmpeg storyboard generation failed: {} {}", e, stderr_text.trim()));
+                }
+            }
         }
         PassMode::SeekPerTile => {
             for (n, tile) in (start_tile..g.count).enumerate() {
@@ -1045,7 +1164,7 @@ fn generate(
                 if cancellable && abandoned(track_path) {
                     return cancelled(tile_frames(&fdir, true, start_tile));
                 }
-                // Same %03d numbering the keyframe pass's image2 muxer uses, so
+                // Same %03d numbering the seek pass's image2 muxer uses, so
                 // `tile_frames` and the progress events read both alike.
                 let file = fdir.join(format!("{:03}.jpg", n + 1));
                 let at = format!("{:.4}", tile as f64 * g.interval_secs);
@@ -1055,7 +1174,7 @@ fn generate(
                     "-threads", &threads,
                     // Land on the keyframe at or before `at` and take it as decoded —
                     // without this ffmpeg decodes on up to `at`, up to a whole GOP.
-                    // The keyframe is also what the keyframe pass shows for this slot.
+                    // The keyframe is also what the seek pass shows for this slot.
                     "-noaccurate_seek",
                     "-ss", &at,
                     "-i", &video_path.to_string_lossy(),
@@ -1092,7 +1211,7 @@ fn generate(
                 if !status.success() || !file.exists() {
                     // One unreadable spot (a damaged GOP, a seek past the last
                     // keyframe) repeats the previous tile, as a slot between keyframes
-                    // does in the keyframe pass. With nothing before it in this run,
+                    // does in the seek pass. With nothing before it in this run,
                     // the failure is the source's, not the spot's.
                     let prev = (n > 0).then(|| fdir.join(format!("{:03}.jpg", n)));
                     match prev {
@@ -1114,12 +1233,13 @@ fn generate(
         }
     }
 
-    if resume.is_some() || mode == PassMode::SeekPerTile {
-        // Composed here rather than by ffmpeg's `tile` filter: a resumed run produced
-        // only the remaining frames (pasted after the partial), and a per-tile pass
-        // never had one ffmpeg see every frame. A short tail is not an error — `count`
-        // can over-claim the last tile by one, which the grid has always padded with
-        // black.
+    {
+        // Every sheet is composed here from the numbered frame files, never by ffmpeg's
+        // `tile` filter: a seek pass's frames arrive out of slot order (see `pick`
+        // above), a resumed run produced only the remaining frames (pasted after the
+        // partial), and a per-tile pass never had one ffmpeg see every frame. A short
+        // tail is not an error — `count` can over-claim the last tile by one, which the
+        // grid has always padded with black.
         let tail = tile_frames(&fdir, true, start_tile);
         let dims = match resume.as_ref() {
             Some(base) => Ok((base.tile_w, base.tile_h)),
@@ -1281,7 +1401,7 @@ mod tests {
 
     #[test]
     fn test_geometry_short_video_hits_min_interval() {
-        // 213s / 100 = 2.13s, below the 10s floor, so the floor wins.
+        // 213s / 36 = 5.9s, below the 10s floor, so the floor wins.
         let g = geometry(213.0);
         assert_eq!(g.interval_secs, 10.0);
         assert_eq!(g.count, 22); // ceil(21.3)
@@ -1294,17 +1414,92 @@ mod tests {
         // 3.1 hours: the cap binds and the interval stretches instead.
         let g = geometry(11138.0);
         assert_eq!(g.count, MAX_TILES);
-        assert_eq!(g.cols, 10);
-        assert_eq!(g.rows, 10);
-        assert!((g.interval_secs - 111.38).abs() < 0.01);
+        assert_eq!(g.cols, 6);
+        assert_eq!(g.rows, 6);
+        assert!((g.interval_secs - 11138.0 / 36.0).abs() < 0.01);
     }
 
     #[test]
     fn test_geometry_crossover_is_exactly_max_tiles_seconds() {
-        // Both constraints meet where duration = MIN_INTERVAL * MAX_TILES = 1000s.
-        let g = geometry(1000.0);
+        // Both constraints meet where duration = MIN_INTERVAL * MAX_TILES = 360s.
+        let g = geometry(360.0);
         assert_eq!(g.interval_secs, MIN_INTERVAL_SECS);
         assert_eq!(g.count, MAX_TILES);
+    }
+
+    #[test]
+    fn test_every_video_gets_the_full_tile_width() {
+        // The cap is what keeps tiles at 400px: no length reaches a sixth column.
+        for secs in [60.0, 213.0, 360.0, 1800.0, 11138.0, 86400.0] {
+            assert_eq!(geometry(secs).tile_w, MAX_TILE_WIDTH, "{secs}s");
+        }
+    }
+
+    #[test]
+    fn test_only_videos_of_a_minute_or_more_are_worth_a_pass() {
+        assert!(!worth_generating(0.0));
+        assert!(!worth_generating(59.9));
+        assert!(worth_generating(60.0));
+        assert!(worth_generating(3600.0));
+    }
+
+    #[test]
+    fn test_concat_list_seeks_once_per_remaining_tile() {
+        let g = geometry(1800.0);
+        let list = concat_list("/m/a.mp4", &g, 0);
+        assert!(list.starts_with("ffconcat version 1.0\n"));
+        assert_eq!(list.matches("file '/m/a.mp4'\n").count(), g.count);
+        let second = format!("inpoint {:.4}\noutpoint {:.4}\n", g.interval_secs, g.interval_secs + 0.001);
+        assert!(list.contains(&second), "tile 1 seeks to one interval in");
+        // Every entry claims a full slot, so slot numbers survive a GOP-early frame.
+        assert_eq!(list.matches(&format!("duration {}\n", CONCAT_SLOT_SECS)).count(), g.count);
+        // A resumed pass lists only what it still needs, starting at its tile.
+        let resumed = concat_list("/m/a.mp4", &g, 20);
+        assert_eq!(resumed.matches("file ").count(), g.count - 20);
+        assert!(resumed.contains(&format!("inpoint {:.4}\n", 20.0 * g.interval_secs)));
+    }
+
+    #[test]
+    fn test_ffconcat_quote_survives_quotes_and_backslashes() {
+        assert_eq!(ffconcat_quote("/m/plain.mp4"), "'/m/plain.mp4'");
+        assert_eq!(ffconcat_quote("/m/Don't Stop.mp4"), r"'/m/Don'\''t Stop.mp4'");
+        assert_eq!(ffconcat_quote(r"C:\Videos\a b.mkv"), r"'C:\Videos\a b.mkv'");
+    }
+
+    #[test]
+    fn test_completed_frames_stop_at_the_first_hole() {
+        let dir = tempfile::tempdir().unwrap();
+        let d = dir.path();
+        for n in ["001.jpg", "002.jpg", "004.jpg", "005.jpg"] {
+            std::fs::write(d.join(n), b"x").unwrap();
+        }
+        // Positional consumers must never see 004 as the third frame.
+        let done = completed_frames(d, true);
+        assert_eq!(done.len(), 2);
+        assert!(done[1].ends_with("002.jpg"));
+    }
+
+    #[test]
+    fn test_fill_gaps_repeats_the_neighbour_into_each_hole() {
+        let dir = tempfile::tempdir().unwrap();
+        let d = dir.path();
+        // Holes at the start, in the middle and at the end.
+        std::fs::write(d.join("002.jpg"), b"two").unwrap();
+        std::fs::write(d.join("004.jpg"), b"four").unwrap();
+        assert!(fill_gaps(d, 5).unwrap());
+        let read = |n: &str| std::fs::read(d.join(n)).unwrap();
+        assert_eq!(read("001.jpg"), b"two", "a leading hole takes the first frame after it");
+        assert_eq!(read("003.jpg"), b"two", "a hole repeats the frame before it");
+        assert_eq!(read("005.jpg"), b"four");
+        assert_eq!(completed_frames(d, true).len(), 5);
+        // Nothing missing: nothing to do, and the sheet ffmpeg tiled stands.
+        assert!(!fill_gaps(d, 5).unwrap());
+    }
+
+    #[test]
+    fn test_fill_gaps_with_no_frames_is_an_error() {
+        let dir = tempfile::tempdir().unwrap();
+        assert!(fill_gaps(dir.path(), 3).is_err());
     }
 
     #[test]
@@ -1730,7 +1925,9 @@ mod tests {
 
     /// Mid-pass cancellation against real ffmpeg: withdraw the only interest while
     /// frames are landing and the child must die, leaving no sheet and no scratch dir.
-    /// A 20-minute clip guarantees the pass is long enough to catch in the act.
+    /// Runs the per-tile mode: the seek pass is one child that finishes 36 tiles in
+    /// ~0.1 s on any clip a test can afford to encode, so a cancel can't be landed
+    /// mid-run reliably. The kill itself (`wait_polling`) is the same for both modes.
     /// `#[ignore]`d because it encodes a clip; self-skips when ffmpeg is absent.
     #[test]
     #[ignore]
@@ -1762,8 +1959,8 @@ mod tests {
         let mut partials = 0usize;
         let started = std::time::Instant::now();
         let mut cancelled_at = std::time::Duration::ZERO;
-        let res = generate_with_progress(
-            dir.path(), &track_path, &f, 1200.0, Some("req"),
+        let res = generate(
+            dir.path(), &track_path, &f, 1200.0, Some("req"), Some(PassMode::SeekPerTile),
             |_, _| {
                 partials += 1;
                 if partials == 1 {
@@ -2007,6 +2204,61 @@ mod tests {
         cmd.arg(path).status().map(|s| s.success()).unwrap_or(false)
     }
 
+    /// The seek pass must not assume frames arrive in slot order. HEVC (x265, open
+    /// GOP) holds a picture back until the next one decodes, so an entry whose
+    /// keyframe sits exactly on its `inpoint` comes out AFTER the next entry's — here
+    /// tiles at 0 s, 50 s, 100 s… (keyframes every 2 s, tiles every 16.67 s). A
+    /// "first frame per slot" filter dropped every one of those (24 of 36 tiles
+    /// survived) and `tile` laid frames out in arrival order. A dropped frame is filled
+    /// by repeating its neighbour, so the symptom this pins is two identical tiles side
+    /// by side; testsrc2 never shows the same picture twice 16 s apart.
+    /// `#[ignore]`d: encodes a clip; self-skips without ffmpeg or libx265.
+    #[test]
+    #[ignore]
+    fn test_seek_pass_keeps_frames_that_arrive_out_of_order() {
+        if !crate::video_frames::is_ffmpeg_available() {
+            eprintln!("[storyboard-test] SKIPPED — ffmpeg not available");
+            return;
+        }
+        let dir = tempfile::tempdir().unwrap();
+        let f = dir.path().join("hevc.mp4");
+        let secs = 600u32;
+        let ok = std::process::Command::new("ffmpeg")
+            .args([
+                "-hide_banner", "-loglevel", "error", "-f", "lavfi", "-i",
+                &format!("testsrc2=size=320x240:rate=30:duration={}", secs),
+                "-c:v", "libx265", "-preset", "ultrafast",
+                "-x265-params", "keyint=60:log-level=error",
+                "-pix_fmt", "yuv420p", "-y",
+            ])
+            .arg(&f)
+            .status()
+            .map(|s| s.success())
+            .unwrap_or(false);
+        if !ok {
+            eprintln!("[storyboard-test] SKIPPED — this ffmpeg can't encode HEVC (libx265)");
+            return;
+        }
+        let track_path = format!("file://{}", f.to_string_lossy());
+        let b = generate(dir.path(), &track_path, &f, secs as f64, None, Some(PassMode::Seeks), |_, _| {})
+            .expect("seek pass");
+        assert_eq!((b.count, b.cols, b.rows, b.tile_w), (MAX_TILES, 6, 6, MAX_TILE_WIDTH));
+        let sheet = image::open(&b.sheets[0]).unwrap().to_rgb8();
+        assert_eq!(sheet.width(), 6 * MAX_TILE_WIDTH);
+        let tile = |i: usize| {
+            let (x, y) = ((i % b.cols) as u32 * b.tile_w, (i / b.cols) as u32 * b.tile_h);
+            image::imageops::crop_imm(&sheet, x, y, b.tile_w, b.tile_h).to_image()
+        };
+        for i in 1..b.count {
+            let (a, c) = (tile(i - 1), tile(i));
+            let diff: u64 = a.pixels().zip(c.pixels())
+                .map(|(p, q)| p.0.iter().zip(q.0.iter()).map(|(x, y)| x.abs_diff(*y) as u64).sum::<u64>())
+                .sum();
+            let mean = diff as f64 / (a.width() * a.height() * 3) as f64;
+            assert!(mean > 2.0, "tiles {} and {} are the same picture (mean diff {mean:.2})", i - 1, i);
+        }
+    }
+
     /// Grey level at the centre of tile `idx`, as a rough integer.
     fn tile_luma(sheet: &Path, b: &Storyboard, idx: usize) -> i32 {
         let img = image::open(sheet).unwrap().to_rgb8();
@@ -2164,9 +2416,9 @@ mod tests {
 
     #[test]
     fn test_tile_width_fills_the_sheet_budget() {
-        // Short video (5x5) gets large tiles; only a long one (10x10) is squeezed.
-        assert_eq!(tile_width(5), 400);
-        assert_eq!(tile_width(10), 200);
+        // Up to the 6x6 cap every grid gets the full width; only a wider one is squeezed.
+        assert_eq!(tile_width(6), 400);
+        assert_eq!(tile_width(10), 240);
         // Capped so a 1- or 2-tile video doesn't produce an oversized sheet.
         assert_eq!(tile_width(1), MAX_TILE_WIDTH);
         assert_eq!(tile_width(2), MAX_TILE_WIDTH);
@@ -2197,28 +2449,28 @@ mod tests {
     }
 
     #[test]
-    fn test_decoders_that_honour_skip_frame_keep_the_keyframe_pass() {
+    fn test_decoders_that_honour_skip_frame_keep_the_seek_pass() {
         // ffmpeg names no decoder when it matches the codec, so the first parenthesis
         // is the profile — and that must never read as "ignores skip_frame".
         let h264 = "  Stream #0:0: Video: h264 (High) (avc1 / 0x31637661), yuv420p, 1920x1080";
         assert_eq!(parse_video_decoder(h264).as_deref(), Some("High"));
-        assert_eq!(pass_mode_for(parse_video_decoder(h264).as_deref()), PassMode::Keyframes);
+        assert_eq!(pass_mode_for(parse_video_decoder(h264).as_deref()), PassMode::Seeks);
         let dav1d = "  Stream #0:0: Video: av1 (libdav1d) (Main) (av01 / 0x31307661), yuv420p";
-        assert_eq!(pass_mode_for(parse_video_decoder(dav1d).as_deref()), PassMode::Keyframes);
+        assert_eq!(pass_mode_for(parse_video_decoder(dav1d).as_deref()), PassMode::Seeks);
         let bare = "  Stream #0:0: Video: mjpeg, yuvj420p, 640x480";
         assert_eq!(parse_video_decoder(bare), None);
-        assert_eq!(pass_mode_for(None), PassMode::Keyframes);
+        assert_eq!(pass_mode_for(None), PassMode::Seeks);
         assert_eq!(parse_video_decoder("no streams at all"), None);
     }
 
-    /// The per-tile pass must produce the same board the keyframe pass does: same
+    /// The per-tile pass must produce the same board the seek pass does: same
     /// geometry, same sheet size, and each tile sampling its own moment. The block
     /// clip's brightness encodes its own timeline, so tile greys are compared tile by
-    /// tile against the keyframe pass over the same file. `#[ignore]`d: encodes a
+    /// tile against the seek pass over the same file. `#[ignore]`d: encodes a
     /// clip; self-skips without ffmpeg.
     #[test]
     #[ignore]
-    fn test_seek_per_tile_pass_matches_the_keyframe_pass() {
+    fn test_seek_per_tile_pass_matches_the_seek_pass() {
         if !crate::video_frames::is_ffmpeg_available() {
             eprintln!("[storyboard-test] SKIPPED — ffmpeg not available");
             return;
@@ -2230,10 +2482,10 @@ mod tests {
         let track_path = format!("file://{}", f.to_string_lossy());
         let k = key(&track_path);
 
-        let keyframes = generate(dir.path(), &track_path, &f, secs as f64, None, Some(PassMode::Keyframes), |_, _| {})
-            .expect("keyframe pass");
-        let baseline: Vec<i32> = (0..keyframes.count)
-            .map(|i| tile_luma(&sheet_path(dir.path(), &k), &keyframes, i))
+        let seeks = generate(dir.path(), &track_path, &f, secs as f64, None, Some(PassMode::Seeks), |_, _| {})
+            .expect("seek pass");
+        let baseline: Vec<i32> = (0..seeks.count)
+            .map(|i| tile_luma(&sheet_path(dir.path(), &k), &seeks, i))
             .collect();
         delete_cached(dir.path(), &track_path);
 
@@ -2245,7 +2497,7 @@ mod tests {
         .expect("per-tile pass");
         assert_eq!(
             (seeked.count, seeked.cols, seeked.rows, seeked.tile_w, seeked.tile_h),
-            (keyframes.count, keyframes.cols, keyframes.rows, keyframes.tile_w, keyframes.tile_h)
+            (seeks.count, seeks.cols, seeks.rows, seeks.tile_w, seeks.tile_h)
         );
         assert_eq!(
             partials,
@@ -2255,14 +2507,14 @@ mod tests {
         assert!(!frames_dir(dir.path(), &k).exists(), "scratch frames dir must be cleaned up");
         for i in 0..seeked.count {
             let got = tile_luma(&sheet_path(dir.path(), &k), &seeked, i);
-            // The keyframe pass pads an over-claimed last slot black; the per-tile
+            // The seek pass pads an over-claimed last slot black; the per-tile
             // pass shows a frame there. Every other tile must agree.
             if i + 1 == seeked.count && baseline[i] <= 4 {
                 continue;
             }
             assert!(
                 (got - baseline[i]).abs() <= 3,
-                "tile {i}: per-tile grey {got} vs keyframe pass {}",
+                "tile {i}: per-tile grey {got} vs seek pass {}",
                 baseline[i]
             );
         }

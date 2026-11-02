@@ -20,6 +20,20 @@ export interface Storyboard {
   intervalSecs: number;
 }
 
+/** Mirrors the Rust `storyboard::MIN_DURATION_SECS`: local videos shorter than this
+ *  get no generated storyboard. */
+export const MIN_GENERATED_STORYBOARD_SECS = 60;
+
+/**
+ * Whether asking the backend to generate a storyboard is worth an invoke. A known
+ * short duration is answered here, so a short clip costs no ffmpeg probe at all; an
+ * unknown one (a file the scanner couldn't time) goes to the backend, which reads
+ * the real length and applies the same floor.
+ */
+export function worthGeneratingStoryboard(durationSecs: number | null | undefined): boolean {
+  return durationSecs == null || !(durationSecs > 0) || durationSecs >= MIN_GENERATED_STORYBOARD_SECS;
+}
+
 /** The subset of CSS a consumer spreads onto its box to show one tile. */
 export interface TileStyle {
   backgroundImage: string;

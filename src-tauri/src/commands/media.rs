@@ -984,6 +984,11 @@ pub async fn extract_storyboard(
         }
         let video_path = std::path::Path::new(bare);
         let duration = crate::video_frames::get_video_duration(video_path)?;
+        if !crate::storyboard::worth_generating(duration) {
+            // Under a minute: scrubbed by eye, so no pass. The seek bar keeps its
+            // plain surface, as for any video without a storyboard.
+            return Ok(StoryboardResult { status: "unsupported".to_string(), storyboard: None });
+        }
         let g = crate::storyboard::geometry(duration);
         // Every frame is scaled to the same size, so read it once (header only).
         let mut tile_dims: Option<(u32, u32)> = None;

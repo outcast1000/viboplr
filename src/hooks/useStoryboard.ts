@@ -3,7 +3,8 @@ import { invoke, convertFileSrc } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import type { Track, QueueTrack } from "../types";
 import { isVideoTrack } from "../utils";
-import { schemeOf, type Storyboard } from "../utils/storyboard";
+import { schemeOf, worthGeneratingStoryboard, type Storyboard } from "../utils/storyboard";
+import { useLatestRef } from "./useLatestRef";
 
 interface StoryboardResult {
   status: string; // "ok" | "unavailable" | "unsupported" | "cancelled"
@@ -93,6 +94,10 @@ export function useStoryboard(
 
   const path = track?.path ?? null;
   const isVideo = track ? isVideoTrack(track) : false;
+  // Read through a ref, not a dependency: a duration that lands late (a queue
+  // entry's metadata arriving) must not cancel and restart a pass in flight. The
+  // backend applies the same one-minute floor to the length it reads itself.
+  const durationRef = useLatestRef(track?.duration_secs ?? null);
 
   useEffect(() => {
     setState({ board: null, status: "idle", partial: null });
@@ -131,6 +136,12 @@ export function useStoryboard(
       // Nothing cached and generation is switched off: report it and decode nothing.
       if (!enabled) {
         setState({ board: null, status: "off", partial: null });
+        return;
+      }
+      // Under a minute: no pass (the backend applies the same floor when it has to
+      // read the length itself). The seek bar keeps its plain surface.
+      if (!worthGeneratingStoryboard(durationRef.current)) {
+        setState({ board: null, status: "unsupported", partial: null });
         return;
       }
       // Generation streams the frames it has extracted so far, so the filmstrip can
@@ -231,7 +242,7 @@ export function useStoryboard(
         pending = null;
       }
     };
-  }, [path, isVideo, resolveByUri, localPath, enabled]);
+  }, [path, isVideo, resolveByUri, localPath, enabled, durationRef]);
 
   return state;
 }

@@ -9,7 +9,8 @@ Two producers, **one data shape**:
 
 - **Plugin sources (YouTube et al.)** → the source's own published storyboard
   sprites. YouTube already generates these; we download and render them. No decoding.
-- **Local files** → one `ffmpeg` pass emits a sprite sheet (`fps=1/N,scale,tile=`).
+- **Local files** (a minute or longer) → one `ffmpeg` run that seeks to each tile
+  emits a sprite sheet (see "The seek pass" below; it replaced `fps=1/N,scale,tile=`).
 
 Both produce the same `Storyboard` descriptor, so the seek bar has exactly **one**
 renderer and the cache has exactly one entry type.
@@ -64,6 +65,60 @@ ytdlp plugin (`outcast1000/viboplr-ytdlp`, unreleased):
   1.0.3: on an older host the plugin omits this feature rather than being blocked.
 
 Still open (product calls, not blockers): see "Open questions".
+
+## The seek pass (2026-11-02)
+
+Supersedes the keyframe-pass recipe described under "Tier 2" below, whose cost grew
+with the video: it decoded every keyframe in the file to keep at most 100 of them, so
+long and high-resolution files took seconds of a full core and read the whole file.
+Owner decisions: **no pass for videos under a minute**, **at most 36 tiles at 400px**
+(the full tile width for every length — 6×6, which raised the sheet budget from 2000
+to 2400px; a 4:3 source's sheet is 2400×1800), **JPEG `-q:v 5` unchanged** for the
+frames, **hover bubble unchanged** (240px), and **all seeks in one ffmpeg run**.
+
+How the run works (`storyboard.rs` → `concat_list`, `PassMode::Seeks`):
+
+- An ffconcat list names the source once per tile: `inpoint <tile time>`,
+  `outpoint <tile time + 1 ms>`, `duration 1000`. The concat demuxer seeks to the
+  keyframe at or before each `inpoint`, the `outpoint` drops every later packet, and
+  `-skip_frame nokey` decodes only that keyframe. One process, one decoder, 36 seeks.
+- Each frame lands up to one GOP before its entry's start on the output timeline;
+  the 1000 s spacing keeps it inside its own slot, `setpts='round(T/1000)+1'` turns it
+  into the slot number and `-frame_pts` names the file after it. A spot that yields no
+  frame leaves a missing number, not a shifted strip: progress and partials read only
+  the unbroken run, and `fill_gaps` repeats a neighbour into each hole once the run
+  is done.
+- **Frames arrive out of slot order.** An HEVC (x265, open-GOP) decoder holds a picture
+  until the next one decodes, so an entry whose keyframe sits exactly on its `inpoint`
+  comes out *after* the next entry's — on a 10-min file with keyframes every 2 s and
+  tiles every 16.67 s, the tiles at 0, 50, 100 s… (`-flags low_delay` doesn't change
+  it; libx264 with B-frames didn't reorder). So the run assumes no order: no "first
+  frame per slot" `select` (it silently dropped every late frame, 24 of 36 survived),
+  no `tile` filter (it lays frames out as they arrive). Files are written with
+  `-atomic_writing`, and the sheet is always composed in Rust from the files by number.
+  The muxer logs the late frames as "non monotonically increasing dts" and writes them.
+- `-threads 1`: each seek decodes one frame, so frame threads only hold memory.
+
+Measured (M-series, ffmpeg 9.0.1, synthetic sources; the first table at 23 tiles,
+the cap at the time):
+
+| Source | Old keyframe pass | Seek pass |
+|---|---|---|
+| 30-min 1080p H.264, 3.5 GB, GOP 250 | 3.8 s, 3.8 s CPU, 55 MB | **0.4 s**, 0.3 s CPU, 70 MB |
+| 10-min 4K HEVC, GOP 60 | 6.3 s, 6.1 s CPU, 271 MB | **0.6 s**, 0.6 s CPU, 155 MB |
+| 3-min 720p H.264 | 1.4 s | **0.4 s** |
+
+At the 36-tile cap: 10-min 4K HEVC — the old pass 5.9 s at a full core; ffmpeg alone
+0.77 s and 169 MB; the whole release-build pass (decoder probe, seek run, Rust
+compose) **1.17 s**. 30-min 1080p: 0.32 s for ffmpeg.
+
+A tile now shows the keyframe at or before its time — the per-tile fallback's rule —
+where `fps=1/N` picked the nearest frame on its grid; on the 3-minute clip 12 of 18
+tiles came out byte-identical and the other 6 one keyframe apart.
+The AV1/libaom exception keeps the one-ffmpeg-per-tile mode, since libaom would decode
+on from each seek to the tile's time. The cache key went to `v3` (and
+`RESUME_RECIPE` to 2), so sheets cut by the old recipe are regenerated on next play
+and swept at startup.
 
 ## Switching it off, and stopping a pass
 

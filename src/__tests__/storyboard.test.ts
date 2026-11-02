@@ -8,8 +8,26 @@ import {
   spreadIndices,
   partialStoryboard,
   schemeOf,
+  worthGeneratingStoryboard,
+  MIN_GENERATED_STORYBOARD_SECS,
   type Storyboard,
 } from "../utils/storyboard";
+
+describe("worthGeneratingStoryboard", () => {
+  it("skips a video known to be under a minute", () => {
+    expect(MIN_GENERATED_STORYBOARD_SECS).toBe(60);
+    expect(worthGeneratingStoryboard(45)).toBe(false);
+    expect(worthGeneratingStoryboard(59.9)).toBe(false);
+    expect(worthGeneratingStoryboard(60)).toBe(true);
+    expect(worthGeneratingStoryboard(3600)).toBe(true);
+  });
+
+  it("leaves an unknown length to the backend, which reads the real one", () => {
+    expect(worthGeneratingStoryboard(null)).toBe(true);
+    expect(worthGeneratingStoryboard(undefined)).toBe(true);
+    expect(worthGeneratingStoryboard(0)).toBe(true);
+  });
+});
 
 // Matches what the Rust producer emits for a 213s 16:9 video at the 10s floor:
 // 22 real tiles in a 5x5 grid (3 padded slots), one sheet, 200x112 tiles.
