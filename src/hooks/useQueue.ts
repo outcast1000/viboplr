@@ -338,7 +338,12 @@ export function useQueue(
     // one song. The gapless preload needs no help: driveProgressMachine
     // re-checks peekNext()'s key every tick and re-arms against the new queue.
     const playingNow = startIndex === 0 && dedupedTracks.length > 0 ? getPlayingTrack?.() ?? null : null;
-    const continues = playingNow !== null && sameSong(playingNow, dedupedTracks[0]);
+    // Two different files of one song (a studio cut and a live take, both
+    // "Pearl Jam — Jeremy") are two recordings, not one: picking the other is
+    // "play this now". Only a matching or unknown path (a metadata-only radio
+    // seed) continues.
+    const continues = playingNow !== null && sameSong(playingNow, dedupedTracks[0])
+      && !(playingNow.path && dedupedTracks[0].path && playingNow.path !== dedupedTracks[0].path);
     if (continues && dedupedTracks[0].key !== playingNow.key && !seen.has(playingNow.key)) {
       dedupedTracks[0] = { ...dedupedTracks[0], key: playingNow.key };
     }

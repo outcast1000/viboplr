@@ -114,6 +114,25 @@ describe("playTracks continuation", () => {
     expect(handlePlay).toHaveBeenCalledTimes(1);
   });
 
+  // Same title + artist, different file (studio vs live take): a different
+  // recording, so picking it plays it instead of relabelling the queue.
+  it("restarts when the same song opens from a different file", () => {
+    const { hook, handlePlay } = mountQueue(() => makeTrack(1));
+    act(() => {
+      hook.result.current.playTracks([makeTrack(1, { key: "lib:99", path: "file:///live/song-1.mp3" })], 0);
+    });
+    expect(handlePlay).toHaveBeenCalledTimes(1);
+    expect(handlePlay.mock.calls[0][0]).toMatchObject({ path: "file:///live/song-1.mp3" });
+  });
+
+  it("continues for a path-less seed of the playing song", () => {
+    const { hook, handlePlay } = mountQueue(() => makeTrack(1));
+    act(() => {
+      hook.result.current.playTracks([makeTrack(1, { key: "q:7", path: null }), makeTrack(2)], 0);
+    });
+    expect(handlePlay).not.toHaveBeenCalled();
+  });
+
   // An explicit click deeper into a list is "play this now", even when it lands
   // on the song already playing — only the first entry qualifies.
   it("restarts on an explicit start deeper in the list", () => {
