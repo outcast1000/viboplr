@@ -1,6 +1,6 @@
 import { useRef, useLayoutEffect } from "react";
 import type { Track, QueueTrack } from "../types";
-import type { PluginViewData, TrackRowItem, PluginMenuItem, PluginContextMenuTarget } from "../types/plugin";
+import type { PluginViewData, TrackRowItem, PluginMenuItem, PluginContextMenuTarget, RowMenuAction } from "../types/plugin";
 import {
   PluginTrackList,
   PluginCardGrid,
@@ -43,7 +43,7 @@ interface PluginViewRendererProps {
   onPlayTrack?: (track: Track) => void;
   onAction?: (actionId: string, data?: unknown) => void;
   onTrackContextMenu?: (e: React.MouseEvent, track: Track) => void;
-  onTrackRowContextMenu?: (e: React.MouseEvent, items: TrackRowItem[]) => void;
+  onTrackRowContextMenu?: (e: React.MouseEvent, items: TrackRowItem[], rowActions?: RowMenuAction[]) => void;
   onTrackRowsDragStart?: (items: TrackRowItem[]) => void;
   pluginMenuItems?: PluginMenuItem[];
   onPluginAction?: (pluginId: string, actionId: string, target: PluginContextMenuTarget) => void;
@@ -210,7 +210,7 @@ interface PluginViewNodeProps {
   onPlayTrack?: (track: Track) => void;
   onAction?: (actionId: string, data?: unknown) => void;
   onTrackContextMenu?: (e: React.MouseEvent, track: Track) => void;
-  onTrackRowContextMenu?: (e: React.MouseEvent, items: TrackRowItem[]) => void;
+  onTrackRowContextMenu?: (e: React.MouseEvent, items: TrackRowItem[], rowActions?: RowMenuAction[]) => void;
   onTrackRowsDragStart?: (items: TrackRowItem[]) => void;
   pluginMenuItems?: PluginMenuItem[];
   onPluginAction?: (pluginId: string, actionId: string, target: PluginContextMenuTarget) => void;

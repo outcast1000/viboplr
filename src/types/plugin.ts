@@ -457,6 +457,14 @@ export interface LineSeries {
   color?: string;
 }
 
+/** One of a plugin list row's own actions (a hover button), offered in the
+ *  row's right-click menu — built by `pluginViews.rowMenuActions`. */
+export interface RowMenuAction {
+  id: string;
+  label: string;
+  run: () => void;
+}
+
 export interface TrackRowItem {
   id: string;
   title: string;

@@ -514,6 +514,8 @@ See "Entity System > Context Menu Consistency" for how context menus work across
 
 Plugin-registered actions appear on all applicable targets automatically, minus any the user turned off per-item in Extensions → Contributions. Search providers are user-configurable (built-in and custom).
 
+**A plugin list row's own actions lead its menu.** A `track-row-list` row's hover buttons (Soulseek's "Download" of that exact file) are also the first items of its right-click menu, above Play / Enqueue / Play Next and the plugin items — `pluginViews.rowMenuActions`, which uses the selection toolbar's rule for several rows ("Download (3)" runs on the rows that offer it) and the hover button's payload for one. Before, they were reachable by hover alone. A row action named like one of the host items (Soulseek's "Play") **replaces** that item (`hostItemsNotShadowed`): the row's version knows the row (a finished file, a kept fallback copy) and is what its ▶ runs, where the host's only has the row's names and path to resolve. Pinned by `__tests__/rowMenuActions.test.ts` + `pluginRowContextMenuActions.test.tsx`.
+
 ## Skin System
 
 Skins control all colors via CSS custom properties on `:root`.

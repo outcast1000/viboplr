@@ -129,7 +129,7 @@ import { useLikeActions } from "./hooks/useLikeActions";
 import { useControlApi } from "./hooks/useControlApi";
 import { useCollectionActions } from "./hooks/useCollectionActions";
 import { useContextMenuActions } from "./hooks/useContextMenuActions";
-import type { PluginTrack, PluginBadge, PluginPlayContext, ReplaceTrackFileRequest, ReplaceTrackFileResult, TrackRowItem } from "./types/plugin";
+import type { PluginTrack, PluginBadge, PluginPlayContext, ReplaceTrackFileRequest, ReplaceTrackFileResult, RowMenuAction, TrackRowItem } from "./types/plugin";
 import { ReplaceTrackFileModal } from "./components/ReplaceTrackFileModal";
 import { isTrackBeingReplaced, type StagedReplacement } from "./utils/replaceTrackFile";
 import { HOST_SEARCH_ACTION } from "./types/plugin";
@@ -189,6 +189,7 @@ import { PluginViewHeader } from "./components/PluginViewHeader";
 import { DevPluginBanner } from "./components/DevPluginBanner";
 import { resolvePluginViewHeader } from "./utils/pluginViewHeader";
 import type { PluginSearchSeed } from "./components/pluginViews/pluginViews";
+import { hostItemsNotShadowed } from "./components/pluginViews/pluginViews";
 import { VisualizerSlot } from "./components/VisualizerSlot";
 import { AudioFullscreen } from "./components/AudioFullscreen";
 import {
@@ -4880,16 +4881,27 @@ function App() {
     onTrackContextMenu: (e: React.MouseEvent, track: Track) => {
       buildAndShowNativeMenu({ x: e.clientX, y: e.clientY, target: { kind: "track", trackId: track.id ?? undefined, isLocal: isLocalTrack(track), title: track.title, artistName: track.artist_name, albumTitle: track.album_title ?? null } });
     },
-    onTrackRowContextMenu: (e: React.MouseEvent, items: TrackRowItem[]) => {
+    onTrackRowContextMenu: (e: React.MouseEvent, items: TrackRowItem[], rowActions?: RowMenuAction[]) => {
       // Metadata-only rows (no DB id) → act directly on synthesized
       // QueueTracks (the id-based context-menu Play/Enqueue would no-op).
       const qts = items.map(trackRowToQueueTrack);
       if (qts.length === 0) return;
       const n = qts.length;
-      const specs: MenuItemSpec[] = [
+      const host: MenuItemSpec[] = [
         { kind: "item", text: n > 1 ? `Play ${n} tracks` : "Play", action: () => queueHook.playTracks(qts, 0) },
         { kind: "item", text: n > 1 ? `Enqueue ${n} tracks` : "Enqueue", action: () => queueHook.enqueueTracks(qts) },
         { kind: "item", text: "Play Next", action: () => { for (let i = qts.length - 1; i >= 0; i--) queueHook.playNextInQueue(qts[i]); } },
+      ];
+      // The rows' own actions first — the hover buttons, otherwise reachable
+      // only with a pointer that can hover. A row action named like one of
+      // the host items (Soulseek's "Play") replaces that item, so the menu has
+      // one Play and it does what the row's ▶ does. See `rowMenuActions` /
+      // `hostItemsNotShadowed`.
+      const own: MenuItemSpec[] = (rowActions ?? []).map((a) => ({ kind: "item", text: a.label, action: a.run }));
+      const specs: MenuItemSpec[] = [
+        ...own,
+        ...(own.length > 0 ? [{ kind: "separator" } as MenuItemSpec] : []),
+        ...hostItemsNotShadowed(host, rowActions ?? []),
       ];
       // Append plugin-registered actions (Universal Track Actions). A
       // single row carries metadata for plugins to act on; a multi-row

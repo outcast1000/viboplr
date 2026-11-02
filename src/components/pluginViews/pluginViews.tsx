@@ -5,7 +5,8 @@ import { ToggleSwitch } from "../ToggleSwitch";
 import { useState, useCallback, useEffect, useRef, useId } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import type { Track, QueueTrack } from "../../types";
-import type { CardGridItem, StatItem, TrackRowItem, BarChartDatum, LineSeries, PluginMenuItem, PluginContextMenuTarget } from "../../types/plugin";
+import type { CardGridItem, StatItem, TrackRowItem, BarChartDatum, LineSeries, PluginMenuItem, PluginContextMenuTarget, RowMenuAction } from "../../types/plugin";
+export type { RowMenuAction };
 import { showNativeMenu, type MenuItemSpec } from "../../nativeMenu";
 import { formatDuration } from "../../utils";
 import { computeSelection as computeSelectionGeneric } from "../../utils/rowSelection";
@@ -565,8 +566,9 @@ interface PluginTrackRowListProps {
   contextMenu?: boolean;
   onAction?: (actionId: string, data?: unknown) => void;
   // Right-click on a row. Passes the full selection (the right-clicked row plus
-  // any other selected rows) so the host can build a single- or multi-track menu.
-  onContextMenu?: (e: React.MouseEvent, items: TrackRowItem[]) => void;
+  // any other selected rows) so the host can build a single- or multi-track menu,
+  // and the rows' own actions (`rowMenuActions`) for the top of that menu.
+  onContextMenu?: (e: React.MouseEvent, items: TrackRowItem[], rowActions?: RowMenuAction[]) => void;
   // Drag rows onto the queue panel. Receives the dragged rows (the selection if
   // the dragged row is part of a multi-selection, else just that row).
   onRowsDragStart?: (items: TrackRowItem[]) => void;
@@ -669,6 +671,54 @@ export function toolbarActionIds<T extends { id: string; actions?: string[] }>(
   return items
     .filter((it) => selected.has(it.id) && (!it.actions || it.actions.includes(actionId)))
     .map((it) => it.id);
+}
+
+/**
+ * The host's own menu items (Play, Enqueue…) minus any a row action already
+ * offers under the same label, matched ignoring case and spacing. The row's
+ * version wins: it is what the row's hover button runs, and it knows the row
+ * (Soulseek's "Play" plays the finished file or the kept fallback copy), where
+ * the host's only has the row's title, artist and path to resolve. Without
+ * this the menu showed two Plays that did different things. Exported for unit
+ * testing.
+ */
+export function hostItemsNotShadowed<T extends { kind: string; text?: string }>(host: T[], rowActions: RowMenuAction[]): T[] {
+  const fold = (s: string) => s.replace(/\s+/g, " ").trim().toLowerCase();
+  const taken = new Set(rowActions.map((a) => fold(a.label)));
+  return host.filter((h) => h.text === undefined || !taken.has(fold(h.text)));
+}
+
+/**
+ * A row's own actions (the hover buttons), for the right-click menu over
+ * `targets` — the right-clicked row, or the selection it belongs to. An action
+ * is offered when any target row shows it and runs on just those rows, the
+ * same rule as the selection toolbar (`toolbarActionIds`); the payload is the
+ * hover button's for a single row. A multi-row entry names its count, so
+ * "Download (3)" says what it will do.
+ *
+ * Without this the menu offered only Play / Enqueue and the general plugin
+ * items, so a row's own action — Soulseek's "Download" of that exact file —
+ * was reachable by hover alone. Exported for unit testing.
+ */
+export function rowMenuActions(
+  declared: { id: string; label: string }[] | undefined,
+  targets: { id: string; actions?: string[] }[],
+  onAction: ((actionId: string, data?: unknown) => void) | undefined,
+): RowMenuAction[] {
+  if (!declared || declared.length === 0 || !onAction || targets.length === 0) return [];
+  const targetIds = new Set(targets.map((t) => t.id));
+  const out: RowMenuAction[] = [];
+  for (const a of declared) {
+    const ids = toolbarActionIds(a.id, targets, targetIds);
+    if (ids.length === 0) continue;
+    const payload = targets.length === 1 ? { selectedIds: ids, itemId: ids[0] } : { selectedIds: ids };
+    out.push({
+      id: a.id,
+      label: ids.length > 1 ? `${a.label} (${ids.length})` : a.label,
+      run: () => onAction(a.id, payload),
+    });
+  }
+  return out;
 }
 
 export function rowClickOpens(
@@ -907,7 +957,8 @@ function PluginTrackRowsSelectable({
       lastClickedIndexRef.current = index;
       setActiveIndex(index);
     }
-    onContextMenu?.(e, items.filter(it => targetIds.has(it.id)));
+    const targets = items.filter(it => targetIds.has(it.id));
+    onContextMenu?.(e, targets, rowMenuActions(actions, targets, onAction));
   }
 
   function moveActive(next: number, extend: boolean) {

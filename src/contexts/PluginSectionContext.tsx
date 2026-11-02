@@ -1,6 +1,6 @@
 import { createContext, useContext, type MouseEvent } from "react";
 import type { QueueTrack, Track } from "../types";
-import type { PluginContextMenuTarget, PluginMenuItem, TrackRowItem } from "../types/plugin";
+import type { PluginContextMenuTarget, PluginMenuItem, RowMenuAction, TrackRowItem } from "../types/plugin";
 
 /** What a plugin view's track rows do — play, the track menus (with every
  *  plugin's items), drag to the queue. One set, shared by sidebar views and
@@ -8,7 +8,8 @@ import type { PluginContextMenuTarget, PluginMenuItem, TrackRowItem } from "../t
 export interface PluginTrackHandlers {
   onPlayTrack: (track: Track) => void;
   onTrackContextMenu: (e: MouseEvent, track: Track) => void;
-  onTrackRowContextMenu: (e: MouseEvent, items: TrackRowItem[]) => void;
+  /** `rowActions`: the rows' own hover actions, offered first in the menu. */
+  onTrackRowContextMenu: (e: MouseEvent, items: TrackRowItem[], rowActions?: RowMenuAction[]) => void;
   onTrackRowsDragStart: (items: TrackRowItem[]) => void;
   /** Cards' pass-through menus: the plugin items, already filtered by the
    *  user's Contributions toggles (`plugins.menuItems`). */
