@@ -32,20 +32,8 @@
   transition: filter 0.16s ease;
 }
 
-/* Frames ahead of the playhead. Only a token knock-back — enough to register, not
-   enough to obscure. Progress is carried by .filmstrip-rail-lit below, so this does
-   NOT have to be legible as a colour front on its own; the old
-   `grayscale(0.8) brightness(0.5)` multiplied already-dim footage into mud. The
-   boundary lands on a frame edge, which suits a filmstrip — the needle carries the
-   exact position. */
-.filmstrip-cell--ahead {
-  filter: grayscale(0.12) brightness(0.92);
-}
-
-/* Frames the source hasn't downloaded yet. Must come AFTER --ahead: an unbuffered
-   cell always carries both classes, the two selectors have equal specificity, and
-   `filter` does not compose across rules — so source order is what makes this one
-   win. Restated in full rather than layered for that reason. */
+/* Frames the source hasn't downloaded yet: a mild knock-back, with the hatch below as
+   the actual signal. */
 .filmstrip-cell--unbuffered {
   filter: grayscale(0.5) brightness(0.78);
 }
@@ -63,6 +51,20 @@
     transparent 0 3px,
     rgba(var(--overlay-base), 0.12) 3px 6px
   );
+}
+
+/* The played run: a black scrim from the left edge to the playhead, width set inline
+   from the same quantized progress as .filmstrip-rail-lit. Black on every skin, not an
+   --overlay-* token — it sits over video, whose surround is --video-bg (black), so a
+   light skin's inverse would wash the footage out instead of shading it. Drawn after
+   the cells and before the rails and playhead, so those stay at full strength. */
+.filmstrip-shade {
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.58);
+  transition: width 0.16s linear;
 }
 
 /* Perforation rails. They overlay the frames top and bottom, which is what buys the
@@ -149,5 +151,6 @@
 
 @media (prefers-reduced-motion: reduce) {
   .filmstrip-cell,
+  .filmstrip-shade,
   .filmstrip-rail-lit { transition: none; }
 }

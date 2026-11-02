@@ -17,8 +17,8 @@ interface FilmstripSeekBarProps {
   /** Cursor position as a 0..1 fraction, or null when not hovering. */
   hoverPct?: number | null;
   /** How far the source has downloaded, as a 0..1 fraction, or null when the
-   *  engine can't say (any local file). Frames past the edge are knocked back
-   *  further than the ordinary ahead-of-playhead treatment. This matters more
+   *  engine can't say (any local file). Frames past the edge are hatched and
+   *  knocked back. This matters more
    *  here than on the audio bars: a storyboard means a streamed video, which
    *  is the source most likely to stall. */
   bufferedPct?: number | null;
@@ -107,18 +107,19 @@ export function planCells(
  * A video's seek bar: the storyboard itself, laid out as a filmstrip.
  *
  * Video never gets a waveform (`useWaveform` bails on it outright), so there is nothing
- * to overlay here — the frames are the seek surface. Which is why **progress is not drawn
- * by dimming them**: the frames are the content, and degrading the content to signal
- * position made the unplayed run unreadable (worst on dark footage, where the old
- * `brightness(0.5)` — and `brightness(0.25)` past the buffered edge — bottomed out at
- * black). Progress gets its own channel instead: the bottom perforation rail fills with
- * the accent behind the playhead. Frames ahead take only a token knock-back, enough to
- * register at a glance without obscuring anything.
+ * to overlay here — the frames are the seek surface. Progress is a **black scrim over the
+ * played run**, ending exactly at the needle (not snapped to a frame edge). Dimming the
+ * frames *ahead* was tried first and rejected: those are the ones worth reading, since
+ * that is where a seek goes, and the old `brightness(0.5)` on them bottomed out at black
+ * on dark footage — while the later token knock-back (8%) was too faint to show where the
+ * playhead was. The scrim keeps everything ahead at full brightness and makes the split
+ * obvious. It is black on every skin because it sits over video, not the panel. The
+ * bottom perforation rail still fills with the accent behind the playhead as a second cue.
  *
  * Frames past the *buffered* edge are marked with a hatch (see the CSS) rather than more
  * darkness, so "not downloaded yet" is a texture instead of another step toward black.
- * Both boundaries land on a frame edge (they test the cell midpoint), which suits a
- * filmstrip — the needle carries the exact position.
+ * That boundary lands on a frame edge (it tests the cell midpoint), which suits a
+ * filmstrip. It is normally ahead of the playhead, so it rarely meets the scrim.
  *
  * Tiles are drawn with background offsets rather than a canvas, matching `StoryboardTile`
  * — nothing reads pixels, so cross-origin (plugin-supplied) sheets never taint anything.
@@ -151,6 +152,7 @@ export function FilmstripSeekBar({
   );
 
   const clamped = Math.min(1, Math.max(0, progress));
+  const playedWidth = `${quantizeFraction(clamped, RAIL_STEPS) * 100}%`;
   // Null (no engine report) means the whole strip counts as available, which is
   // the pre-existing single-step rendering.
   const bufferedEdge = bufferedPct != null ? Math.min(1, Math.max(0, bufferedPct)) : 1;
@@ -161,17 +163,20 @@ export function FilmstripSeekBar({
         {cells.map((c, i) => (
           <div
             key={i}
-            className={`filmstrip-cell${c.mid > clamped ? " filmstrip-cell--ahead" : ""}${c.mid > bufferedEdge ? " filmstrip-cell--unbuffered" : ""}`}
+            className={`filmstrip-cell${c.mid > bufferedEdge ? " filmstrip-cell--unbuffered" : ""}`}
             style={{ ...(c.style ?? undefined), width: c.width }}
           />
         ))}
       </div>
 
+      {/* The played run, shaded. Sits under the rails and the playhead so neither is dimmed. */}
+      <div className="filmstrip-shade" style={{ width: playedWidth }} />
+
       <div className="filmstrip-rail filmstrip-rail--top" style={{ height: rail }} />
       <div className="filmstrip-rail filmstrip-rail--bottom" style={{ height: rail }}>
         {/* The progress channel. Lives on the rail rather than over the frames so it
             costs no picture area — the same trade that buys the carets their space. */}
-        <i className="filmstrip-rail-lit" style={{ width: `${quantizeFraction(clamped, RAIL_STEPS) * 100}%` }} />
+        <i className="filmstrip-rail-lit" style={{ width: playedWidth }} />
       </div>
 
       {hoverPct != null && (
