@@ -15,7 +15,7 @@ import { resolveImageUrl } from "../../utils/resolveImageUrl";
 import { resolveTrackImage } from "../../utils/trackImage";
 import { useImageCache } from "../../hooks/useImageCache";
 import { usePointerFocusGuard } from "../../hooks/usePointerFocusGuard";
-import { normalizeRowBadge, rowProgressPercent } from "../../utils/pluginRowStatus";
+import { normalizeRowBadge, rowProgress } from "../../utils/pluginRowStatus";
 import { sanitizeHTML } from "./htmlSanitize";
 import { buildPluginMenuSpecs } from "../../contextMenu/pluginMenuGroups";
 import {
@@ -1328,7 +1328,12 @@ export function PluginTrackRowsBody({
 function RowBadge({ item }: { item: TrackRowItem }) {
   const badge = normalizeRowBadge(item.badge);
   if (!badge) return null;
-  return <span className={`ptr-badge ptr-badge--${badge.variant}`}>{badge.label}</span>;
+  return (
+    <span className={`ptr-badge ptr-badge--${badge.variant}${badge.pulse ? " ptr-badge--pulse" : ""}`}>
+      {badge.pulse && <span className="ptr-badge-dot" aria-hidden="true" />}
+      {badge.label}
+    </span>
+  );
 }
 
 // The subtitle with the chip in front of it, or undefined when there is
@@ -1341,12 +1346,20 @@ function rowSubtitle(item: TrackRowItem) {
 
 // The thin bar under the subtitle for work under way. Nothing when the plugin
 // reported no figure — a bar at 0% for "unknown" would state a fact nobody gave.
+// "indeterminate" is the plugin saying the work moves without a figure: a sweep.
 function RowProgress({ item }: { item: TrackRowItem }) {
-  const pct = rowProgressPercent(item.progress);
-  if (pct == null) return null;
+  const p = rowProgress(item.progress);
+  if (!p) return null;
+  if (p.kind === "indeterminate") {
+    return (
+      <span className="ptr-progress ptr-progress--indeterminate" role="progressbar" aria-valuemin={0} aria-valuemax={100}>
+        <span className="ptr-progress-fill ds-motion-essential" />
+      </span>
+    );
+  }
   return (
-    <span className="ptr-progress" role="progressbar" aria-valuemin={0} aria-valuemax={100} aria-valuenow={pct}>
-      <span className="ptr-progress-fill" style={{ width: `${pct}%` }} />
+    <span className="ptr-progress" role="progressbar" aria-valuemin={0} aria-valuemax={100} aria-valuenow={p.percent}>
+      <span className="ptr-progress-fill" style={{ width: `${p.percent}%` }} />
     </span>
   );
 }

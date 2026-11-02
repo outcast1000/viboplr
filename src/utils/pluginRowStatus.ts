@@ -14,13 +14,15 @@ export const ROW_BADGE_MAX_CHARS = 24;
 export interface RowBadge {
   label: string;
   variant: RowBadgeVariant;
+  /** The state is live (work under way): the chip carries a pulsing dot. */
+  pulse: boolean;
 }
 
 /** The chip to draw, or null. An unknown variant draws as `default` rather
  * than vanishing — the word is the information, the colour only a hint. */
 export function normalizeRowBadge(raw: unknown): RowBadge | null {
   if (!raw || typeof raw !== "object") return null;
-  const r = raw as { label?: unknown; variant?: unknown };
+  const r = raw as { label?: unknown; variant?: unknown; pulse?: unknown };
   if (typeof r.label !== "string") return null;
   const label = r.label.trim();
   if (!label) return null;
@@ -28,6 +30,7 @@ export function normalizeRowBadge(raw: unknown): RowBadge | null {
   return {
     label: label.length > ROW_BADGE_MAX_CHARS ? label.slice(0, ROW_BADGE_MAX_CHARS - 1) + "…" : label,
     variant,
+    pulse: r.pulse === true,
   };
 }
 
@@ -37,4 +40,17 @@ export function normalizeRowBadge(raw: unknown): RowBadge | null {
 export function rowProgressPercent(raw: unknown): number | null {
   if (typeof raw !== "number" || !Number.isFinite(raw)) return null;
   return Math.round(Math.min(1, Math.max(0, raw)) * 1000) / 10;
+}
+
+/** The value a plugin passes for "under way, no figure to report". */
+export const ROW_PROGRESS_INDETERMINATE = "indeterminate";
+
+export type RowProgress = { kind: "determinate"; percent: number } | { kind: "indeterminate" };
+
+/** The bar to draw: a percent, the indeterminate sweep (the plugin said the
+ * work is moving but has no figure — a search, a check), or null for none. */
+export function rowProgress(raw: unknown): RowProgress | null {
+  if (raw === ROW_PROGRESS_INDETERMINATE) return { kind: "indeterminate" };
+  const percent = rowProgressPercent(raw);
+  return percent == null ? null : { kind: "determinate", percent };
 }

@@ -491,11 +491,16 @@ export interface TrackRowItem {
   // start of the subtitle line, so a list can be scanned for state instead of
   // read row by row. The variant is a colour hint over skin tokens; the label
   // carries the meaning (≤ 24 chars, longer is ellipsised). Older hosts ignore it.
-  badge?: { label: string; variant?: "default" | "accent" | "success" | "warning" | "error" | "muted" };
+  // `pulse: true` marks a live state (searching, downloading) with a pulsing
+  // dot in the chip; older hosts draw the plain chip.
+  badge?: { label: string; variant?: "default" | "accent" | "success" | "warning" | "error" | "muted"; pulse?: boolean };
   // 0–1: a thin bar under the subtitle, for a row whose work is under way (a
-  // download). Omit or null for no bar — never 0 for "unknown". Older hosts
-  // ignore it, so keep the percentage in the subtitle text as well.
-  progress?: number | null;
+  // download). "indeterminate": the work is moving but there's no figure (a
+  // search, a check) — the bar sweeps. Omit or null for no bar — never 0 for
+  // "unknown", and never "indeterminate" for a row that is only waiting.
+  // Older hosts ignore it (and draw nothing for "indeterminate"), so keep the
+  // state and percentage in the subtitle text as well.
+  progress?: number | "indeterminate" | null;
 }
 
 /** One step of an assistant turn's work — a tool call, or interim model text

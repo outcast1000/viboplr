@@ -2,7 +2,7 @@ import { afterEach, describe, it, expect, vi } from "vitest";
 import { cleanup, render } from "@testing-library/react";
 import { PluginViewRenderer } from "../components/PluginViewRenderer";
 import type { PluginViewData, TrackRowItem } from "../types/plugin";
-import { normalizeRowBadge, rowProgressPercent, ROW_BADGE_MAX_CHARS } from "../utils/pluginRowStatus";
+import { normalizeRowBadge, rowProgress, rowProgressPercent, ROW_BADGE_MAX_CHARS } from "../utils/pluginRowStatus";
 
 vi.mock("@tauri-apps/api/core", () => ({
   invoke: vi.fn().mockResolvedValue(null),
@@ -18,17 +18,21 @@ afterEach(cleanup);
 
 describe("normalizeRowBadge", () => {
   it("keeps a label and a known variant", () => {
-    expect(normalizeRowBadge({ label: "Waiting", variant: "warning" })).toEqual({ label: "Waiting", variant: "warning" });
+    expect(normalizeRowBadge({ label: "Waiting", variant: "warning" })).toEqual({ label: "Waiting", variant: "warning", pulse: false });
   });
   it("draws an unknown or missing variant as default rather than dropping the word", () => {
-    expect(normalizeRowBadge({ label: "Ready", variant: "neon" })).toEqual({ label: "Ready", variant: "default" });
-    expect(normalizeRowBadge({ label: "Ready" })).toEqual({ label: "Ready", variant: "default" });
+    expect(normalizeRowBadge({ label: "Ready", variant: "neon" })).toEqual({ label: "Ready", variant: "default", pulse: false });
+    expect(normalizeRowBadge({ label: "Ready" })).toEqual({ label: "Ready", variant: "default", pulse: false });
   });
   it("drops what it can't draw honestly", () => {
     expect(normalizeRowBadge(null)).toBeNull();
     expect(normalizeRowBadge("Waiting")).toBeNull();
     expect(normalizeRowBadge({ label: "   " })).toBeNull();
     expect(normalizeRowBadge({ label: 42 })).toBeNull();
+  });
+  it("pulses only for a literal true", () => {
+    expect(normalizeRowBadge({ label: "Searching", pulse: true })!.pulse).toBe(true);
+    expect(normalizeRowBadge({ label: "Searching", pulse: "yes" })!.pulse).toBe(false);
   });
   it("ellipsises a long label so it can't crowd the subtitle", () => {
     const b = normalizeRowBadge({ label: "x".repeat(60) });
@@ -53,6 +57,20 @@ describe("rowProgressPercent", () => {
     expect(rowProgressPercent(Number.NaN)).toBeNull();
     expect(rowProgressPercent(Infinity)).toBeNull();
     expect(rowProgressPercent("0.5")).toBeNull();
+  });
+});
+
+describe("rowProgress", () => {
+  it("passes a figure through as determinate", () => {
+    expect(rowProgress(0.5)).toEqual({ kind: "determinate", percent: 50 });
+  });
+  it("reads \"indeterminate\" as the sweep", () => {
+    expect(rowProgress("indeterminate")).toEqual({ kind: "indeterminate" });
+  });
+  it("draws nothing for anything else", () => {
+    expect(rowProgress(null)).toBeNull();
+    expect(rowProgress("busy")).toBeNull();
+    expect(rowProgress(Number.NaN)).toBeNull();
   });
 });
 
@@ -93,5 +111,19 @@ describe("track-row-list badge + progress", () => {
   it("a badge alone still gets a secondary line", () => {
     const { container } = renderList([{ id: "x", title: "T", badge: { label: "Failed", variant: "error" } }], true);
     expect(container.querySelector(".ptr-badge--error")!.textContent).toBe("Failed");
+  });
+
+  it("draws a pulsing chip and an indeterminate sweep", () => {
+    const { container } = renderList([
+      { id: "s", title: "Searching", subtitle: "Searching Soulseek", badge: { label: "Searching", variant: "accent", pulse: true }, progress: "indeterminate" },
+    ], true);
+    const chip = container.querySelector(".ptr-badge")!;
+    expect(chip.className).toContain("ptr-badge--pulse");
+    expect(chip.querySelector(".ptr-badge-dot")).not.toBeNull();
+    expect(chip.textContent).toBe("Searching");
+    const bar = container.querySelector('[role="progressbar"]')!;
+    expect(bar.className).toContain("ptr-progress--indeterminate");
+    expect(bar.hasAttribute("aria-valuenow")).toBe(false);
+    expect(bar.querySelector(".ptr-progress-fill")!.className).toContain("ds-motion-essential");
   });
 });

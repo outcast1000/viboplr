@@ -1263,6 +1263,22 @@
 .ptr-badge--warning { color: var(--warning); background: color-mix(in srgb, var(--warning) 16%, transparent); }
 .ptr-badge--error { color: var(--error); background: color-mix(in srgb, var(--error) 16%, transparent); }
 .ptr-badge--muted { color: var(--text-tertiary); background: color-mix(in srgb, var(--text-tertiary) 12%, transparent); }
+/* A live state (`pulse: true`): a dot in the chip's own colour that breathes.
+   Under reduced motion it stays still — a static dot still reads as "live". */
+.ptr-badge-dot {
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  margin-right: 4px;
+  vertical-align: 1px;
+  border-radius: 50%;
+  background: currentColor;
+  animation: ptr-badge-pulse 1.4s ease-in-out infinite;
+}
+@keyframes ptr-badge-pulse {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.35; transform: scale(0.7); }
+}
 
 /* Thin, under the subtitle, inside the info column — so it spans the text,
    not the whole row, and the hover tray and meta keep their places. */
@@ -1283,4 +1299,12 @@
 }
 @media (prefers-reduced-motion: reduce) {
   .ptr-progress-fill { transition: none; }
+}
+/* No figure, work moving: a short fill swept across the track (ds-sweep).
+   `ds-motion-essential` in the markup keeps it moving under reduced motion —
+   a frozen sweep reads as a stuck bar. */
+.ptr-progress--indeterminate .ptr-progress-fill {
+  width: 35%;
+  transition: none;
+  animation: ds-sweep 1.4s ease-in-out infinite;
 }
