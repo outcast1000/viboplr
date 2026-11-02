@@ -1,6 +1,6 @@
 import type { LoadingPlay } from "../hooks/useQueue";
 import { LoadingElapsed } from "./LoadingPlay";
-import { memo, useCallback, useRef, useState, useEffect } from "react";
+import { memo, useCallback, useRef, useState, useEffect, type ReactNode } from "react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { resolveImageUrl } from "../utils/resolveImageUrl";
 import { usePlaybackPosition } from "../playback/positionStore";
@@ -45,21 +45,24 @@ const isMac = navigator.platform.includes("Mac");
 /** Album art that preloads the next image and crossfades it in once decoded, so
  *  a track change never flashes a blank frame while the new art is still
  *  loading. Keying the <img> on the *loaded* src (not the requested one) means
- *  the CSS `art-in` fade only runs against an already-decoded, cached image. */
-function CrossfadeArt({ src, className }: { src: string | undefined; className: string }) {
+ *  the CSS `art-in` fade only runs against an already-decoded, cached image.
+ *  A src that fails to load shows `fallback` (the placeholder) instead of a
+ *  broken image — a plugin can hand over an `image_url` whose file is gone. */
+export function CrossfadeArt({ src, className, fallback }: { src: string | undefined; className: string; fallback: ReactNode }) {
   const [loaded, setLoaded] = useState(src);
+  const [failed, setFailed] = useState<string | undefined>(undefined);
   useEffect(() => {
     if (!src || src === loaded) return;
     let cancelled = false;
     const img = new Image();
-    const settle = () => { if (!cancelled) setLoaded(src); };
-    img.onload = settle;
-    img.onerror = settle; // swap anyway so a broken url doesn't freeze old art
+    img.onload = () => { if (!cancelled) setLoaded(src); };
+    // Swap anyway so a broken url doesn't freeze the old art — onto the fallback.
+    img.onerror = () => { if (!cancelled) { setFailed(src); setLoaded(src); } };
     img.src = src;
     return () => { cancelled = true; };
   }, [src, loaded]);
-  if (!loaded) return null;
-  return <img className={className} key={loaded} src={loaded} alt="" />;
+  if (!loaded || failed === loaded) return <>{fallback}</>;
+  return <img className={className} key={loaded} src={loaded} alt="" onError={() => setFailed(loaded)} />;
 }
 
 // The mini progress line is at most 550 CSS px wide (the large mini width), and
@@ -241,6 +244,16 @@ export const NowPlayingBar = memo(function NowPlayingBar({
   // this bar, not the whole tree.
   const positionSecs = usePlaybackPosition();
   const buffer = usePlaybackBuffer();
+  const artPlaceholder = (
+    <div className="now-art now-art-placeholder">
+      <TrackArtFallback track={currentTrack ?? {}} size={24} />
+    </div>
+  );
+  const miniArtPlaceholder = (
+    <div className="now-mini-art now-mini-art-placeholder">
+      <TrackArtFallback track={currentTrack ?? {}} size={18} />
+    </div>
+  );
   const bufferedPct = bufferedFraction(buffer?.bufferedToSecs ?? null, durationSecs);
   const waitingForPlay = playbackWaiting && loadingPlay !== null;
   const miniDragTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -365,12 +378,8 @@ export const NowPlayingBar = memo(function NowPlayingBar({
             <div className="now-info">
               <div className="now-mini-art-wrapper">
                 {imagePath ? (
-                  <CrossfadeArt className="now-mini-art" src={resolveImageUrl(imagePath)} />
-                ) : (
-                  <div className="now-mini-art now-mini-art-placeholder">
-                    <TrackArtFallback track={currentTrack ?? {}} size={18} />
-                  </div>
-                )}
+                  <CrossfadeArt className="now-mini-art" src={resolveImageUrl(imagePath)} fallback={miniArtPlaceholder} />
+                ) : miniArtPlaceholder}
               </div>
               <div className="now-mini-info-text">
                 {playbackError ? (
@@ -595,12 +604,8 @@ export const NowPlayingBar = memo(function NowPlayingBar({
         <div className={`now-info${waitingForPlay ? " now-info--waiting" : ""}`}>
           <div className={`now-art-wrapper${playing ? " playing" : ""}`}>
             {imagePath ? (
-              <CrossfadeArt className="now-art" src={resolveImageUrl(imagePath)} />
-            ) : (
-              <div className="now-art now-art-placeholder">
-                <TrackArtFallback track={currentTrack ?? {}} size={24} />
-              </div>
-            )}
+              <CrossfadeArt className="now-art" src={resolveImageUrl(imagePath)} fallback={artPlaceholder} />
+            ) : artPlaceholder}
           </div>
           <div className="now-like-col">
             {currentTrack && (
