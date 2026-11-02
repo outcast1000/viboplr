@@ -1,11 +1,25 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import type { NotificationItem } from "../hooks/useToasts";
 import { relativeTime } from "../utils/assistantActivity";
+import { NoticeIcon } from "./NoticeIcon";
 import "./NotificationBell.css";
+
+/** Newest first, split at local midnight: "Today", then "Earlier". The list
+ *  is memory-only and capped, so two groups are all it ever needs. */
+export function groupByDay(items: NotificationItem[], now: number): { label: string; items: NotificationItem[] }[] {
+  const midnight = new Date(now);
+  midnight.setHours(0, 0, 0, 0);
+  const today = items.filter((i) => i.at >= midnight.getTime());
+  const earlier = items.filter((i) => i.at < midnight.getTime());
+  return [
+    ...(today.length ? [{ label: "Today", items: today }] : []),
+    ...(earlier.length ? [{ label: "Earlier", items: earlier }] : []),
+  ];
+}
 
 interface Props {
   items: NotificationItem[];
-  /** Ids that were unseen when the list opened — shown in bold this once. */
+  /** Ids that were unseen when the list opened — marked with a dot this once. */
   freshIds: ReadonlySet<number>;
   onClose: () => void;
   onAction: (id: number) => void;
@@ -15,7 +29,7 @@ interface Props {
 
 /**
  * The notifications list, dropped from the caption bar's bell. Newest first,
- * one list — nothing has to be cleared row by row (opening it is what clears
+ * grouped Today / Earlier, one list — nothing has to be cleared row by row (opening it is what clears
  * the bell), an action keeps its button until it has run, and Clear all
  * empties it. An informational panel rather than a menu, so it is a React
  * popover like `EqPopover`; any ⋯ action it gains must be a native menu.
@@ -88,31 +102,45 @@ export function NotificationsPanel({ items, freshIds, onClose, onAction, onRemov
         <div className="notifications-empty">No notifications. Anything Vibo, a plugin or the assistant tells you ends up here.</div>
       ) : (
         <ul className="notifications-list">
-          {items.map((item) => (
-            <li key={item.id} className={`notifications-row notice-tone--${item.kind}${freshIds.has(item.id) ? " is-fresh" : ""}`}>
-              <span className="notice-dot" aria-hidden="true" />
-              <div className="notifications-main">
-                <div className="notifications-message">
-                  {item.message}
-                  {item.count > 1 && <span className="toast-count">×{item.count}</span>}
-                </div>
-                <div className="notifications-meta">
-                  {item.source ? `${item.source} · ` : ""}
-                  {relativeTime(item.at, now)}
-                </div>
-                {item.action && (
-                  <div className="toast-actions">
-                    <button type="button" className="ds-btn ds-btn--primary ds-btn--sm" onClick={() => onAction(item.id)}>
-                      {item.action.label}
-                    </button>
-                  </div>
-                )}
-              </div>
-              <button type="button" className="toast-close" onClick={() => onRemove(item.id)} aria-label="Remove">
-                <svg viewBox="0 0 16 16" width="12" height="12" aria-hidden="true">
-                  <path d="M4 4l8 8M12 4l-8 8" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
-                </svg>
-              </button>
+          {groupByDay(items, now).map((group) => (
+            <li key={group.label} className="notifications-group">
+              <div className="notifications-group-label">{group.label}</div>
+              <ul className="notifications-group-rows">
+                {group.items.map((item) => {
+                  const fresh = freshIds.has(item.id);
+                  return (
+                    <li key={item.id} className={`notifications-row notice-tone--${item.kind}${fresh ? " is-fresh" : ""}`}>
+                      <NoticeIcon kind={item.kind} />
+                      <div className="notifications-main">
+                        <div className="notifications-message">
+                          {item.message}
+                          {item.count > 1 && <span className="toast-count">×{item.count}</span>}
+                        </div>
+                        <div className="notifications-meta">
+                          {item.source && <span className="notifications-source">{item.source}</span>}
+                          {item.source ? " · " : ""}
+                          {relativeTime(item.at, now)}
+                        </div>
+                        {item.action && (
+                          <div className="toast-actions">
+                            <button type="button" className="ds-btn ds-btn--secondary ds-btn--sm" onClick={() => onAction(item.id)}>
+                              {item.action.label}
+                            </button>
+                          </div>
+                        )}
+                      </div>
+                      <span className="notifications-end">
+                        {fresh && <span className="notifications-unread" aria-label="New" />}
+                        <button type="button" className="toast-close" onClick={() => onRemove(item.id)} aria-label="Remove">
+                          <svg viewBox="0 0 16 16" width="12" height="12" aria-hidden="true">
+                            <path d="M4 4l8 8M12 4l-8 8" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
+                          </svg>
+                        </button>
+                      </span>
+                    </li>
+                  );
+                })}
+              </ul>
             </li>
           ))}
         </ul>

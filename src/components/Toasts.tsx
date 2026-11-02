@@ -1,5 +1,6 @@
 import { useEffect, useLayoutEffect, useRef, type ReactNode } from "react";
 import type { CurrentToast } from "../hooks/useToasts";
+import { NoticeIcon } from "./NoticeIcon";
 
 interface Props {
   current: CurrentToast | null;
@@ -20,8 +21,9 @@ const CloseIcon = () => (
 /**
  * The one toast, in App's bottom-right `.notice-corner` to the left of the
  * assistant segment. It shows the **whole** message — a card that wraps, the
- * action on its own line under the text — because a truncated message was the
- * complaint. The text is selectable and clicking it does nothing; only ×
+ * action and the "+N more" link on their own line under the text — because a
+ * truncated message was the complaint. The kind is an icon (`NoticeIcon`), so
+ * info and success differ by shape as well as colour. The text is selectable and clicking it does nothing; only ×
  * dismisses.
  */
 export function Toasts({ current, onDismiss, onAction, onHold, onOpenList }: Props) {
@@ -84,36 +86,35 @@ function ToastCard({ current, onDismiss, onAction, onHold, onOpenList }: Props &
         if (!e.currentTarget.contains(e.relatedTarget as Node | null)) onHold("focus", false);
       }}
     >
-      <span className="notice-dot" aria-hidden="true" />
+      <NoticeIcon kind={item.kind} />
       <div className="toast-body">
-        <div className="toast-message">
+        <div className={`toast-message${item.source ? "" : " toast-message--solo"}`}>
           {item.source && <span className="toast-source">{item.source}</span>}
           {item.message}
           {item.count > 1 && <span className="toast-count">×{item.count}</span>}
         </div>
-        {item.action && (
+        {(item.action || extra > 0) && (
           <div className="toast-actions">
-            <button type="button" className="ds-btn ds-btn--primary ds-btn--sm" onClick={() => onAction(item.id)}>
-              {item.action.label}
-            </button>
+            {item.action && (
+              <button type="button" className="ds-btn ds-btn--primary ds-btn--sm" onClick={() => onAction(item.id)}>
+                {item.action.label}
+              </button>
+            )}
+            {extra > 0 && (
+              <button type="button" className="toast-more" onClick={onOpenList} title="Open notifications" aria-label={`${extra} more — open notifications`}>
+                <b>+{extra}</b> more
+              </button>
+            )}
           </div>
         )}
       </div>
-      <span className="toast-tools">
-        {extra > 0 && (
-          <button type="button" className="toast-more" onClick={onOpenList} title="Open notifications" aria-label={`${extra} more — open notifications`}>
-            +{extra}
-          </button>
-        )}
-        <button type="button" className="toast-close" onClick={onDismiss} aria-label="Dismiss">
-          <CloseIcon />
-        </button>
+      <button type="button" className="toast-close" onClick={onDismiss} aria-label="Dismiss">
+        <CloseIcon />
+      </button>
+      {/* The track stays put; only the fill counts down (and pauses while held). */}
+      <span className={`toast-timer${running ? "" : " toast-timer--held"}`} aria-hidden="true">
+        <span className="toast-timer-fill" style={{ animationDuration: `${durationMs}ms` }} />
       </span>
-      <span
-        className={`toast-timer${running ? "" : " toast-timer--held"}`}
-        style={{ animationDuration: `${durationMs}ms` }}
-        aria-hidden="true"
-      />
     </div>
   );
 }

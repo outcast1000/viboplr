@@ -12,6 +12,7 @@ import {
 } from "../hooks/useToasts";
 import { Toasts } from "../components/Toasts";
 import { NotificationBell } from "../components/NotificationBell";
+import { groupByDay } from "../components/NotificationsPanel";
 
 afterEach(() => {
   cleanup();
@@ -268,5 +269,40 @@ describe("plugin-supplied kinds", () => {
     expect(coerceToastKind("critical")).toBeUndefined();
     expect(coerceToastKind(undefined)).toBeUndefined();
     expect(coerceToastKind(3)).toBeUndefined();
+  });
+});
+
+describe("the notice look", () => {
+  it("draws the kind as an icon tile, and +N as a link beside the action", () => {
+    const onOpenList = vi.fn();
+    const { container, getByText } = renderToast(
+      toast({ kind: "warning", action: { label: "Start slskd", run: () => {} } }, 2),
+      { onOpenList },
+    );
+    expect(container.querySelector(".toast .notice-icon svg")).not.toBeNull();
+    const actions = container.querySelector(".toast-actions")!;
+    expect(actions.textContent).toContain("Start slskd");
+    expect(actions.querySelector(".toast-more")?.textContent).toBe("+2 more");
+    fireEvent.click(getByText("+2"));
+    expect(onOpenList).toHaveBeenCalled();
+  });
+
+  it("centres a message with no source on the icon", () => {
+    const { container, rerender } = renderToast(toast());
+    expect(container.querySelector(".toast-message")?.className).toContain("toast-message--solo");
+    rerender(<Toasts current={toast({ source: "Last.fm" })} onDismiss={() => {}} onAction={() => {}} onHold={() => {}} onOpenList={() => {}} />);
+    expect(container.querySelector(".toast-message")?.className).not.toContain("toast-message--solo");
+  });
+
+  it("splits the list at local midnight, newest first, and leaves out an empty group", () => {
+    const now = new Date(2026, 10, 2, 15, 0).getTime();
+    const item = (id: number, at: number) => ({ id, message: `m${id}`, kind: "info" as const, count: 1, at, unseen: false });
+    const groups = groupByDay(
+      [item(3, now - 60_000), item(2, new Date(2026, 10, 2, 0, 0).getTime()), item(1, new Date(2026, 10, 1, 23, 59).getTime())],
+      now,
+    );
+    expect(groups.map((g) => [g.label, g.items.map((i) => i.id)])).toEqual([["Today", [3, 2]], ["Earlier", [1]]]);
+    expect(groupByDay([item(1, now - 1000)], now).map((g) => g.label)).toEqual(["Today"]);
+    expect(groupByDay([], now)).toEqual([]);
   });
 });
