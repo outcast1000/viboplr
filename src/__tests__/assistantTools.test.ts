@@ -318,15 +318,15 @@ describe("cue_sheet sheetFile", () => {
     await runTool(cueTool, { action: "set", sheetFile: "/t.json" }, ctx);
     expect(request.mock.calls[0][2]).toMatchObject({ sheet: { track, author: "Claude", cues: CUES } });
     // The pre-1.0.93 argument name still lands as author.
-    await runTool(cueTool, { action: "set", cues: CUES, source: "Old client" }, ctx);
+    await runTool(cueTool, { action: "set", title: "Jóga", artistName: "Björk", cues: CUES, source: "Old client" }, ctx);
     expect(request.mock.calls[1][2]).toMatchObject({ author: "Old client" });
   });
 
   it("accepts a bare cues array, and a mode argument overrides the file's", async () => {
     const { ctx, request } = fileCtx({ "/a.json": JSON.stringify(CUES), "/b.json": JSON.stringify({ mode: "clip", cues: CUES }) });
-    await runTool(cueTool, { action: "set", sheetFile: "/a.json" }, ctx);
+    await runTool(cueTool, { action: "set", title: "Jóga", artistName: "Björk", sheetFile: "/a.json" }, ctx);
     expect(request.mock.calls[0][2]).toMatchObject({ sheet: { mode: undefined, cues: CUES } });
-    await runTool(cueTool, { action: "set", sheetFile: "/b.json", mode: "cards" }, ctx);
+    await runTool(cueTool, { action: "set", title: "Jóga", artistName: "Björk", sheetFile: "/b.json", mode: "cards" }, ctx);
     expect(request.mock.calls[1][2]).toMatchObject({ sheet: { mode: "cards", cues: CUES } });
   });
 

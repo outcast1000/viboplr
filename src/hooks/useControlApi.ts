@@ -52,7 +52,7 @@ import { getPlaybackPosition } from "../playback/positionStore";
 import { editTrackTags, writeFileMetadata, type FileMetadataEdit, type TagOpsDeps } from "../utils/tagOps";
 import { trackToQueueTrack, playlistTrackToQueueTrack, pluginTrackToQueueTrack, nextQueueKey, type PlaylistTrackRow } from "../queueEntry";
 import { toPlaylistTrackPayload } from "../utils/playlistPayload";
-import { cueCountBucket, cueErrorField, sameCueSong, splitSheetMeta, type CueSheetRow, type CueSheetTrack } from "../utils/cueSheet";
+import { cueCountBucket, cueErrorField, cueText, cueWriteSong, sameCueSong, splitSheetMeta, type CueSheetRow, type CueSheetTrack } from "../utils/cueSheet";
 import { saveCueSheet, type CueOpsDeps } from "../utils/cueOps";
 import { track } from "../telemetry";
 import { gatherCueContext } from "../utils/cueContext";
@@ -303,37 +303,27 @@ function optionalString(value: unknown): string | undefined {
   return typeof value === "string" && value.length > 0 ? value : undefined;
 }
 
-/** The song a cue-sheet verb addresses: `title` (+ `artistName`) from the
- *  request, else the playing track. */
+/** The song a cue-sheet **read** (`cues.get` / `cues.context`) addresses:
+ *  `title` (+ `artistName`) from the request, else the playing track. Writes
+ *  never default to the playing track — see `cueWriteSongOrBad`. */
 function cueSong(d: ControlApiDeps, payload: Record<string, unknown>): { title: string; artistName: string | null } {
-  const title = optionalString(payload.title);
-  if (title) return { title, artistName: optionalString(payload.artistName) ?? null };
+  const title = cueText(payload.title);
+  if (title) return { title, artistName: cueText(payload.artistName) };
   const t = d.playback.currentTrack ?? bad("nothing is playing — pass title (and artistName)");
   return { title: t.title, artistName: t.artist_name ?? null };
 }
 
-/** The song a `cues.set` addresses. The request's `title` / `artistName` win,
- *  then the sheet's own `track` block, then the playing track — and when the
- *  request and the block both name a song they must agree: a sheet file
- *  filed under whatever happens to be playing is the mistake the block is
- *  there to prevent. */
-function cueSetSong(
-  d: ControlApiDeps,
+/** The song a write (`cues.set` / `cues.delete`) addresses — never the
+ *  playing track (utils/cueSheet.ts → `cueWriteSong`); its refusal is a 400. */
+function cueWriteSongOrBad(
   payload: Record<string, unknown>,
   track: CueSheetTrack | null,
-): { title: string; artistName: string | null } {
-  const title = optionalString(payload.title);
-  if (!title || !track?.title) {
-    if (!title && track?.title) return { title: track.title, artistName: track.artistName ?? null };
-    return cueSong(d, payload);
+): { title: string; artistName: string } {
+  try {
+    return cueWriteSong(payload, track);
+  } catch (e) {
+    return bad(errorText(e));
   }
-  const artistName = optionalString(payload.artistName) ?? null;
-  const agree = sameCueSong({ title, artistName: artistName ?? track.artistName }, { title: track.title, artistName: track.artistName })
-    && (!artistName || !track.artistName || sameCueSong({ title, artistName }, { title, artistName: track.artistName }));
-  if (!agree) {
-    bad(`title/artistName (${artistName ?? "?"} — ${title}) name a different song from the sheet's track block (${track.artistName ?? "?"} — ${track.title}) — fix one, or leave one out`);
-  }
-  return { title, artistName: artistName ?? track.artistName ?? null };
 }
 
 function cueOpsDeps(d: ControlApiDeps): CueOpsDeps {
@@ -922,8 +912,10 @@ export function useControlApi(deps: ControlApiDeps) {
 
       // --- Now Playing cue sheets (cue_sheets.rs, utils/cueSheet.ts) ---
       //
-      // Song addressed by title (+ artistName), defaulting to what's playing.
-      // The writes are the cue_sheet_* commands themselves: they emit
+      // Song addressed by title + artistName. Reads (get, context) default to
+      // what's playing; writes (set, delete) never do — they go through
+      // `cueWriteSongOrBad`, so a save that took a minute to write can't land
+      // on the song that started meanwhile. The writes are the cue_sheet_* commands themselves: they emit
       // `cue-sheet-changed`, which is how the open Now Playing view reloads,
       // so there is no React state here to keep in step.
 
@@ -934,7 +926,7 @@ export function useControlApi(deps: ControlApiDeps) {
 
       case "cues.set": {
         if (payload.sheet === undefined) bad("sheet is required: { cues: [...] } — GET /v1/cues/context describes the format");
-        const song = cueSetSong(d, payload, splitSheetMeta(payload.sheet).track);
+        const song = cueWriteSongOrBad(payload, splitSheetMeta(payload.sheet).track);
         // Both outcomes are counted (anonymously: mode, cue-count bucket, the
         // rejected field's name) — whether assistants use this and where they
         // trip over the format is what the field test is for. No declared
@@ -954,7 +946,7 @@ export function useControlApi(deps: ControlApiDeps) {
       }
 
       case "cues.delete": {
-        const song = cueSong(d, payload);
+        const song = cueWriteSongOrBad(payload, null);
         return { deleted: await invoke<boolean>("cue_sheet_delete", song) };
       }
 

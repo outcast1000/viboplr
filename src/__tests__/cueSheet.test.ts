@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { activeCueIndex, cueCountBucket, cueCredit, cueEnd, cueErrorField, cuePastEndError, cueSheetDetails, cueTimingNote, DEFAULT_CUE_SECS, sameCueSong, splitSheetMeta, type Cue } from "../utils/cueSheet";
+import { activeCueIndex, cueCountBucket, cueCredit, cueEnd, cueErrorField, cuePastEndError, cueSheetDetails, cueTimingNote, cueWriteSong, CUE_WRITE_NEEDS_SONG, DEFAULT_CUE_SECS, sameCueSong, splitSheetMeta, type Cue } from "../utils/cueSheet";
 import { CONTEXT_IMAGE_CAP, galleryImages, lyricsForContext, proseText, PROSE_CHAR_CAP } from "../utils/cueContext";
 
 const cues: Cue[] = [
@@ -122,6 +122,40 @@ describe("cue telemetry labels", () => {
 
   it("buckets cue counts", () => {
     expect([1, 9, 10, 29, 30, 200].map(cueCountBucket)).toEqual(["1-9", "1-9", "10-29", "10-29", "30-99", "100+"]);
+  });
+});
+
+describe("cueWriteSong", () => {
+  it("never falls back to what's playing: a write names its song", () => {
+    // The bug this pins: an assistant wrote a sheet for one song and saved it
+    // without a title after playback had moved on — it replaced the sheet of
+    // the song playing by then.
+    expect(() => cueWriteSong({}, null)).toThrow(CUE_WRITE_NEEDS_SONG);
+    expect(() => cueWriteSong({ title: "  ", artistName: "Pearl Jam" }, null)).toThrow(CUE_WRITE_NEEDS_SONG);
+    expect(() => cueWriteSong({ artistName: "Pearl Jam" }, null)).toThrow(CUE_WRITE_NEEDS_SONG);
+    expect(() => cueWriteSong({}, {})).toThrow(CUE_WRITE_NEEDS_SONG);
+  });
+
+  it("needs the artist too — a sheet filed without one is never found", () => {
+    expect(() => cueWriteSong({ title: "Jeremy" }, null)).toThrow(CUE_WRITE_NEEDS_SONG);
+    expect(() => cueWriteSong({}, { title: "Jeremy" })).toThrow(CUE_WRITE_NEEDS_SONG);
+  });
+
+  it("takes each field from the request, else the sheet's track block", () => {
+    expect(cueWriteSong({ title: " Jeremy ", artistName: "Pearl Jam" }, null)).toEqual({ title: "Jeremy", artistName: "Pearl Jam" });
+    expect(cueWriteSong({}, { title: "Jeremy", artistName: "Pearl Jam" })).toEqual({ title: "Jeremy", artistName: "Pearl Jam" });
+    expect(cueWriteSong({ artistName: "Pearl Jam" }, { title: "Jeremy" })).toEqual({ title: "Jeremy", artistName: "Pearl Jam" });
+    expect(cueWriteSong({ title: "Jeremy" }, { title: "Jeremy", artistName: "Pearl Jam" })).toEqual({ title: "Jeremy", artistName: "Pearl Jam" });
+    // A block that leaves the artist out has nothing to disagree with.
+    expect(cueWriteSong({ title: "Jeremy", artistName: "Pearl Jam" }, { title: "Jeremy" })).toEqual({ title: "Jeremy", artistName: "Pearl Jam" });
+    // Accents and case are the same song.
+    expect(cueWriteSong({ title: "joga" }, { title: "Jóga", artistName: "Björk" })).toEqual({ title: "joga", artistName: "Björk" });
+  });
+
+  it("refuses a request and a block that name different songs", () => {
+    expect(() => cueWriteSong({ title: "Jeremy", artistName: "Pearl Jam" }, { title: "One Of These Days", artistName: "Pink Floyd" }))
+      .toThrow("different song");
+    expect(() => cueWriteSong({ artistName: "Pearl Jam" }, { title: "Jeremy", artistName: "Pink Floyd" })).toThrow("different song");
   });
 });
 

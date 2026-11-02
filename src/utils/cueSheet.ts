@@ -149,6 +149,41 @@ export function splitSheetMeta(raw: unknown): { sheet: unknown; track: CueSheetT
   return { sheet, track: out, author: (author as string | undefined) || null };
 }
 
+/** A song name from a request field: a trimmed, non-empty string, else null.
+ *  The one parse for every cue verb, so a read and a write agree on what a
+ *  title is (" Jeremy" and "Jeremy" are the same song, "  " is no song). */
+export function cueText(value: unknown): string | null {
+  return typeof value === "string" && value.trim() ? value.trim() : null;
+}
+
+/** The message a cue-sheet write gets when it doesn't name its song. */
+export const CUE_WRITE_NEEDS_SONG =
+  "name the song: pass title and artistName (for a save, a sheet track block also works). A save or delete never defaults to what's playing — " +
+  "playback can move on while a sheet is being written, and the write would land on that song instead";
+
+/** The song a cue-sheet **write** (`cues.set` / `cues.delete`) addresses: the
+ *  request's `title` / `artistName`, each falling back to the sheet's own
+ *  `track` block. Both must end up known — a sheet saved without an artist is
+ *  filed under a key the Now Playing view never looks up — and when the
+ *  request and the block both name a song they must agree. Unlike a read, a
+ *  write **never** falls back to the playing track: an assistant writes for
+ *  minutes, and a save addressed to "what's playing" landed on whatever had
+ *  started playing meanwhile, replacing that song's sheet. Throws a message a
+ *  caller can show. */
+export function cueWriteSong(
+  payload: { title?: unknown; artistName?: unknown },
+  track: CueSheetTrack | null,
+): { title: string; artistName: string } {
+  const title = cueText(payload.title) ?? track?.title ?? null;
+  const artistName = cueText(payload.artistName) ?? track?.artistName ?? null;
+  if (!title || !artistName) throw new Error(CUE_WRITE_NEEDS_SONG);
+  // A field the block leaves out has nothing to disagree with.
+  if (track?.title && !sameCueSong({ title, artistName }, { title: track.title, artistName: track.artistName ?? artistName })) {
+    throw new Error(`title/artistName (${artistName} — ${title}) name a different song from the sheet's track block (${track.artistName ?? artistName} — ${track.title}) — fix one, or leave one out`);
+  }
+  return { title, artistName };
+}
+
 /** How far apart two lengths may be and still be the same cut: encoders and
  *  providers disagree by a second or two about one recording. */
 const SAME_CUT_SLACK_SECS = 5;

@@ -570,12 +570,12 @@ export const TOOLS = [
     categories: ["info"],
     paramTransports: { sheetFile: ["mcp"] },
     description:
-      "Read, save or delete a song's Now Playing cue sheet, played on the song's own clock; an open Now Playing view picks a save up immediately. Two modes: `cards` (default) — one captioned card at a time over the album art (facts, lyric meanings, images); `clip` — a text-and-image video clip over the whole Now Playing view: positioned, overlapping elements with sizes in percent of the view, colours, enter/exit/during motion presets and keyframes, able to cover the art entirely. Omit title/artistName to address what's playing. action=set replaces any earlier sheet and returns the normalized sheet (sorted, unknown fields dropped); a 400 names the offending cue and field. Build it from get_cue_context, whose `guide` (cards) and `clipGuide` (clip) are the format. Saved in the app's profile — no music file is touched and no permission switch is needed; the user can hide cards or the clip with a button on the Now Playing view.",
+      "Read, save or delete a song's Now Playing cue sheet, played on the song's own clock; an open Now Playing view picks a save up immediately. Two modes: `cards` (default) — one captioned card at a time over the album art (facts, lyric meanings, images); `clip` — a text-and-image video clip over the whole Now Playing view: positioned, overlapping elements with sizes in percent of the view, colours, enter/exit/during motion presets and keyframes, able to cover the art entirely. Omit title/artistName on action=get to read what's playing; action=set and action=delete must name the song with title + artistName (for set, a sheetFile `track` block also works) — they never default to what's playing, because playback can move on while you write. action=set replaces any earlier sheet and returns the normalized sheet (sorted, unknown fields dropped); a 400 names the offending cue and field. Build it from get_cue_context, whose `guide` (cards) and `clipGuide` (clip) are the format. Saved in the app's profile — no music file is touched and no permission switch is needed; the user can hide cards or the clip with a button on the Now Playing view.",
     inputSchema: obj(
       {
         action: en(["get", "set", "delete"], "get / set (replace) / delete"),
-        title: str("Track title (omit to use the playing track)"),
-        artistName: str("Artist (with title)"),
+        title: str("Track title — required for set/delete (pass the title get_cue_context returned); get alone may omit it to read the playing track"),
+        artistName: str("Artist (with title) — pass it for set/delete"),
         mode: en(["cards", "clip"], "action=set: cards (default) or clip — see get_cue_context clipGuide"),
         cues: {
           type: "array",
@@ -612,6 +612,14 @@ export const TOOLS = [
     // `source` is author's name before app 1.0.93 — still accepted.
     run: async ({ action, title, artistName, mode, cues, sheetFile, author, source }, ctx) => {
       const song = { title, artistName };
+      // Checked here as well as in the app, so a sheet with no song fails
+      // before up to a megabyte of cues crosses the control API for a 400.
+      const named = (v) => typeof v === "string" && v.trim() !== "";
+      const requireSong = (block) => {
+        if (!(named(title) || named(block?.title)) || !(named(artistName) || named(block?.artistName))) {
+          throw new Error(`action=${action} needs the song: pass title and artistName — a ${action === "set" ? "save" : "delete"} never defaults to what's playing`);
+        }
+      };
       switch (action) {
         case "get":
           return ctx.request("GET", `/v1/cues${qs(song)}`);
@@ -624,6 +632,7 @@ export const TOOLS = [
             }
             const fromFile = parseSheetFile(await ctx.readTextFile(sheetFile, SHEET_FILE_MAX_BYTES), sheetFile);
             sheet = { ...fromFile, mode: mode ?? fromFile.mode };
+            requireSong(fromFile.track);
           } else {
             if (cues === undefined || cues === null) {
               throw new Error(
@@ -632,11 +641,13 @@ export const TOOLS = [
                   ". If your replies are being cut off at a length limit, send a much smaller sheet: a clip of a few elements, not a full one.",
               );
             }
+            requireSong(null);
             sheet = { mode, cues };
           }
           return ctx.request("PUT", "/v1/cues", { ...song, sheet, author: author ?? source });
         }
         case "delete":
+          requireSong(null);
           return ctx.request("DELETE", "/v1/cues", song);
         default:
           throw new Error(`unknown cue_sheet action: ${action}`);
