@@ -46,6 +46,7 @@ export function SubsonicServerForm({
       });
       setStatus("Connected successfully");
     } catch (e) {
+      console.error("Failed to test server connection:", e);
       setStatus(`Failed: ${e}`);
     } finally {
       setTesting(false);

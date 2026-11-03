@@ -254,6 +254,7 @@ export default function BulkEditModal({ tracks, artistOptions, albumOptions, tag
         });
       }
     } catch (e) {
+      console.error("Failed to bulk edit tracks:", e);
       setErrors([String(e)]);
     } finally {
       setSaving(false);

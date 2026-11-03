@@ -184,24 +184,16 @@ export function useContextMenuActions(deps: UseContextMenuActionsDeps) {
   }
 
   async function fetchMultiEntityTracks(target: { kind: "multi-album"; albumIds: number[] } | { kind: "multi-artist"; artistIds: number[] } | { kind: "multi-tag"; tagIds: number[] }): Promise<Track[]> {
-    const results: Track[] = [];
+    // One fetch per entity, run concurrently; Promise.all keeps the selection's order.
+    let lists: Track[][];
     if (target.kind === "multi-album") {
-      for (const id of target.albumIds) {
-        const tracks = await invoke<Track[]>("get_tracks", { opts: { albumId: id } });
-        results.push(...tracks);
-      }
+      lists = await Promise.all(target.albumIds.map(id => invoke<Track[]>("get_tracks", { opts: { albumId: id } })));
     } else if (target.kind === "multi-artist") {
-      for (const id of target.artistIds) {
-        const tracks = await invoke<Track[]>("get_tracks_by_artist", { artistId: id });
-        results.push(...tracks);
-      }
-    } else if (target.kind === "multi-tag") {
-      for (const id of target.tagIds) {
-        const tracks = await invoke<Track[]>("get_tracks_by_tag", { tagId: id });
-        results.push(...tracks);
-      }
+      lists = await Promise.all(target.artistIds.map(id => invoke<Track[]>("get_tracks_by_artist", { artistId: id })));
+    } else {
+      lists = await Promise.all(target.tagIds.map(id => invoke<Track[]>("get_tracks_by_tag", { tagId: id })));
     }
-    return results;
+    return lists.flat();
   }
 
   /** Resolve the tracks a context-menu target refers to. Shared by enqueue

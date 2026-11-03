@@ -130,6 +130,7 @@ export function useSkins(notify?: Notify) {
       applySkin(id);
       return { ok: true };
     } catch (e) {
+      console.error("Failed to import skin:", e);
       return { ok: false, error: String(e) };
     }
   }, [applySkin, refreshUserSkins]);
@@ -176,6 +177,7 @@ export function useSkins(notify?: Notify) {
       );
       return entries;
     } catch (e) {
+      console.error("Failed to fetch skin gallery:", e);
       setGalleryError(String(e));
       return gallerySkinsRef.current;
     } finally {
@@ -191,6 +193,7 @@ export function useSkins(notify?: Notify) {
       applySkin(id);
       return { ok: true };
     } catch (e) {
+      console.error("Failed to install gallery skin:", e);
       return { ok: false, error: String(e) };
     }
   }, [applySkin, refreshUserSkins]);

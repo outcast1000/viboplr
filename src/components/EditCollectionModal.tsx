@@ -62,6 +62,7 @@ export function EditCollectionModal({ collection, onSave, onClose }: EditCollect
       });
       setTestStatus(result);
     } catch (e) {
+      console.error("Failed to test collection connection:", e);
       setTestStatus(`Failed: ${e}`);
     } finally {
       setTesting(false);
@@ -82,6 +83,7 @@ export function EditCollectionModal({ collection, onSave, onClose }: EditCollect
         connectionDirty ? { url: url.trim(), username: username.trim(), password } : undefined,
       );
     } catch (e) {
+      console.error("Failed to save collection:", e);
       setSaveError(String(e));
     } finally {
       setSaving(false);
