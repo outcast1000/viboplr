@@ -61,6 +61,89 @@
       <div class="timeline" id="timeline">
         <div class="timeline-entry reveal">
         <div class="timeline-header">
+          <span class="timeline-version">Viboplr v1.0.114</span>
+          <span class="timeline-date">November 3, 2026</span>
+        </div>
+        <div class="timeline-body">
+          <h4>Features</h4>
+          <ul>
+          <li><strong>filmstrip</strong>: shade the played run of the video seek bar</li>
+          <li><strong>CrossfadeArt</strong>: add fallback handling for image loading failures</li>
+          <li><strong>plugin-views</strong>: a row's own actions lead its right-click menu</li>
+          <li><strong>likes</strong>: the heart's click never dislikes</li>
+          <li><strong>notifications</strong>: icon tiles and a quieter card for the toast and list</li>
+          <li><strong>plugins</strong>: live row status: pulsing chip and indeterminate bar</li>
+          <li><strong>likes</strong>: one store listener keeps every copy of a song's like in step</li>
+          <li><strong>likes</strong>: every track heart reads one in-memory like store</li>
+          <li><strong>tags</strong>: enhance genre handling by splitting multiple genres into separate tags</li>
+          <li><strong>likes</strong>: list_track_likes command and keyed like-change events</li>
+          <li><strong>plugins</strong>: headless library import — api.library.findTrack / planImport / importFile</li>
+          <li><strong>mini</strong>: artist and album names on the mini player open their pages</li>
+          <li><strong>queue</strong>: artist and album names in queue rows open their pages</li>
+          <li><strong>plugins</strong>: Dev banner with Reload on dev-folder plugin views</li>
+          <li><strong>assistant</strong>: long calls run as async-only background jobs</li>
+          <li><strong>settings</strong>: clearer AI control section</li>
+          <li><strong>ui</strong>: plain record labels, and a lighter spotlight behind placeholders</li>
+          <li><strong>assistant</strong>: one AI access level instead of six switches</li>
+          <li><strong>assistant</strong>: plugin tools declare categories; list providers per service</li>
+          <li><strong>control-api</strong>: queue songs that aren't in the library</li>
+          <li><strong>home</strong>: drawn placeholders on Home shelf cards</li>
+          <li><strong>ui</strong>: drawn placeholder art for tracks, albums and artists without images</li>
+          </ul>
+          <h4>Bug Fixes</h4>
+          <ul>
+          <li><strong>code-health</strong>: log swallowed errors, fetch multi-entity tracks concurrently</li>
+          <li><strong>queue</strong>: look up a queue row's file size instead of storing a copy</li>
+          <li><strong>cues</strong>: a cue-sheet write must name its song, never what's playing</li>
+          <li><strong>artwork</strong>: skip stray bytes before an embedded cover's image header</li>
+          <li><strong>queue</strong>: another file of the playing song plays instead of continuing</li>
+          <li><strong>deps</strong>: dev-folder tool definitions count in release builds; name why a tool can't start</li>
+          <li>code-health #1-#4 — folder reveal fallback, logged lookups and skin refresh</li>
+          <li><strong>likes</strong>: frontend track key folds exactly like the backend's</li>
+          <li><strong>import</strong>: no overwrites, no stray temp tracks, one import at a time</li>
+          <li><strong>home</strong>: Latest play snapshots every play, filling ones once filled</li>
+          <li><strong>mcp</strong>: no 5-minute cut-off, installs ask first, Home lists every shelf</li>
+          <li><strong>cues</strong>: answer the cue context by a deadline, list the rest as pending</li>
+          <li><strong>api</strong>: close drifts between the control API and the plugin API</li>
+          <li><strong>home</strong>: video frames on Radio and Latest play cards</li>
+          <li><strong>nav</strong>: switching views closes a name-only track page</li>
+          </ul>
+          <h4>Performance</h4>
+          <ul>
+          <li><strong>storyboard</strong>: one seeking ffmpeg run, 36 tiles at 400px, none under a minute</li>
+          </ul>
+          <h4>Refactoring</h4>
+          <ul>
+          <li><strong>queue,tags</strong>: drop the duplicate banner; one write path for library tags</li>
+          <li><strong>downloads</strong>: the download modal always knows how to fetch each track</li>
+          <li><strong>queue</strong>: one loading play replaces the backfill hold/abandon machinery</li>
+          <li><strong>likes</strong>: remove the like reconcile passes</li>
+          <li><strong>likes</strong>: queue entries no longer carry a like of their own</li>
+          <li><strong>likes</strong>: the like action no longer patches copies itself</li>
+          <li><strong>tags</strong>: delete the unused replace_track_tags command</li>
+          <li><strong>scrobble</strong>: checkmark means &quot;scrobbled&quot;; silent handlers record nothing</li>
+          <li><strong>startup</strong>: settings restore themselves; restore moves to useRestoreSession</li>
+          <li><strong>download</strong>: only the now-playing button downloads, from its playing source</li>
+          </ul>
+          <h4>Tests</h4>
+          <ul>
+          <li><strong>assistant</strong>: 56 eval cases, live progress, stopped-app cases</li>
+          <li><strong>assistant</strong>: Claude-driven eval of the MCP tools, with cost per run</li>
+          <li><strong>mcp</strong>: contract suite tying tools, routes and the dispatcher together</li>
+          </ul>
+          <h4>Chores</h4>
+          <ul>
+          <li><strong>bump</strong>: mpv master check reports and prints update steps instead of prompting</li>
+          </ul>
+        </div>
+        <div class="timeline-assets">
+            <a href="https://github.com/outcast1000/viboplr/releases/download/v1.0.114/Viboplr_1.0.114_aarch64.dmg" class="timeline-asset-link"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg> Viboplr_1.0.114_aarch64.dmg</a>
+            <a href="https://github.com/outcast1000/viboplr/releases/download/v1.0.114/Viboplr_1.0.114_x64-setup.exe" class="timeline-asset-link"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg> Viboplr_1.0.114_x64-setup.exe</a>
+        </div>
+      </div>
+      
+        <div class="timeline-entry reveal">
+        <div class="timeline-header">
           <span class="timeline-version">Viboplr v1.0.113</span>
           <span class="timeline-date">October 30, 2026</span>
         </div>
