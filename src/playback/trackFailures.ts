@@ -11,8 +11,10 @@
 //
 // Pure — the hooks own the state, this owns the shape and the rules.
 
-/** How one resolver-chain entry ended. */
-export type ResolverOutcome = "found" | "miss" | "no-video" | "timeout" | "error";
+/** How one resolver-chain entry ended. `unplayable`: its source resolved on an
+ *  earlier walk but the engine couldn't open it, so this walk skipped it
+ *  (playbackRetry.fallBackFromFailedSource). */
+export type ResolverOutcome = "found" | "miss" | "no-video" | "timeout" | "error" | "unplayable";
 
 export interface ResolverAttempt {
   /** The entry's display name ("Library", "yt-dlp", "Direct URL"…). */
@@ -76,6 +78,7 @@ const OUTCOME_TEXT: Record<ResolverOutcome, string> = {
   "no-video": "No video stream",
   timeout: "Timed out",
   error: "Failed",
+  unplayable: "Found, but wouldn't play",
 };
 
 export interface FailureDetailRow {
@@ -116,13 +119,101 @@ export function describeTrackFailure(f: TrackFailure, now: number = Date.now()):
           ? "None of your sources could find this track."
           : "A source was found, but the player couldn't open it.",
     rows,
-    attempts: f.attempts.map((a) => ({
-      name: a.name,
-      outcome: a.name === "Library" && a.outcome === "miss" ? "Not in library" : OUTCOME_TEXT[a.outcome],
-      detail: a.detail ?? null,
-      found: a.outcome === "found",
-    })),
+    attempts: describeAttempts(f.attempts),
   };
+}
+
+function describeAttempts(attempts: ResolverAttempt[]): FailureDetails["attempts"] {
+  return attempts.map((a) => ({
+    name: a.name,
+    outcome: a.name === "Library" && a.outcome === "miss" ? "Not in library" : OUTCOME_TEXT[a.outcome],
+    detail: a.detail ?? null,
+    found: a.outcome === "found",
+  }));
+}
+
+/**
+ * Which source an entry actually played from, when it wasn't simply its own.
+ * Written by the resolver chain on a successful resolve that didn't land on the
+ * entry's own source; read by the queue row's "via X" chip and its dialog.
+ * Session-only, pruned with the entry.
+ */
+export interface EntrySourceNote {
+  /** The winning entry's display name ("Soulseek", "yt-dlp", "Library"). */
+  name: string;
+  /** Why something other than the entry's own source played it:
+   *  - `fallback`: it has a source of its own (a file, a server id, a plugin
+   *    id) and that couldn't be used — the one case that is a degradation;
+   *  - `no-source`: a metadata-only entry, which has none to use;
+   *  - `prefer-video`: the "Prefer video" pass found a video for it, by choice. */
+  reason: SourceNoteReason;
+  /** Where the bytes come from, when the resolver said (a file, a page). */
+  sourceUrl: string | null;
+  /** The walk that found it, in order, ending with the `found` entry. */
+  attempts: ResolverAttempt[];
+  at: number;
+}
+
+export type SourceNoteReason = "fallback" | "no-source" | "prefer-video";
+
+const SOURCE_NOTE_EXPLANATION: Record<SourceNoteReason, string> = {
+  fallback: "This track's own source couldn't be used, so the next sources in line were asked.",
+  "no-source": "This entry has no source of its own, so your playback sources were asked for a copy.",
+  "prefer-video": "Prefer video is on, so your sources were asked for a video of this track first.",
+};
+
+/** The chip's hover text. */
+export function sourceNoteChipTitle(n: EntrySourceNote): string {
+  const lead = n.reason === "fallback"
+    ? `Its own source couldn't be used. Played from ${n.name}.`
+    : n.reason === "prefer-video"
+      ? `Prefer video: played the video from ${n.name}.`
+      : `Played from ${n.name}.`;
+  return `${lead} Show what was tried.`;
+}
+
+/** The note's address as the user would paste it: the file path for a local
+ *  file (the app's `file://` URIs carry the raw path — same rule as
+ *  `effectiveLocalPath`), else the URL as reported. */
+export function sourceNoteAddress(n: EntrySourceNote): string | null {
+  if (!n.sourceUrl) return null;
+  return n.sourceUrl.startsWith("file://") ? n.sourceUrl.slice("file://".length) || null : n.sourceUrl;
+}
+
+export interface SourceNoteDetails {
+  headline: string;
+  explanation: string;
+  rows: FailureDetailRow[];
+  attempts: FailureDetails["attempts"];
+}
+
+/** Plain-language account of a source note, for its details dialog. */
+export function describeSourceNote(n: EntrySourceNote, now: number = Date.now()): SourceNoteDetails {
+  const rows: FailureDetailRow[] = [{ label: "Source", value: n.name }];
+  const address = sourceNoteAddress(n);
+  if (address) rows.push({ label: "Address", value: address, code: true });
+  rows.push({ label: "When", value: relativeTime(n.at, now) });
+  return {
+    headline: `Played from ${n.name}`,
+    explanation: SOURCE_NOTE_EXPLANATION[n.reason],
+    rows,
+    attempts: describeAttempts(n.attempts),
+  };
+}
+
+/** Lines for the "Report a problem" context block, from a source note. */
+export function sourceNoteReportLines(
+  n: EntrySourceNote,
+  track: { title: string; artist_name: string | null; album_title?: string | null },
+): string[] {
+  const address = sourceNoteAddress(n);
+  return [
+    `Track: ${track.title}${track.artist_name ? ` — ${track.artist_name}` : ""}`,
+    ...(track.album_title ? [`Album: ${track.album_title}`] : []),
+    `Played from: ${n.name} (${n.reason})`,
+    ...(address ? [`Address: ${address}`] : []),
+    ...describeAttempts(n.attempts).map((a) => `Resolver ${a.name}: ${a.outcome}${a.detail ? ` (${a.detail})` : ""}`),
+  ];
 }
 
 /** Lines for the "Report a problem" context block. */

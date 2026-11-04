@@ -2,7 +2,8 @@ import { useState, useRef, useEffect, useCallback, memo } from "react";
 import { computeIndexSelection } from "../utils/rowSelection";
 import type { QueueTrack, QueueMode } from "../types";
 import type { PlaylistContext } from "../hooks/useQueue";
-import type { TrackFailure } from "../playback/trackFailures";
+import { sourceNoteChipTitle, type EntrySourceNote, type TrackFailure } from "../playback/trackFailures";
+import type { ResolvingStatus } from "../hooks/useStreamResolution";
 import { formatDuration, formatFileSize } from "../utils";
 import { queueItemLocalThumb, playlistContextTitle, type ThumbInfo } from "../mainPlaylist";
 import { extractDominantColor, type RGB } from "../utils/extractDominantColor";
@@ -66,6 +67,8 @@ interface QueueRowProps {
   resolving: { error: string | null; trying: string | null } | null;
   failure: TrackFailure | null;
   onShowFailure: (track: QueueTrack) => void;
+  sourceNote: EntrySourceNote | null;
+  onShowSource: (track: QueueTrack) => void;
   showRadio: boolean;
   showLocate: boolean;
   showLikes: boolean;
@@ -94,7 +97,7 @@ interface QueueRowProps {
 // pay a full-list re-render per mousemove.
 const QueueRow = memo(function QueueRow({
   track: t, index: i, isCurrent, isPlaying, isSelected, dropAbove, dropBelow, isDraggedRow,
-  localThumb, resolving, failure, onShowFailure, showRadio, showLocate, showLikes, showDislike,
+  localThumb, resolving, failure, onShowFailure, sourceNote, onShowSource, showRadio, showLocate, showLikes, showDislike,
   getTrackImage, observeVisible,
   onRowMouseDown, onRowClick, onRowContextMenu, onRowInfoEnter, onRowInfoLeave,
   onPlay, onTogglePlayPause, onStartRadio, onLocateTrack, onToggleLike, onToggleDislike, onOpenEntity,
@@ -194,8 +197,34 @@ const QueueRow = memo(function QueueRow({
                 </>
               )}
             </span>
-            {fileSize != null && <span className="queue-item-size">{formatFileSize(fileSize)}</span>}
+            {sourceNote && !resolving && !failure ? (
+              <button
+                type="button"
+                className={`queue-item-via${sourceNote.reason === "fallback" ? " queue-item-via--fallback" : ""}`}
+                title={sourceNoteChipTitle(sourceNote)}
+                onMouseDown={(e) => e.stopPropagation()}
+                onDoubleClick={(e) => e.stopPropagation()}
+                onClick={(e) => { e.stopPropagation(); onShowSource(t); }}
+              >
+                {sourceNote.reason === "fallback" ? (
+                  <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M9 14 4 9l5-5"/><path d="M4 9h11a5 5 0 0 1 0 10h-3"/></svg>
+                ) : (
+                  <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M3 12h18"/></svg>
+                )}
+                <span className="queue-item-via-name">via {sourceNote.name}</span>
+              </button>
+            ) : fileSize != null ? (
+              <span className="queue-item-size">{formatFileSize(fileSize)}</span>
+            ) : null}
           </div>
+          {resolving?.trying ? (
+            <div className="queue-item-status queue-item-status-trying" aria-live="polite">
+              <span className="queue-item-status-text">
+                <span className="queue-item-trying">Trying {resolving.trying}…</span>
+                {resolving.error && <span className="queue-item-trying-why"> · {resolving.error}</span>}
+              </span>
+            </div>
+          ) : null}
           {failure && !resolving ? (
             <button
               type="button"
@@ -313,11 +342,18 @@ interface QueuePanelProps {
   debugMode?: boolean;
   mainPlaylistDir: string | null;
   thumbInfo: Record<string, ThumbInfo>;
-  resolvingStatus?: { key: string; error: string | null; trying: string | null } | null;
+  /** What each entry's resolver walk is asking right now, keyed by
+   *  QueueTrack.key — the row's spinner and "Trying X…" line. */
+  resolvingByKey?: Record<string, ResolvingStatus>;
   /** Why an entry didn't play (either stage), keyed by QueueTrack.key. */
   trackFailures?: Record<string, TrackFailure>;
   /** Click on a row's "Couldn't play" note — App opens the details dialog. */
   onShowFailure?: (track: QueueTrack) => void;
+  /** Where an entry played from when it wasn't its own source, keyed by
+   *  QueueTrack.key — drawn as the row's "via X" chip. */
+  sourceNotes?: Record<string, EntrySourceNote>;
+  /** Click on a row's "via X" chip — App opens the source dialog. */
+  onShowSource?: (track: QueueTrack) => void;
   /** A play still being built (usePlayActions.playWithBackfill): an extend
    *  renders placeholder rows after the queue, a switch a banner above it. */
   loadingPlay?: LoadingPlay | null;
@@ -410,7 +446,7 @@ export function QueuePanel({
   onPlay, onTogglePlayPause, onRemove: _onRemove, onLocateTrack, onStartRadio, onNavigateToArtist, onNavigateToAlbum, onMoveMultiple, onClear, onSaveAsM3U, onSaveToPlaylists, onExportAsMixtape, onLoadPlaylist, onPublishQueue, preferVideoResolution, onPreferVideoResolutionChange, onRandomize, queueMode, onToggleQueueMode, autoContinueEnabled, onToggleAutoContinue, onOpenAutoContinueSettings, onContextMenu, onToggleLike, onToggleDislike,
   externalDropTarget,
   collapsed, fsRevealed, onToggleCollapsed, onResizeWidth, isPlaying, debugMode,
-  mainPlaylistDir, thumbInfo, resolvingStatus, trackFailures, onShowFailure,
+  mainPlaylistDir, thumbInfo, resolvingByKey, trackFailures, onShowFailure, sourceNotes, onShowSource,
   loadingPlay = null, playbackWaiting = false, loadFailure = null, onCancelLoadingPlay,
 }: QueuePanelProps) {
   const switching = loadingPlay?.mode === "switch" ? loadingPlay : null;
@@ -575,14 +611,15 @@ export function QueuePanel({
   // Latest props/state for the stable row handlers below (queue.md "Ref-Based
   // State Access") — the handlers keep one identity across renders so the
   // memoized rows don't re-render whenever the panel does.
-  const latestRef = useRef({ selectedIndices, onPlay, onTogglePlayPause, onStartRadio, onLocateTrack, onToggleLike, onToggleDislike, onMoveMultiple, onContextMenu, onShowFailure, onNavigateToArtist, onNavigateToAlbum });
-  useAssignRef(latestRef, { selectedIndices, onPlay, onTogglePlayPause, onStartRadio, onLocateTrack, onToggleLike, onToggleDislike, onMoveMultiple, onContextMenu, onShowFailure, onNavigateToArtist, onNavigateToAlbum });
+  const latestRef = useRef({ selectedIndices, onPlay, onTogglePlayPause, onStartRadio, onLocateTrack, onToggleLike, onToggleDislike, onMoveMultiple, onContextMenu, onShowFailure, onShowSource, onNavigateToArtist, onNavigateToAlbum });
+  useAssignRef(latestRef, { selectedIndices, onPlay, onTogglePlayPause, onStartRadio, onLocateTrack, onToggleLike, onToggleDislike, onMoveMultiple, onContextMenu, onShowFailure, onShowSource, onNavigateToArtist, onNavigateToAlbum });
 
   const rowPlay = useCallback((t: QueueTrack, i: number) => latestRef.current.onPlay(t, i), []);
   const rowTogglePlayPause = useCallback(() => latestRef.current.onTogglePlayPause(), []);
   const rowStartRadio = useCallback((t: QueueTrack) => latestRef.current.onStartRadio?.(t), []);
   const rowLocateTrack = useCallback((t: QueueTrack) => latestRef.current.onLocateTrack?.(t), []);
   const rowShowFailure = useCallback((t: QueueTrack) => latestRef.current.onShowFailure?.(t), []);
+  const rowShowSource = useCallback((t: QueueTrack) => latestRef.current.onShowSource?.(t), []);
   const rowToggleLike = useCallback((t: QueueTrack) => latestRef.current.onToggleLike?.(t), []);
   const rowToggleDislike = useCallback((t: QueueTrack) => latestRef.current.onToggleDislike?.(t), []);
   const canOpenEntity = !!(onNavigateToArtist && onNavigateToAlbum);
@@ -940,9 +977,11 @@ export function QueuePanel({
               uri: t.path,
               thumbInfo,
             })) ?? null}
-            resolving={resolvingStatus?.key === t.key ? resolvingStatus : null}
+            resolving={resolvingByKey?.[t.key] ?? null}
             failure={trackFailures?.[t.key] ?? null}
             onShowFailure={rowShowFailure}
+            sourceNote={sourceNotes?.[t.key] ?? null}
+            onShowSource={rowShowSource}
             showRadio={!!onStartRadio}
             showLocate={!!onLocateTrack}
             showLikes={!!onToggleLike}

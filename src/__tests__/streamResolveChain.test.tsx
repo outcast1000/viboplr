@@ -17,7 +17,7 @@ vi.mock("@tauri-apps/api/core", () => ({
   convertFileSrc: (p: string) => `asset://${p}`,
 }));
 
-import { useStreamResolution } from "../hooks/useStreamResolution";
+import { useStreamResolution, skippedAttempt } from "../hooks/useStreamResolution";
 import { fallBackFromFailedSource, clearAllNativeRetries } from "../playback/playbackRetry";
 import { createLibraryStreamResolver } from "../streamResolvers";
 import type { QueueTrack, ResolvedTrackSource } from "../types";
@@ -350,5 +350,123 @@ describe("the failure record says which attempts were plugin fallbacks", () => {
       ["no-video", false],
       ["miss", true],
     ]);
+  });
+});
+
+describe("the queue row's source note (\"via X\")", () => {
+  const soulseekFinds = (): StreamResolver => ({
+    id: "slskd-fallback",
+    name: "Soulseek",
+    source: "slskd",
+    resolve: vi.fn().mockResolvedValue({ url: "file://D:/slskd/fallback/Nothingman.mp3" }),
+  });
+
+  it("writes no note when the track played from its own source", async () => {
+    const { resolve, result } = mountChain({ extraResolvers: [soulseekFinds()] });
+    await resolve();
+    await vi.waitFor(() => expect(result.current.resolvedSource?.name).toBe("qBittorrent"));
+    expect(result.current.sourceNotes[QBT_TRACK.key]).toBeUndefined();
+  });
+
+  it("marks a fallback when the track's own source failed, with the walk that found it", async () => {
+    const { resolve, result } = mountChain({ uriFails: true, extraResolvers: [soulseekFinds()] });
+    await resolve();
+    await vi.waitFor(() => expect(result.current.sourceNotes[QBT_TRACK.key]).toBeTruthy());
+    const note = result.current.sourceNotes[QBT_TRACK.key];
+    expect(note.name).toBe("Soulseek");
+    expect(note.reason).toBe("fallback");
+    expect(note.sourceUrl).toBe("file://D:/slskd/fallback/Nothingman.mp3");
+    expect(note.attempts.map((a) => [a.name, a.outcome])).toEqual([
+      ["qBittorrent", "error"],
+      ["Library", "miss"],
+      ["Soulseek", "found"],
+    ]);
+  });
+
+  it("gives a metadata-only entry a neutral note: it has no source of its own", async () => {
+    const { resolve, result } = mountChain({ pathless: true, extraResolvers: [soulseekFinds()] });
+    await resolve();
+    await vi.waitFor(() => expect(result.current.sourceNotes[QBT_TRACK.key]).toBeTruthy());
+    expect(result.current.sourceNotes[QBT_TRACK.key].reason).toBe("no-source");
+  });
+
+  it("calls a Prefer video win what it is, not a fallback", async () => {
+    const ytdlp: StreamResolver = {
+      id: "ytdlp",
+      name: "yt-dlp",
+      source: "ytdlp",
+      resolve: vi.fn().mockResolvedValue({ url: "file://D:/videos/Nothingman.mp4", video: true }),
+    };
+    const { resolve, result } = mountChain({ preferVideo: true, extraResolvers: [ytdlp] });
+    await resolve();
+    await vi.waitFor(() => expect(result.current.sourceNotes[QBT_TRACK.key]).toBeTruthy());
+    expect(result.current.sourceNotes[QBT_TRACK.key]).toMatchObject({ name: "yt-dlp", reason: "prefer-video" });
+  });
+
+  it("lists a source the engine already gave up on as unplayable", async () => {
+    clearAllNativeRetries();
+    const { resolve, result } = mountChain({ extraResolvers: [soulseekFinds()] });
+    await resolve();
+    expect(fallBackFromFailedSource(QBT_TRACK.key)).toBe(true);
+    await resolve();
+    await vi.waitFor(() => expect(result.current.sourceNotes[QBT_TRACK.key]?.attempts[0]?.outcome).toBe("unplayable"));
+    expect(result.current.sourceNotes[QBT_TRACK.key].reason).toBe("fallback");
+    clearAllNativeRetries();
+  });
+
+  it("marks only the source that wouldn't play; earlier entries keep what they did", async () => {
+    clearAllNativeRetries();
+    const ytdlp: StreamResolver = {
+      id: "ytdlp",
+      name: "yt-dlp",
+      source: "ytdlp",
+      resolve: vi.fn().mockResolvedValue({ url: "file://D:/ytdlp/Nothingman.m4a" }),
+    };
+    const { resolve, result } = mountChain({ uriFails: true, extraResolvers: [soulseekFinds(), ytdlp] });
+    await resolve();
+    await vi.waitFor(() => expect(result.current.sourceNotes[QBT_TRACK.key]?.name).toBe("Soulseek"));
+    // The engine couldn't open Soulseek's file: the next walk starts after it.
+    expect(fallBackFromFailedSource(QBT_TRACK.key)).toBe(true);
+    await resolve();
+    await vi.waitFor(() => expect(result.current.sourceNotes[QBT_TRACK.key]?.name).toBe("yt-dlp"));
+    expect(result.current.sourceNotes[QBT_TRACK.key].attempts.map((a) => [a.name, a.outcome])).toEqual([
+      ["qBittorrent", "error"],
+      ["Library", "miss"],
+      ["Soulseek", "unplayable"],
+      ["yt-dlp", "found"],
+    ]);
+    clearAllNativeRetries();
+  });
+
+  it("drops the note when a later walk finds nothing", async () => {
+    clearAllNativeRetries();
+    const ytdlpMisses: StreamResolver = { id: "ytdlp", name: "yt-dlp", source: "ytdlp", resolve: vi.fn().mockResolvedValue(null) };
+    const { resolve, result } = mountChain({ uriFails: true, extraResolvers: [soulseekFinds(), ytdlpMisses] });
+    await resolve();
+    await vi.waitFor(() => expect(result.current.sourceNotes[QBT_TRACK.key]).toBeTruthy());
+    expect(fallBackFromFailedSource(QBT_TRACK.key)).toBe(true);
+    await expect(resolve()).rejects.toThrow(/Couldn't find a playable source/);
+    await vi.waitFor(() => expect(result.current.sourceNotes[QBT_TRACK.key]).toBeUndefined());
+    expect(result.current.resolvingByKey[QBT_TRACK.key]).toBeUndefined();
+    clearAllNativeRetries();
+  });
+});
+
+describe("skippedAttempt", () => {
+  const previous = [
+    { name: "qBittorrent", outcome: "error" as const, detail: "gone" },
+    { name: "Library", outcome: "miss" as const },
+    { name: "Soulseek", outcome: "found" as const },
+  ];
+
+  it("only the last skipped entry is the one that wouldn't play", () => {
+    expect(skippedAttempt("Soulseek", 2, 3, previous)).toEqual({ name: "Soulseek", outcome: "unplayable" });
+    expect(skippedAttempt("qBittorrent", 0, 3, previous)).toEqual(previous[0]);
+    expect(skippedAttempt("Library", 1, 3, previous)).toEqual(previous[1]);
+  });
+
+  it("leaves out an entry it has no record for instead of guessing", () => {
+    expect(skippedAttempt("yt-dlp", 0, 3, previous)).toBeNull();
+    expect(skippedAttempt("Library", 1, 3, [])).toBeNull();
   });
 });

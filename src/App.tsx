@@ -206,9 +206,10 @@ import { onboardingDecision, normalizeProfile, SPOTIFY_PLUGIN_ID, type Onboardin
 import BulkEditModal, { type BulkEditResult } from "./components/BulkEditModal";
 import PlaybackErrorModal from "./components/PlaybackErrorModal";
 import PlaybackFailureModal from "./components/PlaybackFailureModal";
+import PlaybackSourceModal from "./components/PlaybackSourceModal";
 import { suggestPlaybackFallbacks } from "./utils/fallbackSuggestions";
 import { suggestImageProviders, suggestInfoProviders, type ProviderSuggestion } from "./utils/providerSuggestions";
-import { trackFailureReportLines } from "./playback/trackFailures";
+import { trackFailureReportLines, sourceNoteReportLines } from "./playback/trackFailures";
 import { PromptModal } from "./components/PromptModal";
 import { PublishSourceModal } from "./components/PublishSourceModal";
 import { MixtapePreviewModal } from "./components/MixtapePreviewModal";
@@ -1079,6 +1080,8 @@ function App() {
   const [reportProblem, setReportProblem] = useState<{ title: string; context: DiagnosticContext | null } | null>(null);
   // Queue entry whose "Couldn't play" details dialog is open (by key).
   const [failureDetailsKey, setFailureDetailsKey] = useState<string | null>(null);
+  // Queue entry whose "via X" source dialog is open (by key).
+  const [sourceDetailsKey, setSourceDetailsKey] = useState<string | null>(null);
 
   // Host-only facts for the diagnostic bundle — the things the report can't
   // reach on its own (release channel, effective engine, plugin + dependency
@@ -1238,7 +1241,7 @@ function App() {
   // while Bit-perfect mode drives it, the player's volume otherwise.
   const controlsVolume = bitPerfect.controlsVolume ?? playback.volume;
 
-  const { resolvingStatus, trackFailures, resolvedSource, recordPlaybackFailure, clearTrackFailure } = useStreamResolution({
+  const { resolvingByKey, trackFailures, sourceNotes, resolvedSource, recordPlaybackFailure, clearTrackFailure } = useStreamResolution({
     resolveTrackSrcRef,
     resolveStreamByUriRef,
     streamResolversRef,
@@ -6502,7 +6505,7 @@ function App() {
           debugMode={debugMode}
           mainPlaylistDir={mainPlaylistDir}
           thumbInfo={queueHook.thumbInfo}
-          resolvingStatus={resolvingStatus}
+          resolvingByKey={resolvingByKey}
           loadingPlay={queueHook.loadingPlay}
           playbackWaiting={queueHook.playbackWaiting}
           loadFailure={queueHook.loadFailure}
@@ -6513,6 +6516,8 @@ function App() {
             // The dialog suggests gallery plugins that can play it.
             refreshGalleryForSuggestions();
           }}
+          sourceNotes={sourceNotes}
+          onShowSource={(track) => setSourceDetailsKey(track.key)}
         />
       {!queueCollapsed && (
         <button
@@ -6911,6 +6916,36 @@ function App() {
                     `Source class: ${sourceClass(track.path)}`,
                     `Format: ${track.format ?? "unknown"}`,
                     `Engine: ${mpvCapable ? "mpv" : "not loaded"}`,
+                  ],
+                },
+              });
+            }}
+          />
+        );
+      })()}
+
+      {(() => {
+        // Closes itself when the entry leaves the queue or its note goes (it
+        // played from its own source again).
+        if (!sourceDetailsKey) return null;
+        const note = sourceNotes[sourceDetailsKey];
+        const track = queueHook.queue.find((t) => t.key === sourceDetailsKey) ?? null;
+        if (!note || !track) return null;
+        return (
+          <PlaybackSourceModal
+            track={track}
+            note={note}
+            onClose={() => setSourceDetailsKey(null)}
+            onReportProblem={() => {
+              setSourceDetailsKey(null);
+              setReportProblem({
+                title: "Played from an unexpected source",
+                context: {
+                  title: "Playback source",
+                  lines: [
+                    ...sourceNoteReportLines(note, track),
+                    `Source class: ${sourceClass(track.path)}`,
+                    `Format: ${track.format ?? "unknown"}`,
                   ],
                 },
               });

@@ -1,11 +1,66 @@
 import { describe, it, expect } from "vitest";
 import {
   CHAIN_EXHAUSTED_MESSAGE,
+  describeSourceNote,
   describeTrackFailure,
   mergeTrackFailure,
+  sourceNoteAddress,
+  sourceNoteChipTitle,
+  sourceNoteReportLines,
   trackFailureReportLines,
+  type EntrySourceNote,
   type TrackFailure,
 } from "../playback/trackFailures";
+
+describe("describeSourceNote", () => {
+  const note: EntrySourceNote = {
+    name: "Soulseek",
+    reason: "fallback",
+    sourceUrl: "file:///Users/me/slskd/Black Hole Sun.flac",
+    attempts: [
+      { name: "Local file", outcome: "unplayable" },
+      { name: "Library", outcome: "miss" },
+      { name: "Soulseek", outcome: "found" },
+    ],
+    at: 1_000,
+  };
+
+  it("names the source, shows the file as a path, and explains a fallback", () => {
+    const d = describeSourceNote(note, 1_000);
+    expect(d.headline).toBe("Played from Soulseek");
+    expect(d.explanation).toMatch(/own source couldn't be used/);
+    expect(d.rows).toContainEqual({ label: "Address", value: "/Users/me/slskd/Black Hole Sun.flac", code: true });
+    expect(d.attempts.map((a) => [a.name, a.outcome, a.found])).toEqual([
+      ["Local file", "Found, but wouldn't play", false],
+      ["Library", "Not in library", false],
+      ["Soulseek", "Found a source", true],
+    ]);
+  });
+
+  it("explains a metadata-only entry without blaming anything", () => {
+    expect(describeSourceNote({ ...note, reason: "no-source" }).explanation).toMatch(/no source of its own/);
+  });
+
+  it("explains a Prefer video win as the user's choice", () => {
+    const d = describeSourceNote({ ...note, reason: "prefer-video" });
+    expect(d.explanation).toMatch(/Prefer video is on/);
+    expect(d.explanation).not.toMatch(/no source of its own|couldn't be used/);
+    expect(sourceNoteChipTitle({ ...note, reason: "prefer-video" })).toMatch(/^Prefer video/);
+  });
+
+  it("keeps the app's file:// paths as written, Windows drive paths included", () => {
+    expect(sourceNoteAddress({ ...note, sourceUrl: "file://D:/slskd/Black Hole Sun.flac" })).toBe("D:/slskd/Black Hole Sun.flac");
+    expect(sourceNoteAddress({ ...note, sourceUrl: "https://youtu.be/x" })).toBe("https://youtu.be/x");
+    expect(sourceNoteAddress({ ...note, sourceUrl: null })).toBeNull();
+  });
+
+  it("report lines name the reason, the address and the walk", () => {
+    const lines = sourceNoteReportLines(note, { title: "Black Hole Sun", artist_name: "Soundgarden" });
+    expect(lines).toContain("Played from: Soulseek (fallback)");
+    expect(lines).toContain("Address: /Users/me/slskd/Black Hole Sun.flac");
+    expect(lines).toContain("Resolver Local file: Found, but wouldn't play");
+  });
+});
 
 const resolveFailure: TrackFailure = {
   stage: "resolve",

@@ -12,6 +12,7 @@ import { classifyErrorKind } from "../utils/errorKind";
 import {
   CHAIN_EXHAUSTED_MESSAGE,
   mergeTrackFailure,
+  type EntrySourceNote,
   type ResolverAttempt,
   type TrackFailure,
 } from "../playback/trackFailures";
@@ -65,6 +66,32 @@ class ResolverMiss extends Error {
 /** User-facing label for one failed resolver-chain entry. */
 export function entryFailureLabel(name: string): string {
   return name === "Library" ? "Not in library" : `${name} failed`;
+}
+
+/** What an entry's resolver walk is asking right now: `trying` is the entry
+ *  being asked, `error` why the one before it didn't answer. */
+export interface ResolvingStatus {
+  error: string | null;
+  trying: string | null;
+}
+
+/**
+ * The attempt to list for a chain entry this walk skips. Only the last skipped
+ * entry (`skip - 1`) is the source the engine gave up on — `failedEntryCount`
+ * is the winner's index + 1 — so it alone is `unplayable`. The ones before it
+ * keep what they did on the walk that found that source, matched by position
+ * and name (the chain is rebuilt per walk); with no such record they are left
+ * out rather than given an outcome nobody saw.
+ */
+export function skippedAttempt(
+  name: string,
+  index: number,
+  skip: number,
+  previousWalk: readonly ResolverAttempt[],
+): ResolverAttempt | null {
+  if (index === skip - 1) return { name, outcome: "unplayable" };
+  const prev = previousWalk[index];
+  return prev && prev.name === name && prev.outcome !== "found" ? prev : null;
 }
 
 export interface ChainFailure {
@@ -239,7 +266,26 @@ export function useStreamResolution({
   notify,
   onTrackFormatResolved,
 }: UseStreamResolutionDeps) {
-  const [resolvingStatus, setResolvingStatus] = useState<{ key: string; error: string | null; trying: string | null } | null>(null);
+  // What each entry's walk is asking right now, keyed by QueueTrack.key — the
+  // row's "Trying X…" line. Per entry, and owned by the walk that wrote it
+  // (`walk`), because a play and the next row's preload walk at the same time:
+  // one shared value let the preload's clear wipe the playing row's line.
+  const [resolvingByKey, setResolvingByKey] = useState<Record<string, ResolvingStatus & { walk: number }>>({});
+  const walkCounterRef = useRef(0);
+  /** Set (or, with `null`, clear) an entry's status. A clear that names a walk
+   *  only removes that walk's own status, so a newer walk's survives. */
+  const setResolving = useCallback((key: string, status: ResolvingStatus | null, walk?: number) => {
+    setResolvingByKey(prev => {
+      const cur = prev[key];
+      if (!status) {
+        if (!cur || (walk !== undefined && cur.walk !== walk)) return prev;
+        const next = { ...prev };
+        delete next[key];
+        return next;
+      }
+      return { ...prev, [key]: { ...status, walk: walk ?? 0 } };
+    });
+  }, []);
   // Persistent per-track failures, keyed by QueueTrack.key — both stages (see
   // playback/trackFailures.ts). Survives track changes so the failed row keeps
   // explaining what happened. A `resolve` failure clears on a later successful
@@ -257,6 +303,22 @@ export function useStreamResolution({
   // The chain's last walk per entry — what a playback failure reports as "what
   // was tried" (the walk that found the source the engine then refused).
   const attemptsByKeyRef = useRef<Map<string, ResolverAttempt[]>>(new Map());
+  // Which source each entry last played from when it wasn't its own (see
+  // EntrySourceNote) — the queue row's "via X" chip. Unlike `sourcesByKey` it is
+  // not cleared when a re-resolve starts, so the row keeps saying where the
+  // last play came from until the next resolve answers.
+  const [sourceNotes, setSourceNotes] = useState<Record<string, EntrySourceNote>>({});
+  const setSourceNote = useCallback((key: string, note: EntrySourceNote | null) => {
+    setSourceNotes(prev => {
+      if (!note) {
+        if (!(key in prev)) return prev;
+        const next = { ...prev };
+        delete next[key];
+        return next;
+      }
+      return { ...prev, [key]: note };
+    });
+  }, []);
   // The winning source per track, keyed by QueueTrack.key. The now-playing UI
   // reads the CURRENT track's entry (`resolvedSource` below), so a preload of the
   // next track can record its answer early without relabelling the one playing —
@@ -287,7 +349,7 @@ export function useStreamResolution({
   // Every entry carries `id` (resolveIdentity) and is only reused for a track
   // with the same one — never on the key alone.
   const inFlightResolvesRef = useRef<Map<string, { id: string; promise: Promise<ResolvedTrackSource> }>>(new Map());
-  const resolveCacheRef = useRef<Map<string, { at: number; id: string; resolved: ResolvedTrackSource; meta: ResolvedSource | null }>>(new Map());
+  const resolveCacheRef = useRef<Map<string, { at: number; id: string; resolved: ResolvedTrackSource; meta: ResolvedSource | null; note: EntrySourceNote | null }>>(new Map());
   // Negative counterpart, read by preloads only — see RESOLVE_FAILURE_TTL_MS.
   // Keyed by QueueTrack.key; the entry's `id` carries the metadata it failed with.
   const resolveFailedRef = useRef<Map<string, { at: number; id: string }>>(new Map());
@@ -401,7 +463,8 @@ export function useStreamResolution({
       // The previous answer for this track failed to play: bypass every cache on
       // the way down, including the resolving plugin's own.
       fresh: boolean,
-    ): Promise<ResolvedTrackSource & { meta?: ResolvedSource | null }> => {
+    ): Promise<ResolvedTrackSource & { meta?: ResolvedSource | null; note?: EntrySourceNote | null }> => {
+      const walk = ++walkCounterRef.current;
       // How many failed native attempts this track has already had — each one
       // steps the video pick down a rung (see playbackRetry).
       const ladderStep = streamLadderStep(track.key);
@@ -641,16 +704,31 @@ export function useStreamResolution({
       // Entries whose source already resolved but failed to play this track
       // (playbackRetry.fallBackFromFailedSource) are skipped.
       const skip = failedEntryCount(track.key);
+      // The walk that found the source now being skipped — the entries before
+      // that source keep the outcomes they had on it.
+      const previousWalk = attemptsByKeyRef.current.get(track.key) ?? [];
       for (const [index, entry] of chain.entries()) {
-        if (index < skip) continue;
-        if (!preload && resolveGenerationRef.current !== generation) return { src: "" };
+        if (index < skip) {
+          // Listed, so the row's details say why the walk started further down.
+          const before = skippedAttempt(entry.name, index, skip, previousWalk);
+          if (before) attempts.push(before);
+          if (index === skip - 1) lastError = `${entry.name} wouldn't play`;
+          continue;
+        }
+        if (!preload && resolveGenerationRef.current !== generation) {
+          setResolving(track.key, null, walk);
+          return { src: "" };
+        }
         if (lastError || chain.length > 1) {
-          setResolvingStatus({ key: track.key, error: lastError, trying: entry.name });
+          setResolving(track.key, { error: lastError, trying: entry.name }, walk);
         }
         try {
           const { src, engineSource } = await entry.resolve();
-          if (!preload && resolveGenerationRef.current !== generation) return { src: "" };
-          setResolvingStatus(null);
+          if (!preload && resolveGenerationRef.current !== generation) {
+            setResolving(track.key, null, walk);
+            return { src: "" };
+          }
+          setResolving(track.key, null, walk);
           noteResolvedEntry(track.key, index, chain.length);
           attempts.push({ name: entry.name, outcome: "found" });
           attemptsByKeyRef.current.set(track.key, attempts);
@@ -659,6 +737,17 @@ export function useStreamResolution({
           clearResolveStageFailure(track.key);
           const meta: ResolvedSource = { name: entry.name, url: src, sourceUrl: entry.sourceUrl, id: entry.id, effectiveSource: entry.effectiveSource ?? { kind: "direct-url", uri: src } };
           setResolvedSource(track.key, meta);
+          // The row's "via X" chip: only when the entry didn't play from its own
+          // source. A "Prefer video" win is the user's choice, not a fallback.
+          const ownEntry = chain.find(e => e.native);
+          const note: EntrySourceNote | null = entry === ownEntry ? null : {
+            name: entry.name,
+            reason: entry.videoFirst ? "prefer-video" : ownEntry ? "fallback" : "no-source",
+            sourceUrl: entry.sourceUrl,
+            attempts: [...attempts],
+            at: Date.now(),
+          };
+          setSourceNote(track.key, note);
           if (entry.fellBackToAudio) {
             // The user asked for VIDEO and silently got audio — say why, or
             // "all my videos play as audio" reads as a bug instead of a fallback.
@@ -672,7 +761,7 @@ export function useStreamResolution({
           if (lastError) {
             console.debug(`Playing from ${entry.name} (original unavailable)`);
           }
-          return { src, patch: entry.patch, engineSource, meta };
+          return { src, patch: entry.patch, engineSource, meta, note };
         } catch (e) {
           console.error(`Stream resolver "${entry.name}" failed:`, e);
           lastError = entry.failureLabel ?? entryFailureLabel(entry.name);
@@ -701,9 +790,10 @@ export function useStreamResolution({
         }
       }
 
-      if (preload || resolveGenerationRef.current === generation) {
-        setResolvingStatus(null);
-      }
+      setResolving(track.key, null, walk);
+      // Nothing played it this time — a note from an earlier play would claim
+      // otherwise once the failure below clears.
+      setSourceNote(track.key, null);
       // Record a persistent failure for this track so the queue row keeps
       // explaining what happened even after playback moves to another track.
       // Blamed on the track's own source, not the last fallback resolver tried.
@@ -756,7 +846,8 @@ export function useStreamResolution({
           // the source/quality label still updates. Preload must not touch the
           // playing track's UI.
           if (!preload) {
-            setResolvingStatus(null);
+            setResolving(key, null);
+            setSourceNote(key, cached.note);
             setResolvedSource(key, cached.meta);
             clearResolveStageFailure(key);
           }
@@ -795,6 +886,7 @@ export function useStreamResolution({
             id,
             resolved: { src: out.src, patch: out.patch, engineSource: out.engineSource },
             meta: out.meta ?? null,
+            note: out.note ?? null,
           });
         }
         return { src: out.src, patch: out.patch, engineSource: out.engineSource };
@@ -806,7 +898,7 @@ export function useStreamResolution({
       inFlightResolvesRef.current.set(key, { id, promise });
       return promise;
     };
-  }, [resolveTrackSrcRef, resolveStreamByUriRef, streamResolversRef, preferVideoRef, clearResolveStageFailure]);
+  }, [resolveTrackSrcRef, resolveStreamByUriRef, streamResolversRef, preferVideoRef, clearResolveStageFailure, setSourceNote, setResolving]);
 
   /** The engine gave up on an entry (after its retries) or the play threw.
    *  A `playback` failure attaches what the chain tried and the source the
@@ -867,6 +959,15 @@ export function useStreamResolution({
     for (const k of attemptsByKeyRef.current.keys()) {
       if (!live.has(k)) attemptsByKeyRef.current.delete(k);
     }
+    const dropStale = <T,>(prev: Record<string, T>): Record<string, T> => {
+      const stale = Object.keys(prev).filter(k => !live.has(k));
+      if (stale.length === 0) return prev;
+      const next = { ...prev };
+      for (const k of stale) delete next[k];
+      return next;
+    };
+    setSourceNotes(dropStale);
+    setResolvingByKey(dropStale);
     setTrackFailures(prev => {
       const keys = Object.keys(prev);
       if (keys.length === 0) return prev;
@@ -878,5 +979,5 @@ export function useStreamResolution({
     });
   }, [queue, currentKey]);
 
-  return { resolvingStatus, trackFailures, resolvedSource, recordPlaybackFailure, clearTrackFailure };
+  return { resolvingByKey: resolvingByKey as Record<string, ResolvingStatus>, trackFailures, sourceNotes, resolvedSource, recordPlaybackFailure, clearTrackFailure };
 }

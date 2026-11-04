@@ -707,6 +707,69 @@
   flex-shrink: 0;
 }
 
+/* "Trying yt-dlp… · Subsonic: server offline" — the resolver being asked and
+   why the one before it didn't answer, in the failure note's slot. */
+.queue-item-status-text {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--fs-xs);
+}
+
+.queue-item-trying { color: var(--accent); }
+.queue-item-trying-why { color: var(--text-tertiary); }
+
+/* "via Soulseek": the entry played from something other than its own source.
+   Amber when its own source couldn't be used (still playing, but not from what
+   the row names); neutral for an entry with no source of its own. Opens the
+   source dialog. Takes the file-size slot, so it shows at every panel width. */
+.queue-item-via {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  flex-shrink: 1;
+  min-width: 0;
+  max-width: 45%;
+  padding: 1px 6px 1px 5px;
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  background: var(--bg-tertiary);
+  color: var(--text-secondary);
+  font: inherit;
+  font-size: var(--fs-2xs);
+  line-height: 1.4;
+  cursor: pointer;
+}
+
+.queue-item-via svg { flex-shrink: 0; }
+
+.queue-item-via-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.queue-item-via--fallback {
+  color: var(--warning);
+  border-color: color-mix(in srgb, var(--warning) 35%, transparent);
+  background: color-mix(in srgb, var(--warning) 12%, transparent);
+}
+
+.queue-item-via:hover,
+.queue-item-via:focus-visible {
+  color: var(--text-primary);
+  border-color: var(--text-tertiary);
+}
+
+.queue-item-via--fallback:hover,
+.queue-item-via--fallback:focus-visible {
+  color: var(--warning);
+  border-color: var(--warning);
+}
+
 /* The failure note is a button: it opens the details dialog. */
 button.queue-item-status-failed {
   width: 100%;
