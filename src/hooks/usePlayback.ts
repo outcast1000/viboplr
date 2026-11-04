@@ -16,6 +16,8 @@ import {
   MAX_CONSECUTIVE_AUTO_SKIPS,
   ENGINE_UNAVAILABLE_ERROR,
   AUDIO_OUTPUT_PLAYBACK_ERROR,
+  AUDIO_OUTPUT_RETRY_DELAY_MS,
+  isAudioOutputFailure,
   FORMAT_PLAYBACK_ERROR,
   VIDEO_UNAVAILABLE_ERROR,
   UNPLAYABLE_SOURCE_ERROR,
@@ -268,6 +270,8 @@ export function usePlayback(
   // error is only worth it for a remote one: a local file's failure is
   // deterministic (a codec the engine can't decode).
   const lastEngineSourceRef = useRef<EngineSource | null>(null);
+  // The play generation whose audio-output failure has had its one replay.
+  const deviceRetryGenRef = useRef(-1);
   // The clip (see playClip) that owns the engine right now, if any.
   const clipKeyRef = useRef<string | null>(null);
   const clipSeqRef = useRef(0);
@@ -742,6 +746,50 @@ export function usePlayback(
             ? preloadEngineSourceRef.current.source
             : null;
         const remote = failedSource?.kind === "http";
+        // The audio output wouldn't open. That is the speaker's failure, not the
+        // source's: a re-resolved URL can't fix it and must not step the stream
+        // ladder down. Give it one replay of the same source a moment later (an
+        // output switching over — a dock, a headset reconnecting — settles), then
+        // report it. Not counted as a source failure.
+        if (session && isAudioOutputFailure(payload.message)) {
+          endNativeSession();
+          const generation = playGenerationRef.current;
+          const src = lastPlaySrcRef.current;
+          const engineSource = lastEngineSourceRef.current;
+          const track = session.track;
+          if (deviceRetryGenRef.current !== generation && src && engineSource) {
+            deviceRetryGenRef.current = generation;
+            logPlayback(`Engine error key=${payload.trackKey} — audio output didn't open, retrying the same source in ${AUDIO_OUTPUT_RETRY_DELAY_MS}ms: ${payload.message}`);
+            setPlaying(false);
+            setLoadingTrack(track);
+            const resumeAt = nativeLastPositionRef.current;
+            const scrobble = { key: track.key, scrobbled: scrobbledRef.current, startedAt: playStartedAtRef.current };
+            setTimeout(() => {
+              // A newer play (or a stop) took over while we waited.
+              if (playGenerationRef.current !== generation || nativeSessionRef.current) return;
+              setLoadingTrack(null);
+              pendingSeekRef.current = resumeAt;
+              resumeScrobbleRef.current = scrobble;
+              playWithSrcRef.current(track, src, "auto", engineSource).catch((e) => {
+                console.error("Audio output retry failed:", e);
+                if (playGenerationRef.current !== generation) return;
+                setPlaying(false);
+                surfacePlaybackFailureRef.current(AUDIO_OUTPUT_PLAYBACK_ERROR, track, src, "playback", {
+                  engineError: e instanceof Error ? e.message : String(e),
+                  tries: 2,
+                });
+              });
+            }, AUDIO_OUTPUT_RETRY_DELAY_MS);
+            return;
+          }
+          logPlayback(`Engine error key=${payload.trackKey} — audio output still didn't open, giving up: ${payload.message}`);
+          setPlaying(false);
+          surfacePlaybackFailureRef.current(AUDIO_OUTPUT_PLAYBACK_ERROR, track, src, "playback", {
+            engineError: payload.message,
+            tries: 2,
+          });
+          return;
+        }
         const failures = noteNativeFailure(payload.trackKey);
         const retryNatively = remote && failures < NATIVE_RETRY_ATTEMPTS;
         if (nativePreloadedRef.current?.key === payload.trackKey) nativePreloadedRef.current = null;
@@ -790,16 +838,15 @@ export function usePlayback(
         }
         // Out of retries for this source: play the track from the next entry
         // in its resolver chain (the Library copy under its current path, then
-        // the plugin resolvers) before calling it a failure. Not for an audio
-        // device that won't open — no other source fixes that. Nor for a local
-        // file the decoder rejects: the file is damaged, the Library entry
+        // the plugin resolvers) before calling it a failure. Not for a local
+        // file the decoder rejects (an audio output that won't open never gets
+        // here — it is handled above): the file is damaged, the Library entry
         // finds that same file, and the plugin resolvers then search the web
         // for its name ("video-476" played a random YouTube upload). A moved
         // file fails with a load error instead, and still falls back.
         const failure = engineErrorMessage(payload.message);
-        const deviceFailure = failure === AUDIO_OUTPUT_PLAYBACK_ERROR;
         const damagedLocalFile = failedSource?.kind === "file" && failure === FORMAT_PLAYBACK_ERROR;
-        if (!deviceFailure && !damagedLocalFile && fallBackFromFailedSource(track.key)) {
+        if (!damagedLocalFile && fallBackFromFailedSource(track.key)) {
           logPlayback(`Engine error key=${track.key} — falling back to the next source in the chain`);
           pendingSeekRef.current = nativeLastPositionRef.current;
           handlePlayRef.current(track, "auto");
@@ -917,6 +964,8 @@ export function usePlayback(
   // closure would go stale).
   const handlePlayRef = useRef(handlePlay);
   useAssignRef(handlePlayRef, handlePlay);
+  const playWithSrcRef = useRef(playWithSrc);
+  useAssignRef(playWithSrcRef, playWithSrc);
 
   function setPendingSeek(secs: number) {
     pendingSeekRef.current = secs;

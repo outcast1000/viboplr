@@ -23,7 +23,20 @@ export const FORMAT_PLAYBACK_ERROR = "This file’s format can’t be played";
 export const SUBSONIC_FORMAT_PLAYBACK_ERROR =
   "The server sent no playable audio — the track may no longer be on the server (resync the collection), or its format can’t be played";
 export const LOAD_PLAYBACK_ERROR = "The track couldn’t be opened";
-export const AUDIO_OUTPUT_PLAYBACK_ERROR = "Couldn’t open the audio output device";
+// The output device wouldn't open (mpv's AO init failed). Seen on macOS after
+// the outputs changed under a running app (a dock, a USB/Bluetooth headset
+// reconnecting): other apps played and a fresh process opened the same device,
+// so the sentence names the two things that do help.
+export const AUDIO_OUTPUT_PLAYBACK_ERROR =
+  "Couldn’t open the audio output device — choose another output in your sound settings, or quit and reopen Vibo";
+/** How long an audio-output failure waits before its one replay of the same
+ *  source — long enough for an output that is switching over to settle. */
+export const AUDIO_OUTPUT_RETRY_DELAY_MS = 1500;
+
+/** The engine's error text says the audio output couldn't be opened. */
+export function isAudioOutputFailure(message: string | null | undefined): boolean {
+  return (message ?? "").toLowerCase().includes("audio output");
+}
 // libmpv could not be loaded on this machine, so nothing can play. Settings →
 // Playback explains it and offers a replacement copy.
 export const ENGINE_UNAVAILABLE_ERROR =
@@ -40,7 +53,7 @@ export function engineErrorMessage(message: string | null | undefined, path?: st
   if (text.includes("unrecognized file format") || text.includes("no audio or video data")) {
     return path?.startsWith("subsonic://") ? SUBSONIC_FORMAT_PLAYBACK_ERROR : FORMAT_PLAYBACK_ERROR;
   }
-  if (text.includes("audio output")) return AUDIO_OUTPUT_PLAYBACK_ERROR;
+  if (isAudioOutputFailure(text)) return AUDIO_OUTPUT_PLAYBACK_ERROR;
   if (text.includes("loading failed")) return LOAD_PLAYBACK_ERROR;
   return message?.trim() ? `Playback failed: ${message.trim()}` : "Playback failed";
 }

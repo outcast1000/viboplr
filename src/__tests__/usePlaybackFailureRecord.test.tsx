@@ -27,7 +27,9 @@ vi.mock("../playback/nativeEngine", () => ({
 
 import { usePlayback, type PlaybackOutcomeHandlers } from "../hooks/usePlayback";
 import { CHAIN_EXHAUSTED_MESSAGE } from "../playback/trackFailures";
-import { clearAllNativeRetries, noteResolvedEntry, failedEntryCount } from "../playback/playbackRetry";
+import { clearAllNativeRetries, noteResolvedEntry, failedEntryCount, streamLadderStep } from "../playback/playbackRetry";
+import { AUDIO_OUTPUT_PLAYBACK_ERROR, AUDIO_OUTPUT_RETRY_DELAY_MS } from "../playback/playbackErrors";
+import { nativeEngine } from "../playback/nativeEngine";
 
 const song: QueueTrack = {
   key: "q:1", path: "file:///music/song.flac", title: "Song", artist_name: "Artist",
@@ -187,5 +189,64 @@ describe("usePlayback → per-entry failure record", () => {
     await act(async () => { await result.current.handlePlay(song); });
     emit("engine-position", { trackKey: "q:1", positionSecs: 1 });
     expect(outcome.started).toHaveBeenCalledTimes(2);
+  });
+  describe("an audio output that won't open", () => {
+    const stream: QueueTrack = { ...song, key: "q:7", path: "ytdlp://abc", format: null };
+    const streamed: ResolvedTrackSource = {
+      src: "https://cdn.example/a.m4a",
+      engineSource: { kind: "http", url: "https://cdn.example/a.m4a" } as EngineSource,
+    } as ResolvedTrackSource;
+    const aoError = { trackKey: "q:7", code: "decode", message: "audio output initialization failed (-14)" };
+
+    it("replays the same source once, later, without looking the stream up again", async () => {
+      vi.useFakeTimers();
+      try {
+        clearAllNativeRetries();
+        const resolve = vi.fn(async () => streamed);
+        const { result, outcome } = mount(resolve);
+        await act(async () => { await result.current.handlePlay(stream); });
+        const play = vi.mocked(nativeEngine.play);
+        play.mockClear();
+
+        emit("engine-error", aoError);
+        expect(play).not.toHaveBeenCalled();
+        await act(async () => { vi.advanceTimersByTime(AUDIO_OUTPUT_RETRY_DELAY_MS); });
+        expect(play).toHaveBeenCalledTimes(1);
+        expect(play.mock.calls[0][0]).toMatchObject({ source: streamed.engineSource, trackKey: "q:7" });
+        expect(resolve).toHaveBeenCalledTimes(1);
+        expect(streamLadderStep("q:7")).toBe(0);
+        expect(outcome.failed).not.toHaveBeenCalled();
+
+        // Still no output: now it is reported, with the sentence that helps.
+        emit("engine-error", aoError);
+        await act(async () => { vi.advanceTimersByTime(AUDIO_OUTPUT_RETRY_DELAY_MS * 2); });
+        expect(play).toHaveBeenCalledTimes(1);
+        expect(resolve).toHaveBeenCalledTimes(1);
+        expect(outcome.failed).toHaveBeenCalledWith("q:7", expect.objectContaining({
+          stage: "playback",
+          summary: AUDIO_OUTPUT_PLAYBACK_ERROR,
+        }));
+      } finally {
+        vi.useRealTimers();
+        clearAllNativeRetries();
+      }
+    });
+
+    it("drops the replay when a newer play came first", async () => {
+      vi.useFakeTimers();
+      try {
+        const { result } = mount(async () => streamed);
+        await act(async () => { await result.current.handlePlay(stream); });
+        emit("engine-error", aoError);
+        await act(async () => { await result.current.handlePlay(song); });
+        const play = vi.mocked(nativeEngine.play);
+        play.mockClear();
+        await act(async () => { vi.advanceTimersByTime(AUDIO_OUTPUT_RETRY_DELAY_MS); });
+        expect(play).not.toHaveBeenCalled();
+      } finally {
+        vi.useRealTimers();
+        clearAllNativeRetries();
+      }
+    });
   });
 });
