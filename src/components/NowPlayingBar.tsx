@@ -456,7 +456,7 @@ export const NowPlayingBar = memo(function NowPlayingBar({
                   <span className="mini-ultra-lead-inner">
                     {currentLiked === 1 && <IconHeartFilled size={11} className="mini-ultra-heart" />}
                     <span className="mini-ultra-track">{currentTrack.title}</span>
-                    <span className="mini-ultra-sep"> — </span>
+                    <span className="mini-ultra-sep">—</span>
                   </span>
                 </span>
                 <NowPlayingInfoCycler plain className="mini-ultra-artist" items={nowPlayingInfo} sep=" · " fallbackText={currentTrack.artist_name || "Unknown"} cycleResetKey={currentTrack.key} cycleState={miniCycleState} onCycleState={setMiniCycleState} onDisplay={handleUltraDisplay} />

@@ -1070,8 +1070,11 @@
   color: var(--text-primary);
 }
 
+/* Spaced by margin, not by " — " text: the dash ends the lead's grid item,
+   where a trailing space collapses and the dash would touch the info line. */
 .mini-ultra-sep {
   color: var(--text-tertiary);
+  margin: 0 0.4em;
 }
 
 .mini-ultra-artist {
