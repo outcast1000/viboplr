@@ -47,10 +47,10 @@ pub struct ScannedFileMeta {
     pub format: Option<String>,
     pub file_size: Option<i64>,
     pub modified_at: Option<i64>,
-    /// Tag names to attach (the genre for audio; path-derived tags for video).
+    /// Tag names to attach (the genres; for video also the filename's bracketed keywords).
     pub tag_names: Vec<String>,
     /// The extra-tags JSON (or None to clear). Only written when
-    /// `write_extra_tags` — video rows never touch the column.
+    /// `write_extra_tags` — a video row touches it only when its tag was read.
     pub extra_tags: Option<String>,
     pub write_extra_tags: bool,
 }

@@ -204,42 +204,80 @@ where
 
 fn read_tags(path: &Path) -> ParsedTags {
     if let Ok(tagged_file) = crate::tag_writer::read_tagged_file(path) {
-        let tag = tagged_file.primary_tag().or_else(|| tagged_file.first_tag());
-
-        let duration = tagged_file.properties().duration();
-        let duration_secs = Some(duration.as_secs_f64()).filter(|&d| d > 0.0);
-
-        if let Some(tag) = tag {
-            let title = tag.title().and_then(|s| clean_tag(&s));
-            let artist = tag.artist().and_then(|s| clean_tag(&s));
-            let album_artist = tag
-                .get_string(lofty::tag::ItemKey::AlbumArtist)
-                .and_then(clean_tag);
-            let album = tag.album().and_then(|s| clean_tag(&s));
-            // All genre items, not `tag.genre()` — that is only the first one.
-            let genres = split_genres(tag.get_strings(lofty::tag::ItemKey::Genre));
-            let year = tag.date().map(|d| d.year as i32);
-            let track_number = tag.track().map(|t| t as i32);
-            let extra_tags = collect_extra_tags(tag);
-
-            if title.is_some() {
-                return ParsedTags {
-                    title: title.unwrap(),
-                    artist,
-                    album_artist,
-                    album,
-                    genres,
-                    year,
-                    track_number,
-                    duration_secs,
-                    extra_tags,
-                };
-            }
+        let duration_secs = tagged_duration(&tagged_file);
+        if let Some(parsed) = parsed_from_tagged(&tagged_file, duration_secs) {
+            return parsed;
         }
-        // Tags exist but no title — fall through to filename parsing
+        // No tag, or a tag with no title — fall through to filename parsing
         return fallback_from_filename(path, duration_secs);
     }
     fallback_from_filename(path, None)
+}
+
+fn tagged_duration(tagged_file: &lofty::file::TaggedFile) -> Option<f64> {
+    Some(tagged_file.properties().duration().as_secs_f64()).filter(|&d| d > 0.0)
+}
+
+/// The fields of a file's embedded tag, or None when it has no tag or the tag
+/// has no title (a title is what makes the rest worth trusting over the path).
+fn parsed_from_tagged(
+    tagged_file: &lofty::file::TaggedFile,
+    duration_secs: Option<f64>,
+) -> Option<ParsedTags> {
+    let tag = tagged_file.primary_tag().or_else(|| tagged_file.first_tag())?;
+    let title = tag.title().and_then(|s| clean_tag(&s))?;
+    Some(ParsedTags {
+        title,
+        artist: tag.artist().and_then(|s| clean_tag(&s)),
+        album_artist: tag
+            .get_string(lofty::tag::ItemKey::AlbumArtist)
+            .and_then(clean_tag),
+        album: tag.album().and_then(|s| clean_tag(&s)),
+        // All genre items, not `tag.genre()` — that is only the first one.
+        genres: split_genres(tag.get_strings(lofty::tag::ItemKey::Genre)),
+        year: tag.date().map(|d| d.year as i32),
+        track_number: tag.track().map(|t| t as i32),
+        duration_secs,
+        extra_tags: collect_extra_tags(tag),
+    })
+}
+
+/// Video containers whose embedded tags are read (the MP4 family, which lofty
+/// parses). Every other video container — mkv, webm, avi, wmv, and QuickTime
+/// .mov, which lofty can't identify — keeps the filename as its title.
+const TAGGED_VIDEO_EXTENSIONS: &[&str] = &["mp4", "m4v"];
+
+/// A video file's metadata: its embedded tag when it is an MP4 whose tag
+/// carries a title, else the filename as the title with no artist or album.
+/// The second value says whether the tag was used.
+fn read_video_meta(path: &Path) -> (ParsedTags, bool) {
+    let tagged = crate::tag_writer::read_tagged_file(path).ok();
+    let duration_secs = tagged.as_ref().and_then(tagged_duration);
+    let reads_tags = path
+        .extension()
+        .and_then(|e| e.to_str())
+        .map(|e| TAGGED_VIDEO_EXTENSIONS.contains(&e.to_lowercase().as_str()))
+        .unwrap_or(false);
+    if reads_tags {
+        if let Some(parsed) = tagged.as_ref().and_then(|f| parsed_from_tagged(f, duration_secs)) {
+            return (parsed, true);
+        }
+    }
+    let title = path.file_stem().and_then(|s| s.to_str()).unwrap_or("Unknown").trim().to_string();
+    (
+        ParsedTags {
+            title,
+            artist: None,
+            album_artist: None,
+            album: None,
+            genres: Vec::new(),
+            year: None,
+            track_number: None,
+            duration_secs,
+            extra_tags: None,
+        },
+        false,
+    )
 }
 
 /// Collect tag values that have no dedicated `tracks` column into a JSON object
@@ -589,7 +627,8 @@ fn prepare_media_file(db: &Arc<Database>, path: &Path, collection_id: Option<i64
     // Skip if file hasn't changed since last scan. Exceptions: re-read an audio file
     // whose row predates the extra_tags backfill (extra_tags still NULL) even when
     // the mtime is unchanged, so existing libraries fill in on the next scan (video
-    // files carry no embedded tags, so they keep the plain mtime skip); and a
+    // files keep the plain mtime skip — most carry no tag, so their extra_tags
+    // stays NULL and they would be re-read on every scan); and a
     // `force` scan (the user's "Full rescan") re-reads everything — the recovery
     // path for tags edited without an mtime bump and for re-keying albums by
     // ALBUMARTIST on rows scanned before that tag was honored.
@@ -615,28 +654,31 @@ fn prepare_media_file(db: &Arc<Database>, path: &Path, collection_id: Option<i64
 
     let file_size = metadata.map(|m| m.len() as i64);
 
-    // For video files, use filename as title but try to read duration from file properties
+    // Video: an MP4 with a titled tag is read like an audio file; anything else
+    // takes its title from the filename (see `read_video_meta`).
     if is_video_file(path) {
-        let title = path.file_stem().and_then(|s| s.to_str()).unwrap_or("Unknown").trim().to_string();
-        let duration_secs = crate::tag_writer::read_tagged_file(path)
-            .ok()
-            .map(|f| f.properties().duration().as_secs_f64())
-            .filter(|&d| d > 0.0);
+        let (tags, embedded) = read_video_meta(path);
+        let mut tag_names = tags.genres;
+        for t in extract_video_tags(path, collection_root) {
+            if !tag_names.iter().any(|n| n.eq_ignore_ascii_case(&t)) {
+                tag_names.push(t);
+            }
+        }
         return Some(crate::db::ScannedFileMeta {
             relative_path,
-            title,
-            artist: None,
-            album_artist: None,
-            album: None,
-            year: None,
-            track_number: None,
-            duration_secs,
+            title: tags.title,
+            artist: tags.artist,
+            album_artist: tags.album_artist,
+            album: tags.album,
+            year: tags.year,
+            track_number: tags.track_number,
+            duration_secs: tags.duration_secs,
             format,
             file_size,
             modified_at,
-            tag_names: extract_video_tags(path, collection_root),
-            extra_tags: None,
-            write_extra_tags: false,
+            tag_names,
+            extra_tags: tags.extra_tags,
+            write_extra_tags: embedded,
         });
     }
 
@@ -675,8 +717,8 @@ pub struct DroppedMedia {
 }
 
 /// Read queue-ready metadata for a single media file. Mirrors
-/// `process_media_file`'s split: video files use the filename as title (they
-/// carry no readable tags) and only probe for duration; audio files go through
+/// `process_media_file`'s split: video files go through `read_video_meta` (an
+/// MP4's titled tag, else the filename as title); audio files go through
 /// the full `read_tags` path (embedded tags, then filename fallback).
 pub fn read_dropped_media(path: &Path) -> DroppedMedia {
     let format = path
@@ -685,17 +727,15 @@ pub fn read_dropped_media(path: &Path) -> DroppedMedia {
         .map(|e| e.to_lowercase());
 
     if is_video_file(path) {
-        let title = path
-            .file_stem()
-            .and_then(|s| s.to_str())
-            .unwrap_or("Unknown")
-            .trim()
-            .to_string();
-        let duration_secs = crate::tag_writer::read_tagged_file(path)
-            .ok()
-            .map(|f| f.properties().duration().as_secs_f64())
-            .filter(|&d| d > 0.0);
-        return DroppedMedia { title, artist: None, album_artist: None, album: None, duration_secs, format };
+        let (tags, _) = read_video_meta(path);
+        return DroppedMedia {
+            title: tags.title,
+            artist: tags.artist,
+            album_artist: tags.album_artist,
+            album: tags.album,
+            duration_secs: tags.duration_secs,
+            format,
+        };
     }
 
     let tags = read_tags(path);
@@ -1245,14 +1285,85 @@ mod tests {
 
     #[test]
     fn test_read_dropped_media_video_uses_filename() {
-        // Video files carry no readable tags — title comes from the filename and
-        // the format is the lower-cased extension. (File need not exist: the
-        // duration probe just yields None.)
+        // A video with no readable tag (here: no file at all) takes its title
+        // from the filename; the format is the lower-cased extension.
         let meta = read_dropped_media(Path::new("/clips/My Concert.MP4"));
         assert_eq!(meta.title, "My Concert");
         assert!(meta.artist.is_none());
         assert!(meta.album.is_none());
         assert_eq!(meta.format.as_deref(), Some("mp4"));
+    }
+
+    /// A one-second black video with a silent audio track, optionally tagged,
+    /// written by the real ffmpeg. None where ffmpeg isn't installed (CI).
+    fn make_video(dir: &Path, name: &str, metadata: &[(&str, &str)]) -> Option<PathBuf> {
+        if !crate::video_frames::is_ffmpeg_available() {
+            eprintln!("ffmpeg not installed; skipping");
+            return None;
+        }
+        let out = dir.join(name);
+        let mut cmd = crate::dependencies::command_with_path("ffmpeg");
+        cmd.args(["-nostdin", "-loglevel", "error", "-f", "lavfi", "-i", "color=c=black:s=64x64:d=1"])
+            .args(["-f", "lavfi", "-i", "anullsrc=r=44100:cl=stereo", "-shortest"]);
+        for (k, v) in metadata {
+            cmd.arg("-metadata").arg(format!("{k}={v}"));
+        }
+        assert!(cmd.arg(&out).status().unwrap().success(), "ffmpeg failed to write {name}");
+        Some(out)
+    }
+
+    #[test]
+    fn test_a_tagged_mp4_video_is_read_from_its_tag() {
+        // An MP4 carries a real tag (ffmpeg, yt-dlp and taggers write one), and
+        // a titled tag is read the way an audio file's is: title, artist, album
+        // artist, album, year, track and genres, instead of the filename.
+        let dir = tempfile::tempdir().unwrap();
+        let Some(path) = make_video(dir.path(), "01 Oceans.mp4", &[
+            ("title", "Oceans"),
+            ("artist", "Pearl Jam"),
+            ("album_artist", "Pearl Jam"),
+            ("album", "MTV Unplugged"),
+            ("date", "1992"),
+            ("track", "1/7"),
+            ("genre", "Rock"),
+        ]) else { return };
+
+        let (tags, embedded) = read_video_meta(&path);
+        assert!(embedded);
+        assert_eq!(tags.title, "Oceans");
+        assert_eq!(tags.artist.as_deref(), Some("Pearl Jam"));
+        assert_eq!(tags.album_artist.as_deref(), Some("Pearl Jam"));
+        assert_eq!(tags.album.as_deref(), Some("MTV Unplugged"));
+        assert_eq!(tags.year, Some(1992));
+        assert_eq!(tags.track_number, Some(1));
+        assert_eq!(tags.genres, vec!["Rock".to_string()]);
+        assert!(tags.duration_secs.is_some_and(|d| d > 0.5));
+
+        let dropped = read_dropped_media(&path);
+        assert_eq!(dropped.title, "Oceans");
+        assert_eq!(dropped.artist.as_deref(), Some("Pearl Jam"));
+        assert_eq!(dropped.album.as_deref(), Some("MTV Unplugged"));
+    }
+
+    #[test]
+    fn test_an_untitled_or_untagged_video_keeps_its_filename() {
+        // No title in the tag (or no tag a video container lofty reads) keeps
+        // the old behaviour: the filename is the title, nothing else is guessed
+        // — a video's name is not "Artist - Title" often enough to parse.
+        let dir = tempfile::tempdir().unwrap();
+        let Some(mp4) = make_video(dir.path(), "Some Band - Live (Live).mp4", &[("artist", "Some Band")]) else { return };
+        let (tags, embedded) = read_video_meta(&mp4);
+        assert!(!embedded);
+        assert_eq!(tags.title, "Some Band - Live (Live)");
+        assert!(tags.artist.is_none());
+        assert!(tags.duration_secs.is_some(), "the duration is still read");
+
+        // Tagged, but not an MP4: a Matroska file keeps the filename.
+        let Some(mkv) = make_video(dir.path(), "Clip.mkv", &[("title", "Tagged"), ("artist", "X")]) else { return };
+        let (tags, embedded) = read_video_meta(&mkv);
+        assert!(!embedded);
+        assert_eq!(tags.title, "Clip");
+        assert!(tags.artist.is_none());
     }
 
     #[test]
