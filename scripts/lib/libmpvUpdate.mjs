@@ -9,6 +9,9 @@
 /** Our mirror: the release every lock `url` must point at (see libmpv.lock.json). */
 export const MIRROR_REPO = "outcast1000/viboplr";
 export const MIRROR_TAG = "vendor-libmpv";
+/** Where our own libmpv is built (build-libmpv.yml) and published, one release
+ *  per build. Builds published before it existed stay on MIRROR_TAG. */
+export const LIBMPV_BUILD_REPO = "outcast1000/viboplr-libmpv";
 
 /**
  * Where each platform's builds come from, and what an archive must contain for
@@ -49,9 +52,9 @@ export function pickAsset(release, upstream) {
   return null;
 }
 
-/** A platform pinned to our own build (scripts/libmpv-build): upstream
- *  builds are never proposed for it — it moves through the build-libmpv
- *  workflow and a deliberate re-pin instead. */
+/** A platform pinned to our own build (outcast1000/viboplr-libmpv): upstream
+ *  builds are never proposed for it — it moves through that repo's
+ *  build-libmpv workflow and a deliberate re-pin instead. */
 export function isSelfBuilt(entry) {
   return entry?.selfBuilt === true;
 }

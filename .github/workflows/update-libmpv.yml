@@ -1,7 +1,7 @@
 name: Update libmpv
 
-# Both platforms now pin our own build (scripts/libmpv-build, the build-libmpv
-# workflow), and update-libmpv.mjs skips self-built pins — so today this run
+# Both platforms now pin our own build (outcast1000/viboplr-libmpv, its
+# build-libmpv workflow), and update-libmpv.mjs skips self-built pins — so today this run
 # finds nothing. It stays for a platform pinned back to an upstream build.
 #
 # Weekly: is there a newer libmpv build than the pinned one? If so, mirror it,

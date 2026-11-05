@@ -37,8 +37,9 @@ import { generateChangelog } from "./lib/changelog.mjs";
 import { nextVersion } from "./lib/version.mjs";
 import { renderFeaturesHtml } from "./lib/features.mjs";
 import { locStep } from "./lib/locRepo.mjs";
-// MIRROR_REPO is this repo: the libmpv workflow runs, mirrors and opens its PR here.
-import { MIRROR_REPO, checkRunsArgs, hostPlatformKey, libmpvAction, requiredChecksState, vendorState } from "./lib/libmpvUpdate.mjs";
+// MIRROR_REPO is this repo: the update-libmpv workflow runs, mirrors and opens its PR here.
+// Our own libmpv is built and published in LIBMPV_BUILD_REPO instead.
+import { LIBMPV_BUILD_REPO, MIRROR_REPO, checkRunsArgs, hostPlatformKey, libmpvAction, requiredChecksState, vendorState } from "./lib/libmpvUpdate.mjs";
 import { MPV_BRANCH, MPV_REPO, commitLine, compareUrl, furthestBehind, pinnedMpvCommits } from "./lib/mpvUpstream.mjs";
 import { createInterface } from "readline/promises";
 
@@ -151,11 +152,11 @@ async function mpvMasterStep() {
   // build + hand re-pin that can't finish inside a release anyway, so a question
   // here only paused the run; the steps are printed for afterwards instead.
   console.log(`  This release goes on with the pinned mpv. To move to mpv ${MPV_BRANCH} afterwards:`);
-  console.log(`    1. Build it (builds, runs the engine tests, publishes to vendor-libmpv; re-pins nothing):`);
-  console.log(`         gh workflow run build-libmpv.yml --repo ${MIRROR_REPO} -f publish=true -f mpv_ref=${head}`);
-  console.log(`         gh run list --workflow build-libmpv.yml --repo ${MIRROR_REPO}`);
+  console.log(`    1. Build it (builds, runs this repo's engine tests, publishes a release named after the build; re-pins nothing):`);
+  console.log(`         gh workflow run build-libmpv.yml --repo ${LIBMPV_BUILD_REPO} -f publish=true -f mpv_ref=${head}`);
+  console.log(`         gh run list --workflow build-libmpv.yml --repo ${LIBMPV_BUILD_REPO}`);
   console.log(`    2. Once it passes, re-pin each platform in scripts/libmpv.lock.json by hand`);
-  console.log(`       (url, sha256, mpvGitHash, build) from the published vendor-libmpv assets.`);
+  console.log(`       (url, upstream, sha256, mpvGitHash, build) from that release's assets.`);
   console.log(`    3. node scripts/fetch-libmpv.mjs && (cd src-tauri && cargo test --lib)`);
   console.log(`    4. Commit the lock; the next bump ships it.\n`);
 }

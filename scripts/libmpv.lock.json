@@ -1,8 +1,8 @@
 {
-  "comment": "Pinned libmpv artifacts vendored by scripts/fetch-libmpv.mjs. `url` is OUR mirror (the 'vendor-libmpv' prerelease) — never an upstream link (shinchiro/mpv-winbuild-cmake deletes builds after ~30 days, which broke the v1.0.94 Windows build when the pinned one vanished). Both platforms pin OUR OWN trimmed, self-contained build (`selfBuilt: true`): scripts/libmpv-build/ builds it from pinned sources in the manual build-libmpv workflow, which runs the real-libmpv engine tests on both platforms and publishes the archive plus its build-info JSON (`upstream`) to vendor-libmpv. `build` names that build; the engine-component packager uses it for its zip name. To bump: change scripts/libmpv-build/sources.txt (or let `npm run bump` start the workflow on an mpv master commit), run the workflow with publish, then re-pin url + sha256 + mpvGitHash + build here and re-test playback on both platforms before committing. The weekly update-libmpv workflow skips selfBuilt platforms — it only ever proposed eko5624/shinchiro builds.",
+  "comment": "Pinned libmpv artifacts vendored by scripts/fetch-libmpv.mjs. `url` is always one of OUR releases (a build release of outcast1000/viboplr-libmpv, or this repo's 'vendor-libmpv' prerelease for builds published before that repo existed) — never an upstream link (shinchiro/mpv-winbuild-cmake deletes builds after ~30 days, which broke the v1.0.94 Windows build when the pinned one vanished). Both platforms pin OUR OWN trimmed, self-contained build (`selfBuilt: true`): outcast1000/viboplr-libmpv builds it from pinned sources in its manual build-libmpv workflow, which runs THIS repo's real-libmpv engine tests on both platforms and publishes the archive plus its build-info JSON (`upstream`) as a release named after the build. `build` names that build; the engine-component packager uses it for its zip name. To bump: change sources.txt in viboplr-libmpv (or pass `mpv_ref`, which `npm run bump` prints when mpv master is ahead), run its workflow with publish, then re-pin url + upstream + sha256 + mpvGitHash + build here and re-test playback on both platforms before committing. The weekly update-libmpv workflow skips selfBuilt platforms — it only ever proposed eko5624/shinchiro builds.",
   "platforms": {
     "macos-aarch64": {
-      "source": "self-built: scripts/libmpv-build (mpv master dc4b285c93 2026-10-28 + macOS 27 coreaudio ChannelMap patch, trimmed, FFmpeg 9.0.2 static, LuaJIT, GPL)",
+      "source": "self-built: outcast1000/viboplr-libmpv (mpv master dc4b285c93 2026-10-28 + macOS 27 coreaudio ChannelMap patch, trimmed, FFmpeg 9.0.2 static, LuaJIT, GPL)",
       "selfBuilt": true,
       "build": "vibo-git-dc4b285c93-84dbcf9b",
       "url": "https://github.com/outcast1000/viboplr/releases/download/vendor-libmpv/libmpv-vibo-git-dc4b285c93-84dbcf9b-macos-aarch64.zip",
@@ -11,7 +11,7 @@
       "mpvGitHash": "dc4b285c93"
     },
     "windows-x86_64": {
-      "source": "self-built: scripts/libmpv-build (mpv master dc4b285c93 2026-10-28 + macOS 27 coreaudio ChannelMap patch, trimmed, FFmpeg 9.0.2 static, LuaJIT, GPL)",
+      "source": "self-built: outcast1000/viboplr-libmpv (mpv master dc4b285c93 2026-10-28 + macOS 27 coreaudio ChannelMap patch, trimmed, FFmpeg 9.0.2 static, LuaJIT, GPL)",
       "selfBuilt": true,
       "build": "vibo-git-dc4b285c93-84dbcf9b",
       "url": "https://github.com/outcast1000/viboplr/releases/download/vendor-libmpv/libmpv-vibo-git-dc4b285c93-84dbcf9b-windows-x86_64.zip",
