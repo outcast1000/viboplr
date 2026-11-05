@@ -2,22 +2,22 @@
   "comment": "Pinned libmpv artifacts vendored by scripts/fetch-libmpv.mjs. `url` is always one of OUR releases (a build release of outcast1000/viboplr-libmpv, or this repo's 'vendor-libmpv' prerelease for builds published before that repo existed) — never an upstream link (shinchiro/mpv-winbuild-cmake deletes builds after ~30 days, which broke the v1.0.94 Windows build when the pinned one vanished). Both platforms pin OUR OWN trimmed, self-contained build (`selfBuilt: true`): outcast1000/viboplr-libmpv builds it from pinned sources in its manual build-libmpv workflow, which runs THIS repo's real-libmpv engine tests on both platforms and publishes the archive plus its build-info JSON (`upstream`) as a release named after the build. `build` names that build; the engine-component packager uses it for its zip name. To bump: change sources.txt in viboplr-libmpv (or pass `mpv_ref`, which `npm run bump` prints when mpv master is ahead), run its workflow with publish, then re-pin url + upstream + sha256 + mpvGitHash + build here and re-test playback on both platforms before committing. The weekly update-libmpv workflow skips selfBuilt platforms — it only ever proposed eko5624/shinchiro builds.",
   "platforms": {
     "macos-aarch64": {
-      "source": "self-built: outcast1000/viboplr-libmpv (mpv master dc4b285c93 2026-10-28 + macOS 27 coreaudio ChannelMap patch, trimmed, FFmpeg 9.0.2 static, LuaJIT, GPL)",
+      "source": "self-built: outcast1000/viboplr-libmpv (mpv master 9028187538 2026-11-05, upstream macOS 27 coreaudio fix included, trimmed, FFmpeg 9.0.2 static, LuaJIT, GPL)",
       "selfBuilt": true,
-      "build": "vibo-git-dc4b285c93-84dbcf9b",
-      "url": "https://github.com/outcast1000/viboplr/releases/download/vendor-libmpv/libmpv-vibo-git-dc4b285c93-84dbcf9b-macos-aarch64.zip",
-      "upstream": "https://github.com/outcast1000/viboplr/releases/download/vendor-libmpv/libmpv-vibo-git-dc4b285c93-84dbcf9b-macos-aarch64.json",
-      "sha256": "2d68351fb16c6500f9b7ad01797a3aa4113f792554d79c5049c7b3f3070119b9",
-      "mpvGitHash": "dc4b285c93"
+      "build": "vibo-git-9028187538-1d9edacb",
+      "url": "https://github.com/outcast1000/viboplr-libmpv/releases/download/vibo-git-9028187538-1d9edacb/libmpv-vibo-git-9028187538-1d9edacb-macos-aarch64.zip",
+      "upstream": "https://github.com/outcast1000/viboplr-libmpv/releases/download/vibo-git-9028187538-1d9edacb/libmpv-vibo-git-9028187538-1d9edacb-macos-aarch64.json",
+      "sha256": "e9d17229af92ea7f99e4c4e56f27fd4f1e6380bc9e27c724527bc25c6be6de4f",
+      "mpvGitHash": "9028187538"
     },
     "windows-x86_64": {
-      "source": "self-built: outcast1000/viboplr-libmpv (mpv master dc4b285c93 2026-10-28 + macOS 27 coreaudio ChannelMap patch, trimmed, FFmpeg 9.0.2 static, LuaJIT, GPL)",
+      "source": "self-built: outcast1000/viboplr-libmpv (mpv master 9028187538 2026-11-05, upstream macOS 27 coreaudio fix included, trimmed, FFmpeg 9.0.2 static, LuaJIT, GPL)",
       "selfBuilt": true,
-      "build": "vibo-git-dc4b285c93-84dbcf9b",
-      "url": "https://github.com/outcast1000/viboplr/releases/download/vendor-libmpv/libmpv-vibo-git-dc4b285c93-84dbcf9b-windows-x86_64.zip",
-      "upstream": "https://github.com/outcast1000/viboplr/releases/download/vendor-libmpv/libmpv-vibo-git-dc4b285c93-84dbcf9b-windows-x86_64.json",
-      "sha256": "405fc3d3eb66e2274d0bc040cb7b3028ba4f5f84e1a9e296521bc56ffc250d28",
-      "mpvGitHash": "dc4b285c93"
+      "build": "vibo-git-9028187538-1d9edacb",
+      "url": "https://github.com/outcast1000/viboplr-libmpv/releases/download/vibo-git-9028187538-1d9edacb/libmpv-vibo-git-9028187538-1d9edacb-windows-x86_64.zip",
+      "upstream": "https://github.com/outcast1000/viboplr-libmpv/releases/download/vibo-git-9028187538-1d9edacb/libmpv-vibo-git-9028187538-1d9edacb-windows-x86_64.json",
+      "sha256": "6815cc362eeadb3e56271fa087e7819eee1777db629f535ed935ecbaf3888b49",
+      "mpvGitHash": "9028187538"
     }
   }
 }
