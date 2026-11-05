@@ -197,19 +197,37 @@ const THUMB_MAX_DIM: u32 = 150;
 
 
 fn resize_path_to_jpeg(path: &Path, max_dim: u32) -> Result<Vec<u8>, String> {
-    use image::{imageops::FilterType, GenericImageView};
-    let img = image::open(path).map_err(|e| format!("open image: {}", e))?;
-    let (w, h) = img.dimensions();
-    let resized = if w > max_dim || h > max_dim {
-        let scale = (max_dim as f32) / (w.max(h) as f32);
-        img.resize((w as f32 * scale) as u32, (h as f32 * scale) as u32, FilterType::Lanczos3)
-    } else { img };
-    let rgb = resized.to_rgb8();
-    let mut out = Vec::new();
-    let mut enc = image::codecs::jpeg::JpegEncoder::new_with_quality(&mut out, 85);
-    enc.encode(rgb.as_raw(), rgb.width(), rgb.height(), image::ExtendedColorType::Rgb8)
-        .map_err(|e| format!("encode jpeg: {}", e))?;
-    Ok(out)
+    // Decode by content, not by extension: `image::open` picks the decoder
+    // from the name, and a plugin's `track-….jpg` can hold a WebP (Spotify's
+    // CDN serves WebP), which then failed as "Illegal start bytes".
+    let bytes = std::fs::read(path).map_err(|e| format!("open image: {}", e))?;
+    resize_bytes_to_jpeg(&bytes, max_dim)
+}
+
+/// Largest WebP/GIF stored unconverted (see `image_bytes_for_store`).
+const PASSTHROUGH_MAX_BYTES: usize = 512 * 1024;
+
+/// The bytes to store for a cover or thumb: resized to JPEG when the `image`
+/// crate can decode it, else a WebP/GIF of modest size as-is — the webview
+/// renders by content, so a `.jpg` name holding WebP still displays. Same rule
+/// as `mixtape::archive_image`; the crate carries no webp/gif decoders, by
+/// decision.
+fn image_bytes_for_store(bytes: Vec<u8>, max_dim: u32) -> Result<Vec<u8>, String> {
+    match resize_bytes_to_jpeg(&bytes, max_dim) {
+        Ok(out) => Ok(out),
+        Err(decode_err) => match crate::commands::sniff_image_ext(&bytes) {
+            Some("webp" | "gif") if bytes.len() <= PASSTHROUGH_MAX_BYTES => Ok(bytes),
+            _ => Err(decode_err),
+        },
+    }
+}
+
+fn source_image_bytes(src: &ImageSource, max_dim: u32) -> Result<Vec<u8>, String> {
+    let bytes = match &src.path {
+        Some(p) => std::fs::read(p).map_err(|e| format!("open image: {}", e))?,
+        None => fetch_source_bytes(src)?,
+    };
+    image_bytes_for_store(bytes, max_dim)
 }
 
 fn resize_bytes_to_jpeg(bytes: &[u8], max_dim: u32) -> Result<Vec<u8>, String> {
@@ -256,11 +274,7 @@ pub fn set_cover(profile_dir: &Path, src: Option<&ImageSource>) -> Result<(), St
         }
     }
 
-    let bytes = if let Some(p) = &src.path {
-        resize_path_to_jpeg(Path::new(p), COVER_MAX_DIM)?
-    } else {
-        resize_bytes_to_jpeg(&fetch_source_bytes(src)?, COVER_MAX_DIM)?
-    };
+    let bytes = source_image_bytes(src, COVER_MAX_DIM)?;
 
     atomic_write(&cover_path, &bytes)?;
     Ok(())
@@ -278,11 +292,7 @@ pub fn set_thumb(profile_dir: &Path, key: &str, src: &ImageSource) -> Result<Str
     if dest.exists() {
         return Ok(filename);
     }
-    let bytes = if let Some(p) = &src.path {
-        resize_path_to_jpeg(Path::new(p), THUMB_MAX_DIM)?
-    } else {
-        resize_bytes_to_jpeg(&fetch_source_bytes(src)?, THUMB_MAX_DIM)?
-    };
+    let bytes = source_image_bytes(src, THUMB_MAX_DIM)?;
     atomic_write(&dest, &bytes)?;
     Ok(filename)
 }
@@ -704,6 +714,40 @@ mod tests {
         ensure_dirs(t.path()).unwrap();
         set_thumb(t.path(), "lib:42", &ImageSource { path: Some(src.to_string_lossy().into()), url: None }).unwrap();
         assert!(thumb_file(t.path(), "lib:42").exists());
+    }
+
+    #[test]
+    fn set_thumb_decodes_by_content_not_by_extension() {
+        // A PNG saved under a .jpg name used to fail: image::open trusted the name.
+        let t = tmp();
+        let png = t.path().join("p.png");
+        image::ImageBuffer::from_pixel(4u32, 4u32, image::Rgb([200u8, 10u8, 10u8])).save(&png).unwrap();
+        let misnamed = t.path().join("track-1.jpg");
+        std::fs::rename(&png, &misnamed).unwrap();
+        set_thumb(t.path(), "spotify://a", &ImageSource { path: Some(misnamed.to_string_lossy().into()), url: None }).unwrap();
+        let out = std::fs::read(thumb_file(t.path(), "spotify://a")).unwrap();
+        assert!(out.starts_with(&[0xFF, 0xD8, 0xFF]), "re-encoded as JPEG");
+    }
+
+    #[test]
+    fn set_thumb_keeps_a_webp_it_cannot_decode() {
+        // Spotify's CDN serves WebP; the plugin saves it as track-….jpg.
+        let t = tmp();
+        let mut webp = b"RIFF\x24\x00\x00\x00WEBPVP8 ".to_vec();
+        webp.extend_from_slice(&[0u8; 32]);
+        let src = t.path().join("track-2.jpg");
+        std::fs::write(&src, &webp).unwrap();
+        set_thumb(t.path(), "spotify://b", &ImageSource { path: Some(src.to_string_lossy().into()), url: None }).unwrap();
+        assert_eq!(std::fs::read(thumb_file(t.path(), "spotify://b")).unwrap(), webp);
+    }
+
+    #[test]
+    fn set_thumb_still_refuses_what_is_no_image() {
+        let t = tmp();
+        let src = t.path().join("junk.jpg");
+        std::fs::write(&src, b"not an image").unwrap();
+        assert!(set_thumb(t.path(), "spotify://c", &ImageSource { path: Some(src.to_string_lossy().into()), url: None }).is_err());
+        assert!(!thumb_file(t.path(), "spotify://c").exists());
     }
 
     #[test]

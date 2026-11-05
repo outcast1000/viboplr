@@ -74,6 +74,9 @@ interface QueueRowProps {
   showLikes: boolean;
   showDislike: boolean;
   getTrackImage: (t: QueueTrack) => string | null;
+  /** The album → artist chain alone, ignoring the entry's own image_url — the
+   * fallback once that explicit image has failed to load. */
+  getEntityImage: (t: QueueTrack) => string | null;
   observeVisible: (el: Element, cb: () => void) => () => void;
   onRowMouseDown: (e: React.MouseEvent, index: number) => void;
   onRowClick: (e: React.MouseEvent, index: number) => void;
@@ -98,7 +101,7 @@ interface QueueRowProps {
 const QueueRow = memo(function QueueRow({
   track: t, index: i, isCurrent, isPlaying, isSelected, dropAbove, dropBelow, isDraggedRow,
   localThumb, resolving, failure, onShowFailure, sourceNote, onShowSource, showRadio, showLocate, showLikes, showDislike,
-  getTrackImage, observeVisible,
+  getTrackImage, getEntityImage, observeVisible,
   onRowMouseDown, onRowClick, onRowContextMenu, onRowInfoEnter, onRowInfoLeave,
   onPlay, onTogglePlayPause, onStartRadio, onLocateTrack, onToggleLike, onToggleDislike, onOpenEntity,
 }: QueueRowProps) {
@@ -148,6 +151,7 @@ const QueueRow = memo(function QueueRow({
           <QueueItemThumb
             localThumb={localThumb}
             fallback={visible ? getTrackImage(t) : null}
+            entityFallback={visible ? getEntityImage : null}
             track={t}
           />
         </div>
@@ -416,10 +420,24 @@ function QueueBehaviourButtons({ queueMode, onToggleQueueMode, autoContinueEnabl
   );
 }
 
-function QueueItemThumb({ localThumb, fallback, track }: { localThumb: string | null; fallback: string | null; track: QueueTrack }) {
+export function QueueItemThumb({ localThumb, fallback, entityFallback, track }: {
+  localThumb: string | null;
+  fallback: string | null;
+  entityFallback: ((t: QueueTrack) => string | null) | null;
+  track: QueueTrack;
+}) {
   const [failedSrcs, setFailedSrcs] = useState<Set<string>>(new Set());
 
-  const src = [localThumb, fallback].find(s => s && !failedSrcs.has(s)) ?? null;
+  // An explicit image is never the only candidate (same rule as Home's
+  // cards): a plugin can hand over a local path it later prunes, or a URL
+  // that expires. Once those have failed, the album → artist chain is asked —
+  // and only then, so a row whose own image loads never costs a lookup.
+  const usable = (s: string | null | undefined): s is string => !!s && !failedSrcs.has(s);
+  let src: string | null = [localThumb, fallback].find(usable) ?? null;
+  if (!src && entityFallback) {
+    const entity = entityFallback(track);
+    if (usable(entity)) src = entity;
+  }
 
   if (!src) {
     return (
@@ -551,6 +569,12 @@ export function QueuePanel({
       videoFrame: videoFrames[shelfVideoKey(t.path)] ?? null,
     }),
   [videoFrames, albumImages, artistImages]);
+
+  // The same chain without the entry's own image_url, for when that image
+  // fails to load (QueueItemThumb asks for it only then).
+  const getEntityImage = useCallback((t: QueueTrack): string | null =>
+    getTrackImage({ ...t, image_url: undefined }),
+  [getTrackImage]);
 
   // Resolved cover for the context banner. Prefer the explicit context image
   // (album/artist/tag/playlist play, or a plugin coverUrl); when the context
@@ -987,6 +1011,7 @@ export function QueuePanel({
             showLikes={!!onToggleLike}
             showDislike={!!onToggleDislike}
             getTrackImage={getTrackImage}
+            getEntityImage={getEntityImage}
             observeVisible={observeVisible}
             onRowMouseDown={handleRowMouseDown}
             onRowClick={handleRowClick}
