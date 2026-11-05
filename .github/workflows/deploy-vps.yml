@@ -31,7 +31,20 @@ jobs:
           printf '%s\n' "$SSH_PRIVATE_KEY" > ~/.ssh/deploy_key
           chmod 600 ~/.ssh/deploy_key
           PORT="${VPS_PORT:-22}"
-          ssh-keyscan -p "$PORT" -H "$VPS_HOST" >> ~/.ssh/known_hosts 2>/dev/null
+          # Diagnostics: say *why* the host is unreachable instead of a bare exit 1.
+          echo "Runner public IP: $(curl -s -m 5 https://api.ipify.org || echo unknown)"
+          echo "VPS_HOST resolves to:"
+          getent ahosts "$VPS_HOST" | awk '{print "  " $1}' | sort -u || echo "  (does not resolve)"
+          echo "TCP check on port $PORT:"
+          timeout 10 bash -c "</dev/tcp/$VPS_HOST/$PORT" \
+            && echo "  open" || echo "  NOT reachable (closed, filtered or timed out)"
+          if ! ssh-keyscan -T 15 -p "$PORT" -H "$VPS_HOST" > /tmp/keyscan.out 2> /tmp/keyscan.err \
+             || [ ! -s /tmp/keyscan.out ]; then
+            echo "::error::ssh-keyscan got no host key from VPS_HOST:$PORT"
+            sed 's/^/  keyscan: /' /tmp/keyscan.err
+            exit 1
+          fi
+          cat /tmp/keyscan.out >> ~/.ssh/known_hosts
 
       - name: Deploy docs/ via rsync
         env:
