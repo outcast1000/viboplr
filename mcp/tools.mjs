@@ -124,11 +124,13 @@ export function parseSheetFile(text, path) {
   if (Array.isArray(parsed)) return { cues: parsed };
   if (parsed && typeof parsed === "object" && Array.isArray(parsed.cues)) {
     const out = { mode: parsed.mode, cues: parsed.cues };
+    if (parsed.beats !== undefined) out.beats = parsed.beats;
+    if (parsed.camera !== undefined) out.camera = parsed.camera;
     if (parsed.track !== undefined) out.track = parsed.track;
     if (parsed.author !== undefined) out.author = parsed.author;
     return out;
   }
-  throw new Error(`sheetFile ${path} must hold { cues: [...] } (optionally with mode, track, author) or a bare cues array`);
+  throw new Error(`sheetFile ${path} must hold { cues: [...] } (optionally with mode, beats, camera, track, author) or a bare cues array`);
 }
 
 export function versionCmp(a, b) {
@@ -577,6 +579,24 @@ export const TOOLS = [
         title: str("Track title — required for set/delete (pass the title get_cue_context returned); get alone may omit it to read the playing track"),
         artistName: str("Artist (with title) — pass it for set/delete"),
         mode: en(["cards", "clip"], "action=set: cards (default) or clip — see get_cue_context clipGuide"),
+        beats: {
+          ...obj(
+            {
+              bpm: num("Beats per minute (30–300)"),
+              offset: num("Seconds into the track of one downbeat (the first beat of a bar)"),
+              beatsPerBar: num("Beats in a bar (default 4)"),
+            },
+            ["bpm"],
+          ),
+          description:
+            "action=set, mode=clip: the song's tempo grid, which the beat-locked motion (during beat-pulse / beat-bounce / beat-sway / bar-pulse, camera beat-punch / bar-punch) hits on. Take it from a beat analysis (ffmpeg-tools__analyze_audio: bpm + the first downbeat) — see clipGuide",
+        },
+        camera: {
+          type: "array",
+          description:
+            "action=set, mode=clip: camera moves over the picture (images and shapes on layer ≤ 0; text stays steady) — [{ at, until, move, amount?, ease? }], move = push-in | pull-out | pan-left | pan-right | tilt-up | tilt-down | handheld | beat-punch | bar-punch. See clipGuide",
+          items: { type: "object", additionalProperties: true },
+        },
         cues: {
           type: "array",
           description:
@@ -610,7 +630,7 @@ export const TOOLS = [
       ["action"],
     ),
     // `source` is author's name before app 1.0.93 — still accepted.
-    run: async ({ action, title, artistName, mode, cues, sheetFile, author, source }, ctx) => {
+    run: async ({ action, title, artistName, mode, beats, camera, cues, sheetFile, author, source }, ctx) => {
       const song = { title, artistName };
       // Checked here as well as in the app, so a sheet with no song fails
       // before up to a megabyte of cues crosses the control API for a 400.
@@ -631,7 +651,12 @@ export const TOOLS = [
               throw new Error("sheetFile is only available through the MCP server — pass the cues inline");
             }
             const fromFile = parseSheetFile(await ctx.readTextFile(sheetFile, SHEET_FILE_MAX_BYTES), sheetFile);
-            sheet = { ...fromFile, mode: mode ?? fromFile.mode };
+            sheet = {
+              ...fromFile,
+              mode: mode ?? fromFile.mode,
+              ...(beats !== undefined ? { beats } : {}),
+              ...(camera !== undefined ? { camera } : {}),
+            };
             requireSong(fromFile.track);
           } else {
             if (cues === undefined || cues === null) {
@@ -642,7 +667,7 @@ export const TOOLS = [
               );
             }
             requireSong(null);
-            sheet = { mode, cues };
+            sheet = { mode, cues, ...(beats !== undefined ? { beats } : {}), ...(camera !== undefined ? { camera } : {}) };
           }
           return ctx.request("PUT", "/v1/cues", { ...song, sheet, author: author ?? source });
         }

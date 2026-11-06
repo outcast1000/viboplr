@@ -640,6 +640,8 @@ export function NowPlayingView({
         <CueClipOverlay
           key={`${track.key}:${cueSheet?.updatedAt ?? 0}`}
           cues={cues}
+          beats={cueSheet?.sheet.beats}
+          camera={cueSheet?.sheet.camera}
           playing={!!playing}
           author={cueSheet?.author}
           timingNote={timingNote}

@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
-  activeClipCues, clipDim, clipEnd, clipFrame, cueColorCss, ease, enterSecs, frameTransform, keyframeValue,
+  activeClipCues, beatAt, cameraFrame, cameraTransform, clipDim, clipEnd, clipFrame, cueColorCss, ease, enterSecs,
+  frameTransform, keyframeValue, kick, onCameraStage, cameraMoving,
 } from "../utils/cueClip";
 import type { Cue } from "../utils/cueSheet";
 
@@ -99,5 +100,137 @@ describe("clip helpers", () => {
     expect(ease("in", 2)).toBe(1);
     expect(frameTransform({ opacity: 1, x: 5, y: -2, scale: 1.1, rotate: 3, blur: 0, revealChars: null, revealWords: null }))
       .toBe("translate(5.000cqw, -2.000cqh) scale(1.1000) rotate(3.00deg)");
+  });
+});
+
+describe("tempo grid and beat motion", () => {
+  const grid = { bpm: 120, offset: 2, beatsPerBar: 4 }; // a beat every 0.5s, downbeat at 2s
+
+  it("places a time on the grid, before the downbeat too", () => {
+    expect(beatAt(grid, 2)).toEqual({ n: 0, beat: 0, phase: 0, barBeat: 0 });
+    expect(beatAt(grid, 3.25)).toMatchObject({ beat: 2, phase: 0.5, barBeat: 2 });
+    expect(beatAt(grid, 4)).toMatchObject({ beat: 4, barBeat: 0 });
+    expect(beatAt(grid, 1.5)).toMatchObject({ beat: -1, barBeat: 3 });
+  });
+
+  it("kicks on the beat and decays through it", () => {
+    expect(kick(0)).toBe(1);
+    expect(kick(0.5)).toBeCloseTo(0.0625);
+    expect(kick(1)).toBe(0);
+  });
+
+  it("beat-pulse hits on the song's clock, harder on the downbeat", () => {
+    const cue = el({ at: 0, until: 60, during: "beat-pulse" });
+    const downbeat = clipFrame(cue, 4, false, grid).scale;
+    const offbeat = clipFrame(cue, 4.5, false, grid).scale;
+    const between = clipFrame(cue, 4.75, false, grid).scale;
+    expect(downbeat).toBeGreaterThan(offbeat);
+    expect(offbeat).toBeGreaterThan(between);
+    // Two elements that appeared at different times hit together.
+    expect(clipFrame(el({ at: 3.1, until: 60, during: "beat-pulse" }), 4, false, grid).scale).toBeCloseTo(downbeat);
+  });
+
+  it("bar-pulse only moves on downbeats; beat-sway swings one way per beat", () => {
+    const bar = el({ at: 0, until: 60, during: "bar-pulse" });
+    expect(clipFrame(bar, 4, false, grid).scale).toBeGreaterThan(1);
+    expect(clipFrame(bar, 4.5, false, grid).scale).toBe(1);
+    const sway = el({ at: 0, until: 60, during: "beat-sway" });
+    expect(clipFrame(sway, 4, false, grid).x).toBeCloseTo(1.2);
+    expect(clipFrame(sway, 4.5, false, grid).x).toBeCloseTo(-1.2);
+  });
+
+  it("drops beat motion under reduced motion and without a grid", () => {
+    const cue = el({ at: 0, until: 60, during: "beat-bounce" });
+    expect(clipFrame(cue, 4, false, grid).y).toBeLessThan(0);
+    expect(clipFrame(cue, 4, true, grid).y).toBe(0);
+    expect(clipFrame(cue, 4).y).toBe(0);
+  });
+
+  it("pop lands a little too big and settles", () => {
+    const cue = el({ at: 10, until: 20, enter: { effect: "pop", duration: 0.4 } });
+    const scales = [0.05, 0.2, 0.3, 0.4].map((d) => clipFrame(cue, 10 + d).scale);
+    expect(scales[0]).toBeLessThan(1);
+    expect(Math.max(...scales)).toBeGreaterThan(1);
+    expect(clipFrame(cue, 10.5).scale).toBe(1);
+    expect(clipFrame(cue, 10.2, true).scale).toBe(1); // reduced motion: a fade
+  });
+});
+
+describe("camera", () => {
+  const grid = { bpm: 120, offset: 0, beatsPerBar: 4 };
+  const REST = { x: 0, y: 0, scale: 1, rotate: 0 };
+
+  it("is still outside its moves and under reduced motion", () => {
+    const cam = [{ at: 10, until: 20, move: "push-in" as const }];
+    expect(cameraFrame(cam, 5)).toEqual(REST);
+    expect(cameraFrame(cam, 15, true).scale).toBe(1);
+    expect(cameraFrame(undefined, 15).scale).toBe(1);
+  });
+
+  it("pushes in and pulls out across a move, scaled by amount", () => {
+    const push = [{ at: 0, until: 20, move: "push-in" as const, ease: "linear" as const }];
+    expect(cameraFrame(push, 5).scale).toBeCloseTo(1.0375);
+    expect(cameraFrame(push, 15).scale).toBeCloseTo(1.1125);
+    expect(cameraFrame([{ ...push[0], amount: 2 }], 15).scale).toBeCloseTo(1.225);
+    const pull = [{ at: 0, until: 20, move: "pull-out" as const, ease: "linear" as const }];
+    expect(cameraFrame(pull, 5).scale).toBeCloseTo(1.1125);
+    expect(cameraFrame(pull, 20)).toEqual(REST);
+  });
+
+  it("never lurches on: every move but pull-out starts at rest, and handheld ends at rest", () => {
+    for (const move of ["push-in", "pan-left", "pan-right", "tilt-up", "tilt-down", "handheld"] as const) {
+      const cam = [{ at: 10, until: 20, move, amount: 3 }];
+      const start = cameraFrame(cam, 10);
+      expect(start.scale, move).toBeCloseTo(1, 4);
+      expect(start.x, move).toBeCloseTo(0, 4);
+      expect(start.y, move).toBeCloseTo(0, 4);
+      const mid = cameraFrame(cam, 15);
+      expect(Math.abs(mid.scale - 1) + Math.abs(mid.x) + Math.abs(mid.y), move).toBeGreaterThan(0.01);
+    }
+    const hh = cameraFrame([{ at: 10, until: 20, move: "handheld", amount: 3 }], 19.9999);
+    expect(hh.scale).toBeCloseTo(1, 4);
+    expect(hh.x).toBeCloseTo(0, 3);
+  });
+
+  it("pans travel from rest, with overscan that always hides the frame edge", () => {
+    const pan = { at: 0, until: 10, move: "pan-left" as const, ease: "linear" as const };
+    expect(cameraFrame([pan], 5).x).toBeCloseTo(3);
+    expect(cameraFrame([pan], 9.999).x).toBeCloseTo(6, 2);
+    for (const amount of [0.5, 1, 3]) {
+      for (const t of [1, 5, 9.99]) {
+        const f = cameraFrame([{ ...pan, amount }], t);
+        expect((f.scale - 1) * 50).toBeGreaterThanOrEqual(Math.abs(f.x)); // edge margin, percent of the view
+      }
+    }
+    const both = cameraFrame([pan, { at: 0, until: 10, move: "push-in", ease: "linear" }], 5);
+    expect(both.scale).toBeCloseTo(1.065 * 1.075);
+  });
+
+  it("punches on the grid", () => {
+    const beat = [{ at: 0, until: 60, move: "beat-punch" as const }];
+    expect(cameraFrame(beat, 4.5, false, grid).scale).toBeGreaterThan(cameraFrame(beat, 4.75, false, grid).scale);
+    const bar = [{ at: 0, until: 60, move: "bar-punch" as const }];
+    expect(cameraFrame(bar, 4, false, grid).scale).toBeCloseTo(1.07);
+    expect(cameraFrame(bar, 4.5, false, grid).scale).toBe(1);
+    expect(cameraFrame(bar, 4).scale).toBe(1); // no grid: nothing to hit on
+  });
+
+  it("knows when it is moving, for the panels' blur", () => {
+    const cam = [{ at: 10, until: 20, move: "handheld" as const }];
+    expect(cameraMoving(cam, 15)).toBe(true);
+    expect(cameraMoving(cam, 20)).toBe(false);
+    expect(cameraMoving(cam, 15, true)).toBe(false);
+    expect(cameraMoving(undefined, 15)).toBe(false);
+  });
+
+  it("moves images and shapes on layer ≤ 0; text of any layer stays composited", () => {
+    expect(onCameraStage(el({ kind: "image", imageUrl: "https://x/y.jpg" }))).toBe(true);
+    expect(onCameraStage(el({ kind: "shape", layer: -5 }))).toBe(true);
+    expect(onCameraStage(el({ kind: "image", imageUrl: "https://x/y.jpg", layer: 2 }))).toBe(false);
+    expect(onCameraStage(el({}))).toBe(false); // an unlayered title
+    expect(onCameraStage(el({ kind: "quote", layer: -3 }))).toBe(false);
+    expect(cameraTransform({ x: 1, y: -2, scale: 1.1, rotate: 0.5 })).toBe(
+      "translate(1.000cqw, -2.000cqh) scale(1.1000) rotate(0.500deg)",
+    );
   });
 });

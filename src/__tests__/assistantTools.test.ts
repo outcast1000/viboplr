@@ -351,11 +351,12 @@ describe("cue_sheet sheetFile", () => {
   it("parses the two sheet shapes and never quotes a bad file back", () => {
     expect(parseSheetFile(JSON.stringify(CUES), "/a")).toEqual({ cues: CUES });
     expect(parseSheetFile(JSON.stringify({ mode: "clip", cues: CUES, extra: 1 }), "/a")).toEqual({ mode: "clip", cues: CUES });
+    expect(parseSheetFile(JSON.stringify({ mode: "clip", beats: { bpm: 96 }, camera: [], cues: CUES }), "/a")).toEqual({ mode: "clip", beats: { bpm: 96 }, camera: [], cues: CUES });
     const secret = "SECRET-CONTENTS not json";
     expect(() => parseSheetFile(secret, "/etc/x")).toThrow(/^sheetFile \/etc\/x is not valid JSON/);
     expect(() => parseSheetFile(secret, "/etc/x")).not.toThrow(/SECRET/);
     expect(() => parseSheetFile(JSON.stringify({ secret: "SECRET" }), "/etc/y")).toThrow(
-      "sheetFile /etc/y must hold { cues: [...] } (optionally with mode, track, author) or a bare cues array",
+      "sheetFile /etc/y must hold { cues: [...] } (optionally with mode, beats, camera, track, author) or a bare cues array",
     );
   });
 });

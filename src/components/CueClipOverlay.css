@@ -23,6 +23,31 @@
   background: rgb(var(--scrim-rgb));
 }
 
+/* The camera's stage: the picture elements (layer <= 0), moved as one about
+   the view's centre by cameraTransform(). Above the dim, under the titles
+   (z 20 + layer >= 21). Transform only, so a camera move stays a compositor
+   job. */
+.np-clip-stage {
+  position: absolute;
+  inset: 0;
+  z-index: 10;
+  transform-origin: center;
+}
+/* Promoted only when the sheet has a camera: a clip without one never
+   transforms the stage, so the layer would be memory for nothing. */
+.np-clip-stage--camera {
+  will-change: transform;
+}
+/* While the camera moves the picture, a card panel over it would re-blur its
+   backdrop every frame (motion over backdrop-filter is banned — frontend.md).
+   It becomes an opaque-enough scrim instead, and gets its blur back when the
+   move ends. */
+.np-clip--camera-moving .np-clip-bg--card {
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+  background: rgba(var(--scrim-rgb), 0.78);
+}
+
 .np-clip-el {
   position: absolute;
   display: flex;

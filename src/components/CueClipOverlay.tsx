@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, type CSSProperties } from "react";
-import { cueCredit, type Cue } from "../utils/cueSheet";
+import { cueCredit, type Cue, type CueBeats, type CueCamera } from "../utils/cueSheet";
 import {
-  activeClipCues, clipDim, clipFrame, cueColorCss, frameTransform, DEFAULT_BOX, DEFAULT_TEXT_SIZE,
+  activeClipCues, cameraFrame, cameraMoving, cameraTransform, clipDim, clipFrame, cueColorCss, frameTransform, onCameraStage,
+  DEFAULT_BOX, DEFAULT_TEXT_SIZE,
 } from "../utils/cueClip";
 import { getPlaybackPosition, subscribePlaybackPosition } from "../playback/positionStore";
 import { isReducedMotion } from "../utils/reducedMotion";
@@ -96,8 +97,12 @@ interface ElementNodes {
  *  frame loop, because a 60 Hz state update would re-render the subtree each
  *  frame. The loop runs only while playing — a paused clip redraws on
  *  position changes (seeks) and otherwise costs nothing. */
-export function CueClipOverlay({ cues, playing, author, timingNote }: {
+export function CueClipOverlay({ cues, beats, camera, playing, author, timingNote }: {
   cues: Cue[];
+  /** The sheet's tempo grid, for the beat effects. */
+  beats?: CueBeats;
+  /** The sheet's camera track: moves the stage (elements on layer ≤ 0). */
+  camera?: CueCamera[];
   playing: boolean;
   author?: string | null;
   timingNote?: string | null;
@@ -107,6 +112,7 @@ export function CueClipOverlay({ cues, playing, author, timingNote }: {
   const activeKeyRef = useRef(active.join(","));
   const nodes = useRef(new Map<number, ElementNodes>());
   const dimRef = useRef<HTMLDivElement>(null);
+  const stageRef = useRef<HTMLDivElement>(null);
   const rootRef = useRef<HTMLDivElement>(null);
   const clock = useRef({ pos: getPlaybackPosition(), at: performance.now(), shown: getPlaybackPosition() });
   const playingRef = useRef(playing);
@@ -133,7 +139,7 @@ export function CueClipOverlay({ cues, playing, author, timingNote }: {
     for (const i of ids) {
       const n = nodes.current.get(i);
       if (!n?.box) continue;
-      const f = clipFrame(cues[i], t, reduced.current);
+      const f = clipFrame(cues[i], t, reduced.current, beats);
       n.box.style.opacity = f.opacity.toFixed(3);
       n.box.style.transform = frameTransform(f);
       n.box.style.filter = f.blur > 0.05 ? `blur(${f.blur.toFixed(1)}px)` : "";
@@ -154,7 +160,11 @@ export function CueClipOverlay({ cues, playing, author, timingNote }: {
       }
     }
     if (dimRef.current) dimRef.current.style.opacity = clipDim(cues, t).toFixed(3);
-  }, [cues, now]);
+    if (stageRef.current && camera?.length) {
+      stageRef.current.style.transform = cameraTransform(cameraFrame(camera, t, reduced.current, beats));
+      rootRef.current?.classList.toggle("np-clip--camera-moving", cameraMoving(camera, t, reduced.current));
+    }
+  }, [cues, beats, camera, now]);
 
   // Position ticks re-anchor the clock; while paused they are also the only
   // thing that redraws (a seek on a paused clip).
@@ -210,48 +220,55 @@ export function CueClipOverlay({ cues, playing, author, timingNote }: {
   return (
     <div ref={rootRef} className="np-clip" aria-live="polite">
       <div ref={dimRef} className="np-clip-dim" style={{ opacity: 0 }} />
-      {active.map((i) => {
-        const cue = cues[i];
-        const bg = backgroundOf(cue);
-        const shadow = cue.shadow ?? bg === "none";
-        return (
-          <div
-            key={i}
-            ref={bind(i, "box")}
-            className={`np-clip-el np-clip-el--${cue.kind} np-clip-bg--${bg}${shadow ? " np-clip-el--shadow" : ""}`}
-            style={boxStyle(cue)}
-          >
-            {cue.kind === "image" && cue.imageUrl && !failedImages.has(i) && (
-              <img
-                className="np-clip-image"
-                src={cue.imageUrl}
-                alt={cue.caption ?? ""}
-                referrerPolicy="no-referrer"
-                style={{ objectFit: cue.fit ?? "cover" }}
-                onError={() => setFailedImages((s) => new Set(s).add(i))}
-              />
-            )}
-            {cue.kind !== "shape" && (cue.label || cue.text || (cue.kind !== "image" && cue.caption)) && (
-              <div className="np-clip-text-block">
-                {cue.label && <div className="np-clip-label">{cue.label}</div>}
-                {cue.text && (
-                  <div className="np-clip-text">
-                    {cue.kind === "quote" && "“"}
-                    {/* Both halves are filled by the frame loop, never by React, so a
-                        reveal can rewrite them without fighting reconciliation. */}
-                    <span ref={bind(i, "shown")} />
-                    <span ref={bind(i, "hidden")} className="np-clip-unrevealed" />
-                    {cue.kind === "quote" && "”"}
-                  </div>
-                )}
-                {cue.caption && cue.kind !== "image" && <div className="np-clip-caption">{cue.caption}</div>}
-              </div>
-            )}
-            {cue.kind === "image" && cue.caption && <div className="np-clip-image-caption">{cue.caption}</div>}
-          </div>
-        );
-      })}
+      {/* The picture the camera moves (layer ≤ 0); titles above stay put, as
+          type composited over a shot does. */}
+      <div ref={stageRef} className={`np-clip-stage${camera?.length ? " np-clip-stage--camera" : ""}`}>
+        {active.filter((i) => onCameraStage(cues[i])).map(renderElement)}
+      </div>
+      {active.filter((i) => !onCameraStage(cues[i])).map(renderElement)}
       {credit && active.length > 0 && <div className="np-clip-source" title={credit.title}>{credit.text}</div>}
     </div>
   );
+
+  function renderElement(i: number) {
+    const cue = cues[i];
+    const bg = backgroundOf(cue);
+    const shadow = cue.shadow ?? bg === "none";
+    return (
+      <div
+        key={i}
+        ref={bind(i, "box")}
+        className={`np-clip-el np-clip-el--${cue.kind} np-clip-bg--${bg}${shadow ? " np-clip-el--shadow" : ""}`}
+        style={boxStyle(cue)}
+      >
+        {cue.kind === "image" && cue.imageUrl && !failedImages.has(i) && (
+          <img
+            className="np-clip-image"
+            src={cue.imageUrl}
+            alt={cue.caption ?? ""}
+            referrerPolicy="no-referrer"
+            style={{ objectFit: cue.fit ?? "cover" }}
+            onError={() => setFailedImages((s) => new Set(s).add(i))}
+          />
+        )}
+        {cue.kind !== "shape" && (cue.label || cue.text || (cue.kind !== "image" && cue.caption)) && (
+          <div className="np-clip-text-block">
+            {cue.label && <div className="np-clip-label">{cue.label}</div>}
+            {cue.text && (
+              <div className="np-clip-text">
+                {cue.kind === "quote" && "“"}
+                {/* Both halves are filled by the frame loop, never by React, so a
+                    reveal can rewrite them without fighting reconciliation. */}
+                <span ref={bind(i, "shown")} />
+                <span ref={bind(i, "hidden")} className="np-clip-unrevealed" />
+                {cue.kind === "quote" && "”"}
+              </div>
+            )}
+            {cue.caption && cue.kind !== "image" && <div className="np-clip-caption">{cue.caption}</div>}
+          </div>
+        )}
+        {cue.kind === "image" && cue.caption && <div className="np-clip-image-caption">{cue.caption}</div>}
+      </div>
+    );
+  }
 }

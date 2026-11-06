@@ -19,10 +19,12 @@ export type CueColor = "light" | "dark" | "accent" | "muted" | `#${string}`;
 
 export type CueEnterEffect =
   | "none" | "fade" | "slide-up" | "slide-down" | "slide-left" | "slide-right"
-  | "zoom-in" | "zoom-out" | "blur" | "typewriter" | "words";
+  | "zoom-in" | "zoom-out" | "blur" | "pop" | "typewriter" | "words";
 export type CueExitEffect = Exclude<CueEnterEffect, "typewriter" | "words">;
 export type CueDuringEffect =
-  | "none" | "ken-burns" | "drift-up" | "drift-down" | "drift-left" | "drift-right" | "zoom-slow" | "pulse";
+  | "none" | "ken-burns" | "drift-up" | "drift-down" | "drift-left" | "drift-right" | "zoom-slow" | "pulse"
+  // On the sheet's tempo grid (`CueSheet.beats`) — the backend refuses them without one.
+  | "beat-pulse" | "beat-bounce" | "beat-sway" | "bar-pulse";
 export type CueEase = "linear" | "in" | "out" | "in-out";
 
 export interface CueKeyframe {
@@ -83,8 +85,34 @@ export interface Cue {
   keyframes?: CueKeyframe[];
 }
 
+/** A clip's tempo grid: constant bpm, `offset` = the time of one downbeat. */
+export interface CueBeats {
+  bpm: number;
+  offset: number;
+  beatsPerBar: number;
+}
+
+/** Camera moves — motion of the whole picture (elements on layer ≤ 0) while
+ *  the titles above stay put. Mirrors `CAMERA_MOVES` in cue_sheets.rs. */
+export type CueCameraMove =
+  | "push-in" | "pull-out" | "pan-left" | "pan-right" | "tilt-up" | "tilt-down" | "handheld"
+  | "beat-punch" | "bar-punch";
+
+export interface CueCamera {
+  at: number;
+  until: number;
+  move: CueCameraMove;
+  /** Strength multiplier, 0.1–3 (default 1). */
+  amount?: number;
+  ease?: CueEase;
+}
+
 export interface CueSheet {
   mode?: CueSheetMode;
+  /** Clip only: the tempo grid the beat effects lock to. */
+  beats?: CueBeats;
+  /** Clip only: the camera track, sorted by `at`. */
+  camera?: CueCamera[];
   cues: Cue[];
 }
 
@@ -328,10 +356,19 @@ export function cuePastEndError(sheet: unknown, durationSecs: number | null | un
   if (!durationSecs || !Number.isFinite(durationSecs) || durationSecs <= 0) return null;
   const cues = Array.isArray(sheet) ? sheet : (sheet as { cues?: unknown } | null)?.cues;
   if (!Array.isArray(cues)) return null;
+  const tooLate = (path: string, at: unknown) =>
+    typeof at === "number" && at >= durationSecs
+      ? `${path}.at is ${at}s but the song is ${Math.round(durationSecs)}s long — times are seconds into the track, not milliseconds`
+      : null;
   for (let i = 0; i < cues.length; i++) {
-    const at = (cues[i] as { at?: unknown } | null)?.at;
-    if (typeof at === "number" && at >= durationSecs) {
-      return `cues[${i}].at is ${at}s but the song is ${Math.round(durationSecs)}s long — times are seconds into the track, not milliseconds`;
+    const err = tooLate(`cues[${i}]`, (cues[i] as { at?: unknown } | null)?.at);
+    if (err) return err;
+  }
+  const camera = Array.isArray(sheet) ? null : (sheet as { camera?: unknown } | null)?.camera;
+  if (Array.isArray(camera)) {
+    for (let i = 0; i < camera.length; i++) {
+      const err = tooLate(`sheet.camera[${i}]`, (camera[i] as { at?: unknown } | null)?.at);
+      if (err) return err;
     }
   }
   return null;
@@ -364,9 +401,11 @@ export const CUE_CLIP_GUIDE = [
   "Text: `size` = text height in percent of the view height (default 5; 0.5–40; 4–7 reads as a caption, 10–20 as a title). It is a maximum: if label + text + caption together overflow the box they are shrunk until they fit, so give a title a box wide and tall enough (one line needs h ≥ size + a little; two lines ≥ 2.4 × size). A \"\\n\" in text forces a line break. `label` and `caption` scale from size. weight regular|bold, italic, case normal|upper, shadow (default on when there is no background).",
   "Colour: `color` (text) / `backgroundColor` (fill) = a token — light (bright text), muted (dimmer secondary text, best on dark or dimmed areas), dark, accent (the skin's accent) — or a hex like #ffcc00 / #00000080 when the song calls for a specific colour. Prefer tokens; they stay readable and follow the skin. `background`: none (default) | scrim (translucent dark) | card (blurred panel) | solid (fills the box with backgroundColor).",
   "Images: `fit` cover | contain | fill. An image or shape with box {0,0,100,100} covers the album art completely — the clip replaces the art while it is up. `dim` (0–0.95) darkens the art under the clip while the element is up, fading with it; clip elements always sit above the dim, and overlapping dims don't add up — the strongest one wins.",
-  "Motion presets: `enter` / `exit` = an effect name or { effect, duration } — fade, slide-up, slide-down, slide-left, slide-right, zoom-in, zoom-out, blur, none; enter also typewriter (letter by letter) and words (word by word), whose default pace follows the text length. `during` = ken-burns, drift-up/down/left/right, zoom-slow, pulse — continuous motion across the element's life. Default transition 0.4s. Enter, exit, during and keyframes all run together.",
+  "Motion presets: `enter` / `exit` = an effect name or { effect, duration } — fade, slide-up, slide-down, slide-left, slide-right, zoom-in, zoom-out, blur, pop (lands a touch too big and settles — a hit on the beat; as an exit it bursts out), none; enter also typewriter (letter by letter) and words (word by word), whose default pace follows the text length. `during` = ken-burns, drift-up/down/left/right, zoom-slow, pulse — continuous motion across the element's life. Default transition 0.4s. Enter, exit, during and keyframes all run together.",
+  "Tempo: sheet.beats = { bpm, offset, beatsPerBar? } — the song's beat grid, `offset` the time of one downbeat (the first beat of a bar), beatsPerBar default 4. With it, `during` also takes beat-pulse (a scale hit on every beat, harder on the downbeat), beat-bounce (a hop on every beat), beat-sway (swings side to side, one way per beat) and bar-pulse (a bigger hit on each downbeat only) — all locked to the song's clock, so elements hit together. Without sheet.beats those are refused. Beat n of the grid is at offset + n × 60/bpm; a bar is beatsPerBar beats.",
+  "Camera: sheet.camera = [{ at, until, move, amount?, ease? }] — moves the whole picture (every image and shape on layer 0 or below: photos, colour fields) about the view's centre, while text of any kind (titles, lyrics, panels) and anything on layer 1+ stays steady, as type composited over a shot does. Moves: push-in (slow zoom in — intimacy, a build), pull-out (zoom back — a reveal, an ending), pan-left / pan-right / tilt-up / tilt-down (travel across the picture), handheld (a live, restless frame), beat-punch / bar-punch (a zoom hit on every beat / every downbeat — drops and big choruses; need sheet.beats). amount 0.1–3 scales the move (default 1), ease default in-out. Moves overlap and compose (a push-in under handheld). Every move but pull-out starts at rest and travels away from it (pull-out starts tight, so begin it on a new picture); a travelled move snaps back when it ends, like a cut — end it where the picture changes, or start the next move there. Handheld eases in and out. Card panels lose their blur while the camera moves (scrim reads the same). Max 64.",
   "Keyframes (custom motion): keyframes: [{ t, x?, y?, scale?, opacity?, rotate?, ease? }] — t in seconds after the element's `at`, x/y offsets from the box in percent of the view, rotate in degrees, ease linear|in|out|in-out into that frame. Scale and rotate turn about the box's centre, for any kind. Before the first keyframe its values hold; after the last, the last ones do. Opacity multiplies: element `opacity` × keyframe opacity × enter/exit fade (a hex colour's own alpha applies on top). Max 32 per element.",
   "If `lyrics.note` is present the synced lyrics were timed to a different version of the song: tell the user, and lean less on exact line timing. The save response lists `warnings` for any field it ignored — fix those and save again.",
-  "Make it read like a lyric video: time sung words to `lyrics.lines[].at` (words or typewriter enter), use a few large titles with dim at section changes, keep 1–3 elements on screen, and leave breathing room. Reduced-motion users get the same timing with fades instead of movement.",
-  "If a tool that analyses the song's structure is available, call it and place titles, cuts and big moments on the music.",
+  "Make it read like a lyric video: time sung words to `lyrics.lines[].at` (words or typewriter enter), use a few large titles with dim at section changes, keep 1–3 elements on screen, and leave breathing room. Reduced-motion users get the same timing with fades instead of movement (no beat motion, no camera).",
+  "Direct it like a music video. If a tool that analyses the song's structure is available (ffmpeg-tools__analyze_audio: sections, peaks, beats), call it first and make an edit map: every section with its start, its energy, and the look it gets. Put its bpm and first downbeat into sheet.beats — but only when its confidence is reasonable and the tempo is steady; otherwise leave the beat effects out rather than hit off the beat. Then: cut on the music — photos change and big titles land on downbeats, not at arbitrary seconds; the cut rate follows the energy (a verse holds a picture 4–8 bars, a chorus changes every 1–2 bars, a bridge or breakdown holds one shot and breathes); escalate — each chorus bigger than the last (more camera, beat motion, brighter accent), the final one biggest; repeat one motif (a colour, a word treatment, a framing) at every chorus so it reads as one piece; hook in the first seconds; resolve at the end (pull-out, slow fade). One camera move per shot, and save beat-punch for the peaks — constant motion is no motion. No flashing or strobing.",
 ].join(" ");

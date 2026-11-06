@@ -13,7 +13,9 @@
 // height. The backend (`cue_sheets.rs`) has already validated every value
 // against the same closed vocabularies, so nothing here parses CSS.
 
-import { DEFAULT_CUE_SECS, type Cue, type CueColor, type CueEase, type CueKeyframe } from "./cueSheet";
+import {
+  DEFAULT_CUE_SECS, type Cue, type CueBeats, type CueCamera, type CueColor, type CueEase, type CueKeyframe,
+} from "./cueSheet";
 
 /** Enter / exit length when the sheet doesn't say. Long enough to read as a
  *  transition, short enough not to eat a four-second cue. */
@@ -50,6 +52,37 @@ export function ease(kind: CueEase | undefined, p: number): number {
     case "in-out": return x < 0.5 ? 4 * x * x * x : 1 - (-2 * x + 2) ** 3 / 2;
     default: return x;
   }
+}
+
+/** Where `t` falls on a tempo grid: `n` = beats since the grid's downbeat
+ *  (fractional, negative before it), `beat` its whole part, `phase` 0..1
+ *  through the current beat, `barBeat` the beat's place in its bar (0 = the
+ *  downbeat). */
+export interface BeatPosition {
+  n: number;
+  beat: number;
+  phase: number;
+  barBeat: number;
+}
+
+export function beatAt(grid: CueBeats, t: number): BeatPosition {
+  const n = ((t - grid.offset) * grid.bpm) / 60;
+  const beat = Math.floor(n);
+  const per = Math.max(1, Math.round(grid.beatsPerBar || 4));
+  return { n, beat, phase: n - beat, barBeat: ((beat % per) + per) % per };
+}
+
+/** A hit's envelope through one beat: full on the beat, decaying fast — the
+ *  shape of a kick drum, which is what an edit "on the beat" follows. */
+export function kick(phase: number): number {
+  return (1 - clamp01(phase)) ** 4;
+}
+
+/** Overshooting ease (0 → 1, peaking a little past 1) for `pop`. */
+function backOut(p: number): number {
+  const c1 = 2.2;
+  const x = clamp01(p) - 1;
+  return 1 + (c1 + 1) * x * x * x + c1 * x * x;
 }
 
 function textOf(cue: Cue): string {
@@ -109,6 +142,7 @@ function applyTransition(m: Motion, effect: string, amount: number, dir: 1 | -1)
     case "zoom-in": m.scale *= 1 - 0.15 * a; m.opacity *= 1 - a; break;
     case "zoom-out": m.scale *= 1 + 0.15 * a; m.opacity *= 1 - a; break;
     case "blur": m.blur += 16 * a; m.opacity *= 1 - a; break;
+    case "pop": m.scale *= 1 + 0.25 * a; m.opacity *= 1 - a; break;
     default: break; // none / reveals: no motion
   }
 }
@@ -141,7 +175,7 @@ export function keyframeValue(
 /** Everything about one element at playback second `t`. `reducedMotion`
  *  keeps the timing and the fades but drops movement: transitions become
  *  fades, `during` and keyframe motion are skipped. */
-export function clipFrame(cue: Cue, t: number, reducedMotion = false): ClipFrame {
+export function clipFrame(cue: Cue, t: number, reducedMotion = false, beats?: CueBeats): ClipFrame {
   const local = t - cue.at;
   const end = clipEnd(cue);
   const life = end - cue.at;
@@ -153,7 +187,7 @@ export function clipFrame(cue: Cue, t: number, reducedMotion = false): ClipFrame
     scale: keyframeValue(kf, "scale", local, 1),
     blur: 0,
   };
-  const rotate = keyframeValue(kf, "rotate", local, 0);
+  let rotate = keyframeValue(kf, "rotate", local, 0);
 
   // Continuous motion over the whole life.
   if (!reducedMotion && cue.during && cue.during !== "none") {
@@ -167,6 +201,23 @@ export function clipFrame(cue: Cue, t: number, reducedMotion = false): ClipFrame
       case "zoom-slow": m.scale *= 1 + 0.06 * u; break;
       case "pulse": m.scale *= 1 + 0.025 * Math.sin((2 * Math.PI * local) / 1.6); break;
     }
+    if (beats) {
+      // Locked to the song's clock, not the element's: every element on the
+      // beat hits together, whenever it appeared.
+      const b = beatAt(beats, t);
+      switch (cue.during) {
+        case "beat-pulse": m.scale *= 1 + 0.04 * kick(b.phase) * (b.barBeat === 0 ? 1.5 : 1); break;
+        case "beat-bounce": m.y -= 1.2 * kick(b.phase); break;
+        case "beat-sway": {
+          // At an extreme on every beat, swinging the other way on the next.
+          const swing = Math.cos(Math.PI * b.n);
+          m.x += 1.2 * swing;
+          rotate += 1.5 * swing;
+          break;
+        }
+        case "bar-pulse": if (b.barBeat === 0) m.scale *= 1 + 0.07 * kick(b.phase); break;
+      }
+    }
   }
 
   let revealChars: number | null = null;
@@ -177,7 +228,11 @@ export function clipFrame(cue: Cue, t: number, reducedMotion = false): ClipFrame
     const effect = cue.enter.effect;
     if (effect === "typewriter") revealChars = Math.ceil(textOf(cue).length * clamp01(p));
     else if (effect === "words") revealWords = Math.ceil(wordCount(textOf(cue)) * clamp01(p));
-    else applyTransition(m, reducedMotion ? "fade" : effect, 1 - ease("out", p), 1);
+    else if (effect === "pop" && !reducedMotion) {
+      // Lands slightly too big and settles: the hit-on-the-beat entrance.
+      m.scale *= 0.5 + 0.5 * backOut(p);
+      m.opacity *= clamp01(p * 4);
+    } else applyTransition(m, reducedMotion ? "fade" : effect, 1 - ease("out", p), 1);
   }
   const exitLen = exitSecs(cue);
   if (cue.exit && exitLen > 0 && local > life - exitLen) {
@@ -186,6 +241,99 @@ export function clipFrame(cue: Cue, t: number, reducedMotion = false): ClipFrame
   }
 
   return { ...m, opacity: clamp01(m.opacity), rotate, revealChars, revealWords };
+}
+
+export interface CameraFrame {
+  /** Offset, percent of the view. */
+  x: number;
+  y: number;
+  scale: number;
+  rotate: number;
+}
+
+const STILL: CameraFrame = { x: 0, y: 0, scale: 1, rotate: 0 };
+
+/** How long handheld shake takes to settle in and out. It has no travel of
+ *  its own, so it must never switch on or off in one frame. */
+export const CAMERA_RAMP_SECS = 0.4;
+
+/** The camera at `t`: every move up at that second, composed (offsets add,
+ *  scales multiply), so a push-in can run under handheld shake. Applied to
+ *  the picture (`onCameraStage`) about the view's centre.
+ *
+ *  Every move but pull-out **starts at rest** and travels away from it:
+ *  push-in zooms from 1, a pan or tilt slides from 0 with the overscan that
+ *  hides the frame's edge growing alongside it. So no move lurches on over a
+ *  picture that stays. Pull-out is the mirror (it starts tight and ends at
+ *  rest), so it begins on a cut. A travelled move snaps back when it ends,
+ *  like a cut: end it where the picture changes, or chain the next move.
+ *  Handheld eases in and out over `CAMERA_RAMP_SECS`. Reduced motion: no
+ *  camera at all. */
+export function cameraFrame(
+  camera: CueCamera[] | undefined, t: number, reducedMotion = false, beats?: CueBeats,
+): CameraFrame {
+  if (reducedMotion || !camera || camera.length === 0) return STILL;
+  const f: CameraFrame = { ...STILL };
+  for (const mv of camera) {
+    if (t < mv.at || t >= mv.until) continue;
+    const a = mv.amount ?? 1;
+    const u = ease(mv.ease ?? "in-out", (t - mv.at) / (mv.until - mv.at));
+    // A pan's overscan grows with its travel: scaling by s about the centre
+    // adds (s - 1) * 50% of the view on each side, which covers the 6 * a
+    // offset with room to spare.
+    const pan = 6 * a * u;
+    const overscan = 1 + 0.13 * a * u;
+    switch (mv.move) {
+      case "push-in": f.scale *= 1 + 0.15 * a * u; break;
+      case "pull-out": f.scale *= 1 + 0.15 * a * (1 - u); break;
+      // The camera turning left carries the picture right, and so on.
+      case "pan-left": f.scale *= overscan; f.x += pan; break;
+      case "pan-right": f.scale *= overscan; f.x -= pan; break;
+      case "tilt-up": f.scale *= overscan; f.y += pan; break;
+      case "tilt-down": f.scale *= overscan; f.y -= pan; break;
+      case "handheld": {
+        // Sums of incommensurate sines: organic, but still a pure function of
+        // t. Everything, overscan included, eases in and out.
+        const k = a * ease("in-out", Math.min(1, (t - mv.at) / CAMERA_RAMP_SECS, (mv.until - t) / CAMERA_RAMP_SECS));
+        f.scale *= 1 + 0.03 * k;
+        f.x += 0.6 * k * (Math.sin(t * 1.3) + 0.5 * Math.sin(t * 2.9 + 1));
+        f.y += 0.5 * k * (Math.sin(t * 1.7 + 2) + 0.5 * Math.sin(t * 3.7));
+        f.rotate += 0.25 * k * Math.sin(t * 0.9 + 0.5);
+        break;
+      }
+      case "beat-punch":
+        if (beats) f.scale *= 1 + 0.035 * a * kick(beatAt(beats, t).phase);
+        break;
+      case "bar-punch": {
+        if (!beats) break;
+        const b = beatAt(beats, t);
+        if (b.barBeat === 0) f.scale *= 1 + 0.07 * a * kick(b.phase);
+        break;
+      }
+    }
+  }
+  return f;
+}
+
+/** The CSS transform for a camera frame (about the stage's centre). */
+export function cameraTransform(f: CameraFrame): string {
+  return `translate(${f.x.toFixed(3)}cqw, ${f.y.toFixed(3)}cqh) scale(${f.scale.toFixed(4)}) rotate(${f.rotate.toFixed(3)}deg)`;
+}
+
+/** Whether an element is part of the picture the camera moves: an image or
+ *  shape on layer 0 or below. Text never is — titles, lyrics and panels are
+ *  composited over the shot and stay steady, whatever their layer, so an
+ *  author who never sets a layer can't have their words shaken. */
+export function onCameraStage(cue: Cue): boolean {
+  return (cue.kind === "image" || cue.kind === "shape") && (cue.layer ?? 0) <= 0;
+}
+
+/** Whether any camera move is running at `t` (reduced motion: never). The
+ *  overlay drops the panels' backdrop blur meanwhile: a moving stage under a
+ *  `backdrop-filter` re-blurs it every frame, which the motion rules forbid. */
+export function cameraMoving(camera: CueCamera[] | undefined, t: number, reducedMotion = false): boolean {
+  if (reducedMotion || !camera) return false;
+  return camera.some((mv) => t >= mv.at && t < mv.until);
 }
 
 /** How much the view under the clip is darkened at `t`: the strongest `dim`

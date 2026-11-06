@@ -97,6 +97,14 @@ describe("cuePastEndError", () => {
     );
   });
 
+  it("checks camera moves too — a move past the end saves fine and never runs", () => {
+    const sheet = { mode: "clip", camera: [{ at: 10, until: 20 }, { at: 30000, until: 40000 }], cues: [{ at: 12 }] };
+    expect(cuePastEndError(sheet, 240)).toBe(
+      "sheet.camera[1].at is 30000s but the song is 240s long — times are seconds into the track, not milliseconds",
+    );
+    expect(cuePastEndError({ ...sheet, camera: [{ at: 10, until: 20 }] }, 240)).toBeNull();
+  });
+
   it("passes a sheet that fits, an unknown duration, and malformed input (the backend names those)", () => {
     expect(cuePastEndError({ cues: [{ at: 12 }, { at: 268 }] }, 268.9)).toBeNull();
     expect(cuePastEndError({ cues: [{ at: 65000 }] }, null)).toBeNull();

@@ -59,16 +59,31 @@ pub const WEIGHTS: &[&str] = &["regular", "bold"];
 pub const CASES: &[&str] = &["normal", "upper"];
 pub const COLOR_TOKENS: &[&str] = &["light", "dark", "accent", "muted"];
 pub const ENTER_EFFECTS: &[&str] = &[
-    "none", "fade", "slide-up", "slide-down", "slide-left", "slide-right", "zoom-in", "zoom-out", "blur",
+    "none", "fade", "slide-up", "slide-down", "slide-left", "slide-right", "zoom-in", "zoom-out", "blur", "pop",
     "typewriter", "words",
 ];
 /// Exits can't "type out": a reveal has nothing to run backwards to.
 pub const EXIT_EFFECTS: &[&str] = &[
-    "none", "fade", "slide-up", "slide-down", "slide-left", "slide-right", "zoom-in", "zoom-out", "blur",
+    "none", "fade", "slide-up", "slide-down", "slide-left", "slide-right", "zoom-in", "zoom-out", "blur", "pop",
 ];
 pub const DURING_EFFECTS: &[&str] = &[
     "none", "ken-burns", "drift-up", "drift-down", "drift-left", "drift-right", "zoom-slow", "pulse",
+    "beat-pulse", "beat-bounce", "beat-sway", "bar-pulse",
 ];
+/// `during` effects that run on the sheet's tempo grid (`sheet.beats`), so a
+/// sheet without one can't use them: there is no tempo to lock to.
+pub const BEAT_DURING_EFFECTS: &[&str] = &["beat-pulse", "beat-bounce", "beat-sway", "bar-pulse"];
+/// Camera moves (`sheet.camera`): motion of the whole picture (every element
+/// on layer 0 or below), the way a real video's camera moves the shot while
+/// the titles composited over it stay put. Mirrors `CueCameraMove` in
+/// src/utils/cueSheet.ts.
+pub const CAMERA_MOVES: &[&str] = &[
+    "push-in", "pull-out", "pan-left", "pan-right", "tilt-up", "tilt-down", "handheld", "beat-punch", "bar-punch",
+];
+/// Camera moves that hit on the tempo grid; like the beat `during` effects
+/// they need `sheet.beats`.
+pub const BEAT_CAMERA_MOVES: &[&str] = &["beat-punch", "bar-punch"];
+pub const MAX_CAMERA_MOVES: usize = 64;
 pub const EASES: &[&str] = &["linear", "in", "out", "in-out"];
 pub const MAX_KEYFRAMES: usize = 32;
 /// A transition longer than this is a unit mistake, not a slow fade.
@@ -160,7 +175,9 @@ impl From<StoredSheet> for CueSheetRow {
     }
 }
 
-const SHEET_FIELDS: &[&str] = &["mode", "cues"];
+const SHEET_FIELDS: &[&str] = &["mode", "cues", "beats", "camera"];
+const BEATS_FIELDS: &[&str] = &["bpm", "offset", "beatsPerBar"];
+const CAMERA_FIELDS: &[&str] = &["at", "until", "move", "amount", "ease"];
 const CUE_FIELDS: &[&str] = &[
     "at", "until", "kind", "text", "caption", "label", "imageUrl", "box", "align", "valign", "size", "fit",
     "layer", "opacity", "color", "backgroundColor", "background", "weight", "italic", "case", "shadow", "dim",
@@ -188,6 +205,16 @@ pub fn ignored_fields(input: &Value) -> Vec<String> {
         Value::Array(a) => a,
         Value::Object(o) => {
             unknown(o, SHEET_FIELDS, "sheet.", &mut out);
+            if let Some(b) = o.get("beats").and_then(Value::as_object) {
+                unknown(b, BEATS_FIELDS, "sheet.beats.", &mut out);
+            }
+            if let Some(moves) = o.get("camera").and_then(Value::as_array) {
+                for (k, m) in moves.iter().enumerate() {
+                    if let Some(m) = m.as_object() {
+                        unknown(m, CAMERA_FIELDS, &format!("sheet.camera[{k}]."), &mut out);
+                    }
+                }
+            }
             match o.get("cues").and_then(Value::as_array) {
                 Some(c) => c,
                 None => return out,
@@ -238,12 +265,19 @@ fn capped_string(cue: &Map<String, Value>, field: &str, max: usize, idx: usize) 
 }
 
 fn seconds(cue: &Map<String, Value>, field: &str, idx: usize) -> Result<Option<f64>, String> {
-    match cue.get(field) {
+    seconds_at(cue, field, &format!("cues[{idx}]"))
+}
+
+/// A time field of the object at `path` (`cues[3]`, `sheet.camera[0]`):
+/// absent/null → None, else finite seconds in [0, MAX_AT_SECS]. The one parse
+/// for every time in a sheet, so cue and camera times can't drift apart.
+fn seconds_at(o: &Map<String, Value>, field: &str, path: &str) -> Result<Option<f64>, String> {
+    match o.get(field) {
         None | Some(Value::Null) => Ok(None),
         Some(v) => {
-            let n = v.as_f64().ok_or_else(|| format!("cues[{idx}].{field} must be a number of seconds"))?;
+            let n = v.as_f64().ok_or_else(|| format!("{path}.{field} must be a number of seconds"))?;
             if !n.is_finite() || n < 0.0 || n > MAX_AT_SECS {
-                return Err(format!("cues[{idx}].{field} must be between 0 and {MAX_AT_SECS} seconds"));
+                return Err(format!("{path}.{field} must be between 0 and {MAX_AT_SECS} seconds"));
             }
             Ok(Some(n))
         }
@@ -377,6 +411,63 @@ fn normalize_clip_fields(cue: &Map<String, Value>, idx: usize, life: f64, out: &
     Ok(())
 }
 
+/// The sheet's tempo grid: `{ bpm, offset, beatsPerBar? }`, where `offset` is
+/// the time of one downbeat (the first beat of a bar). A constant grid,
+/// because that is what the clip renders from: a steady song's beat analysis
+/// reduces to it, and a pure function of time can't follow a drifting one.
+fn normalize_beats(v: &Value) -> Result<Value, String> {
+    let o = v.as_object().ok_or("sheet.beats must be { bpm, offset, beatsPerBar? }")?;
+    let bpm = o.get("bpm").filter(|v| !v.is_null()).ok_or("sheet.beats.bpm is required (beats per minute)")?;
+    let bpm = number_in(bpm, 30.0, 300.0, "sheet.beats.bpm")?;
+    let offset = match o.get("offset").filter(|v| !v.is_null()) {
+        Some(v) => number_in(v, 0.0, MAX_AT_SECS, "sheet.beats.offset")?,
+        None => 0.0,
+    };
+    let per_bar = match o.get("beatsPerBar").filter(|v| !v.is_null()) {
+        Some(v) => number_in(v, 1.0, 16.0, "sheet.beats.beatsPerBar")?.round(),
+        None => 4.0,
+    };
+    Ok(json!({ "bpm": bpm, "offset": offset, "beatsPerBar": per_bar }))
+}
+
+/// The camera track: `[{ at, until, move, amount?, ease? }]`, sorted by `at`.
+/// Moves may overlap (a push-in under handheld shake); they compose.
+fn normalize_camera(v: &Value, has_beats: bool) -> Result<Value, String> {
+    let moves = v.as_array().ok_or("sheet.camera must be an array of { at, until, move }")?;
+    if moves.len() > MAX_CAMERA_MOVES {
+        return Err(format!("sheet.camera has {} moves; the limit is {MAX_CAMERA_MOVES}", moves.len()));
+    }
+    let mut out: Vec<Value> = Vec::with_capacity(moves.len());
+    for (k, raw) in moves.iter().enumerate() {
+        let path = format!("sheet.camera[{k}]");
+        let p = |f: &str| format!("{path}.{f}");
+        let m = raw.as_object().ok_or_else(|| format!("{path} must be an object"))?;
+        let at = seconds_at(m, "at", &path)?.ok_or_else(|| format!("{} is required (seconds into the track)", p("at")))?;
+        let until = seconds_at(m, "until", &path)?.ok_or_else(|| format!("{} is required (seconds into the track)", p("until")))?;
+        if until <= at {
+            return Err(format!("{} must be after at", p("until")));
+        }
+        let mv = m.get("move").ok_or_else(|| format!("{} is required: one of {}", p("move"), CAMERA_MOVES.join(", ")))?;
+        let mv = one_of(mv, CAMERA_MOVES, &p("move"))?;
+        if !has_beats && BEAT_CAMERA_MOVES.contains(&mv) {
+            return Err(format!("{} {mv} hits on the song's tempo and needs sheet.beats {{ bpm, offset }}", p("move")));
+        }
+        let mut o = Map::new();
+        o.insert("at".into(), json!(at));
+        o.insert("until".into(), json!(until));
+        o.insert("move".into(), json!(mv));
+        if let Some(v) = m.get("amount").filter(|v| !v.is_null()) {
+            o.insert("amount".into(), json!(number_in(v, 0.1, 3.0, &p("amount"))?));
+        }
+        if let Some(v) = m.get("ease").filter(|v| !v.is_null()) {
+            o.insert("ease".into(), json!(one_of(v, EASES, &p("ease"))?));
+        }
+        out.push(Value::Object(o));
+    }
+    out.sort_by(|a, b| a["at"].as_f64().partial_cmp(&b["at"].as_f64()).unwrap_or(std::cmp::Ordering::Equal));
+    Ok(Value::Array(out))
+}
+
 /// Validate and rebuild a cue sheet. Accepts `{ cues: [...] }` or a bare
 /// array. Every error names the offending cue, because the caller is an LLM
 /// that will fix and resend — a vague "invalid sheet" just gets resent as is.
@@ -399,6 +490,15 @@ pub fn normalize_cue_sheet(input: &Value) -> Result<Value, String> {
     if cues_in.len() > MAX_CUES {
         return Err(format!("sheet has {} cues; the limit is {MAX_CUES}", cues_in.len()));
     }
+
+    let beats = match input.get("beats").filter(|v| !v.is_null()) {
+        Some(v) => Some(normalize_beats(v)?),
+        None => None,
+    };
+    let camera = match input.get("camera").filter(|v| !v.is_null()) {
+        Some(v) => Some(normalize_camera(v, beats.is_some())?),
+        None => None,
+    };
 
     let mut out: Vec<Value> = Vec::with_capacity(cues_in.len());
     for (idx, raw) in cues_in.iter().enumerate() {
@@ -439,6 +539,16 @@ pub fn normalize_cue_sheet(input: &Value) -> Result<Value, String> {
 
         let mut o = Map::new();
         normalize_clip_fields(cue, idx, until.unwrap_or(at + DEFAULT_CUE_SECS) - at, &mut o)?;
+        if let Some(d) = o.get("during").and_then(Value::as_str) {
+            // Cards don't draw `during`, so only a clip can be missing a grid
+            // for it; a cards sheet must not be told to add one (it would
+            // then be refused as clip-only).
+            if mode == "clip" && beats.is_none() && BEAT_DURING_EFFECTS.contains(&d) {
+                return Err(format!(
+                    "cues[{idx}].during {d} runs on the song's tempo and needs sheet.beats {{ bpm, offset }}: add it, or use pulse"
+                ));
+            }
+        }
         o.insert("at".into(), json!(at));
         if let Some(u) = until {
             o.insert("until".into(), json!(u));
@@ -465,8 +575,24 @@ pub fn normalize_cue_sheet(input: &Value) -> Result<Value, String> {
         fa.partial_cmp(&fb).unwrap_or(std::cmp::Ordering::Equal)
     });
     // `mode` is written only for clips, so a cards sheet reads exactly as it
-    // did before modes existed.
-    Ok(if mode == "clip" { json!({ "mode": "clip", "cues": out }) } else { json!({ "cues": out }) })
+    // did before modes existed. The tempo grid and the camera are clip-only:
+    // cards have no motion to lock to the beat and no picture to move.
+    if mode != "clip" {
+        if beats.is_some() || camera.is_some() {
+            return Err("sheet.beats and sheet.camera are for clips: set mode: \"clip\" or leave them out".into());
+        }
+        return Ok(json!({ "cues": out }));
+    }
+    let mut sheet = Map::new();
+    sheet.insert("mode".into(), json!("clip"));
+    if let Some(b) = beats {
+        sheet.insert("beats".into(), b);
+    }
+    if let Some(c) = camera {
+        sheet.insert("camera".into(), c);
+    }
+    sheet.insert("cues".into(), Value::Array(out));
+    Ok(Value::Object(sheet))
 }
 
 /// Trim + cap the free-text "who wrote this" label (e.g. "Claude").
@@ -839,5 +965,69 @@ mod cue_tests {
         for bad in [0.0, -3.0, f64::NAN, f64::INFINITY, 90_000.0] {
             assert_eq!(normalize_duration(Some(bad)), None, "{bad}");
         }
+    }
+
+    #[test]
+    fn clip_beats_and_camera_are_validated_and_kept() {
+        let sheet = json!({
+            "mode": "clip",
+            "beats": { "bpm": 120, "offset": 1.5 },
+            "camera": [
+                { "at": 30, "until": 40, "move": "handheld" },
+                { "at": 10, "until": 20, "move": "push-in", "amount": 1.5, "ease": "in-out" },
+                { "at": 20, "until": 30, "move": "bar-punch" },
+            ],
+            "cues": [{ "at": 5, "kind": "text", "text": "Hi", "during": "beat-pulse", "enter": "pop" }],
+        });
+        let out = normalize_cue_sheet(&sheet).unwrap();
+        assert_eq!(out["beats"], json!({ "bpm": 120.0, "offset": 1.5, "beatsPerBar": 4.0 }));
+        let moves: Vec<&str> = out["camera"].as_array().unwrap().iter().map(|m| m["move"].as_str().unwrap()).collect();
+        assert_eq!(moves, ["push-in", "bar-punch", "handheld"]);
+        assert_eq!(out["camera"][0]["amount"], json!(1.5));
+        assert_eq!(out["cues"][0]["during"], "beat-pulse");
+        assert_eq!(out["cues"][0]["enter"]["effect"], "pop");
+        assert!(ignored_fields(&sheet).is_empty());
+    }
+
+    #[test]
+    fn beat_motion_without_a_tempo_grid_is_refused() {
+        let during = json!({ "mode": "clip", "cues": [{ "at": 1, "kind": "text", "text": "x", "during": "beat-bounce" }] });
+        let err = normalize_cue_sheet(&during).unwrap_err();
+        assert!(err.starts_with("cues[0].during beat-bounce") && err.contains("sheet.beats"), "{err}");
+        let cam = json!({ "mode": "clip", "camera": [{ "at": 0, "until": 4, "move": "beat-punch" }],
+            "cues": [{ "at": 1, "kind": "text", "text": "x" }] });
+        let err = normalize_cue_sheet(&cam).unwrap_err();
+        assert!(err.starts_with("sheet.camera[0].move beat-punch"), "{err}");
+    }
+
+    #[test]
+    fn a_cards_sheet_with_a_beat_during_is_not_sent_to_add_a_grid() {
+        let cards = json!({ "cues": [{ "at": 1, "kind": "text", "text": "x", "during": "beat-pulse" }] });
+        assert!(normalize_cue_sheet(&cards).is_ok());
+    }
+
+    #[test]
+    fn beats_and_camera_reject_bad_values_and_cards_mode() {
+        let base = |extra: Value| {
+            let mut s = json!({ "mode": "clip", "cues": [{ "at": 1, "kind": "text", "text": "x" }] });
+            for (k, v) in extra.as_object().unwrap() {
+                s[k] = v.clone();
+            }
+            normalize_cue_sheet(&s)
+        };
+        assert!(base(json!({ "beats": { "offset": 1 } })).unwrap_err().contains("sheet.beats.bpm is required"));
+        assert!(base(json!({ "beats": { "bpm": 1200 } })).unwrap_err().contains("sheet.beats.bpm must be between"));
+        assert!(base(json!({ "camera": [{ "at": 5, "until": 5, "move": "push-in" }] })).unwrap_err().contains("sheet.camera[0].until must be after at"));
+        assert!(base(json!({ "camera": [{ "at": 5, "until": 99999, "move": "push-in" }] })).unwrap_err().contains("sheet.camera[0].until must be between 0 and"));
+        assert!(base(json!({ "camera": [{ "until": 5, "move": "push-in" }] })).unwrap_err().contains("sheet.camera[0].at is required"));
+        assert!(base(json!({ "camera": [{ "at": 0, "until": 5, "move": "dolly" }] })).unwrap_err().contains("sheet.camera[0].move"));
+        assert!(base(json!({ "camera": [{ "at": 0, "until": 5, "move": "pan-left", "amount": 9 }] })).unwrap_err().contains("amount"));
+        let cards = json!({ "beats": { "bpm": 100 }, "cues": [{ "at": 1, "kind": "text", "text": "x" }] });
+        assert!(normalize_cue_sheet(&cards).unwrap_err().contains("for clips"));
+        let extra = json!({ "mode": "clip", "beats": { "bpm": 100, "swing": 1 },
+            "camera": [{ "at": 0, "until": 2, "move": "handheld", "speed": 2 }], "cues": [{ "at": 1, "kind": "text", "text": "x" }] });
+        let w = ignored_fields(&extra);
+        assert!(w.iter().any(|m| m.starts_with("sheet.beats.swing")), "{w:?}");
+        assert!(w.iter().any(|m| m.starts_with("sheet.camera[0].speed")), "{w:?}");
     }
 }
