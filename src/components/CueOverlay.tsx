@@ -2,6 +2,7 @@ import { useState } from "react";
 import type { Cue, CueCredit } from "../utils/cueSheet";
 import { activeCueIndex, cueCredit } from "../utils/cueSheet";
 import { usePlaybackPosition } from "../playback/positionStore";
+import { useCueImagePreload } from "../hooks/useCueImagePreload";
 import "./CueOverlay.css";
 
 /** The cue sheet's current card, over the Now Playing art column. One card at
@@ -9,6 +10,7 @@ import "./CueOverlay.css";
  *  and runs the enter animation. Subscribed to the position tick at this leaf
  *  so only the overlay re-renders at ~4 Hz, not the whole view. */
 export function CueOverlay({ cues, author, timingNote }: { cues: Cue[]; author?: string | null; timingNote?: string | null }) {
+  useCueImagePreload(cues);
   const positionSecs = usePlaybackPosition();
   const idx = activeCueIndex(cues, positionSecs);
   if (idx < 0) return null;

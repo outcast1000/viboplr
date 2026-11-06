@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { activeCueIndex, cueCountBucket, cueCredit, cueEnd, cueErrorField, cuePastEndError, cueSheetDetails, cueTimingNote, cueWriteSong, CUE_WRITE_NEEDS_SONG, DEFAULT_CUE_SECS, sameCueSong, splitSheetMeta, type Cue } from "../utils/cueSheet";
+import { activeCueIndex, cueCountBucket, cueCredit, cueEnd, cueImagesToPreload, cueErrorField, cuePastEndError, cueSheetDetails, cueTimingNote, cueWriteSong, CUE_WRITE_NEEDS_SONG, DEFAULT_CUE_SECS, sameCueSong, splitSheetMeta, type Cue } from "../utils/cueSheet";
 import { CONTEXT_IMAGE_CAP, galleryImages, lyricsForContext, proseText, PROSE_CHAR_CAP } from "../utils/cueContext";
 
 const cues: Cue[] = [
@@ -231,5 +231,31 @@ describe("sheet metadata", () => {
     expect(cueCredit("Claude", "timed to a 4:10 version")?.text).toBe("Claude · timed to a 4:10 version");
     expect(cueCredit(null, "timed to a 4:10 version")?.title).toMatch(/different-length version/);
     expect(cueCredit(null, null)).toBeNull();
+  });
+});
+
+describe("cueImagesToPreload", () => {
+  const img = (at: number, url: string, until?: number): Cue => ({ at, until, kind: "image", imageUrl: url });
+  const sheet: Cue[] = [
+    img(40, "https://x/c.jpg"),
+    { at: 1, kind: "text", text: "not an image" },
+    img(0, "https://x/a.jpg", 12),
+    img(20, "https://x/b.jpg"),
+    img(60, "https://x/a.jpg"), // a repeat
+    img(70, "http://x/insecure.jpg"),
+  ];
+
+  it("lists each https image once, soonest first", () => {
+    expect(cueImagesToPreload(sheet, 0)).toEqual(["https://x/a.jpg", "https://x/b.jpg", "https://x/c.jpg"]);
+  });
+
+  it("puts what is still to come (or on screen) ahead of what has passed", () => {
+    // At 25s: b (20–30) is on screen, c and the a repeat are ahead, a (0–12) has passed.
+    expect(cueImagesToPreload(sheet, 25)).toEqual(["https://x/b.jpg", "https://x/c.jpg", "https://x/a.jpg"]);
+  });
+
+  it("stops at the cap", () => {
+    const many = Array.from({ length: 10 }, (_, i) => img(i * 5, `https://x/${i}.jpg`));
+    expect(cueImagesToPreload(many, 0, 3)).toEqual(["https://x/0.jpg", "https://x/1.jpg", "https://x/2.jpg"]);
   });
 });

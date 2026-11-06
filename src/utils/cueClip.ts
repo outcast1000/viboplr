@@ -42,6 +42,50 @@ export function activeClipCues(cues: Cue[], t: number): number[] {
   return out.sort((a, b) => (cues[a].layer ?? 0) - (cues[b].layer ?? 0) || a - b);
 }
 
+/** Does this element hide everything under it while it's fully in? An opaque
+ *  image or shape whose box covers the whole view. */
+export function coversView(cue: Cue): boolean {
+  if (cue.kind !== "image" && cue.kind !== "shape") return false;
+  if (cue.kind === "image" && (cue.fit === "contain" || !cue.imageUrl)) return false;
+  if ((cue.opacity ?? 1) < 1) return false;
+  const b = cue.box ?? DEFAULT_BOX;
+  return b.x <= 0 && b.y <= 0 && b.x + b.w >= 100 && b.y + b.h >= 100;
+}
+
+/** Make picture-to-picture crossfades solid. When a full-view picture fades
+ *  out while the next one fades in over it, both are part transparent at once
+ *  and the Now Playing view shows through the middle of the cut — the clip
+ *  "blinks" to its backdrop. A real crossfade dissolves the new shot over the
+ *  old one, which holds. So an outgoing cover whose exit overlaps the entrance
+ *  of a cover painted above it keeps full opacity (no exit) until that
+ *  entrance has finished, then leaves unseen beneath it. Everything else is
+ *  returned untouched (same objects), so a sheet with no such cut is the same
+ *  sheet. Pure; run once per sheet. */
+export function holdUnderCrossfades(cues: Cue[]): Cue[] {
+  let out: Cue[] | null = null;
+  for (let i = 0; i < cues.length; i++) {
+    const a = cues[i];
+    if (!coversView(a)) continue;
+    const aEnd = clipEnd(a);
+    const exitFrom = aEnd - exitSecs(a);
+    let holdTo = -Infinity;
+    for (let j = 0; j < cues.length; j++) {
+      if (j === i) continue;
+      const b = cues[j];
+      // Only a picture painted above this one can be what replaces it.
+      const above = (b.layer ?? 0) > (a.layer ?? 0) || ((b.layer ?? 0) === (a.layer ?? 0) && j > i);
+      if (!above || !coversView(b)) continue;
+      const bIn = b.at + enterSecs(b);
+      // b arrives while a is still up and is still arriving when a starts to go.
+      if (b.at >= a.at && b.at < aEnd && bIn > exitFrom) holdTo = Math.max(holdTo, bIn);
+    }
+    if (holdTo === -Infinity) continue;
+    out ??= cues.slice();
+    out[i] = { ...a, until: Math.max(aEnd, holdTo), exit: undefined };
+  }
+  return out ?? cues;
+}
+
 const clamp01 = (n: number) => (n < 0 ? 0 : n > 1 ? 1 : n);
 
 export function ease(kind: CueEase | undefined, p: number): number {
@@ -295,6 +339,7 @@ export function cameraFrame(
         // Sums of incommensurate sines: organic, but still a pure function of
         // t. Everything, overscan included, eases in and out.
         const k = a * ease("in-out", Math.min(1, (t - mv.at) / CAMERA_RAMP_SECS, (mv.until - t) / CAMERA_RAMP_SECS));
+        // Overscan covers the sway and the tilt's corners (pinned in cueClip.test).
         f.scale *= 1 + 0.03 * k;
         f.x += 0.6 * k * (Math.sin(t * 1.3) + 0.5 * Math.sin(t * 2.9 + 1));
         f.y += 0.5 * k * (Math.sin(t * 1.7 + 2) + 0.5 * Math.sin(t * 3.7));

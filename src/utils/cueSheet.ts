@@ -315,6 +315,31 @@ export function activeCueIndex(cues: Cue[], positionSecs: number): number {
   return -1;
 }
 
+/** Most images a sheet preloads. A real sheet uses a dozen or two; the cap
+ *  bounds what a hand-written sheet with hundreds of URLs can pull at once. */
+export const CUE_PRELOAD_CAP = 48;
+
+/** The sheet's distinct image URLs, in the order to fetch them: the ones still
+ *  to come from `fromSecs` first (soonest first), then the ones before it (a
+ *  seek back), capped at `cap`. An image cue mounts its `<img>` only when it
+ *  comes on screen, so without this the fetch starts at that moment and the
+ *  fade-in plays over an empty box. */
+export function cueImagesToPreload(cues: Cue[], fromSecs: number, cap = CUE_PRELOAD_CAP): string[] {
+  const images = cues
+    .filter((c) => c.kind === "image" && typeof c.imageUrl === "string" && c.imageUrl.startsWith("https://"))
+    .sort((a, b) => a.at - b.at);
+  // Still on screen counts as "to come" — it is the most urgent of all.
+  const ahead = images.filter((c) => (c.until ?? c.at + DEFAULT_CUE_SECS) > fromSecs);
+  const behind = images.filter((c) => (c.until ?? c.at + DEFAULT_CUE_SECS) <= fromSecs);
+  const out: string[] = [];
+  for (const c of [...ahead, ...behind]) {
+    const url = c.imageUrl as string;
+    if (!out.includes(url)) out.push(url);
+    if (out.length >= cap) break;
+  }
+  return out;
+}
+
 /** Is a cue-sheet change event about this track? Keys are compared the way
  *  the backend keys sheets (case- and accent-insensitive). */
 export function sameCueSong(
@@ -377,12 +402,24 @@ export function cuePastEndError(sheet: unknown, durationSecs: number | null | un
 /** How to write a sheet — served with the context (GET /v1/cues/context) so
  *  the assistant reads the contract next to the material it is working from,
  *  rather than from a tool description it may have skimmed. */
+/** Where a sheet's pictures come from and how they are checked — shared by the
+ *  cards and clip guides. Owner decision (2026-11-06): pictures from the song's
+ *  own time, press and archive photos allowed (a sheet only links to them, so a
+ *  shared sheet passes on a link, not a copy), each one looked at and credited;
+ *  watermarked or ©-stamped images left out. */
+export const CUE_PICTURE_RULES = [
+  "Pictures. Use pictures from the song's own time: the artist in the years it was written and released — best of all an event tied to it (the show its video was filmed at, the recording sessions, the tour it was played on) — period photos of the places it is about, and the record itself. A recent photo of an older band reads as wrong; use one only when nothing from the period exists, and tell the user.",
+  "Sources, in order: `images` in this context (credited, freely licensed); then any image tool you have (commons__search_images, duckduckgo__search_images); then press and archive photos found on the web — fan archives, the artist's or label's site, music sites and galleries. A sheet only links to an image and never copies it, so a press photo is fine to use and to share: credit where it came from in the caption — place and date, then 'photo: Name' when the photographer is known, else 'via <site>'.",
+  "Look at every picture before you use it (download it and view it): is it really who, where and when the caption says, and is it large enough for its box (about 900px across or more for a full-view shot)? Leave out anything watermarked or stamped with a © mark or an agency logo, unless your crop keeps the mark out of the frame. Use direct image-file URLs and check that each one returns an image. Never invent a URL, a date or a credit.",
+].join(" ");
+
 export const CUE_SHEET_GUIDE = [
   "A cue sheet is { cues: [...] } — timed cards shown over the album art on the Now Playing screen while this song plays. One card at a time; a cue stays up until its `until`, else 10 seconds, and always gives way to the next cue.",
   "Each cue: { at: seconds, until?: seconds, kind: 'text' | 'quote' | 'image', text?, caption?, label?, imageUrl? }.",
   "kind 'text': a short fact in `text` (≤ 400 chars, aim for one or two sentences) — where it was recorded, who plays what, what was happening in the band's life.",
   "kind 'quote': the lyric words being sung in `text` and what they mean in `caption` (≤ 200 chars). Time it to the synced lyric line (`lyrics.lines[].at`), a beat after the line starts.",
-  "kind 'image': `imageUrl` must be an https URL you are confident exists. Take it from `images` in this context first — real photos from the user's image providers, each with its own caption and credit; use the caption only as far as you can check it, and credit the author in your `caption` when one is given (e.g. 'Live in Oslo, 1994 — photo: Jane Doe, CC BY-SA'). Otherwise only a URL you are certain of (the artist's own site). Never invent a URL — leave images out rather than guess.",
+  "kind 'image': `imageUrl` must be an https URL you have checked returns the picture. Use the caption of a picture only as far as you can check it, and credit it in your `caption` (e.g. 'Live in Oslo, 1994 — photo: Jane Doe, CC BY-SA'). Never invent a URL — leave images out rather than guess.",
+  CUE_PICTURE_RULES,
   "`label` is an optional 1–3 word eyebrow ('Meaning', 'Recording', 'Trivia').",
   "Ground every cue in the supplied material (lyrics, prose, quality, tags) or knowledge you are sure of; do not state guesses as facts.",
   "Pace it: leave the first ~10 seconds and instrumental gaps quiet or use them for context; 6–15 cues suit a typical song; never cover a line with an unrelated card.",
@@ -405,7 +442,11 @@ export const CUE_CLIP_GUIDE = [
   "Tempo: sheet.beats = { bpm, offset, beatsPerBar? } — the song's beat grid, `offset` the time of one downbeat (the first beat of a bar), beatsPerBar default 4. With it, `during` also takes beat-pulse (a scale hit on every beat, harder on the downbeat), beat-bounce (a hop on every beat), beat-sway (swings side to side, one way per beat) and bar-pulse (a bigger hit on each downbeat only) — all locked to the song's clock, so elements hit together. Without sheet.beats those are refused. Beat n of the grid is at offset + n × 60/bpm; a bar is beatsPerBar beats.",
   "Camera: sheet.camera = [{ at, until, move, amount?, ease? }] — moves the whole picture (every image and shape on layer 0 or below: photos, colour fields) about the view's centre, while text of any kind (titles, lyrics, panels) and anything on layer 1+ stays steady, as type composited over a shot does. Moves: push-in (slow zoom in — intimacy, a build), pull-out (zoom back — a reveal, an ending), pan-left / pan-right / tilt-up / tilt-down (travel across the picture), handheld (a live, restless frame), beat-punch / bar-punch (a zoom hit on every beat / every downbeat — drops and big choruses; need sheet.beats). amount 0.1–3 scales the move (default 1), ease default in-out. Moves overlap and compose (a push-in under handheld). Every move but pull-out starts at rest and travels away from it (pull-out starts tight, so begin it on a new picture); a travelled move snaps back when it ends, like a cut — end it where the picture changes, or start the next move there. Handheld eases in and out. Card panels lose their blur while the camera moves (scrim reads the same). Max 64.",
   "Keyframes (custom motion): keyframes: [{ t, x?, y?, scale?, opacity?, rotate?, ease? }] — t in seconds after the element's `at`, x/y offsets from the box in percent of the view, rotate in degrees, ease linear|in|out|in-out into that frame. Scale and rotate turn about the box's centre, for any kind. Before the first keyframe its values hold; after the last, the last ones do. Opacity multiplies: element `opacity` × keyframe opacity × enter/exit fade (a hex colour's own alpha applies on top). Max 32 per element.",
+  "The Now Playing view must never show through a clip. From 0:00 to the last note keep an opaque full-view picture under every moment — an image with fit cover, or a shape, boxed {0,0,100,100} or larger, opacity 1. Open on a hard cut (no enter fade on the first shot). Let each new shot dissolve in over the one before, which stays at full opacity until the new one is fully in: its `until` = the next shot's `at` + that shot's enter duration, and no exit. End by fading to black (a black full-view shape under the last shot), never to the backdrop. The app holds an outgoing full-view picture under a dissolve, but a gap between shots, or a shot that leaves before the next has arrived, still shows the view — so does an image that failed to load: check every URL.",
+  "Shots are pictures. No plain colour screen as a shot, a cut or a motif: a full-view shape is only a background under something (the record, a document, a panel). A motif is a framing, a word treatment or a colour on type.",
+  "Portrait photos: fit cover crops a portrait to a band across its middle, often through the faces. Box it taller than the view to choose the band — { x:0, y:0, w:100, h:180 } keeps roughly the top half; a negative y (e.g. -68) moves the band down.",
+  CUE_PICTURE_RULES,
   "If `lyrics.note` is present the synced lyrics were timed to a different version of the song: tell the user, and lean less on exact line timing. The save response lists `warnings` for any field it ignored — fix those and save again.",
   "Make it read like a lyric video: time sung words to `lyrics.lines[].at` (words or typewriter enter), use a few large titles with dim at section changes, keep 1–3 elements on screen, and leave breathing room. Reduced-motion users get the same timing with fades instead of movement (no beat motion, no camera).",
-  "Direct it like a music video. If a tool that analyses the song's structure is available (ffmpeg-tools__analyze_audio: sections, peaks, beats), call it first and make an edit map: every section with its start, its energy, and the look it gets. Put its bpm and first downbeat into sheet.beats — but only when its confidence is reasonable and the tempo is steady; otherwise leave the beat effects out rather than hit off the beat. Then: cut on the music — photos change and big titles land on downbeats, not at arbitrary seconds; the cut rate follows the energy (a verse holds a picture 4–8 bars, a chorus changes every 1–2 bars, a bridge or breakdown holds one shot and breathes); escalate — each chorus bigger than the last (more camera, beat motion, brighter accent), the final one biggest; repeat one motif (a colour, a word treatment, a framing) at every chorus so it reads as one piece; hook in the first seconds; resolve at the end (pull-out, slow fade). One camera move per shot, and save beat-punch for the peaks — constant motion is no motion. No flashing or strobing.",
+  "Direct it like a music video. If a tool that analyses the song's structure is available (ffmpeg-tools__analyze_audio: sections, peaks, beats), call it first and make an edit map: every section with its start, its energy, and the look it gets. Put its bpm and first downbeat into sheet.beats — but only when its confidence is reasonable and the tempo is steady; otherwise leave the beat effects out rather than hit off the beat. Then: cut on the music — photos change and big titles land on downbeats, not at arbitrary seconds; the cut rate follows the energy (a verse holds a picture 4–8 bars, a chorus changes every 1–2 bars, a bridge or breakdown holds one shot and breathes); escalate — each chorus bigger than the last (more camera, beat motion, brighter accent), the final one biggest; repeat one motif (a word treatment, a framing, a colour on type) at every chorus so it reads as one piece; hook in the first seconds; resolve at the end (pull-out, a slow fade to black). One camera move per shot, and save beat-punch for the peaks — constant motion is no motion. No flashing or strobing.",
 ].join(" ");

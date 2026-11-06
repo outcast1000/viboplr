@@ -61,3 +61,25 @@ describe("cueStylesFor", () => {
     expect(s.annotated.fits).toBe(true); // any lyrics will do there
   });
 });
+
+describe("the clip template (owner preferences, 2026-11-06)", () => {
+  it("both guides carry the picture rules: period pictures, press photos credited, every one checked", async () => {
+    const { CUE_CLIP_GUIDE, CUE_SHEET_GUIDE, CUE_PICTURE_RULES } = await import("../utils/cueSheet");
+    for (const guide of [CUE_CLIP_GUIDE, CUE_SHEET_GUIDE]) expect(guide).toContain(CUE_PICTURE_RULES);
+    expect(CUE_PICTURE_RULES).toMatch(/song's own time/);
+    expect(CUE_PICTURE_RULES).toMatch(/press and archive photos/);
+    expect(CUE_PICTURE_RULES).toMatch(/watermarked/);
+    expect(CUE_PICTURE_RULES).toMatch(/Never invent a URL/);
+  });
+
+  it("the clip guide forbids letting the Now Playing view show through, and plain colour shots", async () => {
+    const { CUE_CLIP_GUIDE } = await import("../utils/cueSheet");
+    expect(CUE_CLIP_GUIDE).toMatch(/must never show through a clip/);
+    expect(CUE_CLIP_GUIDE).toMatch(/fading to black/);
+    expect(CUE_CLIP_GUIDE).toMatch(/No plain colour screen as a shot/);
+  });
+
+  it("no style recipe offers colour fields as shots", () => {
+    for (const s of CUE_STYLES) expect(s.recipe).not.toMatch(/colour fields?/i);
+  });
+});

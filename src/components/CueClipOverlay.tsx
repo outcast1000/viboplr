@@ -1,11 +1,12 @@
-import { useCallback, useEffect, useLayoutEffect, useRef, useState, type CSSProperties } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import { cueCredit, type Cue, type CueBeats, type CueCamera } from "../utils/cueSheet";
 import {
-  activeClipCues, cameraFrame, cameraMoving, cameraTransform, clipDim, clipFrame, cueColorCss, frameTransform, onCameraStage,
+  activeClipCues, cameraFrame, cameraMoving, cameraTransform, clipDim, clipFrame, cueColorCss, frameTransform, holdUnderCrossfades, onCameraStage,
   DEFAULT_BOX, DEFAULT_TEXT_SIZE,
 } from "../utils/cueClip";
 import { getPlaybackPosition, subscribePlaybackPosition } from "../playback/positionStore";
 import { isReducedMotion } from "../utils/reducedMotion";
+import { useCueImagePreload } from "../hooks/useCueImagePreload";
 import "./CueClipOverlay.css";
 
 /** The furthest the clock extrapolates past the last position tick. Ticks come
@@ -97,7 +98,7 @@ interface ElementNodes {
  *  frame loop, because a 60 Hz state update would re-render the subtree each
  *  frame. The loop runs only while playing — a paused clip redraws on
  *  position changes (seeks) and otherwise costs nothing. */
-export function CueClipOverlay({ cues, beats, camera, playing, author, timingNote }: {
+export function CueClipOverlay({ cues: sheetCues, beats, camera, playing, author, timingNote }: {
   cues: Cue[];
   /** The sheet's tempo grid, for the beat effects. */
   beats?: CueBeats;
@@ -107,6 +108,10 @@ export function CueClipOverlay({ cues, beats, camera, playing, author, timingNot
   author?: string | null;
   timingNote?: string | null;
 }) {
+  useCueImagePreload(sheetCues);
+  // Picture-to-picture cuts dissolve over a held shot, never through to the
+  // Now Playing backdrop (see holdUnderCrossfades).
+  const cues = useMemo(() => holdUnderCrossfades(sheetCues), [sheetCues]);
   const credit = cueCredit(author, timingNote);
   const [active, setActive] = useState<number[]>(() => activeClipCues(cues, getPlaybackPosition()));
   const activeKeyRef = useRef(active.join(","));

@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   activeClipCues, beatAt, cameraFrame, cameraTransform, clipDim, clipEnd, clipFrame, cueColorCss, ease, enterSecs,
-  frameTransform, keyframeValue, kick, onCameraStage, cameraMoving,
+  frameTransform, keyframeValue, kick, onCameraStage, cameraMoving, coversView, holdUnderCrossfades,
 } from "../utils/cueClip";
 import type { Cue } from "../utils/cueSheet";
 
@@ -232,5 +232,62 @@ describe("camera", () => {
     expect(cameraTransform({ x: 1, y: -2, scale: 1.1, rotate: 0.5 })).toBe(
       "translate(1.000cqw, -2.000cqh) scale(1.1000) rotate(0.500deg)",
     );
+  });
+});
+
+describe("holdUnderCrossfades", () => {
+  const FULL = { x: 0, y: 0, w: 100, h: 100 };
+  const shot = (at: number, until: number, over: Partial<Cue> = {}): Cue => ({
+    at, until, kind: "image", imageUrl: `https://x/${at}.jpg`, box: FULL, fit: "cover",
+    enter: { effect: "fade", duration: 1 }, exit: { effect: "fade", duration: 1 }, ...over,
+  });
+
+  it("knows a full-view picture from one that lets the view through", () => {
+    expect(coversView(shot(0, 5))).toBe(true);
+    expect(coversView(shot(0, 5, { fit: "contain" }))).toBe(false);
+    expect(coversView(shot(0, 5, { opacity: 0.8 }))).toBe(false);
+    expect(coversView(shot(0, 5, { box: { x: 10, y: 0, w: 90, h: 100 } }))).toBe(false);
+    expect(coversView({ at: 0, kind: "shape", box: FULL })).toBe(true);
+    expect(coversView({ at: 0, kind: "text", text: "x", box: FULL })).toBe(false);
+  });
+
+  it("holds the outgoing shot opaque until the next one has dissolved in", () => {
+    // a fades out over 9–10 while b fades in over 9–10: the midpoint was ~25% see-through.
+    const [a, b] = holdUnderCrossfades([shot(0, 10), shot(9, 20)]);
+    expect(a.exit).toBeUndefined();
+    expect(a.until).toBe(10); // b is fully in at 10
+    expect(clipFrame(a, 9.5).opacity).toBe(1);
+    expect(b).toEqual(shot(9, 20)); // the incoming shot is untouched
+  });
+
+  it("extends a shot that would have left before its replacement finished arriving", () => {
+    const [a] = holdUnderCrossfades([shot(0, 10), shot(9.8, 20, { enter: { effect: "fade", duration: 2 } })]);
+    expect(a.until).toBe(11.8);
+  });
+
+  it("leaves real gaps, pictures painted underneath, and plain sheets alone", () => {
+    const gap = [shot(0, 10), shot(12, 20)];
+    expect(holdUnderCrossfades(gap)).toBe(gap);
+    const under = [shot(0, 10, { layer: 2 }), shot(9, 20, { layer: -5 })];
+    expect(holdUnderCrossfades(under)).toBe(under);
+    const text = [el({})];
+    expect(holdUnderCrossfades(text)).toBe(text);
+  });
+});
+
+describe("handheld overscan", () => {
+  it("covers its own sway and tilt at every instant, so the frame's edge never shows", () => {
+    // Aspect up to 2.4:1. For each sampled frame, the scaled, rotated picture must still contain the view.
+    const aspect = 2.4;
+    for (let t = 10.5; t < 19.5; t += 0.05) {
+      const f = cameraFrame([{ at: 10, until: 20, move: "handheld", amount: 1.2 }], t);
+      const r = (Math.abs(f.rotate) * Math.PI) / 180;
+      // Half-extents of the view, in units of view height, after undoing the offset.
+      const hw = aspect / 2 + Math.abs(f.x) / 100 * aspect;
+      const hh = 0.5 + Math.abs(f.y) / 100;
+      // A rotated rectangle of half-size (s*aspect/2, s/2) contains the box when both projections fit.
+      expect(hw * Math.cos(r) + hh * Math.sin(r)).toBeLessThanOrEqual((f.scale * aspect) / 2 + 1e-9);
+      expect(hw * Math.sin(r) + hh * Math.cos(r)).toBeLessThanOrEqual(f.scale / 2 + 1e-9);
+    }
   });
 });
