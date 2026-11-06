@@ -75,11 +75,49 @@ pub fn get_image_path(app_dir: &Path, kind: &str, slug: &str) -> Option<PathBuf>
     let dir = image_dir(app_dir, kind);
     for ext in EXTENSIONS {
         let path = dir.join(format!("{}.{}", slug, ext));
-        if path.exists() {
-            return Some(path);
+        if !path.exists() {
+            continue;
         }
+        if is_bogus_image_file(&path) {
+            // Written before downloads were content-checked (`ensure_image_bytes`):
+            // archive.org answered some Cover Art Archive requests with an HTML
+            // page, cached as `<slug>.jpg`. Served, it drew a broken image and —
+            // being a "hit" — kept the artist fallback and the provider chain
+            // from ever being asked. Drop it so every caller sees a miss and the
+            // image worker resolves the entity again.
+            log::warn!("Removing cached {} image that is not an image: {}", kind, path.display());
+            if let Err(e) = std::fs::remove_file(&path) {
+                log::error!("Failed to remove bogus image {}: {}", path.display(), e);
+            }
+            continue;
+        }
+        return Some(path);
     }
     None
+}
+
+/// True for a cached image file that is clearly not an image: empty, or text
+/// that opens with markup or JSON (an HTML error page, an API error body).
+/// Deliberately narrow — anything else is left alone, so a real image in a
+/// format `sniff_image_ext` doesn't know is never deleted.
+fn is_bogus_image_file(path: &Path) -> bool {
+    use std::io::Read;
+    let mut head = [0u8; 64];
+    let n = match std::fs::File::open(path).and_then(|mut f| f.read(&mut head)) {
+        Ok(n) => n,
+        Err(e) => {
+            log::error!("Failed to read image {}: {}", path.display(), e);
+            return false;
+        }
+    };
+    is_bogus_image_bytes(&head[..n])
+}
+
+fn is_bogus_image_bytes(head: &[u8]) -> bool {
+    match head.iter().position(|b| !b.is_ascii_whitespace()) {
+        None => true,
+        Some(i) => matches!(head[i], b'<' | b'{'),
+    }
 }
 
 pub fn remove_image(app_dir: &Path, kind: &str, slug: &str) {
@@ -92,6 +130,38 @@ pub fn remove_image(app_dir: &Path, kind: &str, slug: &str) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn test_bogus_image_bytes_are_recognised() {
+        assert!(is_bogus_image_bytes(b""));
+        assert!(is_bogus_image_bytes(b"   \n"));
+        assert!(is_bogus_image_bytes(b"<!doctype html>\n<html lang=\"en\">"));
+        assert!(is_bogus_image_bytes(b"\n  <?xml version=\"1.0\"?>"));
+        assert!(is_bogus_image_bytes(b"{\"error\":\"not found\"}"));
+        assert!(!is_bogus_image_bytes(&[0xFF, 0xD8, 0xFF, 0xE0]));
+        assert!(!is_bogus_image_bytes(&[0x89, b'P', b'N', b'G', 0x0D, 0x0A, 0x1A, 0x0A]));
+        assert!(!is_bogus_image_bytes(b"GIF89a"));
+        assert!(!is_bogus_image_bytes(b"RIFF\0\0\0\0WEBP"));
+        // An image format the sniffer doesn't know is left alone.
+        assert!(!is_bogus_image_bytes(b"\0\0\0\x1cftypavif"));
+    }
+
+    #[test]
+    fn test_get_image_path_drops_a_cached_html_page() {
+        let tmp = tempfile::tempdir().unwrap();
+        let dir = image_dir(tmp.path(), "album");
+        std::fs::create_dir_all(&dir).unwrap();
+        let bad = dir.join("a - b.jpg");
+        std::fs::write(&bad, b"<!doctype html>\n<html><title>archive.org</title>").unwrap();
+        assert_eq!(get_image_path(tmp.path(), "album", "a - b"), None);
+        assert!(!bad.exists(), "the HTML page should be removed from the cache");
+
+        // A real image behind it (another extension) is still found.
+        std::fs::write(&bad, b"<html>").unwrap();
+        let good = dir.join("a - b.png");
+        std::fs::write(&good, [0x89, b'P', b'N', b'G', 0x0D, 0x0A, 0x1A, 0x0A]).unwrap();
+        assert_eq!(get_image_path(tmp.path(), "album", "a - b"), Some(good));
+    }
 
     #[test]
     fn test_canonical_slug_basic() {
