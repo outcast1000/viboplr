@@ -234,3 +234,23 @@ export function vendorState(lockEntry, stamp) {
   if (stamp == null) return "missing";
   return stamp.trim() === lockEntry.sha256 ? "current" : "stale";
 }
+
+/** The platforms whose downloadable engine component (src-tauri/engine-component.lock.json)
+ *  isn't the libmpv the release bundles (scripts/libmpv.lock.json). The packager
+ *  names a component `build ?? mpvGitHash`, so that is what each must say, with a
+ *  url and sha256 behind it. A platform with no component entry has no component
+ *  at all and is not checked. Exists because a hand re-pin (cd123f3b) moved libmpv
+ *  to the macOS 27 fix and left the component on the build without it, so
+ *  Settings → "Try a replacement copy" would have installed the broken engine. */
+export function engineComponentMismatches(libmpvLock, componentLock) {
+  const out = [];
+  for (const [platform, entry] of Object.entries(libmpvLock?.platforms ?? {})) {
+    const component = componentLock?.platforms?.[platform];
+    if (!component) continue;
+    const expected = entry.build ?? entry.mpvGitHash;
+    const published = Boolean(component.url && component.sha256);
+    const actual = published ? component.version ?? null : null;
+    if (actual !== expected) out.push({ platform, expected, actual });
+  }
+  return out;
+}

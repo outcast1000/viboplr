@@ -9,9 +9,10 @@
 //   0. Merges a waiting libmpv update PR once its tests + CI passed (no prompt), or
 //      starts the update workflow when upstream is newer and no PR is open
 //      (0b. offers to re-vendor libmpv when the vendored copy isn't the pinned one)
-//      (0c. counts mpv master's commits past the pinned mpv, offers to run the
-//       Build libmpv workflow on them, and asks whether to release on the
-//       current mpv — a "no" stops before anything is changed)
+//      (0d. refuses the release when the downloadable engine component isn't
+//       the pinned libmpv, and prints the commands that repackage it)
+//      (0c. reports mpv master's commits past the pinned mpv and prints how to
+//       build and adopt it — report only: it never prompts or starts anything)
 //   1. Runs CI checks (typecheck, Rust tests, TS tests) — aborts on failure
 //   2. Bumps version in package.json, Cargo.toml, tauri.conf.json
 //   3. Updates static version badge + download URLs across docs/ pages
@@ -39,7 +40,7 @@ import { renderFeaturesHtml } from "./lib/features.mjs";
 import { locStep } from "./lib/locRepo.mjs";
 // MIRROR_REPO is this repo: the update-libmpv workflow runs, mirrors and opens its PR here.
 // Our own libmpv is built and published in LIBMPV_BUILD_REPO instead.
-import { LIBMPV_BUILD_REPO, MIRROR_REPO, checkRunsArgs, hostPlatformKey, libmpvAction, requiredChecksState, vendorState } from "./lib/libmpvUpdate.mjs";
+import { LIBMPV_BUILD_REPO, MIRROR_REPO, checkRunsArgs, engineComponentMismatches, hostPlatformKey, libmpvAction, requiredChecksState, vendorState } from "./lib/libmpvUpdate.mjs";
 import { MPV_BRANCH, MPV_REPO, commitLine, compareUrl, furthestBehind, pinnedMpvCommits } from "./lib/mpvUpstream.mjs";
 import { createInterface } from "readline/promises";
 
@@ -96,7 +97,39 @@ if (isBeta) {
 
 libmpvStep();
 await vendorStep();
+engineComponentStep();
 await mpvMasterStep();
+
+// ---------------------------------------------------------------------------
+// Step 0d — Is the downloadable engine component the libmpv this release bundles?
+//
+// src-tauri/engine-component.lock.json is baked into the binary, and it is what
+// Settings → Playback → "Try a replacement copy" installs. Only the update-libmpv
+// workflow repackages it, so a hand re-pin can leave it behind: cd123f3b moved
+// libmpv to the macOS 27 fix and kept the component on the build without it.
+// Fatal, after Step 0 (whose merge can move the pin) and before anything
+// changes: the fix is two commands and a commit, and a release with a
+// mismatched component ships the bug the re-pin was for.
+// ---------------------------------------------------------------------------
+
+function engineComponentStep() {
+  const read = (p) => JSON.parse(readFileSync(resolve(root, p), "utf8"));
+  const mismatches = engineComponentMismatches(read("scripts/libmpv.lock.json"), read("src-tauri/engine-component.lock.json"));
+  if (mismatches.length === 0) {
+    console.log("✓ engine component matches the pinned libmpv\n");
+    return;
+  }
+  console.error("✗ The downloadable engine component isn't the libmpv this release bundles:");
+  for (const m of mismatches) {
+    console.error(`    ${m.platform}: component ${m.actual ?? "(not published)"}, libmpv pin ${m.expected}`);
+  }
+  console.error("\n  Repackage and publish it from the pinned libmpv, then commit the component lock:");
+  console.error("    node scripts/fetch-libmpv.mjs --all");
+  console.error("    node scripts/package-engine-component.mjs");
+  console.error("    node scripts/publish-engine-components.mjs");
+  console.error("    git commit -m \"chore(libmpv): repackage the engine component\" src-tauri/engine-component.lock.json\n");
+  process.exit(1);
+}
 
 // ---------------------------------------------------------------------------
 // Step 0c — Is mpv master ahead of the mpv this release ships?
@@ -151,14 +184,26 @@ async function mpvMasterStep() {
   // Report only — never prompt, never start anything. Adopting a new mpv is a
   // build + hand re-pin that can't finish inside a release anyway, so a question
   // here only paused the run; the steps are printed for afterwards instead.
+  // The play-test and the patch check are here because the engine tests passed
+  // on builds that were broken on real hardware (the macOS 27 output, the
+  // Bit-perfect reload loop on a USB device): only a person listening finds those.
   console.log(`  This release goes on with the pinned mpv. To move to mpv ${MPV_BRANCH} afterwards:`);
   console.log(`    1. Build it (builds, runs this repo's engine tests, publishes a release named after the build; re-pins nothing):`);
   console.log(`         gh workflow run build-libmpv.yml --repo ${LIBMPV_BUILD_REPO} -f publish=true -f mpv_ref=${head}`);
   console.log(`         gh run list --workflow build-libmpv.yml --repo ${LIBMPV_BUILD_REPO}`);
+  console.log(`       In its build log, check every "patched mpv: …" line. "not applied (doesn't fit this mpv)"`);
+  console.log(`       usually means upstream fixed it: confirm, then delete that patch from ${LIBMPV_BUILD_REPO}.`);
   console.log(`    2. Once it passes, re-pin each platform in scripts/libmpv.lock.json by hand`);
   console.log(`       (url, upstream, sha256, mpvGitHash, build) from that release's assets.`);
-  console.log(`    3. node scripts/fetch-libmpv.mjs && (cd src-tauri && cargo test --lib)`);
-  console.log(`    4. Commit the lock; the next bump ships it.\n`);
+  console.log(`    3. node scripts/fetch-libmpv.mjs --all && (cd src-tauri && cargo test --lib)`);
+  console.log(`    4. Repackage the downloadable engine component from it (Step 0d refuses a release otherwise):`);
+  console.log(`         node scripts/package-engine-component.mjs && node scripts/publish-engine-components.mjs`);
+  console.log(`    5. Play it on real hardware before committing — the engine tests can't hear it:`);
+  console.log(`         macOS: shared output, a device switch mid-track, Bit-perfect on → off (then play again);`);
+  console.log(`         Windows: one audio and one video track.`);
+  console.log(`       A dev build loads src-tauri/target/Frameworks/libmpv.2.dylib before the vendored copy and`);
+  console.log(`       only refreshes it on a rebuild: delete it, and check viboplr.log says "(vendored)".`);
+  console.log(`    6. Commit both locks; the next bump ships them.\n`);
 }
 
 async function vendorStep() {

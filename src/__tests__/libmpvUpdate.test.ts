@@ -4,7 +4,7 @@
 // link that will be deleted — the failure that broke the v1.0.94 Windows build.
 import { describe, it, expect } from "vitest";
 // @ts-expect-error — plain .mjs dev script, no type declarations
-import { REQUIRED_CHECKS, UPSTREAMS, archiveProblems, hostPlatformKey, isSelfBuilt, libmpvAction, lockEntryFor, missingFiles, mirrorUrl, parseClientApiVersion, pickAsset, prBody, requiredChecksState, sameCommit, vendorState } from "../../scripts/lib/libmpvUpdate.mjs";
+import { REQUIRED_CHECKS, UPSTREAMS, archiveProblems, engineComponentMismatches, hostPlatformKey, isSelfBuilt, libmpvAction, lockEntryFor, missingFiles, mirrorUrl, parseClientApiVersion, pickAsset, prBody, requiredChecksState, sameCommit, vendorState } from "../../scripts/lib/libmpvUpdate.mjs";
 
 const win = UPSTREAMS["windows-x86_64"];
 const mac = UPSTREAMS["macos-aarch64"];
@@ -211,6 +211,52 @@ describe("vendorState", () => {
   it("is unpinned on a platform the lock doesn't cover", () => {
     expect(vendorState(undefined, null)).toBe("unpinned");
     expect(vendorState(undefined, "abc123")).toBe("unpinned");
+  });
+});
+
+describe("engineComponentMismatches", () => {
+  const libmpv = (build: string | undefined, mpvGitHash = "9028187538") => ({
+    platforms: {
+      "macos-aarch64": { build, mpvGitHash },
+      "windows-x86_64": { build, mpvGitHash },
+    },
+  });
+  const component = (version: string, extra: Record<string, unknown> = {}) => ({
+    version, url: `https://example.com/engine-${version}.zip`, sha256: "abc", ...extra,
+  });
+
+  it("is empty when every component is the build the release bundles", () => {
+    const b = "vibo-git-9028187538-bf60c362";
+    expect(engineComponentMismatches(libmpv(b), {
+      platforms: { "macos-aarch64": component(b), "windows-x86_64": component(b) },
+    })).toEqual([]);
+  });
+
+  it("names a component left on an older build by a hand re-pin (the cd123f3b miss)", () => {
+    expect(engineComponentMismatches(libmpv("vibo-git-dc4b285c93-84dbcf9b", "dc4b285c93"), {
+      platforms: {
+        "macos-aarch64": component("vibo-git-dc4b285c93-e05f6f9f"),
+        "windows-x86_64": component("vibo-git-dc4b285c93-84dbcf9b"),
+      },
+    })).toEqual([
+      { platform: "macos-aarch64", expected: "vibo-git-dc4b285c93-84dbcf9b", actual: "vibo-git-dc4b285c93-e05f6f9f" },
+    ]);
+  });
+
+  it("expects the mpv hash for an upstream pin with no build name, as the packager names it", () => {
+    expect(engineComponentMismatches(libmpv(undefined, "baa3e11d42"), {
+      platforms: { "macos-aarch64": component("baa3e11d42") },
+    })).toEqual([]);
+  });
+
+  it("treats a placeholder (no url or sha256) as nothing published", () => {
+    expect(engineComponentMismatches(libmpv("vibo-x"), {
+      platforms: { "macos-aarch64": component("vibo-x", { url: "", sha256: "" }) },
+    })).toEqual([{ platform: "macos-aarch64", expected: "vibo-x", actual: null }]);
+  });
+
+  it("skips a platform that has no component at all", () => {
+    expect(engineComponentMismatches(libmpv("vibo-x"), { platforms: {} })).toEqual([]);
   });
 });
 
