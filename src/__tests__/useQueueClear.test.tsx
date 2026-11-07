@@ -1,9 +1,8 @@
-// Coverage for clearQueue, previously verified only by an E2E test that drove
-// a header button. That button is gone — every queue-level action now lives in
-// a native OS menu with no DOM — so the contract in queue.md ("Clear — index
-// resets to -1, playlist context cleared, main_playlist_clear invoked") is
-// asserted here instead. The menu item's wiring to onClear is covered by
-// queueHeaderMenu.test.ts; this covers what onClear actually does.
+// Coverage for clearQueue — the contract in queue.md ("Clear — index resets
+// to -1, playlist context cleared, main_playlist_clear invoked"). Only the
+// control API clears the queue now: the panel's Clear was removed when the
+// queue history arrived (queue.md "Queue History"), which also records the
+// cleared queue first (useQueueHistory.test.tsx).
 import { describe, it, expect, vi, afterEach } from "vitest";
 import { renderHook, act, cleanup } from "@testing-library/react";
 import { useQueue } from "../hooks/useQueue";

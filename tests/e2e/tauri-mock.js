@@ -332,10 +332,19 @@ window.__TAURI_INTERNALS__.invoke = async function (cmd, args) {
       return args && args.artistId != null
         ? TEST_ALBUMS.filter(a => a.artist_id === args.artistId)
         : TEST_ALBUMS;
-    // Latest play snapshots: writes and deletes succeed silently, and the
-    // startup sweep has nothing to remove.
+    // Latest play snapshots, kept in memory for the page so the queue's Back /
+    // Forward can read back what a write stored. The startup sweep has
+    // nothing to remove.
     case 'recent_play_write':
+      (window.__RECENT_PLAY_SNAPSHOTS__ ||= {})[args.id] = args.manifest;
+      return null;
+    case 'recent_play_read': {
+      const m = (window.__RECENT_PLAY_SNAPSHOTS__ || {})[args.id];
+      if (!m) throw new Error(`no snapshot ${args.id}`);
+      return m;
+    }
     case 'recent_play_delete':
+      for (const id of (args && args.ids) || []) delete (window.__RECENT_PLAY_SNAPSHOTS__ || {})[id];
       return null;
     case 'recent_play_gc':
       return 0;

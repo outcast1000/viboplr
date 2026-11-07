@@ -43,7 +43,10 @@ test('Latest play shows a new play without a Home refresh', async ({ page }) => 
   await page.locator('.track-row', { hasText: 'First Song' }).first().locator('.col-title').dblclick();
 
   await page.locator('.nav .nav-btn').filter({ hasText: 'Home' }).click();
-  await expect(latestPlay.locator('.home-shelf-card .ds-card-title')).toHaveText(['First Song'], { timeout: 5000 });
+  // The new play first; behind it the queue the mock restored at launch, which
+  // no play made — leaving it records it as a "Your queue" card so the queue's
+  // Back can return to it (queue.md "Queue History").
+  await expect(latestPlay.locator('.home-shelf-card .ds-card-title')).toHaveText(['First Song', /^Your queue · \d\d:\d\d$/], { timeout: 5000 });
 });
 
 test('Customize opens the shelf modal, and shelves render behind it', async ({ page }) => {

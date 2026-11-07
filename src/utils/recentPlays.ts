@@ -40,7 +40,7 @@ export function replayTrack(t: SessionTrack): QueueTrack {
 }
 
 // How a captured play session is replayed (see App.tsx handleReplayLatestPlay).
-export type RecentPlaySource = "album" | "artist" | "tag" | "radio" | "playlist" | "track" | "mixtape";
+export type RecentPlaySource = "album" | "artist" | "tag" | "radio" | "playlist" | "track" | "mixtape" | "queue";
 
 // A single "Latest play" entry: a small descriptor of something that replaced
 // the queue. Every play keeps the tracks it played in a snapshot — a
@@ -67,8 +67,15 @@ export interface RecentPlaySession {
    *  replay by name, for sessions saved before snapshots, and when the write
    *  failed. Replay falls back as before whenever it's missing or unreadable. */
   snapshotId?: string;
-  /** Where in the snapshot the play started. */
+  /** Where in the snapshot to pick up: where the play started, and once the
+   *  queue has been left (queue history), the entry it was on then. */
   startIndex?: number;
+  /** Seconds into the `startIndex` entry when the queue was left — where Back
+   *  or a card click resumes. Absent for a play that was never left. */
+  positionSecs?: number;
+  /** queue: the card's own identity. A hand-built queue has no name to key on,
+   *  and its `ts` changes when the card moves. */
+  queueId?: string;
   ts: number;
 }
 
@@ -78,9 +85,28 @@ const MAX_RECENT_PLAYS = 12;
  *  the user began — what they would have heard next. */
 export const SNAPSHOT_TRACK_CAP = 100;
 
-/** Whether a session should replay from its snapshot. */
+/** Tracks an "as left" snapshot keeps before the entry the queue was on —
+ *  enough to step back a little without spending the cap on what was heard. */
+export const AS_LEFT_LEAD_IN = 10;
+
+/** Whether a session should replay from its snapshot. A mixtape card has one
+ *  only once the queue it opened was left; until then it replays its file. */
 export function replaysFromSnapshot(s: Pick<RecentPlaySession, "source" | "snapshotId">): boolean {
-  return !!s.snapshotId && s.source !== "mixtape";
+  return !!s.snapshotId;
+}
+
+/** The tracks to keep for a queue being left (queue history): up to the cap,
+ *  starting a few entries before the one it was on. Null for an empty queue —
+ *  there is nothing to come back to. */
+export function asLeftSnapshot(
+  tracks: QueueTrack[],
+  index: number,
+): { tracks: QueueTrack[]; startIndex: number } | null {
+  if (tracks.length === 0) return null;
+  const at = Math.min(Math.max(index, 0), tracks.length - 1);
+  if (tracks.length <= SNAPSHOT_TRACK_CAP) return { tracks, startIndex: at };
+  const from = Math.max(0, Math.min(at - AS_LEFT_LEAD_IN, tracks.length - SNAPSHOT_TRACK_CAP));
+  return { tracks: tracks.slice(from, from + SNAPSHOT_TRACK_CAP), startIndex: at - from };
 }
 
 /** The tracks to snapshot for a play: all of it, for every play but an opened
@@ -117,8 +143,9 @@ export function droppedSnapshotIds(prev: RecentPlaySession[], next: RecentPlaySe
 // Dedup identity: same kind + same name (+ artist for albums/tracks). Replaying
 // the same album/artist/radio moves its tile to the front rather than stacking.
 // A mixtape is its file, not its title: two mixtapes can share a title.
-export function sessionKey(s: Pick<RecentPlaySession, "source" | "name" | "artistName" | "mixtapePath">): string {
+export function sessionKey(s: Pick<RecentPlaySession, "source" | "name" | "artistName" | "mixtapePath" | "queueId">): string {
   if (s.source === "mixtape" && s.mixtapePath) return `mixtape::${s.mixtapePath}`;
+  if (s.source === "queue" && s.queueId) return `queue::${s.queueId}`;
   return `${s.source}::${(s.name ?? "").toLowerCase()}::${(s.artistName ?? "").toLowerCase()}`;
 }
 
@@ -222,5 +249,86 @@ export function sessionSubtitle(s: RecentPlaySession): string {
     case "playlist": return "Playlist";
     case "mixtape": return "Mixtape";
     case "track": return s.artistName || "Track";
+    case "queue": return "Queue";
   }
+}
+
+/** The card for a queue no play made — enqueued into an empty queue, or one
+ *  restored at launch without a card — recorded when it is left, so Back can
+ *  return to it. */
+export function buildQueueSession(
+  tracks: QueueTrack[],
+  index: number,
+  now: number,
+  queueId: string,
+): RecentPlaySession | null {
+  const lead = sessionTrack(tracks[index] ?? tracks[0] ?? null);
+  if (!lead) return null;
+  const at = new Date(now);
+  const time = `${String(at.getHours()).padStart(2, "0")}:${String(at.getMinutes()).padStart(2, "0")}`;
+  return { source: "queue", name: `Your queue · ${time}`, queueId, track: lead, ts: now };
+}
+
+// ── Queue history ────────────────────────────────────────────────────────
+// The Latest play cards are the queue's Back / Forward history. Their order is
+// `ts`, newest first (what the shelf shows); a cursor — the key of the card the
+// live queue is — moves through them. Stepping never reorders the cards; a new
+// play does (`leftCard` with `bumpTo`).
+
+/** The cards, newest first. */
+export function playsByRecency(plays: RecentPlaySession[]): RecentPlaySession[] {
+  return [...plays].sort((a, b) => b.ts - a.ts);
+}
+
+/** The card Back goes to: the next older one than the live queue's. With no
+ *  card for the live queue (built by hand, emptied), the newest. */
+export function backTarget(plays: RecentPlaySession[], currentKey: string | null): RecentPlaySession | null {
+  const ordered = playsByRecency(plays);
+  const i = currentKey === null ? -1 : ordered.findIndex((p) => sessionKey(p) === currentKey);
+  return ordered[i + 1] ?? null;
+}
+
+/** The card Forward goes to: the next newer one. None without a card. */
+export function forwardTarget(plays: RecentPlaySession[], currentKey: string | null): RecentPlaySession | null {
+  if (currentKey === null) return null;
+  const ordered = playsByRecency(plays);
+  const i = ordered.findIndex((p) => sessionKey(p) === currentKey);
+  return i > 0 ? ordered[i - 1] : null;
+}
+
+/** What a card records about the queue when it is left. */
+export interface LeftState {
+  /** The as-left snapshot; absent when its write failed — the card then
+   *  forgets its old one too, which no longer describes where it was left. */
+  snapshotId?: string;
+  startIndex: number;
+  positionSecs: number;
+  /** The entry it was on — the fallback replay when the snapshot is gone. */
+  track: SessionTrack | null;
+}
+
+/** The list with card `key` updated to the queue as it was left. `bumpTo`
+ *  moves the card to that time (a new play or a clear replaced it — it was the
+ *  last thing heard); stepping Back / Forward passes none and the order stays.
+ *  A card no longer in the list (evicted meanwhile) leaves it unchanged. */
+export function leftCard(
+  plays: RecentPlaySession[],
+  key: string,
+  left: LeftState,
+  bumpTo?: number,
+): RecentPlaySession[] {
+  const i = plays.findIndex((p) => sessionKey(p) === key);
+  if (i < 0) return plays;
+  const { snapshotId: _old, ...prev } = plays[i];
+  const next: RecentPlaySession = {
+    ...prev,
+    ...(left.snapshotId ? { snapshotId: left.snapshotId } : {}),
+    startIndex: left.startIndex,
+    positionSecs: left.positionSecs,
+    track: left.track ?? prev.track ?? null,
+    ts: bumpTo ?? prev.ts,
+  };
+  const out = plays.slice();
+  out[i] = next;
+  return out;
 }

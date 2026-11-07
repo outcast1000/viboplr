@@ -87,22 +87,40 @@ test('single track double-click does not show context banner', async ({ page }) 
   await expect(page.locator('.queue-context-banner')).not.toBeVisible();
 });
 
-test.skip('clearing queue removes context banner', async ({ page }) => {
+// Queue history (queue.md "Queue History"): a play that replaces the queue
+// can be undone with Back, which puts the old queue back with its banner, and
+// Forward returns. There is no Clear any more — this is how a queue is undone.
+test('queue Back / Forward step between replaced queues', async ({ page }) => {
+  const back = page.locator('.queue-header [aria-label^="Back"]');
+  const forward = page.locator('.queue-header [aria-label^="Forward"]');
+  // Nothing played yet: no history, and the buttons are disabled, not hidden.
+  await expect(back).toBeDisabled();
+  await expect(forward).toBeDisabled();
+
   await page.locator('.search-view-input').fill('A');
   await page.waitForTimeout(1000);
-
   await page.locator('button').filter({ hasText: /^Albums/ }).first().click();
   await page.waitForTimeout(500);
-
   const firstCard = page.locator('.album-card').first();
   await firstCard.hover();
   await firstCard.locator('.ds-card-play').click({ force: true });
+  const banner = page.locator('.queue-context-banner');
+  await expect(banner).toBeVisible({ timeout: 5000 });
+  const albumName = (await banner.locator('.queue-context-name').textContent())?.trim();
 
-  await expect(page.locator('.queue-context-banner')).toBeVisible({ timeout: 5000 });
+  // A single-track play replaces the album queue (no banner).
+  await page.locator('button').filter({ hasText: /^Tracks/ }).first().click();
+  await page.locator('.entity-list-item').first().dblclick();
+  await expect(banner).not.toBeVisible({ timeout: 5000 });
 
-  // force:true skips the actionability wait: the 0.25s fake-engine track ends
-  // and the player re-renders around the click
-  await page.locator('button[title="Clear queue"]').click({ force: true });
+  // The button names the card it goes to (the album's Latest play name).
+  await expect(back).toBeEnabled({ timeout: 5000 });
+  await expect(back).toHaveAttribute('aria-label', /^Back to Album X/);
+  await back.click({ force: true });
+  await expect(banner).toBeVisible({ timeout: 5000 });
+  await expect(banner.locator('.queue-context-name')).toHaveText(albumName ?? '');
 
-  await expect(page.locator('.queue-context-banner')).not.toBeVisible({ timeout: 5000 });
+  await expect(forward).toBeEnabled({ timeout: 5000 });
+  await forward.click({ force: true });
+  await expect(banner).not.toBeVisible({ timeout: 5000 });
 });

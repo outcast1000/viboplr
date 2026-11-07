@@ -306,7 +306,13 @@ interface QueuePanelProps {
   onNavigateToArtist?: (name: string) => void;
   onNavigateToAlbum?: (title: string, artistName?: string) => void;
   onMoveMultiple: (indices: number[], targetIndex: number) => void;
-  onClear: () => void;
+  /** Queue history (queue.md "Queue History"): the Latest play card Back /
+   *  Forward would put back, or null at that end. The buttons are disabled,
+   *  not hidden, at an end so the header doesn't jump. */
+  historyBack: { name: string } | null;
+  historyForward: { name: string } | null;
+  onHistoryBack: () => void;
+  onHistoryForward: () => void;
   onSaveAsM3U: () => void;
   onSaveToPlaylists: () => void;
   onExportAsMixtape: () => void;
@@ -369,6 +375,11 @@ interface QueuePanelProps {
   onCancelLoadingPlay?: () => void;
 }
 
+
+/** "⌘[" / "Ctrl+[" — the queue history's shortcuts, for the buttons' tooltips. */
+function shortcutLabel(key: string): string {
+  return navigator.platform.includes("Mac") ? `⌘${key}` : `Ctrl+${key}`;
+}
 
 const QUEUE_MODE_LABELS: Record<QueueMode, string> = {
   "normal": "Normal",
@@ -461,7 +472,7 @@ export function QueueItemThumb({ localThumb, fallback, entityFallback, track }: 
 export function QueuePanel({
   queue, queueIndex, queuePanelRef, playlistContext,
 
-  onPlay, onTogglePlayPause, onRemove: _onRemove, onLocateTrack, onStartRadio, onNavigateToArtist, onNavigateToAlbum, onMoveMultiple, onClear, onSaveAsM3U, onSaveToPlaylists, onExportAsMixtape, onLoadPlaylist, onPublishQueue, preferVideoResolution, onPreferVideoResolutionChange, onRandomize, queueMode, onToggleQueueMode, autoContinueEnabled, onToggleAutoContinue, onOpenAutoContinueSettings, onContextMenu, onToggleLike, onToggleDislike,
+  onPlay, onTogglePlayPause, onRemove: _onRemove, onLocateTrack, onStartRadio, onNavigateToArtist, onNavigateToAlbum, onMoveMultiple, historyBack, historyForward, onHistoryBack, onHistoryForward, onSaveAsM3U, onSaveToPlaylists, onExportAsMixtape, onLoadPlaylist, onPublishQueue, preferVideoResolution, onPreferVideoResolutionChange, onRandomize, queueMode, onToggleQueueMode, autoContinueEnabled, onToggleAutoContinue, onOpenAutoContinueSettings, onContextMenu, onToggleLike, onToggleDislike,
   externalDropTarget,
   collapsed, fsRevealed, onToggleCollapsed, onResizeWidth, isPlaying, debugMode,
   mainPlaylistDir, thumbInfo, resolvingByKey, trackFailures, onShowFailure, sourceNotes, onShowSource,
@@ -511,7 +522,6 @@ export function QueuePanel({
       onTogglePreferVideo: () => onPreferVideoResolutionChange(!preferVideoResolution),
       onLoadPlaylist, onSaveToPlaylists, onSaveAsM3U, onPublishQueue, onExportAsMixtape,
       onOpenAutoContinueSettings,
-      onClear,
     });
     showNativeMenu(rect.left, rect.bottom, specs).catch((err) =>
       console.error("Failed to show queue header menu:", err)
@@ -519,7 +529,7 @@ export function QueuePanel({
   }, [
     preferVideoResolution, onPreferVideoResolutionChange,
     onLoadPlaylist, onSaveToPlaylists, onSaveAsM3U, onPublishQueue, onExportAsMixtape,
-    onOpenAutoContinueSettings, onClear,
+    onOpenAutoContinueSettings,
   ]);
 
   useEffect(() => {
@@ -889,8 +899,29 @@ export function QueuePanel({
       <div className="queue-header">
         <span className="queue-title">Queue</span>
         <div className="queue-header-actions">
-          {/* The now-playing bar's pill groups: what the queue does, then what
-              you can do to it. Everything else is in the ⋯ menu. */}
+          {/* The now-playing bar's pill groups: the queue's history, what the
+              queue does, then what you can do to it. Everything else is in the
+              ⋯ menu. */}
+          <div className="now-group queue-header-group" role="group" aria-label="Queue history">
+            <button
+              className="g-btn g-btn-sm"
+              onClick={onHistoryBack}
+              disabled={!historyBack}
+              title={historyBack ? `Back to: ${historyBack.name} (${shortcutLabel("[")})` : "No earlier queue"}
+              aria-label={historyBack ? `Back to ${historyBack.name}` : "Back: no earlier queue"}
+            >
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><polyline points="15 18 9 12 15 6"/></svg>
+            </button>
+            <button
+              className="g-btn g-btn-sm"
+              onClick={onHistoryForward}
+              disabled={!historyForward}
+              title={historyForward ? `Forward to: ${historyForward.name} (${shortcutLabel("]")})` : "No later queue"}
+              aria-label={historyForward ? `Forward to ${historyForward.name}` : "Forward: no later queue"}
+            >
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><polyline points="9 18 15 12 9 6"/></svg>
+            </button>
+          </div>
           <div className="now-group queue-header-group" role="group" aria-label="Queue behaviour">
             <QueueBehaviourButtons
               queueMode={queueMode}

@@ -29,6 +29,9 @@ export interface KeyboardShortcutDeps {
   currentTrack: QueueTrack | null;
   // Stable refs / callbacks owned by App.tsx.
   goBack: () => void;
+  /** Cmd/Ctrl+[ / ]: the queue's Back / Forward (queue.md "Queue History"). */
+  queueHistoryBack: () => void;
+  queueHistoryForward: () => void;
   toggleLike: (track: QueueTrack) => void;
   /** Cmd/Ctrl+Shift+L: dislike the playing song (again: clear it). The heart's
    *  click never dislikes, so this and its right-click menu are the way there. */
@@ -225,6 +228,14 @@ export function useInAppKeyboardShortcuts(deps: KeyboardShortcutDeps) {
         case "b":
           e.preventDefault();
           d.handleToggleSidebar();
+          break;
+        case "[":
+          e.preventDefault();
+          d.queueHistoryBack();
+          break;
+        case "]":
+          e.preventDefault();
+          d.queueHistoryForward();
           break;
         case "N":
           e.preventDefault();

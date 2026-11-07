@@ -12,7 +12,6 @@ function makeDeps(overrides: Partial<QueueHeaderMenuDeps> = {}): QueueHeaderMenu
     onPublishQueue: vi.fn(),
     onExportAsMixtape: vi.fn(),
     onOpenAutoContinueSettings: vi.fn(),
-    onClear: vi.fn(),
     ...overrides,
   };
 }
@@ -57,7 +56,6 @@ describe("buildQueueHeaderMenuSpecs", () => {
       "Save", "Save as Playlist", "Export as M3U", "Export as Mixtape…",
       "Publish hosted source…",
       "Auto-continue settings…",
-      "Clear queue",
     ]);
   });
 
@@ -72,14 +70,6 @@ describe("buildQueueHeaderMenuSpecs", () => {
     ]);
     const publish = specs.find((s) => s.kind !== "separator" && s.text === "Publish hosted source…");
     expect(publish?.kind).toBe("item");
-  });
-
-  // "Clear queue" is the only route to clearing the queue, and it lives
-  // behind a native menu — so this wiring is otherwise untested.
-  it("wires Clear queue to onClear", () => {
-    const deps = makeDeps();
-    invokeItem(buildQueueHeaderMenuSpecs(deps), "Clear queue");
-    expect(deps.onClear).toHaveBeenCalledTimes(1);
   });
 
   it.each([
@@ -104,9 +94,9 @@ describe("buildQueueHeaderMenuSpecs", () => {
     expect(item).toMatchObject({ kind: "check", text: "Prefer video", checked: on });
   });
 
-  it("separates the destructive Clear from the rest", () => {
-    const specs = buildQueueHeaderMenuSpecs(makeDeps());
-    const clearAt = specs.findIndex((s) => s.kind !== "separator" && s.text === "Clear queue");
-    expect(specs[clearAt - 1].kind).toBe("separator");
+  // There is no Clear: the queue history undoes a replacement (queue.md
+  // "Queue History"), and only the control API still empties the queue.
+  it("offers no Clear", () => {
+    expect(texts(buildQueueHeaderMenuSpecs(makeDeps()))).not.toContain("Clear queue");
   });
 });

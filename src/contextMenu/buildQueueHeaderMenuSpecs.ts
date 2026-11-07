@@ -7,9 +7,10 @@
 // never on silently, because the list's own banner announces it with Turn off.)
 //
 // Extracted for the same reason buildContextMenuSpecs was: showNativeMenu opens
-// a native OS menu with no DOM, so every item behind it — including "Clear
-// playlist", the only way to clear the queue — is unreachable from a test that
-// drives the webview. Building the specs separately makes the menu's contents
+// a native OS menu with no DOM, so every item behind it is unreachable from a
+// test that drives the webview. (There is no Clear: the queue's Back / Forward
+// history undoes any replacement, which made emptying the queue pointless —
+// queue.md "Queue History". Only the control API still clears it.) Building the specs separately makes the menu's contents
 // and wiring assertable without a Tauri build.
 import type { MenuItemSpec } from "../nativeMenu";
 
@@ -22,7 +23,6 @@ export interface QueueHeaderMenuDeps {
   onPublishQueue: () => void;
   onExportAsMixtape: () => void;
   onOpenAutoContinueSettings: () => void;
-  onClear: () => void;
 }
 
 /**
@@ -47,7 +47,5 @@ export function buildQueueHeaderMenuSpecs(d: QueueHeaderMenuDeps): MenuItemSpec[
     { kind: "item", text: "Publish hosted source…", action: d.onPublishQueue },
     { kind: "separator" },
     { kind: "item", text: "Auto-continue settings…", action: d.onOpenAutoContinueSettings },
-    { kind: "separator" },
-    { kind: "item", text: "Clear queue", action: d.onClear },
   ];
 }

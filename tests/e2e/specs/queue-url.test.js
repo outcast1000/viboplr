@@ -58,8 +58,7 @@ test('queue header exposes the playlist options menu', async ({ page }) => {
   await page.locator('.entity-list-item').first().dblclick();
   await expect(page.locator('.queue-item')).toHaveCount(1);
 
-  // "Clear queue" used to be its own header button. Every queue-level action
-  // now lives in one native OS menu behind this ⋯ trigger, and native menus have
+  // Every queue-level action lives in one native OS menu behind this ⋯ trigger, and native menus have
   // no DOM — so this asserts the trigger is present and opens without throwing.
   const menuBtn = page.locator('.queue-header .queue-header-menu-btn');
   await expect(menuBtn).toBeVisible();
@@ -67,7 +66,7 @@ test('queue header exposes the playlist options menu', async ({ page }) => {
   await expect(page.locator('.queue-item')).toHaveCount(1);
 });
 
-test('queue header menu offers Clear queue', async ({ page }) => {
+test('queue header menu builds in the shipped bundle', async ({ page }) => {
   // The menu items are unreachable through the UI (native menu, no DOM), so
   // exercise the pure builder behind it in the real bundle — same approach as
   // refactor-context-menu.test.js. Item wiring and the behaviour of clearQueue
@@ -81,7 +80,6 @@ test('queue header menu offers Clear queue', async ({ page }) => {
       onLoadPlaylist: noop, onSaveToPlaylists: noop, onSaveAsM3U: noop,
       onPublishQueue: noop, onExportAsMixtape: noop,
       onOpenAutoContinueSettings: noop,
-      onClear: noop,
     });
     const out = [];
     const walk = (arr) => arr.forEach((s) => {
@@ -93,7 +91,8 @@ test('queue header menu offers Clear queue', async ({ page }) => {
     return out;
   });
 
-  expect(texts).toContain('Clear queue');
+  // No Clear: Back / Forward undo a replacement (queue.md "Queue History").
+  expect(texts).not.toContain('Clear queue');
   expect(texts).toContain('Load playlist…');
   expect(texts).toContain('Save as Playlist');
   // Prefer video is a check item here; the in-list banner announces it while on

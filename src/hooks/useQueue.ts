@@ -62,6 +62,17 @@ export interface AppendedTail {
   tracks: QueueTrack[];
 }
 
+/** The queue a replacement is about to throw away (queue history: its Latest
+ *  play card records it as it was left). */
+export interface OutgoingQueue {
+  tracks: QueueTrack[];
+  index: number;
+  context: PlaylistContext | null;
+  /** `play`: a new play (`playTracks`, `loadPlaylist`) replaces it; `clear`:
+   *  emptied; `restore`: Back / Forward / a card (`restoreQueue`). */
+  reason: "play" | "clear" | "restore";
+}
+
 export interface EnqueueOptions {
   /** Absolute insert index; undefined appends. */
   position?: number;
@@ -95,6 +106,10 @@ export function useQueue(
   // tail that was appended. Not fired once the session was replaced or cleared.
   // Read at call time.
   onPlaySessionFilled?: (gen: number, tracks: QueueTrack[]) => void,
+  // Every replacement — a play, a playlist load, a clear, a restore — hands the
+  // queue it replaces here first, read from refs before anything changes (the
+  // queue history; App records it into its Latest play card). Read at call time.
+  beforeReplace?: (outgoing: OutgoingQueue) => void,
 ) {
   const [queue, setQueue] = useState<QueueTrack[]>([]);
   const [queueIndex, setQueueIndex] = useState(-1);
@@ -293,6 +308,29 @@ export function useQueue(
   const [loadFailure, setLoadFailure] = useState<string | null>(null);
   const onPlaySessionFilledRef = useRef(onPlaySessionFilled);
   useAssignRef(onPlaySessionFilledRef, onPlaySessionFilled);
+  const beforeReplaceRef = useRef(beforeReplace);
+  useAssignRef(beforeReplaceRef, beforeReplace);
+
+  // Hand the queue about to be replaced to the history (see `beforeReplace`).
+  // Refs, not state: a replacement runs from event handlers holding an old render.
+  function handOver(reason: OutgoingQueue["reason"]) {
+    beforeReplaceRef.current?.({
+      tracks: queueRef.current,
+      index: queueIndexRef.current,
+      context: playlistContextRef.current,
+      reason,
+    });
+  }
+
+  // Whether `entry` is the song already audibly playing, so a replacement
+  // opening on it keeps the music running rather than restarting it. Two
+  // different files of one song (a studio cut and a live take, both "Pearl
+  // Jam — Jeremy") are two recordings, not one: picking the other is "play
+  // this now". Only a matching or unknown path (a metadata-only seed) counts.
+  function continuesPlaying(playingNow: QueueTrack | null, entry: QueueTrack | undefined): playingNow is QueueTrack {
+    return playingNow !== null && !!entry && sameSong(playingNow, entry)
+      && !(playingNow.path && entry.path && playingNow.path !== entry.path);
+  }
   // What the live play session itself put in the queue: the tracks playTracks
   // started plus every tail appendToPlaySession added — never the user's own
   // enqueues. Handed to onPlaySessionFilled when a backfill settles.
@@ -338,15 +376,11 @@ export function useQueue(
     // one song. The gapless preload needs no help: driveProgressMachine
     // re-checks peekNext()'s key every tick and re-arms against the new queue.
     const playingNow = startIndex === 0 && dedupedTracks.length > 0 ? getPlayingTrack?.() ?? null : null;
-    // Two different files of one song (a studio cut and a live take, both
-    // "Pearl Jam — Jeremy") are two recordings, not one: picking the other is
-    // "play this now". Only a matching or unknown path (a metadata-only radio
-    // seed) continues.
-    const continues = playingNow !== null && sameSong(playingNow, dedupedTracks[0])
-      && !(playingNow.path && dedupedTracks[0].path && playingNow.path !== dedupedTracks[0].path);
+    const continues = continuesPlaying(playingNow, dedupedTracks[0]);
     if (continues && dedupedTracks[0].key !== playingNow.key && !seen.has(playingNow.key)) {
       dedupedTracks[0] = { ...dedupedTracks[0], key: playingNow.key };
     }
+    handOver("play");
     setQueue(dedupedTracks);
     setQueueIndex(startIndex);
     if (!continues) handlePlay(dedupedTracks[startIndex]);
@@ -357,7 +391,37 @@ export function useQueue(
     return playGenRef.current;
   }
 
-  // Every queue replacement (playTracks, clearQueue, loadPlaylist) ends the
+  // Put back a queue from the history (Back / Forward / a Latest play card):
+  // the list as it was left, on the entry it was on. Not a new play — no
+  // `onPlay` (Latest play, open Now Playing) and no telemetry. `resume` starts
+  // the entry (App seeks it to where it was left, or cues it while paused);
+  // it isn't called when that entry is the song already playing, which keeps
+  // running — the same continuation as playTracks', at any index.
+  function restoreQueue(
+    tracks: QueueTrack[],
+    index: number,
+    context: PlaylistContext | null,
+    resume: (track: QueueTrack) => void,
+  ) {
+    if (tracks.length === 0) return;
+    const at = Math.min(Math.max(index, 0), tracks.length - 1);
+    // Entries read back from a snapshot carry freshly minted keys already.
+    const fresh = tracks.slice();
+    const playingNow = getPlayingTrack?.() ?? null;
+    const continues = continuesPlaying(playingNow, fresh[at]);
+    if (continues && fresh[at].key !== playingNow.key && !fresh.some(t => t.key === playingNow.key)) {
+      fresh[at] = { ...fresh[at], key: playingNow.key };
+    }
+    handOver("restore");
+    setQueue(fresh);
+    setQueueIndex(at);
+    setPlaylistContext(context);
+    endPlaySession();
+    sessionTracksRef.current = { gen: playGenRef.current, tracks: fresh };
+    if (!continues) resume(fresh[at]);
+  }
+
+  // Every queue replacement (playTracks, clearQueue, loadPlaylist, restoreQueue) ends the
   // live play session: a tail still resolving for it is now stale, and a play
   // still loading — either mode — is dropped, releasing anyone waiting on it.
   function endPlaySession() {
@@ -817,7 +881,10 @@ export function useQueue(
     }
   }, []);
 
+  // Only the control API clears the queue (the panel's Clear was removed:
+  // Back undoes a replacement, and the history keeps what was cleared).
   function clearQueue() {
+    handOver("clear");
     setQueue([]);
     setQueueIndex(-1);
     setPlaylistContext(null);
@@ -940,12 +1007,9 @@ export function useQueue(
           format: null,
         })
       );
-      setQueue(tracks);
-      setQueueIndex(0);
-      handlePlay(tracks[0]);
-      setPlaylistContext({ name: result.playlist_name });
-      // Replaces the queue, so it starts a new play session (see playTracks).
-      endPlaySession();
+      // An ordinary play: it ends the session, hands the old queue to the
+      // history and gets a Latest play card like any other.
+      playTracks(tracks, 0, { name: result.playlist_name });
     }
   }
 
@@ -954,7 +1018,7 @@ export function useQueue(
     queueIndex, setQueueIndex,
     queueMode, setQueueMode,
     queuePanelRef, dragIndexRef,
-    playTracks, enqueueTracks, findDuplicates, appendToPlaySession,
+    playTracks, restoreQueue, enqueueTracks, findDuplicates, appendToPlaySession,
     loadingPlay, playbackWaiting, loadFailure,
     beginLoadingPlay, isLoadingPlayLive, endLoadingPlay, cancelLoadingPlay, waitForLoadingPlay,
     playNext, playPrevious,
