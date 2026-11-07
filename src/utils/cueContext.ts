@@ -36,6 +36,23 @@ export const PROSE_CHAR_CAP = 6000;
  *  use image URLs it can trust, so a provider's gallery is the safe source. */
 export const CONTEXT_IMAGE_DISPLAY_KINDS: DisplayKind[] = ["image_gallery"];
 
+/** Info types of another display kind whose value also carries an `images`
+ *  gallery — declared by the plugin with `contextImages: true` (a `plugin_view`
+ *  tab of agency photos). Opt-in by manifest, never by sniffing values: the
+ *  gather would otherwise have to fetch every interactive tab (Community's)
+ *  just to find out it has no pictures. */
+export function contextImageTypeIds(
+  plugins: ReadonlyArray<{ manifest: { contributes?: { informationTypes?: Array<{ id: string; contextImages?: boolean }> } } }>,
+): Set<string> {
+  const ids = new Set<string>();
+  for (const p of plugins) {
+    for (const t of p.manifest.contributes?.informationTypes ?? []) {
+      if (t.contextImages === true) ids.add(t.id);
+    }
+  }
+  return ids;
+}
+
 /** Per-gallery cap — enough to choose from, small enough to keep the context
  *  one tool result. */
 export const CONTEXT_IMAGE_CAP = 12;
@@ -256,6 +273,9 @@ interface GatherOpts {
   isPlaying: boolean;
   invokeInfoFetch: InvokeInfoFetch;
   pluginNames?: Map<string, string>;
+  /** Types whose values carry an `images` gallery besides their own kind
+   *  (`contextImageTypeIds`). */
+  imageTypeIds?: ReadonlySet<string>;
   /** Overrides `CUE_CONTEXT_DEADLINE_MS` (tests). */
   deadlineMs?: number;
 }
@@ -288,16 +308,23 @@ async function materialFor(
     console.error(`Failed to list ${entity.kind} info types for cue context:`, e);
     return NO_MATERIAL;
   }
-  const wanted = types.filter(([, , displayKind]) =>
-    CONTEXT_DISPLAY_KINDS.includes(displayKind as DisplayKind)
-    || CONTEXT_IMAGE_DISPLAY_KINDS.includes(displayKind as DisplayKind));
+  const isImageType = (typeId: string, displayKind: string) =>
+    CONTEXT_IMAGE_DISPLAY_KINDS.includes(displayKind as DisplayKind) || !!opts.imageTypeIds?.has(typeId);
+  // The listing has one row per provider; a type is gathered once.
+  const seen = new Set<string>();
+  const wanted = types.filter(([typeId, , displayKind]) => {
+    if (seen.has(typeId)) return false;
+    const want = CONTEXT_DISPLAY_KINDS.includes(displayKind as DisplayKind) || isImageType(typeId, displayKind);
+    if (want) seen.add(typeId);
+    return want;
+  });
   const results = await Promise.all(wanted.map(([typeId, name]) => settleBy((async () => {
     try {
       const out = await fetchInfoValue({
         typeId, entity, invokeInfoFetch: opts.invokeInfoFetch, pluginNames: opts.pluginNames,
       });
       if (out.status !== "ok") return null;
-      if (CONTEXT_IMAGE_DISPLAY_KINDS.includes(out.displayKind as DisplayKind)) {
+      if (isImageType(typeId, out.displayKind)) {
         const images = galleryImages(out.value);
         return images.length ? { images: { about, typeId, name: out.name, images } } : null;
       }

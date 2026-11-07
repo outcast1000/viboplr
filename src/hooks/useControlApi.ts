@@ -55,7 +55,7 @@ import { toPlaylistTrackPayload } from "../utils/playlistPayload";
 import { cueCountBucket, cueErrorField, cueText, cueWriteSong, sameCueSong, splitSheetMeta, type CueSheetRow, type CueSheetTrack } from "../utils/cueSheet";
 import { saveCueSheet, type CueOpsDeps } from "../utils/cueOps";
 import { track } from "../telemetry";
-import { gatherCueContext } from "../utils/cueContext";
+import { contextImageTypeIds, gatherCueContext } from "../utils/cueContext";
 import { buildExternalQueueTrack } from "../utils/externalTrack";
 import { errorText } from "../utils/errorKind";
 import { stabilityTier } from "../utils/pluginStability";
@@ -973,6 +973,7 @@ export function useControlApi(deps: ControlApiDeps) {
           isPlaying,
           invokeInfoFetch: d.plugins.invokeInfoFetch,
           pluginNames: d.plugins.pluginNames,
+          imageTypeIds: contextImageTypeIds(d.plugins.pluginStates.filter((p) => p.status === "active")),
         });
       }
 

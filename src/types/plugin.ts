@@ -111,6 +111,13 @@ export interface PluginManifestInfoType {
    *  plugin offers several for it (two lyrics sources in one plugin). Omit for
    *  the plugin's single provider. See `utils/providerKey.ts`. */
   provider?: string;
+  /** The value also carries pictures of the entity as `images`, in the
+   *  `image_gallery` shape, whatever its own display kind — so a `plugin_view`
+   *  tab can offer them to cue sheets: `get_cue_context` fetches every type
+   *  that sets this, alongside the galleries. Only worth setting on a type
+   *  that isn't `image_gallery` (those are always included). Older hosts
+   *  ignore it. */
+  contextImages?: boolean;
 }
 
 export interface PluginManifestImageProvider {
