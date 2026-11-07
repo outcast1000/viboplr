@@ -1,0 +1,104 @@
+/* The Community cue-sheet player's shell (main.tsx). The overlays bring their
+   own CSS (CueClipOverlay.css / CueOverlay.css); these are the tokens they
+   read, at the app's default values — the clip paints over artwork, so they
+   are the never-flipped on-image set, the same on every skin. */
+:root {
+  --accent: #53a8ff;
+  --hero-text-primary: #fff;
+  --hero-text-secondary: rgba(255, 255, 255, 0.85);
+  --hero-text-tertiary: rgba(255, 255, 255, 0.55);
+  --scrim-rgb: 0, 0, 0;
+  --on-image-rgb: 255, 255, 255;
+  --ds-radius-card: 8px;
+  --fs-2xs: 11px;
+  --fs-xs: 12px;
+  --fs-sm: 14px;
+  --fs-base: 16px;
+  --fs-lg: 19px;
+  --ease-out-quart: cubic-bezier(0.25, 1, 0.5, 1);
+  color-scheme: dark;
+}
+
+html, body, #cue-player { margin: 0; height: 100%; background: #0b0b10; color: #fff; overflow: hidden; }
+body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
+
+.cp { display: flex; flex-direction: column; height: 100%; }
+
+/* The view a sheet is drawn on — the Now Playing stage. With nothing on it the
+   clip shows a dark backdrop, like Now Playing before any art. */
+.cp-stage {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+  cursor: pointer;
+  background: radial-gradient(ellipse at 50% 35%, #23232f 0%, #0b0b10 70%);
+}
+
+/* Cards play over the art column; the player has no art, so a square frame
+   stands in for it. */
+.cp-art {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: min(86%, 86vh);
+  aspect-ratio: 1;
+  transform: translate(-50%, -50%);
+  border-radius: 10px;
+  background: linear-gradient(135deg, #2a2a38, #15151d);
+}
+
+.cp-start {
+  position: absolute;
+  inset: 0;
+  z-index: 50;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  padding: 16px;
+  text-align: center;
+  background: rgba(0, 0, 0, 0.45);
+}
+.cp-big-play {
+  display: grid;
+  place-items: center;
+  width: 72px;
+  height: 72px;
+  border: 0;
+  border-radius: 50%;
+  background: linear-gradient(135deg, #ff6b6b, #e91e8a);
+  color: #fff;
+  cursor: pointer;
+}
+.cp-big-play:hover { opacity: 0.9; }
+.cp-big-play:focus-visible, .cp-btn:focus-visible, .cp-seek:focus-visible { outline: 2px solid #fff; outline-offset: 2px; }
+.cp-start-title { font-size: 17px; font-weight: 700; }
+.cp-start-note { font-size: 13px; color: rgba(255, 255, 255, 0.7); max-width: 420px; }
+
+.cp-bar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  height: 44px;
+  padding: 0 12px;
+  background: #14141c;
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+}
+.cp-btn {
+  display: grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  color: #fff;
+  cursor: pointer;
+}
+.cp-btn:hover { background: rgba(255, 255, 255, 0.1); }
+.cp-seek { flex: 1; min-width: 0; accent-color: #e91e8a; }
+.cp-time { font-size: 12px; font-variant-numeric: tabular-nums; color: rgba(255, 255, 255, 0.75); white-space: nowrap; }
+
+.cp-empty { display: grid; place-items: center; height: 100%; font-size: 14px; color: rgba(255, 255, 255, 0.7); }
