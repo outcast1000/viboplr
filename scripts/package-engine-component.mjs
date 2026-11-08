@@ -9,12 +9,9 @@
 //
 // Output: dist/engine-component/engine-libmpv-<platform>-<version>.zip
 //
-// Publishing (one-time per pin bump, manual on purpose — the artifacts are
-// packaged ONCE so the baked hashes always match the released bytes):
-//   gh release create engine-components --title "Engine components" \
-//     --notes "Runtime-downloadable libmpv engine components (hash-pinned by the app)." \
-//     || true   # release may already exist
-//   gh release upload engine-components dist/engine-component/*.zip --clobber
+// `npm run libmpv:adopt` runs this and then scripts/publish-engine-components.mjs,
+// which uploads the zips (never overwriting a published name) and pins the
+// lock to exactly the published bytes.
 //
 // The zip is flat: the dylibs/DLL at the root plus nothing else. The version
 // in the filename and lock is the mpv git hash from scripts/libmpv.lock.json.

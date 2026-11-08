@@ -14,7 +14,7 @@ name: Update bundled plugins
 
 on:
   schedule:
-    - cron: "43 6 * * 1" # Mondays, 06:43 UTC (after update-libmpv)
+    - cron: "43 6 * * 1" # Mondays, 06:43 UTC
   workflow_dispatch:
 
 concurrency:

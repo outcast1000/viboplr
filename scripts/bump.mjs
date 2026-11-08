@@ -6,13 +6,10 @@
 // counter when the current version is a beta (0.9.151-beta.1 -> 0.9.151-beta.2).
 //
 // Full release orchestrator:
-//   0. Merges a waiting libmpv update PR once its tests + CI passed (no prompt), or
-//      starts the update workflow when upstream is newer and no PR is open
-//      (0b. offers to re-vendor libmpv when the vendored copy isn't the pinned one)
-//      (0d. refuses the release when the downloadable engine component isn't
-//       the pinned libmpv, and prints the commands that repackage it)
-//      (0c. reports mpv master's commits past the pinned mpv and prints how to
-//       build and adopt it — report only: it never prompts or starts anything)
+//   0. libmpv: offers to re-vendor when the vendored copy isn't the pinned one (0a),
+//      refuses the release when the downloadable engine component isn't the
+//      pinned libmpv (0b), and reports a newer build or mpv master commits past
+//      the pinned mpv with the two commands that adopt them (0c — report only)
 //   1. Runs CI checks (typecheck, Rust tests, TS tests) — aborts on failure
 //   2. Bumps version in package.json, Cargo.toml, tauri.conf.json
 //   3. Updates static version badge + download URLs across docs/ pages
@@ -38,9 +35,7 @@ import { generateChangelog } from "./lib/changelog.mjs";
 import { nextVersion } from "./lib/version.mjs";
 import { renderFeaturesHtml } from "./lib/features.mjs";
 import { locStep } from "./lib/locRepo.mjs";
-// MIRROR_REPO is this repo: the update-libmpv workflow runs, mirrors and opens its PR here.
-// Our own libmpv is built and published in LIBMPV_BUILD_REPO instead.
-import { LIBMPV_BUILD_REPO, MIRROR_REPO, checkRunsArgs, engineComponentMismatches, hostPlatformKey, libmpvAction, requiredChecksState, vendorState } from "./lib/libmpvUpdate.mjs";
+import { ENGINE_COMPONENTS_REPO, ENGINE_COMPONENTS_TAG, LIBMPV_BUILD_REPO, engineComponentMismatches, hostPlatformKey, newestBuild, pinnedBuild, unpublishedComponents, vendorState } from "./lib/libmpvPin.mjs";
 import { MPV_BRANCH, MPV_REPO, commitLine, compareUrl, furthestBehind, pinnedMpvCommits } from "./lib/mpvUpstream.mjs";
 import { createInterface } from "readline/promises";
 
@@ -76,74 +71,82 @@ if (isBeta) {
 }
 
 // ---------------------------------------------------------------------------
-// Step 0 — A libmpv update waiting?
+// Step 0 — libmpv
 //
-// The Update libmpv workflow re-pins, tests on real macOS + Windows runners,
-// opens a PR, starts CI on it and merges it once that passes. This step is the
-// fallback for a PR that run left open (CI hadn't reported, or a failure was
-// fixed since), taken with no question asked (owner decision, 2026-10-23): a
-// PR that is not a draft and has passed main's required checks is merged,
-// pulled and vendored, so Step 1 tests the libmpv this release ships; anything
-// else is reported and the release goes on without it. A newer upstream build
-// with no PR starts the workflow. Before Step 1 on purpose. Fatal only when a
-// merge it started fails half-way.
-//
-// Then (0b) the vendored copy is checked against the lock. The workflow merges
-// on its own now, so a pull can move the pin while the gitignored vendor dir
-// keeps the old build — and Step 1's engine tests would test that instead.
-// Offered, not forced: it is a download. With no terminal to ask on, it says
-// so and goes on (the release build vendors from the lock on CI regardless).
+// libmpv is our own build (outcast1000/viboplr-libmpv), adopted by hand with
+// `npm run libmpv:adopt`. These checks make sure the release ships the pinned
+// build, tested, with a matching engine component — and say when a newer one
+// is waiting. Before Step 1 on purpose: its engine tests run the vendored copy.
 // ---------------------------------------------------------------------------
 
-libmpvStep();
 await vendorStep();
 engineComponentStep();
-await mpvMasterStep();
+await libmpvBuildsStep();
 
 // ---------------------------------------------------------------------------
-// Step 0d — Is the downloadable engine component the libmpv this release bundles?
+// Step 0b — Is the downloadable engine component the libmpv this release bundles?
 //
 // src-tauri/engine-component.lock.json is baked into the binary, and it is what
-// Settings → Playback → "Try a replacement copy" installs. Only the update-libmpv
-// workflow repackages it, so a hand re-pin can leave it behind: cd123f3b moved
+// Settings → Playback → "Try a replacement copy" installs. `npm run libmpv:adopt`
+// moves it with the pin, but a hand edit can leave it behind: cd123f3b moved
 // libmpv to the macOS 27 fix and kept the component on the build without it.
-// Fatal, after Step 0 (whose merge can move the pin) and before anything
-// changes: the fix is two commands and a commit, and a release with a
-// mismatched component ships the bug the re-pin was for.
+// Its zips must also really be on the release: the packager writes the lock
+// before anything is uploaded, so a failed publish (or `--no-publish`) leaves a
+// lock that reads as complete and a download that 404s. Fatal, before anything
+// changes: the fix is one command and a commit. Only an unreadable release
+// list is let through, with a warning.
 // ---------------------------------------------------------------------------
 
 function engineComponentStep() {
   const read = (p) => JSON.parse(readFileSync(resolve(root, p), "utf8"));
-  const mismatches = engineComponentMismatches(read("scripts/libmpv.lock.json"), read("src-tauri/engine-component.lock.json"));
-  if (mismatches.length === 0) {
-    console.log("✓ engine component matches the pinned libmpv\n");
+  const lock = read("scripts/libmpv.lock.json");
+  const component = read("src-tauri/engine-component.lock.json");
+  const problems = engineComponentMismatches(lock, component)
+    .map((m) => `${m.platform}: component ${m.actual ?? "(not published)"}, libmpv pin ${m.expected}`);
+  try {
+    const names = execSync(`gh release view ${ENGINE_COMPONENTS_TAG} --repo ${ENGINE_COMPONENTS_REPO} --json assets --jq '.assets[].name'`,
+      { cwd: root, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] });
+    const published = new Set(names.split("\n").filter(Boolean));
+    for (const u of unpublishedComponents(component, published)) {
+      problems.push(`${u.platform}: ${u.name} isn't on the ${ENGINE_COMPONENTS_TAG} release`);
+    }
+  } catch (e) {
+    console.error(`⚠ Couldn't list the ${ENGINE_COMPONENTS_TAG} release, so whether the component is published is unchecked:\n${(e.stderr || e.message).toString().trim()}\n`);
+  }
+  if (problems.length === 0) {
+    console.log("✓ engine component matches the pinned libmpv, published\n");
     return;
   }
-  console.error("✗ The downloadable engine component isn't the libmpv this release bundles:");
-  for (const m of mismatches) {
-    console.error(`    ${m.platform}: component ${m.actual ?? "(not published)"}, libmpv pin ${m.expected}`);
-  }
+  console.error("✗ The downloadable engine component isn't the libmpv this release bundles, published:");
+  for (const p of problems) console.error(`    ${p}`);
+  const build = pinnedBuild(lock);
   console.error("\n  Repackage and publish it from the pinned libmpv, then commit the component lock:");
-  console.error("    node scripts/fetch-libmpv.mjs --all");
-  console.error("    node scripts/package-engine-component.mjs");
-  console.error("    node scripts/publish-engine-components.mjs");
+  if (build) {
+    console.error(`    npm run libmpv:adopt -- ${build}`);
+  } else {
+    console.error("    node scripts/fetch-libmpv.mjs --all");
+    console.error("    node scripts/package-engine-component.mjs");
+    console.error("    node scripts/publish-engine-components.mjs");
+  }
   console.error("    git commit -m \"chore(libmpv): repackage the engine component\" src-tauri/engine-component.lock.json\n");
   process.exit(1);
 }
 
 // ---------------------------------------------------------------------------
-// Step 0c — Is mpv master ahead of the mpv this release ships?
+// Step 0c — Is a newer libmpv waiting?
 //
-// Compares each platform's pinned mpv commit (the lock's mpvGitHash) with mpv
-// master: shows the commit this release ships, how many commits master has
-// after it, the newest, and the compare link. When it is ahead, it prints how
-// to move to it (Build libmpv workflow on that master commit, then a hand
-// re-pin) and goes on with the pinned mpv. Report only: it never prompts and
-// never starts the workflow. Never fatal: a failed lookup is reported and the
-// release goes on.
+// Two questions, both report only (never a prompt, never fatal — a failed
+// lookup is reported and the release goes on with the pinned build):
+//   - Is the build repo's newest build one this release doesn't pin?
+//     Built but not adopted: `npm run libmpv:adopt` takes it.
+//   - Is mpv master ahead of the pinned mpv? Shows the commit this release
+//     ships, how many master has after it, the newest, and the compare link,
+//     then the build command; adopting the result is the same one command.
+// Adopting can't finish inside a release (a person has to listen to it), so
+// the commands are printed for afterwards.
 // ---------------------------------------------------------------------------
 
-async function mpvMasterStep() {
+async function libmpvBuildsStep() {
   // Generous buffer, and --jq everywhere: a compare across a release's worth of
   // commits carries every changed file and runs to megabytes — past execSync's
   // 1 MB default, which turned this step into a silent warning.
@@ -151,13 +154,26 @@ async function mpvMasterStep() {
   const errText = (e) => (e.stderr || e.stdout || e.message).toString().trim();
   const commitJq = "{sha, commit: {message: .commit.message, committer: {date: .commit.committer.date}}}";
   const lock = JSON.parse(readFileSync(resolve(root, "scripts/libmpv.lock.json"), "utf8"));
-  const pinned = pinnedMpvCommits(lock);
-  if (pinned.length === 0) return;
+  const pinned = pinnedBuild(lock);
 
-  console.log("Checking mpv master against the pinned mpv...\n");
+  console.log("Checking for a newer libmpv...\n");
+  try {
+    const newest = newestBuild(JSON.parse(gh(`api "repos/${LIBMPV_BUILD_REPO}/releases?per_page=100"`)));
+    if (newest && newest !== pinned) {
+      console.log(`  ${LIBMPV_BUILD_REPO}'s newest build is ${newest}; this release pins ${pinned ?? "a mix of builds"}.`);
+      console.log(`  This release goes on with the pin. To adopt it afterwards: npm run libmpv:adopt -- ${newest}\n`);
+    } else {
+      console.log(`✓ the pinned libmpv is ${LIBMPV_BUILD_REPO}'s newest build\n`);
+    }
+  } catch (e) {
+    console.error(`⚠ Couldn't read ${LIBMPV_BUILD_REPO}'s builds (release continues):\n${errText(e)}\n`);
+  }
+
+  const commits = pinnedMpvCommits(lock);
+  if (commits.length === 0) return;
   let base, baseCommit, headCommit;
   try {
-    const compares = pinned.map((p) => ({
+    const compares = commits.map((p) => ({
       ...p,
       aheadBy: Number(gh(`api repos/${MPV_REPO}/compare/${p.hash}...${MPV_BRANCH} --jq .ahead_by`)) || 0,
     }));
@@ -172,40 +188,25 @@ async function mpvMasterStep() {
     console.error(`⚠ Couldn't compare with mpv ${MPV_BRANCH} (release continues):\n${errText(e)}\n`);
     return;
   }
-  const head = headCommit.sha;
 
-  const others = pinned.filter((p) => p.hash !== base.hash)
+  const others = commits.filter((p) => p.hash !== base.hash)
     .map((p) => `${p.platforms.join(", ")} pins ${p.hash}`);
   console.log(`  This release's mpv (${base.platforms.join(", ")}): ${commitLine(baseCommit)}`);
   if (others.length) console.log(`  (${others.join("; ")})`);
   console.log(`  mpv ${MPV_BRANCH} has ${base.aheadBy} commit${base.aheadBy === 1 ? "" : "s"} after it; newest: ${commitLine(headCommit)}`);
   console.log(`  ${compareUrl(base.hash)}\n`);
-
-  // Report only — never prompt, never start anything. Adopting a new mpv is a
-  // build + hand re-pin that can't finish inside a release anyway, so a question
-  // here only paused the run; the steps are printed for afterwards instead.
-  // The play-test and the patch check are here because the engine tests passed
-  // on builds that were broken on real hardware (the macOS 27 output, the
-  // Bit-perfect reload loop on a USB device): only a person listening finds those.
   console.log(`  This release goes on with the pinned mpv. To move to mpv ${MPV_BRANCH} afterwards:`);
-  console.log(`    1. Build it (builds, runs this repo's engine tests, publishes a release named after the build; re-pins nothing):`);
-  console.log(`         gh workflow run build-libmpv.yml --repo ${LIBMPV_BUILD_REPO} -f publish=true -f mpv_ref=${head}`);
-  console.log(`         gh run list --workflow build-libmpv.yml --repo ${LIBMPV_BUILD_REPO}`);
-  console.log(`       In its build log, check every "patched mpv: …" line. "not applied (doesn't fit this mpv)"`);
-  console.log(`       usually means upstream fixed it: confirm, then delete that patch from ${LIBMPV_BUILD_REPO}.`);
-  console.log(`    2. Once it passes, re-pin each platform in scripts/libmpv.lock.json by hand`);
-  console.log(`       (url, upstream, sha256, mpvGitHash, build) from that release's assets.`);
-  console.log(`    3. node scripts/fetch-libmpv.mjs --all && (cd src-tauri && cargo test --lib)`);
-  console.log(`    4. Repackage the downloadable engine component from it (Step 0d refuses a release otherwise):`);
-  console.log(`         node scripts/package-engine-component.mjs && node scripts/publish-engine-components.mjs`);
-  console.log(`    5. Play it on real hardware before committing — the engine tests can't hear it:`);
-  console.log(`         macOS: shared output, a device switch mid-track, Bit-perfect on → off (then play again);`);
-  console.log(`         Windows: one audio and one video track.`);
-  console.log(`       A dev build loads src-tauri/target/Frameworks/libmpv.2.dylib before the vendored copy and`);
-  console.log(`       only refreshes it on a rebuild: delete it, and check viboplr.log says "(vendored)".`);
-  console.log(`    6. Commit both locks; the next bump ships them.\n`);
+  console.log(`    1. gh workflow run build-libmpv.yml --repo ${LIBMPV_BUILD_REPO} -f publish=true -f mpv_ref=${headCommit.sha}`);
+  console.log(`       It builds, runs this repo's engine tests and publishes a release. In its log, check every`);
+  console.log(`       "patched mpv: …" line: "not applied (doesn't fit this mpv)" usually means upstream fixed it.`);
+  console.log(`    2. npm run libmpv:adopt   (re-pins, vendors, repackages the engine component; prints the play-test)\n`);
 }
 
+// Step 0a — Is the vendored libmpv the pinned one? A pull can move the pin
+// while the gitignored vendor dir keeps the old build, and Step 1's engine
+// tests would test that instead. Offered, not forced: it is a download. With no
+// terminal to ask on, it says so and goes on (the release build vendors from
+// the lock on CI regardless).
 async function vendorStep() {
   const platform = hostPlatformKey();
   const lock = JSON.parse(readFileSync(resolve(root, "scripts/libmpv.lock.json"), "utf8"));
@@ -235,77 +236,6 @@ async function vendorStep() {
     process.exit(1);
   }
   console.log("✓ libmpv vendored from the lock\n");
-}
-
-function libmpvStep() {
-  const gh = (cmd) => execSync(`gh ${cmd}`, { cwd: root, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }).trim();
-  const errText = (e) => (e.stderr || e.stdout || e.message).toString().trim();
-
-  console.log("Checking for a libmpv update...\n");
-  let pr = null;
-  let checks = null;
-  try {
-    const open = JSON.parse(gh(`pr list --repo ${MIRROR_REPO} --head bot/libmpv-update --state open --json number,title,url,isDraft,headRefOid`));
-    pr = open[0] ?? null;
-    if (pr) {
-      checks = requiredChecksState(JSON.parse(gh(checkRunsArgs(MIRROR_REPO, pr.headRefOid))));
-    }
-  } catch (e) {
-    console.error(`⚠ Couldn't read the libmpv update PR (is gh signed in?) — skipping this step:\n${errText(e)}\n`);
-    return;
-  }
-  let behind = false;
-  if (!pr) {
-    try {
-      execSync("node scripts/update-libmpv.mjs --check", { cwd: root, encoding: "utf8", stdio: "pipe" });
-    } catch (e) {
-      if (e.status === 3) behind = true;
-      else console.error(`⚠ libmpv check reported a problem (release continues):\n${errText(e)}`);
-    }
-  }
-
-  const onMain = git("rev-parse --abbrev-ref HEAD") === "main";
-  const { action, reason } = libmpvAction({ pr, checks, behind, onMain });
-  switch (action) {
-    case "none":
-      console.log(`✓ ${reason}\n`);
-      return;
-    case "skip":
-      console.log(`⚠ ${reason}\n  Releasing without it.\n`);
-      return;
-    case "run":
-      console.log(`${reason}...`);
-      try {
-        gh(`workflow run update-libmpv.yml --repo ${MIRROR_REPO}`);
-        console.log("  Started — its PR is taken by the next bump once CI passes on it.\n");
-      } catch (e) {
-        console.error(`⚠ Couldn't start the workflow (release continues): ${errText(e)}\n`);
-      }
-      return;
-    case "merge":
-      console.log(`${reason}...`);
-      // Once the merge lands, main has the new pin whether or not this release
-      // goes on, so every failure from here stops the release instead of shipping
-      // on a half-applied state.
-      try {
-        gh(`pr merge ${pr.number} --repo ${MIRROR_REPO} --merge`);
-        console.log("  Pulling main...");
-        git("pull --ff-only origin main");
-      } catch (e) {
-        console.error(`\n✗ ${errText(e)}`);
-        console.error("  If the merge went through, pull main yourself (git pull origin main) and re-run bump.");
-        process.exit(1);
-      }
-      console.log("  Vendoring the new libmpv...");
-      try {
-        execSync("node scripts/fetch-libmpv.mjs", { cwd: root, stdio: "inherit" });
-      } catch {
-        console.error("\n✗ fetch-libmpv failed with the new pin (output above) — not releasing on it.");
-        process.exit(1);
-      }
-      console.log(`✓ libmpv update #${pr.number} merged — this release ships it, and the checks below test it\n`);
-      return;
-  }
 }
 
 // ---------------------------------------------------------------------------

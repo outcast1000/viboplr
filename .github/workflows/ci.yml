@@ -4,9 +4,8 @@ on:
   workflow_dispatch:
   pull_request:
 
-# A newer push to the same PR supersedes the run in progress — e.g. the libmpv
-# update bot pushes the pin, then the engine-component lock minutes later, and
-# only the second commit's run is ever read.
+# A newer push to the same PR supersedes the run in progress: only the newest
+# commit's run is ever read, so an older one would only spend runner time.
 concurrency:
   group: ci-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true

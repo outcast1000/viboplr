@@ -13,10 +13,10 @@ cd src-tauri && cargo check --release # Release build check
 node scripts/fetch-libmpv.mjs        # Vendor pinned libmpv — REQUIRED before `tauri build` (bundled); dev/tests load it at runtime; engine tests self-skip without it
 node scripts/sync-bundled-plugins.mjs lastfm  # Re-pin the bundled Last.fm plugin to its latest release (source lives in outcast1000/viboplr-lastfm — never edit src-tauri/plugins/lastfm/; see plugins.md "Bundled, but maintained in its own repo")
 cd src-tauri && cargo test --lib     # All lib tests incl. native engine (engine compiled into every build)
-node scripts/package-engine-component.mjs  # Package the downloadable libmpv engine component + update its lock
-node scripts/publish-engine-components.mjs # Publish those zips (never overwrites a published name) + pin what was published
-gh workflow run build-libmpv.yml --repo outcast1000/viboplr-libmpv -f publish=true  # Our own trimmed libmpv (both platforms pin it). Recipe + CI live in that repo; it runs THIS repo's engine tests (`app_ref`, default main) and publishes one release per build; re-pin scripts/libmpv.lock.json by hand
-node scripts/update-libmpv.mjs             # Skips self-built pins (all of them today). Newer upstream libmpv builds? (--check = hashes only, no download, exit 3 = newer; --write --mirror re-pins; weekly via .github/workflows/update-libmpv.yml, which opens a PR as the bot GitHub App (so its CI starts without an approval) and merges it once its engine tests and CI passed — a PR it left open is merged by `npm run bump` Step 0 with no prompt once it isn't a draft and main's required checks passed, else bump releases without it; upstream ahead with no PR starts the workflow)
+gh workflow run build-libmpv.yml --repo outcast1000/viboplr-libmpv -f publish=true  # Build our own trimmed libmpv (both platforms pin it; add -f mpv_ref=<commit> for mpv master). Recipe + CI live in that repo; it runs THIS repo's engine tests (`app_ref`, default main) and publishes one release per build
+npm run libmpv:adopt [-- <build tag>]      # (macOS) Adopt a build (default: that repo's newest build): re-pins scripts/libmpv.lock.json, vendors it, packages + publishes the engine component; then play-test and commit both locks
+node scripts/package-engine-component.mjs  # (run by libmpv:adopt) package the downloadable engine component + update its lock
+node scripts/publish-engine-components.mjs # (run by libmpv:adopt) publish those zips (never overwrites a published name) + pin what was published
 npx tsc --noEmit                     # TypeScript type-check
 npm run lint                         # ESLint (gates on errors; see .claude/rules/conventions.md > Enforcement)
 npm run lint:fix                     # ESLint with autofix
