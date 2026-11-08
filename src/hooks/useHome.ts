@@ -409,8 +409,8 @@ export async function mixCards(
   }));
 }
 
-// The live "Latest additions" card that opens Made for you: the newest audio
-// tracks by `added_at`. Built at every shelf fetch rather than stored as an auto
+// The live "Latest additions" card that opens Made for you: the newest tracks
+// by `added_at`. Built at every shelf fetch rather than stored as an auto
 // playlist — those regenerate on a 24h cycle, and a list of what was just added
 // is only worth anything while it is fresh. Audio and video both: it answers
 // "what did I just add", whatever kind it is.
@@ -1085,19 +1085,33 @@ export function useHome(opts: UseHomeOptions) {
           // 24h cycle (App.tsx, `ensure_auto_playlists`); each card ships its
           // full list so a click plays at once, as on Discover by decade.
           displayKind: "playlist-cards",
-          // Led by the live "Latest additions" card (latestAdditionsCard).
-          limit: 12,
+          // Led by the live "Latest additions" card (latestAdditionsCard), so
+          // 13 = the card plus the 12 mixes the shelf showed before it.
+          limit: 13,
           fetch: async (limit) => {
-            try {
-              const [rows, newest] = await Promise.all([
-                getPlaylistRows(),
-                invoke<Track[]>("get_tracks", {
-                  opts: { sortField: "added", sortDir: "desc", limit: LATEST_ADDITIONS_SIZE },
-                }),
-              ]);
-              const latest = await latestAdditionsCard(newest ?? []);
-              const mixes = madeForYouPlaylists(rows).slice(0, latest ? limit - 1 : limit);
-              const items = await Promise.all(mixes.map(async (p): Promise<HomeShelfItem | null> => {
+            // The card and the mixes fail apart: either half still renders
+            // when the other can't be read. Only both failing is an error.
+            const latestTask = invoke<Track[]>("get_tracks", {
+              opts: { sortField: "added", sortDir: "desc", limit: LATEST_ADDITIONS_SIZE },
+            })
+              .then((newest) => latestAdditionsCard(newest ?? []))
+              .then((card) => ({ ok: true as const, card }))
+              .catch((e: unknown) => {
+                console.error("Failed to build the Latest additions card:", e);
+                return { ok: false as const, error: e };
+              });
+            const mixesTask = getPlaylistRows()
+              .then((rows) => ({ ok: true as const, rows }))
+              .catch((e: unknown) => {
+                console.error("Failed to read the Made for you mixes:", e);
+                return { ok: false as const, error: e };
+              });
+            const [latest, mixRows] = await Promise.all([latestTask, mixesTask]);
+            if (!latest.ok && !mixRows.ok) return { status: "error", message: String(mixRows.error) };
+            const card = latest.ok ? latest.card : null;
+            const mixes = mixRows.ok ? madeForYouPlaylists(mixRows.rows).slice(0, card ? limit - 1 : limit) : [];
+            const items = await Promise.all(mixes.map(async (p): Promise<HomeShelfItem | null> => {
+              try {
                 const rows = (await invoke<PlaylistTrackRow[]>("get_playlist_tracks", { playlistId: p.id })) ?? [];
                 if (rows.length === 0) return null;
                 const lead = rows[0];
@@ -1113,12 +1127,14 @@ export function useHome(opts: UseHomeOptions) {
                   coverUrl: coverUrl ?? undefined,
                   tracks: rows.map(playlistShelfTrack),
                 };
-              }));
-              const cards = [latest, ...items].filter((it): it is HomeShelfItem => it !== null);
-              return cards.length > 0 ? { status: "ok", items: cards } : { status: "empty" };
-            } catch (e) {
-              return { status: "error", message: String(e) };
-            }
+              } catch (e) {
+                // One unreadable mix costs only its own card.
+                console.error(`Failed to read the "${p.name}" mix:`, e);
+                return null;
+              }
+            }));
+            const cards = [card, ...items].filter((it): it is HomeShelfItem => it !== null);
+            return cards.length > 0 ? { status: "ok", items: cards } : { status: "empty" };
           },
         },
         {

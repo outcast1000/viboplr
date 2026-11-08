@@ -430,6 +430,33 @@ fn test_upsert_track_source_added_at() {
     assert_eq!(added_at("local-1"), stamped);
 }
 
+/// Tracks stamped in the same second (one scan batch) come back newest row
+/// first under a descending "added" sort, so a LIMIT — Home's Latest additions
+/// card — keeps the last rows written instead of the first.
+#[test]
+fn test_added_desc_breaks_same_second_ties_newest_first() {
+    let db = test_db();
+    let collection_id = test_collection(&db);
+    let ids: Vec<i64> = (1..=5)
+        .map(|n| {
+            db.upsert_track_with_added_at(
+                &format!("batch-{n}"), &format!("Song {n}"), None, None, None, None, None, None, None,
+                Some(collection_id), None, Some(1_000),
+            )
+            .unwrap()
+        })
+        .collect();
+    let newest = db
+        .get_tracks(&TrackQuery {
+            sort_field: Some("added".into()),
+            sort_dir: Some("desc".into()),
+            limit: Some(3),
+            ..Default::default()
+        })
+        .unwrap();
+    assert_eq!(newest.iter().map(|t| t.id).collect::<Vec<_>>(), vec![ids[4], ids[3], ids[2]]);
+}
+
 /// The Library's Albums tab "Added" sort. It shares `album_added_at_sql` with
 /// the Home shelf above, and covers BOTH album query paths — the browse list
 /// and the FTS-filtered search, which resolve their sort columns separately

@@ -491,7 +491,11 @@ impl Database {
                 Some("desc") => "DESC",
                 _ => "ASC",
             };
-            format!("ORDER BY {} {}, t.id", col, dir)
+            // The id tie-break runs the same way as the sort: tracks stamped in
+            // the same second (one scan batch) otherwise came back oldest-first
+            // under a descending "added" sort, so a LIMIT kept the first rows
+            // written and dropped the newest.
+            format!("ORDER BY {} {}, t.id {}", col, dir, dir)
         } else {
             "ORDER BY ar.name, al.title, t.track_number, t.title, t.id".to_string()
         };
