@@ -9,18 +9,29 @@ export type MenuItemSpec =
 
 type BuiltItem = MenuItem | CheckMenuItem | PredefinedMenuItem | Submenu;
 
+/**
+ * Native menu text treats `&` as a mnemonic marker (muda): macOS drops it and
+ * Windows underlines the next letter, so "Simon & Garfunkel" read "Simon
+ * Garfunkel". `&&` is a literal `&` on every platform. No label here uses a
+ * mnemonic on purpose, and most carry user data (titles, names), so every
+ * label is escaped at this one door.
+ */
+export function menuText(text: string): string {
+  return text.replace(/&/g, "&&");
+}
+
 async function buildItems(specs: MenuItemSpec[]): Promise<BuiltItem[]> {
   return Promise.all(specs.map(async (spec) => {
     switch (spec.kind) {
       case "item":
-        return MenuItem.new({ text: spec.text, enabled: spec.enabled ?? true, action: spec.action });
+        return MenuItem.new({ text: menuText(spec.text), enabled: spec.enabled ?? true, action: spec.action });
       case "check":
-        return CheckMenuItem.new({ text: spec.text, checked: spec.checked, enabled: spec.enabled ?? true, action: spec.action });
+        return CheckMenuItem.new({ text: menuText(spec.text), checked: spec.checked, enabled: spec.enabled ?? true, action: spec.action });
       case "separator":
         return PredefinedMenuItem.new({ item: "Separator" });
       case "submenu": {
         const children = await buildItems(spec.items);
-        return Submenu.new({ text: spec.text, items: children });
+        return Submenu.new({ text: menuText(spec.text), items: children });
       }
     }
   }));

@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect, useCallback, memo } from "react";
+import { useState, useRef, useEffect, useCallback, useMemo, memo } from "react";
 import { computeIndexSelection } from "../utils/rowSelection";
 import type { QueueTrack, QueueMode } from "../types";
 import type { PlaylistContext } from "../hooks/useQueue";
@@ -387,6 +387,24 @@ const QUEUE_MODE_LABELS: Record<QueueMode, string> = {
   "repeat-one": "Repeat One",
 };
 
+/** The queue header's icons: one size and one stroke, so no glyph looks
+ *  heavier than its neighbour (the ⋯ included — a text glyph sat on the font's
+ *  baseline and changed weight with the skin's font). */
+function QueueIcon({ children }: { children: React.ReactNode }) {
+  return (
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      {children}
+    </svg>
+  );
+}
+
+const REPEAT_PATHS = (
+  <>
+    <path d="m17 2 4 4-4 4" /><path d="M3 11v-1a4 4 0 0 1 4-4h14" />
+    <path d="m7 22-4-4 4-4" /><path d="M21 13v1a4 4 0 0 1-4 4H3" />
+  </>
+);
+
 /** Queue mode · auto-continue: what the queue does next. Rendered twice — in the
  *  header and on the collapsed rail — so the two can never disagree. */
 function QueueBehaviourButtons({ queueMode, onToggleQueueMode, autoContinueEnabled, onToggleAutoContinue }: {
@@ -395,28 +413,32 @@ function QueueBehaviourButtons({ queueMode, onToggleQueueMode, autoContinueEnabl
   autoContinueEnabled: boolean;
   onToggleAutoContinue: () => void;
 }) {
-  // Auto-continue only runs in Normal mode (App.tsx handleNext). The button
-  // disables rather than vanishing, so the rail's label below doesn't jump.
+  // Auto-continue only runs in Normal mode (App.tsx handleNext). It is
+  // aria-disabled rather than removed (the rail's label below doesn't jump) or
+  // `disabled` (a disabled .g-btn takes no pointer events, so the tooltip saying
+  // why would never show).
   const acApplies = queueMode === "normal";
   const acOn = acApplies && autoContinueEnabled;
   return (
     <>
+      {/* Always the repeat glyph: grey in Normal (repeat is off), accent in the
+          repeat modes, with a 1 for Repeat One — so the button says what it does
+          before it is ever clicked. */}
       <button
         className={`g-btn g-btn-sm${queueMode !== "normal" ? " active" : ""}`}
         onClick={onToggleQueueMode}
         title={`Queue mode: ${QUEUE_MODE_LABELS[queueMode]}`}
         aria-label={`Queue mode: ${QUEUE_MODE_LABELS[queueMode]}`}
       >
-        {queueMode === "repeat-one"
-          ? <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 12a9 9 0 1 1-9-9c2.52 0 4.93 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/><path d="M11.5 9 13 8.3V16"/></svg>
-          : queueMode === "repeat-all"
-          ? <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="17 1 21 5 17 9"/><path d="M3 11V9a4 4 0 0 1 4-4h14"/><polyline points="7 23 3 19 7 15"/><path d="M21 13v2a4 4 0 0 1-4 4H3"/></svg>
-          : <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/></svg>}
+        <QueueIcon>
+          {REPEAT_PATHS}
+          {queueMode === "repeat-one" && <path d="M11 10h1v4" />}
+        </QueueIcon>
       </button>
       <button
         className={`g-btn g-btn-sm${acOn ? " active" : ""}`}
-        onClick={onToggleAutoContinue}
-        disabled={!acApplies}
+        onClick={() => { if (acApplies) onToggleAutoContinue(); }}
+        aria-disabled={!acApplies || undefined}
         aria-pressed={acOn}
         aria-label="Auto-continue"
         title={!acApplies
@@ -425,7 +447,7 @@ function QueueBehaviourButtons({ queueMode, onToggleQueueMode, autoContinueEnabl
             ? "Auto-continue is on: similar tracks play when the queue ends. Click to turn off."
             : "Auto-continue: keep playing similar tracks when the queue ends"}
       >
-        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 12c-2-2.67-4-4-6-4a4 4 0 1 0 0 8c2 0 4-1.33 6-4zm0 0c2 2.67 4 4 6 4a4 4 0 0 0 0-8c-2 0-4 1.33-6 4z"/></svg>
+        <QueueIcon><path d="M12 12c-2-2.67-4-4-6-4a4 4 0 1 0 0 8c2 0 4-1.33 6-4zm0 0c2 2.67 4 4 6 4a4 4 0 0 0 0-8c-2 0-4 1.33-6 4z" /></QueueIcon>
       </button>
     </>
   );
@@ -497,6 +519,7 @@ export function QueuePanel({
   const tooltipRef = useRef<HTMLDivElement | null>(null);
   const [tooltipPos, setTooltipPos] = useState<{ left: number; top: number } | null>(null);
   const queueListRef = useRef<HTMLDivElement>(null);
+  const historySegRef = useRef<HTMLDivElement>(null);
 
   // Physical reorder/insert/remove settling for the queue list.
   const flipList = useFlipList(queueListRef);
@@ -522,6 +545,15 @@ export function QueuePanel({
       onTogglePreferVideo: () => onPreferVideoResolutionChange(!preferVideoResolution),
       onLoadPlaylist, onSaveToPlaylists, onSaveAsM3U, onPublishQueue, onExportAsMixtape,
       onOpenAutoContinueSettings,
+      // Below 230px the history buttons are hidden (QueuePanel.css), so they
+      // move into this menu. Asked of the layout itself, so the CSS stays the
+      // one place the breakpoint lives.
+      history: historySegRef.current && historySegRef.current.getClientRects().length === 0
+        ? {
+          back: historyBack, forward: historyForward, onBack: onHistoryBack, onForward: onHistoryForward,
+          backShortcut: shortcutLabel("["), forwardShortcut: shortcutLabel("]"),
+        }
+        : null,
     });
     showNativeMenu(rect.left, rect.bottom, specs).catch((err) =>
       console.error("Failed to show queue header menu:", err)
@@ -530,6 +562,7 @@ export function QueuePanel({
     preferVideoResolution, onPreferVideoResolutionChange,
     onLoadPlaylist, onSaveToPlaylists, onSaveAsM3U, onPublishQueue, onExportAsMixtape,
     onOpenAutoContinueSettings,
+    historyBack, historyForward, onHistoryBack, onHistoryForward,
   ]);
 
   useEffect(() => {
@@ -874,6 +907,11 @@ export function QueuePanel({
     (playlistContext?.metadata && Object.keys(playlistContext.metadata).length > 0)
   );
 
+  const randomizeOff = queueMode === "repeat-one" || queue.length < 2;
+  // One walk of the queue per change, shared by the header, the banner and
+  // the collapsed rail (the panel re-renders often while music plays).
+  const totalDuration = useMemo(() => formatTotalDuration(queue), [queue]);
+
   return (
     <aside className={`queue-panel${collapsed ? " collapsed" : ""}`} ref={queuePanelRef} tabIndex={-1} onKeyDown={handleKeyDown}>
       {!collapsed && <div className={`queue-resize-handle${resizing ? " active" : ""}`} onMouseDown={handleResizeMouseDown} />}
@@ -892,37 +930,49 @@ export function QueuePanel({
           </div>
           <span className="queue-collapsed-label">Queue</span>
           <span className="queue-collapsed-count">{queue.length} track{queue.length !== 1 ? "s" : ""}</span>
-          {queue.length > 0 && <span className="queue-collapsed-duration">{formatTotalDuration(queue)}</span>}
+          {queue.length > 0 && <span className="queue-collapsed-duration">{totalDuration}</span>}
         </div>
       ) : (
       <>
       <div className="queue-header">
-        <span className="queue-title">Queue</span>
-        <div className="queue-header-actions">
-          {/* The now-playing bar's pill groups: the queue's history, what the
-              queue does, then what you can do to it. Everything else is in the
-              ⋯ menu. */}
-          <div className="now-group queue-header-group" role="group" aria-label="Queue history">
+        {/* The queue's count and length live here (there is no info bar at
+            the bottom any more). They give way first as the panel narrows: the
+            count below 300px, the title below 280px (QueuePanel.css). */}
+        <span className="queue-header-title">
+          <span className="queue-title">Queue</span>
+          {queue.length > 0 && (
+            <span className="queue-header-count">
+              {queue.length} &middot; {totalDuration}
+            </span>
+          )}
+        </span>
+        {/* One pill, three segments: the queue's history, what the queue
+            does, then what you can do to it. Everything else is in the ⋯
+            menu. Unavailable buttons are aria-disabled, not `disabled`, so
+            their tooltip can still say why. */}
+        <div className="now-group queue-header-group" role="group" aria-label="Queue controls">
+          <div className="queue-header-seg queue-header-seg--history" ref={historySegRef} role="group" aria-label="Queue history">
             <button
               className="g-btn g-btn-sm"
-              onClick={onHistoryBack}
-              disabled={!historyBack}
+              onClick={() => { if (historyBack) onHistoryBack(); }}
+              aria-disabled={!historyBack || undefined}
               title={historyBack ? `Back to: ${historyBack.name} (${shortcutLabel("[")})` : "No earlier queue"}
               aria-label={historyBack ? `Back to ${historyBack.name}` : "Back: no earlier queue"}
             >
-              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><polyline points="15 18 9 12 15 6"/></svg>
+              <QueueIcon><path d="M9 14 4 9l5-5" /><path d="M4 9h10.5a5.5 5.5 0 0 1 0 11H11" /></QueueIcon>
             </button>
             <button
               className="g-btn g-btn-sm"
-              onClick={onHistoryForward}
-              disabled={!historyForward}
+              onClick={() => { if (historyForward) onHistoryForward(); }}
+              aria-disabled={!historyForward || undefined}
               title={historyForward ? `Forward to: ${historyForward.name} (${shortcutLabel("]")})` : "No later queue"}
               aria-label={historyForward ? `Forward to ${historyForward.name}` : "Forward: no later queue"}
             >
-              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><polyline points="9 18 15 12 9 6"/></svg>
+              <QueueIcon><path d="m15 14 5-5-5-5" /><path d="M20 9H9.5a5.5 5.5 0 0 0 0 11H13" /></QueueIcon>
             </button>
           </div>
-          <div className="now-group queue-header-group" role="group" aria-label="Queue behaviour">
+          <span className="queue-header-divider queue-header-divider--history" aria-hidden="true" />
+          <div className="queue-header-seg" role="group" aria-label="Queue behaviour">
             <QueueBehaviourButtons
               queueMode={queueMode}
               onToggleQueueMode={onToggleQueueMode}
@@ -930,23 +980,30 @@ export function QueuePanel({
               onToggleAutoContinue={onToggleAutoContinue}
             />
           </div>
-          <div className="now-group queue-header-group" role="group" aria-label="Queue actions">
+          <span className="queue-header-divider" aria-hidden="true" />
+          <div className="queue-header-seg" role="group" aria-label="Queue actions">
             <button
               className="g-btn g-btn-sm"
-              onClick={() => { flipList.staggerNext(); onRandomize(); }}
-              disabled={queueMode === "repeat-one" || queue.length < 2}
-              title="Randomize queue order"
+              onClick={() => {
+                if (randomizeOff) return;
+                flipList.staggerNext();
+                onRandomize();
+              }}
+              aria-disabled={randomizeOff || undefined}
+              title={queueMode === "repeat-one"
+                ? "Randomize is off in Repeat One"
+                : queue.length < 2 ? "Randomize needs at least two tracks" : "Randomize queue order"}
               aria-label="Randomize queue order"
             >
-              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect width="18" height="18" x="3" y="3" rx="2" ry="2"/><path d="M16 8h.01"/><path d="M8 8h.01"/><path d="M8 16h.01"/><path d="M16 16h.01"/><path d="M12 12h.01"/></svg>
+              <QueueIcon><rect width="18" height="18" x="3" y="3" rx="2" ry="2" /><path d="M16 8h.01" /><path d="M8 8h.01" /><path d="M8 16h.01" /><path d="M16 16h.01" /><path d="M12 12h.01" /></QueueIcon>
             </button>
             <button
-              className="g-btn g-btn-sm queue-header-menu-btn"
+              className="g-btn g-btn-sm"
               onClick={openHeaderMenu}
-              title="Playlist options"
-              aria-label="Playlist options"
+              title="Queue options"
+              aria-label="Queue options"
             >
-              &#x22EF;
+              <QueueIcon><circle cx="5" cy="12" r="1" /><circle cx="12" cy="12" r="1" /><circle cx="19" cy="12" r="1" /></QueueIcon>
             </button>
           </div>
         </div>
@@ -972,7 +1029,7 @@ export function QueuePanel({
           <div className="queue-context-text">
             <div className="queue-context-name">{playlistContextTitle(playlistContext)}</div>
             <div className="queue-context-meta">
-              {queue.length} track{queue.length !== 1 ? "s" : ""} · {formatTotalDuration(queue)}
+              {queue.length} track{queue.length !== 1 ? "s" : ""} · {totalDuration}
             </div>
           </div>
           {hasInfoContent && (
@@ -1072,13 +1129,6 @@ export function QueuePanel({
             looked away. Cleared by the next play. */}
         {!loadingPlay && loadFailure && <QueueLoadFailureRow message={loadFailure} />}
       </div>
-      {queue.length > 0 && !playlistContext && (
-        <div className="queue-info-bar">
-          <span className="queue-info-stats">
-            {queue.length} track{queue.length !== 1 ? "s" : ""} &middot; {formatTotalDuration(queue)}
-          </span>
-        </div>
-      )}
       </>
       )}
       {tooltip && (() => {

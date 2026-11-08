@@ -60,7 +60,7 @@ test('queue header exposes the playlist options menu', async ({ page }) => {
 
   // Every queue-level action lives in one native OS menu behind this ⋯ trigger, and native menus have
   // no DOM — so this asserts the trigger is present and opens without throwing.
-  const menuBtn = page.locator('.queue-header .queue-header-menu-btn');
+  const menuBtn = page.locator('.queue-header [aria-label="Queue options"]');
   await expect(menuBtn).toBeVisible();
   await menuBtn.click();
   await expect(page.locator('.queue-item')).toHaveCount(1);

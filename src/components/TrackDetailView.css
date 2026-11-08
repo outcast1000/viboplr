@@ -203,8 +203,7 @@
   background: transparent;
 }
 .app.mpv-video-hole.video-in-queue .queue-header,
-.app.mpv-video-hole.video-in-queue .queue-list,
-.app.mpv-video-hole.video-in-queue .queue-info-bar {
+.app.mpv-video-hole.video-in-queue .queue-list {
   background: var(--bg-secondary);
 }
 /* Resize grip along the top edge of the queue-placed video. */

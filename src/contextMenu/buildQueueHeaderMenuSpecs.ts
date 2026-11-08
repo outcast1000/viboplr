@@ -23,6 +23,23 @@ export interface QueueHeaderMenuDeps {
   onPublishQueue: () => void;
   onExportAsMixtape: () => void;
   onOpenAutoContinueSettings: () => void;
+  /** Back / Forward, passed only while the header is too narrow to show their
+   *  buttons (QueuePanel.css hides that segment below 230px): they then lead the
+   *  menu, so the queue history is never out of reach. */
+  history?: {
+    back: { name: string } | null;
+    forward: { name: string } | null;
+    onBack: () => void;
+    onForward: () => void;
+    /** "⌘[" / "Ctrl+[" — the buttons' tooltips name the shortcut, so the
+     *  menu items standing in for them do too. */
+    backShortcut?: string;
+    forwardShortcut?: string;
+  } | null;
+}
+
+function withShortcut(text: string, shortcut: string | undefined): string {
+  return shortcut ? `${text} (${shortcut})` : text;
 }
 
 /**
@@ -31,7 +48,25 @@ export interface QueueHeaderMenuDeps {
  * ui.md "Queue Panel").
  */
 export function buildQueueHeaderMenuSpecs(d: QueueHeaderMenuDeps): MenuItemSpec[] {
+  const history: MenuItemSpec[] = d.history
+    ? [
+      {
+        kind: "item",
+        text: withShortcut(d.history.back ? `Back to: ${d.history.back.name}` : "Back: no earlier queue", d.history.backShortcut),
+        enabled: !!d.history.back,
+        action: d.history.onBack,
+      },
+      {
+        kind: "item",
+        text: withShortcut(d.history.forward ? `Forward to: ${d.history.forward.name}` : "Forward: no later queue", d.history.forwardShortcut),
+        enabled: !!d.history.forward,
+        action: d.history.onForward,
+      },
+      { kind: "separator" },
+    ]
+    : [];
   return [
+    ...history,
     { kind: "check", text: "Prefer video", checked: d.preferVideo, action: d.onTogglePreferVideo },
     { kind: "separator" },
     { kind: "item", text: "Load playlist…", action: d.onLoadPlaylist },

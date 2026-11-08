@@ -276,7 +276,7 @@ Track-row cards have an additional async image fallback: `track.image_url` → a
 **Component:** `QueuePanel.tsx` (column 3, all rows)
 
 Two states:
-- **Expanded:** Header (title + three `.now-group` pills, the same pill style as the now-playing bar: **Back ◀ · Forward ▶** (the queue history — queue.md "Queue History"), **queue mode · auto-continue** (what the queue does) and **Randomize · `⋯`** (what you can do to it); the `⋯` native menu holds Prefer video ✓ / load / save ▸ / share ▸ / Auto-continue settings… — there is no Clear) + scrollable queue list + info bar (count + duration). While Prefer video is on, an accent-tinted banner row at the head of the list announces the mode with a **Turn off** button (see queue.md "Header actions").
+- **Expanded:** Header (title + count · duration, then one `.now-group` pill in three segments split by dividers, the same pill style as the now-playing bar: **Back ◀ · Forward ▶** (the queue history — queue.md "Queue History"), **queue mode · auto-continue** (what the queue does) and **Randomize · `⋯`** (what you can do to it); the `⋯` native menu holds Prefer video ✓ / load / save ▸ / share ▸ / Auto-continue settings… — there is no Clear) + scrollable queue list (no info bar — the header carries the count). While Prefer video is on, an accent-tinted banner row at the head of the list announces the mode with a **Turn off** button (see queue.md "Header actions").
 - **Collapsed:** 40px strip with the **same queue mode · auto-continue buttons** at the top (a vertical pill — a hidden Repeat One otherwise reads as "the same song keeps playing"; the buttons `stopPropagation` so a click doesn't expand the panel), then count & duration; click elsewhere to expand
 
 Queue items show: thumbnail, a like/dislike indicator before the title (read from the track-like store by song, using `var(--error)` to match the other like buttons), title + duration, artist + album (each a link to its page — subtle underline on hover, plain click only; see queue.md "Navigation from QueueTracks"), and an inline play/locate icon. The hover-action tray's primary button is a **Play** button on non-current rows, but a **play/pause toggle** on the currently-playing row (wired to `onTogglePlayPause` → `playback.handlePause`), so the current track can be paused/resumed directly from the queue.
@@ -307,7 +307,7 @@ interface PlaylistContext {
 **How it works:**
 - `playTracks(tracks, startIndex, context?)` accepts an optional `PlaylistContext` as the third argument
 - When context is set, the queue panel shows a **context banner** at the top: cover image + name + track count + duration
-- When context is null, the queue panel shows a plain info bar at the bottom instead
+- When context is null there is no banner; the count and duration are in the queue header either way
 - Context is persisted to the app store as `playlistContext` and restored on startup
 
 **Every play action must pass context when it knows the source.** Examples from the codebase:

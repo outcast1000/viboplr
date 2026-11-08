@@ -62,11 +62,6 @@
 .app.audio-fs-open.fs-queue-revealed .queue-panel {
   transform: translateX(0);
 }
-/* The info bar's opaque --bg-secondary would sit as a solid strip inside the
-   translucent drawer; the drawer's own ground is enough behind it. */
-.app.audio-fs-open .queue-panel .queue-info-bar {
-  background: transparent;
-}
 /* A drawer that slides across a third of the screen is exactly the motion this
    preference is about; the toggle still shows/hides it, just without the slide. */
 @media (prefers-reduced-motion: reduce) {
@@ -148,32 +143,90 @@
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding: 8px 8px 8px 16px;
+  gap: 8px;
+  padding: 8px 8px 8px 14px;
   border-bottom: 1px solid var(--border);
   flex-shrink: 0;
 }
 
-/* The title gives way before the pills wrap on a narrow queue. */
+/* Title + "24 · 1h 12m". Both give way before the buttons do — see the
+   container steps below. */
+.queue-header-title {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  min-width: 0;
+  overflow: hidden;
+}
+
 .queue-title {
   font-size: var(--fs-base);
   font-weight: 600;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  flex-shrink: 0;
   white-space: nowrap;
 }
 
-.queue-header-actions {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  flex-shrink: 0;
+.queue-header-count {
+  min-width: 0;
+  font-size: var(--fs-xs);
+  color: var(--text-tertiary);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
-/* Same pill groups as the now-playing bar (.now-group), a touch tighter. */
+/* One pill (the now-playing bar's .now-group), split into three segments by
+   hairline dividers. Its buttons never shrink: ~197px of pill + 22px of header
+   padding = the 219px the narrowest step below has to fit. */
 .queue-header-group {
-  padding: 3px 4px;
-  gap: 2px;
+  padding: 3px;
+  gap: 0;
+}
+
+.queue-header-seg {
+  display: flex;
+  align-items: center;
+  gap: 1px;
+}
+
+.queue-header-divider {
+  flex: none;
+  width: 1px;
+  height: 16px;
+  margin: 0 4px;
+  background: rgba(var(--overlay-base), 0.14);
+}
+
+/* What goes first as the panel narrows (it resizes down to 200px): the count,
+   then the title, then Back / Forward — which QueuePanel then puts at the top
+   of the ⋯ menu, so the menu itself is never clipped. */
+@container queue (max-width: 299px) {
+  .queue-header-count { display: none; }
+}
+@container queue (max-width: 279px) {
+  .queue-header-title { display: none; }
+  .queue-header { justify-content: flex-end; }
+}
+@container queue (max-width: 229px) {
+  .queue-header-seg--history,
+  .queue-header-divider--history { display: none; }
+}
+
+/* An unavailable header / rail button is aria-disabled, not `disabled`: a
+   disabled .g-btn takes no pointer events (base.css), so its tooltip — "No
+   earlier queue", "Auto-continue only applies in Normal mode" — never showed.
+   It looks disabled and ignores hover; the click handler ignores the click. */
+.queue-panel .g-btn[aria-disabled="true"] {
+  opacity: var(--ds-disabled-opacity);
+  cursor: not-allowed;
+}
+.queue-panel .g-btn[aria-disabled="true"]:hover,
+.queue-panel .g-btn[aria-disabled="true"]:active {
+  background: transparent;
+  border-color: transparent;
+  color: var(--text-secondary);
+  transform: none;
 }
 .queue-list {
   flex: 1;
@@ -879,20 +932,6 @@ button.queue-item-status-failed:focus-visible .queue-resolving-error {
   color: var(--text-tertiary);
 }
 
-.queue-info-bar {
-  padding: 6px 16px;
-  background: var(--bg-primary);
-  border-top: 1px solid var(--border);
-  display: flex;
-  align-items: center;
-  flex-shrink: 0;
-  font-size: var(--fs-sm);
-  color: var(--text-secondary);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
 .queue-empty {
   padding: 20px 16px;
   text-align: center;
@@ -943,12 +982,3 @@ button.queue-item-status-failed:focus-visible .queue-resolving-error {
   .queue-item-size { display: block; }
 }
 
-
-.queue-header-menu-btn {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  min-width: 24px;
-  font-size: var(--fs-base);
-  line-height: 1;
-}

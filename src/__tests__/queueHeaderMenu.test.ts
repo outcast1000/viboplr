@@ -99,4 +99,51 @@ describe("buildQueueHeaderMenuSpecs", () => {
   it("offers no Clear", () => {
     expect(texts(buildQueueHeaderMenuSpecs(makeDeps()))).not.toContain("Clear queue");
   });
+
+  // Below 230px the header hides Back / Forward (QueuePanel.css); QueuePanel
+  // then passes `history` and they lead the menu, so they are never out of reach.
+  describe("folded queue history", () => {
+    const history = (back: string | null, forward: string | null) => ({
+      back: back ? { name: back } : null,
+      forward: forward ? { name: forward } : null,
+      onBack: vi.fn(),
+      onForward: vi.fn(),
+    });
+
+    it("leads with Back / Forward naming their cards, then a separator", () => {
+      const specs = buildQueueHeaderMenuSpecs(makeDeps({ history: history("Radio: Teardrop", "Kind of Blue") }));
+      expect(specs[0]).toMatchObject({ kind: "item", text: "Back to: Radio: Teardrop", enabled: true });
+      expect(specs[1]).toMatchObject({ kind: "item", text: "Forward to: Kind of Blue", enabled: true });
+      expect(specs[2]).toEqual({ kind: "separator" });
+      expect(specs[3]).toMatchObject({ kind: "check", text: "Prefer video" });
+    });
+
+    it("disables an end with no card, keeping the item in place", () => {
+      const specs = buildQueueHeaderMenuSpecs(makeDeps({ history: history(null, null) }));
+      expect(specs[0]).toMatchObject({ text: "Back: no earlier queue", enabled: false });
+      expect(specs[1]).toMatchObject({ text: "Forward: no later queue", enabled: false });
+    });
+
+    it("wires Back and Forward to the history callbacks", () => {
+      const h = history("A", "B");
+      const specs = buildQueueHeaderMenuSpecs(makeDeps({ history: h }));
+      invokeItem(specs, "Back to: A");
+      invokeItem(specs, "Forward to: B");
+      expect(h.onBack).toHaveBeenCalledTimes(1);
+      expect(h.onForward).toHaveBeenCalledTimes(1);
+    });
+
+    it("names the keyboard shortcut, as the button tooltips do", () => {
+      const specs = buildQueueHeaderMenuSpecs(makeDeps({
+        history: { ...history("A", null), backShortcut: "⌘[", forwardShortcut: "⌘]" },
+      }));
+      expect(specs[0]).toMatchObject({ text: "Back to: A (⌘[)" });
+      expect(specs[1]).toMatchObject({ text: "Forward: no later queue (⌘])" });
+    });
+
+    it("is absent when the header shows the buttons", () => {
+      const t = texts(buildQueueHeaderMenuSpecs(makeDeps({ history: null })));
+      expect(t.some((x) => x.startsWith("Back") || x.startsWith("Forward"))).toBe(false);
+    });
+  });
 });
