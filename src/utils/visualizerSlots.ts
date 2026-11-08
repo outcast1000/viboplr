@@ -15,6 +15,22 @@ export function visualizerKey(v: PluginVisualizerRegistration): string {
   return `${v.pluginId}:${v.id}`;
 }
 
+/**
+ * The built-in Photos visualizer: the art slideshow widened with every picture
+ * the plugins have of the song, its artist and its album (`trackGalleries.ts`).
+ * It has no plugin and no factory — the Now Playing view draws it itself — so
+ * it is a reserved key rather than a registration. The `core:` prefix can't
+ * collide with `pluginId:visualizerId`: `:` isn't legal in a plugin id, so no
+ * plugin key starts with `core:`.
+ */
+export const PHOTOS_VISUALIZER_KEY = "core:photos";
+export const PHOTOS_VISUALIZER_NAME = "Photos";
+
+/** Slots the Photos visualizer can fill — the two Now Playing surfaces. */
+function photosFits(placement: PluginVisualizerPlacement): boolean {
+  return placement === "nowplaying" || placement === "fullscreen";
+}
+
 /** Visualizers willing to fill this slot. */
 export function candidatesFor(
   visualizers: PluginVisualizerRegistration[],
@@ -39,6 +55,7 @@ export function resolveSlot(
 ): string | null {
   const key = selection[placement];
   if (!key) return null;
+  if (key === PHOTOS_VISUALIZER_KEY) return photosFits(placement) ? key : null;
   const available = candidatesFor(visualizers, placement).some((v) => visualizerKey(v) === key);
   return available ? key : null;
 }
@@ -64,6 +81,7 @@ export function resolveFullscreenSlot(
   if (explicit) return explicit;
   const nowPlaying = resolveSlot(visualizers, selection, "nowplaying");
   if (!nowPlaying) return null;
+  if (nowPlaying === PHOTOS_VISUALIZER_KEY) return nowPlaying;
   const willing = candidatesFor(visualizers, "fullscreen").some(
     (v) => visualizerKey(v) === nowPlaying,
   );
@@ -118,6 +136,14 @@ export function buildVisualizerMenuSpecs(
       action: () => onPick(null),
     },
   ];
+  if (photosFits(placement)) {
+    specs.push({
+      kind: "check",
+      text: PHOTOS_VISUALIZER_NAME,
+      checked: current === PHOTOS_VISUALIZER_KEY,
+      action: () => onPick(PHOTOS_VISUALIZER_KEY),
+    });
+  }
 
   for (const v of candidates) {
     const key = visualizerKey(v);

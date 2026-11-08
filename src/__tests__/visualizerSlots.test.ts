@@ -7,6 +7,8 @@ import {
   resolveFullscreenSlot,
   buildVisualizerMenuSpecs,
   ARTWORK_VISUALIZER_NAME,
+  PHOTOS_VISUALIZER_KEY,
+  PHOTOS_VISUALIZER_NAME,
 } from "../utils/visualizerSlots";
 
 const deck: PluginVisualizerRegistration = {
@@ -152,6 +154,7 @@ describe("buildVisualizerMenuSpecs", () => {
     const specs = buildVisualizerMenuSpecs(ALL, { nowplaying: "meters:vu" }, "nowplaying", onPick);
     expect(specs.map((s) => ("text" in s ? s.text : "---"))).toEqual([
       "Artwork",
+      "Photos",
       "Vinyl Deck",
       "VU Meters",
     ]);
@@ -215,5 +218,32 @@ describe("buildVisualizerMenuSpecs", () => {
     const specs = buildVisualizerMenuSpecs([], {}, "nowplaying", onPick);
     (specs[0] as { action: () => void }).action();
     expect(onPick).toHaveBeenCalledWith(null);
+  });
+});
+
+describe("the built-in Photos visualizer", () => {
+  it("resolves in the Now Playing and fullscreen slots with no plugin behind it", () => {
+    const sel = { nowplaying: PHOTOS_VISUALIZER_KEY };
+    expect(resolveSlot([], sel, "nowplaying")).toBe(PHOTOS_VISUALIZER_KEY);
+    expect(resolveSlot([], { fullscreen: PHOTOS_VISUALIZER_KEY }, "fullscreen")).toBe(PHOTOS_VISUALIZER_KEY);
+    expect(resolveSlot([], { sidebar: PHOTOS_VISUALIZER_KEY }, "sidebar")).toBeNull();
+  });
+
+  it("is inherited by fullscreen from the Now Playing pick", () => {
+    expect(resolveFullscreenSlot([], { nowplaying: PHOTOS_VISUALIZER_KEY })).toBe(PHOTOS_VISUALIZER_KEY);
+  });
+
+  it("is offered right after Artwork, checked when picked, and fires its key", () => {
+    const onPick = vi.fn();
+    const specs = buildVisualizerMenuSpecs([], { nowplaying: PHOTOS_VISUALIZER_KEY }, "nowplaying", onPick);
+    expect(specs[0]).toMatchObject({ text: ARTWORK_VISUALIZER_NAME, checked: false });
+    expect(specs[1]).toMatchObject({ kind: "check", text: PHOTOS_VISUALIZER_NAME, checked: true });
+    (specs[1] as { action: () => void }).action();
+    expect(onPick).toHaveBeenCalledWith(PHOTOS_VISUALIZER_KEY);
+  });
+
+  it("is not offered in slots it can't fill", () => {
+    const texts = buildVisualizerMenuSpecs(ALL, {}, "sidebar", vi.fn()).map((s) => ("text" in s ? s.text : "---"));
+    expect(texts).not.toContain(PHOTOS_VISUALIZER_NAME);
   });
 });

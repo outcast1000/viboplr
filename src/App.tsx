@@ -192,9 +192,11 @@ import { resolvePluginViewHeader } from "./utils/pluginViewHeader";
 import type { PluginSearchSeed } from "./components/pluginViews/pluginViews";
 import { hostItemsNotShadowed } from "./components/pluginViews/pluginViews";
 import { VisualizerSlot } from "./components/VisualizerSlot";
+import { useNowPlayingPhotos } from "./hooks/useNowPlayingPhotos";
 import { AudioFullscreen } from "./components/AudioFullscreen";
 import {
   buildVisualizerMenuSpecs,
+  PHOTOS_VISUALIZER_KEY,
   resolveFullscreenSlot,
   resolveSlot,
   type VisualizerSlotSelection,
@@ -846,6 +848,21 @@ function App() {
   // The `fullscreen` slot inherits the Now Playing pick unless one was chosen
   // for it explicitly — see resolveFullscreenSlot.
   const fullscreenVisualizer = resolveFullscreenSlot(plugins.visualizers, visualizerSlots);
+
+  // The built-in Photos visualizer is drawn by NowPlayingView itself (it
+  // widens the art slideshow), so it never reaches a VisualizerSlot. Its
+  // pictures are fetched only while a surface that shows them is up.
+  const showingPhotos = audioFullscreen
+    ? fullscreenVisualizer === PHOTOS_VISUALIZER_KEY
+    : library.view === "nowplaying" && nowPlayingVisualizer === PHOTOS_VISUALIZER_KEY;
+  const nowPlayingPhotos = useNowPlayingPhotos({
+    track: playback.currentTrack && !isVideoTrack(playback.currentTrack) ? playback.currentTrack : null,
+    enabled: showingPhotos,
+    invokeInfoFetch: plugins.invokeInfoFetch,
+    pluginNames: plugins.pluginNames,
+    pluginStates: plugins.pluginStates,
+    pluginsReady: plugins.pluginsLoaded,
+  });
 
   // Anything playing can go fullscreen. A visualizer is only what *fills* the
   // screen when one is selected — without it the album art does, the same way
@@ -5776,10 +5793,11 @@ function App() {
               cuesHidden={nowPlayingCuesHidden}
               onToggleCues={handleToggleNowPlayingCues}
               visualizerSlot={
-                nowPlayingVisualizer
+                nowPlayingVisualizer && nowPlayingVisualizer !== PHOTOS_VISUALIZER_KEY
                   ? renderVisualizerSlot("nowplaying", nowPlayingVisualizer)
                   : undefined
               }
+              photos={nowPlayingVisualizer === PHOTOS_VISUALIZER_KEY ? nowPlayingPhotos : undefined}
             />
           )}
 
@@ -7073,10 +7091,11 @@ function App() {
               cuesHidden={nowPlayingCuesHidden}
               onToggleCues={handleToggleNowPlayingCues}
               visualizerSlot={
-                fullscreenVisualizer
+                fullscreenVisualizer && fullscreenVisualizer !== PHOTOS_VISUALIZER_KEY
                   ? renderVisualizerSlot("fullscreen", fullscreenVisualizer)
                   : undefined
               }
+              photos={fullscreenVisualizer === PHOTOS_VISUALIZER_KEY ? nowPlayingPhotos : undefined}
             />
           }
           controls={

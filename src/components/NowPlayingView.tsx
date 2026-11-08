@@ -7,7 +7,19 @@ import type { LyricsData } from "../types/informationTypes";
 import type { UseLyricsResult } from "../hooks/useLyrics";
 import { parseLrc, currentSyncedLineIndex, lyricPosition, scrollLineToCenter } from "../utils/lyrics";
 import { LyricsOffsetControl } from "./LyricsOffsetControl";
-import { resolveNowPlayingSlides, NOW_PLAYING_SLIDE_INTERVAL_MS } from "../utils/nowPlayingArt";
+import { openUrl } from "@tauri-apps/plugin-opener";
+import {
+  resolveNowPlayingSlides,
+  withPhotoSlides,
+  slideIndexAt,
+  nextSlidePosition,
+  SLIDESHOW_START,
+  NOW_PLAYING_PHOTO_INTERVAL_MS,
+  NOW_PLAYING_SLIDE_INTERVAL_MS,
+  type PhotoSlide,
+  type SlidePosition,
+} from "../utils/nowPlayingArt";
+import { useLatestRef } from "../hooks/useLatestRef";
 import { isReducedMotion } from "../utils/reducedMotion";
 import { usePlaybackPosition } from "../playback/positionStore";
 import { useIdleVisibility } from "../hooks/useIdleVisibility";
@@ -63,6 +75,12 @@ interface NowPlayingViewProps {
       the art column's place — a vinyl deck or a meter belongs where the static
       square was. App owns the plugin plumbing; this view just gives it room. */
   visualizerSlot?: ReactNode;
+  /** The Photos visualizer is picked: the plugins' pictures of the song, its
+      artist and its album (`useNowPlayingPhotos`), shown after the cover and
+      artist image in the same slideshow, each with its credit. Undefined when
+      another visualizer (or Artwork) is picked; an empty array while the
+      galleries are still on their way. */
+  photos?: PhotoSlide[];
   /** Open the visualizer picker, anchored under the Visualizer button.
       Still a native menu (a list of choices is a menu, and the app-wide rule
       admits no JS dropdowns) — it just hangs off a visible button now instead of
@@ -277,6 +295,23 @@ function CrossfadeLayer({ top, children }: { top: boolean; children: ReactNode }
   );
 }
 
+/** One photo's credit line, linking to the photo's page when it has one. */
+function PhotoCredit({ credit, pageUrl }: { credit: string; pageUrl?: string }) {
+  if (!pageUrl) return <div className="np-photo-credit">{credit}</div>;
+  return (
+    <button
+      type="button"
+      className="np-photo-credit np-photo-credit--link"
+      title={`Open the photo's page: ${credit}`}
+      onClick={() => {
+        openUrl(pageUrl).catch((e) => console.error("Failed to open photo page:", e));
+      }}
+    >
+      {credit}
+    </button>
+  );
+}
+
 export function NowPlayingView({
   variant = "view",
   track,
@@ -288,6 +323,7 @@ export function NowPlayingView({
   isArtistImageResolved,
   onSeek,
   visualizerSlot,
+  photos,
   onOpenVisualizerPicker,
   onToggleLyrics,
   onToggleFullscreen,
@@ -327,38 +363,79 @@ export function NowPlayingView({
         isArtistImageResolved,
       })
     : { paths: [], pending: false };
-  const slideCount = slides.paths.length;
+  // Photos mode extends the same slideshow rather than drawing a second one,
+  // so the backdrop, crossfade, play gating and reduce-motion hold all apply.
+  // Keyed on the paths' contents: `slides.paths` is a new array every render.
+  const trackKey = track?.key ?? null;
+  // Photos that failed to load, per track: a dead gallery URL (deleted file,
+  // blocked hotlink) leaves the show instead of holding an empty frame for a
+  // whole beat on every pass. Keyed to the track like the position below.
+  const [failedPhotos, setFailedPhotos] = useState<{ key: string | null; srcs: ReadonlySet<string> }>(
+    { key: null, srcs: new Set() },
+  );
+  const failedSrcs = failedPhotos.key === trackKey ? failedPhotos.srcs : null;
+  const slidePathsKey = slides.paths.join("\n");
+  const slideList = useMemo(() => {
+    const all = withPhotoSlides(slidePathsKey ? slidePathsKey.split("\n") : [], photos ?? []);
+    return failedSrcs?.size
+      ? all.filter((s) => !s.photo || !failedSrcs.has(resolveImageSrc(s.path) ?? s.path))
+      : all;
+  }, [slidePathsKey, photos, failedSrcs]);
+  const slideCount = slideList.length;
+  // The photo pace only once there are photos — until then (or for a track
+  // no source has pictures of) it is the plain art slideshow at its own pace.
+  const hasPhotos = slideList.some((s) => s.photo);
+  const slideIntervalMs = hasPhotos ? NOW_PLAYING_PHOTO_INTERVAL_MS : NOW_PLAYING_SLIDE_INTERVAL_MS;
+  const photoSrcs = useMemo(
+    () => new Set(slideList.filter((s) => s.photo).map((s) => resolveImageSrc(s.path) ?? s.path)),
+    [slideList],
+  );
+  const markPhotoFailed = useCallback((src: string) => {
+    setFailedPhotos((prev) => {
+      const srcs = new Set(prev.key === trackKey ? prev.srcs : []);
+      srcs.add(src);
+      return { key: trackKey, srcs };
+    });
+  }, [trackKey]);
 
   // Slideshow position, keyed to the track (previous-value-in-state rather
   // than a reset effect) so every track opens on its cover — the reporter's
-  // "album first" — and an advance on the outgoing track can't leak in.
-  const trackKey = track?.key ?? null;
-  const [slide, setSlide] = useState<{ key: string | null; idx: number }>({ key: null, idx: 0 });
-  const slideIdx = slide.key === trackKey ? slide.idx : 0;
+  // "album first" — and an advance on the outgoing track can't leak in. Held
+  // by picture (`SlidePosition`), so photos landing behind it don't move it.
+  const [slide, setSlide] = useState<{ key: string | null; pos: SlidePosition }>({ key: null, pos: SLIDESHOW_START });
+  const slidePos = slide.key === trackKey ? slide.pos : SLIDESHOW_START;
+  const slideListRef = useLatestRef(slideList);
+  const canRotate = slideCount >= 2;
   useEffect(() => {
     // Rotation needs something to rotate and music running under it: a paused
     // surface is one the user is looking at, so it holds (same reasoning as
     // useIdleVisibility's `hold`). One image — or the artist lookup still out —
     // means the static art this view always showed; the interval (re)starts
-    // when `slideCount` reaches 2, so the first flip is a full beat after the
-    // artist image is actually on offer.
-    if (!playing || slideCount < 2) return;
+    // when there are first two slides, so the first flip is a full beat after
+    // the artist image is actually on offer. Later growth (photos landing)
+    // doesn't restart it — each source would push the next flip back.
+    if (!playing || !canRotate) return;
     const id = window.setInterval(() => {
       // An auto-advancing image is motion; under reduce-motion hold the slide.
       // Checked at tick time (not a dep) so a mid-song toggle takes effect
       // without restarting the interval.
       if (isReducedMotion()) return;
-      setSlide((s) => ({ key: trackKey, idx: (s.key === trackKey ? s.idx : 0) + 1 }));
-    }, NOW_PLAYING_SLIDE_INTERVAL_MS);
+      setSlide((s) => ({
+        key: trackKey,
+        pos: nextSlidePosition(slideListRef.current, s.key === trackKey ? s.pos : SLIDESHOW_START),
+      }));
+    }, slideIntervalMs);
     return () => window.clearInterval(id);
-  }, [playing, slideCount, trackKey]);
+  }, [playing, canRotate, trackKey, slideIntervalMs, slideListRef]);
 
   // The cue-sheet info dialog, held as the track it was opened for — so it
   // closes itself when the song changes rather than describing the next one.
   const [cueInfoFor, setCueInfoFor] = useState<string | null>(null);
   const closeCueInfo = useCallback(() => setCueInfoFor(null), []);
 
-  const slideImageSrc = resolveImageSrc(slideCount > 0 ? slides.paths[slideIdx % slideCount] : null);
+  const currentSlide = slideCount > 0 ? slideList[slideIndexAt(slideList, slidePos)] : null;
+  const slideImageSrc = resolveImageSrc(currentSlide?.path ?? null);
+  const slidePhoto = currentSlide?.photo ?? null;
   const artPending = slides.pending;
 
   // Sizing tier for the fullscreen variant (see NowPlayingView.css). Carried on
@@ -586,11 +663,25 @@ export function NowPlayingView({
           {stageVisualizer ? (
             stageVisualizer
           ) : hasArt ? (
-            <Crossfade
-              src={slideImageSrc}
-              className="np-xfade--art"
-              render={(src) => <img className="np-art" src={src} alt="" />}
-            />
+            <div className="np-art-stack">
+              <Crossfade
+                src={slideImageSrc}
+                className="np-xfade--art"
+                // The photo crop and the error hook are per image, so an
+                // outgoing cover keeps its framing while a photo fades in.
+                render={(src) => photoSrcs.has(src) ? (
+                  <img className="np-art np-art--photo" src={src} alt="" onError={() => markPhotoFailed(src)} />
+                ) : (
+                  <img className="np-art" src={src} alt="" />
+                )}
+              />
+              {/* The photo's credit rides on the picture: Commons licences
+                  require it and Getty's terms ask for the photographer and a
+                  link back. Keyed per picture so it changes with the slide. */}
+              {slidePhoto?.credit && (
+                <PhotoCredit key={slidePhoto.url} credit={slidePhoto.credit} pageUrl={slidePhoto.pageUrl} />
+              )}
+            </div>
           ) : artPending ? (
             // An empty frame, not the initials fallback: the lookup may still
             // come back with a cover, and initials that appear for one frame and

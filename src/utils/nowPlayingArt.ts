@@ -1,4 +1,5 @@
 import type { QueueTrack } from "../types";
+import { galleryImageCredit, type GalleryAbout, type TrackGallery } from "./trackGalleries";
 
 /**
  * The image-provider chain the Now Playing view reads: explicit `image_url` →
@@ -105,4 +106,96 @@ export function resolveNowPlayingSlides(
   const artistOut = !!track.artist_name
     && !(lookups.isArtistImageResolved?.(track.artist_name) ?? true);
   return { paths, pending: albumOut || artistOut };
+}
+
+/** The Photos visualizer's pace: shorter than the 2-slide art slideshow's,
+    since there are dozens of pictures to get through rather than two. */
+export const NOW_PLAYING_PHOTO_INTERVAL_MS = 12_000;
+
+/** Photos per track, across every source. Enough for a long song at the pace
+    above (36 × 12s = 7 min) without loading pictures nobody will reach. */
+export const NOW_PLAYING_PHOTO_CAP = 36;
+
+/** One picture in the Photos slideshow, with what it must say about itself. */
+export interface PhotoSlide {
+  url: string;
+  /** "Photographer · Source / licence" — shown on the slide: Commons licences
+      need it, and Getty's terms ask for the photographer and a link. */
+  credit: string | null;
+  /** The picture's own page (Commons file page, Getty detail page). */
+  pageUrl?: string;
+}
+
+const ABOUT_ORDER: Record<GalleryAbout, number> = { song: 0, artist: 1, album: 2 };
+
+/**
+ * The Photos slideshow's pictures, from every gallery that came back: the
+ * song's first, then the artist's, then the album's, dealt round-robin across
+ * sources so a prolific one (Getty, 12 photos) doesn't bury another (Commons)
+ * at the end of the show. The same picture twice is kept once. Arrival order
+ * breaks ties within an `about`.
+ */
+export function photoSlidesFrom(galleries: readonly TrackGallery[]): PhotoSlide[] {
+  const ordered = galleries
+    .map((g, i) => ({ g, i }))
+    .sort((a, b) => ABOUT_ORDER[a.g.about] - ABOUT_ORDER[b.g.about] || a.i - b.i)
+    .map(({ g }) => g);
+  const seen = new Set<string>();
+  const out: PhotoSlide[] = [];
+  const longest = Math.max(0, ...ordered.map((g) => g.images.length));
+  for (let n = 0; n < longest && out.length < NOW_PLAYING_PHOTO_CAP; n++) {
+    for (const g of ordered) {
+      const img = g.images[n];
+      if (!img || seen.has(img.url)) continue;
+      seen.add(img.url);
+      out.push({ url: img.url, credit: galleryImageCredit(img), ...(img.pageUrl ? { pageUrl: img.pageUrl } : {}) });
+      if (out.length >= NOW_PLAYING_PHOTO_CAP) break;
+    }
+  }
+  return out;
+}
+
+export interface NowPlayingSlide {
+  /** Unresolved path/URL. */
+  path: string;
+  /** Set for a gallery photo; null for the track's own art. */
+  photo: PhotoSlide | null;
+}
+
+/** Where the slideshow is: the picture on screen, plus its index as a
+    fallback for when that picture has left the list (a photo that failed to
+    load). Held by picture, not by index, because the list grows while it
+    plays — sources land seconds apart and are dealt round-robin — and an
+    index would then point at a different picture mid-beat. */
+export interface SlidePosition {
+  path: string | null;
+  idx: number;
+}
+
+export const SLIDESHOW_START: SlidePosition = { path: null, idx: 0 };
+
+/** The index of the slide on screen. */
+export function slideIndexAt(list: readonly NowPlayingSlide[], pos: SlidePosition): number {
+  if (list.length === 0) return 0;
+  if (pos.path !== null) {
+    const i = list.findIndex((s) => s.path === pos.path);
+    if (i >= 0) return i;
+  }
+  return pos.idx % list.length;
+}
+
+/** The position one tick later. */
+export function nextSlidePosition(list: readonly NowPlayingSlide[], pos: SlidePosition): SlidePosition {
+  if (list.length === 0) return pos;
+  const idx = (slideIndexAt(list, pos) + 1) % list.length;
+  return { path: list[idx].path, idx };
+}
+
+/** The art slides followed by the photos, minus any photo that repeats one. */
+export function withPhotoSlides(paths: readonly string[], photos: readonly PhotoSlide[]): NowPlayingSlide[] {
+  const have = new Set(paths);
+  return [
+    ...paths.map((path) => ({ path, photo: null })),
+    ...photos.filter((p) => !have.has(p.url)).map((p) => ({ path: p.url, photo: p })),
+  ];
 }

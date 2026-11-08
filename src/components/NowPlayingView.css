@@ -133,6 +133,51 @@
   background: transparent;
 }
 
+/* ── Photos visualizer ───────────────────────── */
+/* The framed art plus whatever rides on it (a photo's credit). */
+.np-art-stack {
+  position: relative;
+  border-radius: var(--ds-radius-card);
+}
+/* Gallery photos are rarely square: a press shot or a concert photo cropped
+   to the middle loses the faces off the top, so bias the crop upward. Per
+   image: the track's own cover and artist image keep their centred crop. */
+.np-xfade--art .np-art--photo {
+  object-position: center 30%;
+}
+/* Sits inside the frame along its bottom edge, on a pre-drawn scrim so it
+   reads over any picture. Static — no motion here. Always-light text: this
+   only ever renders over an image. */
+.np-photo-credit {
+  position: absolute;
+  /* Above the cue cards (CueOverlay.css, z-index 2), which share the art
+     column: the credit must stay visible and clickable on every photo. */
+  z-index: 3;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  padding: 18px 12px 8px;
+  border: 0;
+  border-radius: 0 0 var(--ds-radius-card) var(--ds-radius-card);
+  background: linear-gradient(to top, rgba(var(--scrim-rgb), 0.7), transparent);
+  color: rgba(var(--on-image-rgb), 0.85);
+  font: inherit;
+  font-size: var(--fs-2xs);
+  line-height: 1.3;
+  text-align: left;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.np-photo-credit--link {
+  cursor: pointer;
+}
+.np-photo-credit--link:hover,
+.np-photo-credit--link:focus-visible {
+  color: rgb(var(--on-image-rgb));
+  text-decoration: underline;
+}
+
 /* ── Entrance on track change / appearance ───── */
 /* The no-art placeholder lifts+fades in when its React key changes (i.e. a new
    track), so the swap feels alive instead of snapping. */

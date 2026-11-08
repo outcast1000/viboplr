@@ -15,8 +15,18 @@
 
 import { invoke } from "@tauri-apps/api/core";
 import type { QueueTrack } from "../types";
-import type { DisplayKind, ImageGalleryData, InfoEntity, LyricsData } from "../types/informationTypes";
-import { fetchInfoValue, resolveInfoEntityId, type InvokeInfoFetch, type InfoTypeRow } from "./infoFetchChain";
+import type { DisplayKind, InfoEntity, LyricsData } from "../types/informationTypes";
+import { fetchInfoValue, type InvokeInfoFetch } from "./infoFetchChain";
+import {
+  CONTEXT_IMAGE_CAP,
+  CONTEXT_IMAGE_DISPLAY_KINDS,
+  contextImageTypeIds,
+  entityTypesWanted,
+  galleryImages,
+  isGalleryType,
+  trackInfoEntities,
+  type GalleryImage,
+} from "./trackGalleries";
 import { parseLrc } from "./lyrics";
 import { resolveTrackQuality } from "../hooks/useNowPlayingInfo";
 import { CUE_CLIP_GUIDE, CUE_SHEET_GUIDE, type CueSheetRow } from "./cueSheet";
@@ -32,30 +42,9 @@ export const CONTEXT_DISPLAY_KINDS: DisplayKind[] = ["rich_text", "html", "annot
  *  tool result. */
 export const PROSE_CHAR_CAP = 6000;
 
-/** Display kinds whose values are pictures of an entity. An assistant may only
- *  use image URLs it can trust, so a provider's gallery is the safe source. */
-export const CONTEXT_IMAGE_DISPLAY_KINDS: DisplayKind[] = ["image_gallery"];
-
-/** Info types of another display kind whose value also carries an `images`
- *  gallery — declared by the plugin with `contextImages: true` (a `plugin_view`
- *  tab of agency photos). Opt-in by manifest, never by sniffing values: the
- *  gather would otherwise have to fetch every interactive tab (Community's)
- *  just to find out it has no pictures. */
-export function contextImageTypeIds(
-  plugins: ReadonlyArray<{ manifest: { contributes?: { informationTypes?: Array<{ id: string; contextImages?: boolean }> } } }>,
-): Set<string> {
-  const ids = new Set<string>();
-  for (const p of plugins) {
-    for (const t of p.manifest.contributes?.informationTypes ?? []) {
-      if (t.contextImages === true) ids.add(t.id);
-    }
-  }
-  return ids;
-}
-
-/** Per-gallery cap — enough to choose from, small enough to keep the context
- *  one tool result. */
-export const CONTEXT_IMAGE_CAP = 12;
+// The picture half — which info types carry pictures, and how a gallery value
+// is read — is shared with the Now Playing Photos visualizer.
+export { CONTEXT_IMAGE_DISPLAY_KINDS, CONTEXT_IMAGE_CAP, contextImageTypeIds, galleryImages };
 
 /** How long the gather waits for providers before answering with what it
  *  has. The control API gives `/v1/cues/context` 70s (`handle_bridge_query_slow`,
@@ -134,38 +123,7 @@ export function proseText(displayKind: DisplayKind | string, value: unknown): st
   return text ? cap(text) : null;
 }
 
-export interface CueContextImageItem {
-  url: string;
-  caption?: string;
-  /** Attribution line as the gallery shows it. */
-  source?: string;
-  author?: string;
-  license?: string;
-  pageUrl?: string;
-  width?: number;
-  height?: number;
-}
-
-/** The https images of one `image_gallery` value, capped, attribution kept.
- *  Anything without a usable https URL is dropped — cue images must be https. */
-export function galleryImages(value: unknown): CueContextImageItem[] {
-  const images = (value as ImageGalleryData | null)?.images;
-  if (!Array.isArray(images)) return [];
-  const out: CueContextImageItem[] = [];
-  for (const img of images) {
-    if (!img || typeof img.url !== "string" || !/^https:\/\//i.test(img.url)) continue;
-    const item: CueContextImageItem = { url: img.url };
-    for (const k of ["caption", "source", "author", "license", "pageUrl"] as const) {
-      const v = img[k];
-      if (typeof v === "string" && v.trim()) item[k] = v.trim();
-    }
-    if (typeof img.width === "number") item.width = img.width;
-    if (typeof img.height === "number") item.height = img.height;
-    out.push(item);
-    if (out.length >= CONTEXT_IMAGE_CAP) break;
-  }
-  return out;
-}
+export type CueContextImageItem = GalleryImage;
 
 export interface CueContextLyrics {
   kind: "synced" | "plain";
@@ -301,23 +259,13 @@ async function materialFor(
   opts: GatherOpts,
   deadline: Promise<void>,
 ): Promise<EntityMaterial> {
-  let types: InfoTypeRow[];
-  try {
-    types = await invoke<InfoTypeRow[]>("info_get_types_for_entity", { entity: entity.kind });
-  } catch (e) {
-    console.error(`Failed to list ${entity.kind} info types for cue context:`, e);
-    return NO_MATERIAL;
-  }
-  const isImageType = (typeId: string, displayKind: string) =>
-    CONTEXT_IMAGE_DISPLAY_KINDS.includes(displayKind as DisplayKind) || !!opts.imageTypeIds?.has(typeId);
-  // The listing has one row per provider; a type is gathered once.
-  const seen = new Set<string>();
-  const wanted = types.filter(([typeId, , displayKind]) => {
-    if (seen.has(typeId)) return false;
-    const want = CONTEXT_DISPLAY_KINDS.includes(displayKind as DisplayKind) || isImageType(typeId, displayKind);
-    if (want) seen.add(typeId);
-    return want;
-  });
+  const isImageType = (typeId: string, displayKind: string) => isGalleryType(typeId, displayKind, opts.imageTypeIds);
+  const wanted = await entityTypesWanted(
+    entity,
+    (typeId, displayKind) => CONTEXT_DISPLAY_KINDS.includes(displayKind as DisplayKind) || isImageType(typeId, displayKind),
+    "cue context",
+  );
+  if (!wanted) return NO_MATERIAL;
   const results = await Promise.all(wanted.map(([typeId, name]) => settleBy((async () => {
     try {
       const out = await fetchInfoValue({
@@ -368,17 +316,7 @@ async function gatherBy(opts: GatherOpts, deadline: Promise<void>): Promise<CueC
   const albumTitle = track.album_title ?? null;
   const albumArtistName = track.album_artist_name ?? artistName;
 
-  const songBase = { kind: "track" as const, name: title, artistName: artistName ?? undefined, albumTitle: albumTitle ?? undefined };
-  const songEntity: InfoEntity = { ...songBase, id: await resolveInfoEntityId(songBase), path: track.path ?? undefined, durationSecs: track.duration_secs ?? undefined };
-  const artistEntity: InfoEntity | null = artistName
-    ? { kind: "artist", name: artistName, id: await resolveInfoEntityId({ kind: "artist", name: artistName }) }
-    : null;
-  const albumEntity: InfoEntity | null = albumTitle
-    ? {
-      kind: "album", name: albumTitle, artistName: albumArtistName ?? undefined,
-      id: await resolveInfoEntityId({ kind: "album", name: albumTitle, artistName: albumArtistName ?? undefined }),
-    }
-    : null;
+  const { song: songEntity, artist: artistEntity, album: albumEntity } = await trackInfoEntities(track);
 
   const lyricsP = settleBy(fetchInfoValue({
     typeId: "lyrics", entity: songEntity, invokeInfoFetch: opts.invokeInfoFetch, pluginNames: opts.pluginNames,
