@@ -49,12 +49,14 @@ export const webSearchProviderKey = (p: Pick<PluginWebSearchProvider, "pluginId"
  * when the user changes it, so a plugin disabled for a while comes back where
  * it was.
  */
-export function orderWebSearchProviders(
-  providers: PluginWebSearchProvider[],
+export function orderWebSearchProviders<P extends Pick<PluginWebSearchProvider, "pluginId" | "providerId">>(
+  providers: P[],
   stored: WebSearchOrderEntry[] | null | undefined,
-): OrderedWebSearchProvider[] {
+): Array<P & { key: string; enabled: boolean }> {
+  // Generic over the provider shape: the context-image list (Settings →
+  // Providers → Context images) is ordered by the same rule.
   const byKey = new Map(providers.map((p) => [webSearchProviderKey(p), p]));
-  const out: OrderedWebSearchProvider[] = [];
+  const out: Array<P & { key: string; enabled: boolean }> = [];
   const seen = new Set<string>();
   for (const entry of Array.isArray(stored) ? stored : []) {
     if (!entry || typeof entry.id !== "string" || seen.has(entry.id)) continue;

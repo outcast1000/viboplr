@@ -1,12 +1,11 @@
-// Pictures of a track, its artist and its album, from the plugins that offer
-// them. One definition of "an info type that carries pictures", read by two
-// consumers: the cue-sheet context an assistant writes from (`cueContext.ts`)
-// and the Now Playing "Photos" visualizer (`useNowPlayingPhotos`). A plugin
-// "registers for track images" by answering such a type — an `image_gallery`
-// for the song, artist or album, or any type it flags `contextImages: true`
-// whose value carries the same `images` array (Getty's `plugin_view` tab).
-// Values come through the shared provider chain + cache, so photos fetched for
-// Now Playing are free on the detail page and in a cue context, and back.
+// Pictures of a track, its artist and its album, offered the old way: as an
+// info type that carries pictures — an `image_gallery` for the song, artist or
+// album, or any type flagged `contextImages: true` whose value carries the
+// same `images` array (a `plugin_view` tab). Plugins now pick pictures through
+// `api.contextImages` (`contextImages.ts`), which is told the context; this
+// module is how the galleries still reach Now Playing Photos and cue sheets —
+// adapted there as providers that ignore the context. Values come through the
+// shared provider chain + cache, so they are free on the detail page too.
 
 import { invoke } from "@tauri-apps/api/core";
 import type { QueueTrack } from "../types";
@@ -163,6 +162,9 @@ interface GatherGalleriesOpts {
   pluginNames?: Map<string, string>;
   /** `contextImageTypeIds` of the active plugins. */
   imageTypeIds?: ReadonlySet<string>;
+  /** Types to leave out — their plugin declares a context-image provider,
+   *  which speaks for it (`contextImages.ts`). */
+  excludeTypeIds?: ReadonlySet<string>;
   /** Called once per gallery that came back with pictures, as each lands —
    *  one slow source (a scraped agency page) must not hold back the rest. */
   onGallery: (gallery: TrackGallery) => void;
@@ -180,7 +182,9 @@ export async function gatherTrackGalleries(opts: GatherGalleriesOpts): Promise<v
   await Promise.all(targets.map(async ([about, entity]) => {
     if (opts.isCancelled?.()) return;
     const wanted = await entityTypesWanted(
-      entity, (typeId, displayKind) => isGalleryType(typeId, displayKind, opts.imageTypeIds), "photos",
+      entity,
+      (typeId, displayKind) => !opts.excludeTypeIds?.has(typeId) && isGalleryType(typeId, displayKind, opts.imageTypeIds),
+      "photos",
     );
     if (!wanted) return;
     await Promise.all(wanted.map(async ([typeId]) => {
@@ -197,12 +201,4 @@ export async function gatherTrackGalleries(opts: GatherGalleriesOpts): Promise<v
       }
     }));
   }));
-}
-
-/** One credit line for a picture: who took it and where it's from, without
- *  saying the same name twice (Commons already puts the author in `source`). */
-export function galleryImageCredit(img: GalleryImage): string | null {
-  const { author, source } = img;
-  if (author && source) return source.includes(author) ? source : `${author} · ${source}`;
-  return author ?? source ?? null;
 }

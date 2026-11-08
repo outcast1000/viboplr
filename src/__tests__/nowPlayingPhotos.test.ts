@@ -7,66 +7,46 @@ import {
   SLIDESHOW_START,
   NOW_PLAYING_PHOTO_CAP,
 } from "../utils/nowPlayingArt";
-import { galleryImageCredit, galleryImages, type GalleryImage, type TrackGallery } from "../utils/trackGalleries";
+import { galleryImages } from "../utils/trackGalleries";
+import type { ContextImage } from "../types/plugin";
+import type { ContextImageBatch } from "../utils/contextImages";
 
-const imgs = (prefix: string, n: number): GalleryImage[] =>
+const imgs = (prefix: string, n: number): ContextImage[] =>
   Array.from({ length: n }, (_, i) => ({ url: `https://${prefix}/${i}.jpg` }));
+const batch = (providerKey: string, order: number, images: ContextImage[]): ContextImageBatch =>
+  ({ providerKey, providerName: providerKey, order, images });
 
 describe("photoSlidesFrom", () => {
-  it("deals song, then artist, then album galleries round-robin across sources", () => {
-    const galleries: TrackGallery[] = [
-      { about: "album", typeId: "a", name: "A", images: imgs("album", 1) },
-      { about: "artist", typeId: "getty", name: "Getty", images: imgs("getty", 3) },
-      { about: "artist", typeId: "commons", name: "Commons", images: imgs("commons", 2) },
-    ];
-    expect(photoSlidesFrom(galleries).map((p) => p.url)).toEqual([
-      "https://getty/0.jpg",
-      "https://commons/0.jpg",
-      "https://album/0.jpg",
-      "https://getty/1.jpg",
-      "https://commons/1.jpg",
-      "https://getty/2.jpg",
-    ]);
-  });
-
-  it("keeps a picture two sources share once", () => {
-    const same = [{ url: "https://x/1.jpg" }];
+  it("shows the best fits first, whichever source they came from", () => {
     const out = photoSlidesFrom([
-      { about: "artist", typeId: "a", name: "A", images: same },
-      { about: "artist", typeId: "b", name: "B", images: same },
+      batch("commons", 0, [{ url: "https://c/old.jpg", relevance: 0.2 }, { url: "https://c/era.jpg", relevance: 0.9 }]),
+      batch("getty", 1, [{ url: "https://g/era.jpg", relevance: 0.95 }]),
     ]);
-    expect(out).toHaveLength(1);
+    expect(out.map((p) => p.url)).toEqual(["https://g/era.jpg", "https://c/era.jpg", "https://c/old.jpg"]);
   });
 
-  it("caps the show", () => {
-    const out = photoSlidesFrom([
-      { about: "artist", typeId: "a", name: "A", images: imgs("a", 30) },
-      { about: "artist", typeId: "b", name: "B", images: imgs("b", 30) },
+  it("deals equal fits round-robin across sources, so a prolific one doesn't bury another", () => {
+    const out = photoSlidesFrom([batch("getty", 0, imgs("getty", 3)), batch("commons", 1, imgs("commons", 2))]);
+    expect(out.map((p) => p.url)).toEqual([
+      "https://getty/0.jpg", "https://commons/0.jpg", "https://getty/1.jpg", "https://commons/1.jpg", "https://getty/2.jpg",
     ]);
-    expect(out).toHaveLength(NOW_PLAYING_PHOTO_CAP);
   });
 
-  it("carries the credit and the photo's page", () => {
-    const [p] = photoSlidesFrom([{
-      about: "artist", typeId: "getty", name: "Getty",
-      images: [{ url: "https://g/1.jpg", author: "Jane Doe", source: "Getty Images / Redferns", pageUrl: "https://www.gettyimages.com/detail/1" }],
-    }]);
+  it("keeps a picture two sources share once, and caps the show", () => {
+    expect(photoSlidesFrom([batch("a", 0, imgs("x", 1)), batch("b", 1, imgs("x", 1))])).toHaveLength(1);
+    expect(photoSlidesFrom([batch("a", 0, imgs("a", 30)), batch("b", 1, imgs("b", 30))])).toHaveLength(NOW_PLAYING_PHOTO_CAP);
+  });
+
+  it("carries the credit (with the year) and the photo's page", () => {
+    const [p] = photoSlidesFrom([batch("getty", 0, [{
+      url: "https://g/1.jpg", author: "Jane Doe", source: "Getty Images / Redferns", year: 1994,
+      pageUrl: "https://www.gettyimages.com/detail/1",
+    }])]);
     expect(p).toEqual({
       url: "https://g/1.jpg",
-      credit: "Jane Doe · Getty Images / Redferns",
+      credit: "Jane Doe · 1994 · Getty Images / Redferns",
       pageUrl: "https://www.gettyimages.com/detail/1",
     });
-  });
-});
-
-describe("galleryImageCredit", () => {
-  it("doesn't name the author twice when the source already does (Commons)", () => {
-    expect(galleryImageCredit({ url: "u", author: "Jane", source: "Jane · CC BY-SA 4.0" })).toBe("Jane · CC BY-SA 4.0");
-  });
-  it("falls back to whichever half there is", () => {
-    expect(galleryImageCredit({ url: "u", source: "Wikimedia Commons" })).toBe("Wikimedia Commons");
-    expect(galleryImageCredit({ url: "u", author: "Jane" })).toBe("Jane");
-    expect(galleryImageCredit({ url: "u" })).toBeNull();
   });
 });
 

@@ -470,6 +470,7 @@ export function describeContributes(contributes: PluginManifestContributes | und
   return {
     searchProviders: (c?.searchProviders ?? []).map((p) => ({ id: p.id, name: p.name })),
     webSearchProviders: (c?.webSearchProviders ?? []).map((p) => ({ id: p.id, name: p.name })),
+    contextImageProviders: (c?.contextImageProviders ?? []).map((p) => ({ id: p.id, name: p.name })),
     downloadProviders: (c?.downloadProviders ?? []).map((p) => ({ id: p.id, name: p.name })),
     streamResolvers: (c?.streamResolvers ?? []).map((r) => ({ id: r.id, name: r.name })),
     informationTypes: (c?.informationTypes ?? []).map((t) => ({

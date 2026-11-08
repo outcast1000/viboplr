@@ -858,6 +858,8 @@ function App() {
   const nowPlayingPhotos = useNowPlayingPhotos({
     track: playback.currentTrack && !isVideoTrack(playback.currentTrack) ? playback.currentTrack : null,
     enabled: showingPhotos,
+    providers: plugins.contextImageProviders,
+    invokeProvider: plugins.invokeContextImages,
     invokeInfoFetch: plugins.invokeInfoFetch,
     pluginNames: plugins.pluginNames,
     pluginStates: plugins.pluginStates,
@@ -1379,6 +1381,11 @@ function App() {
   const webSearchSettings = useMemo(
     () => ({ providers: plugins.webSearchProviders, onChange: plugins.setWebSearchOrder, onReset: plugins.resetWebSearchOrder }),
     [plugins.webSearchProviders, plugins.setWebSearchOrder, plugins.resetWebSearchOrder],
+  );
+  // Settings → Providers → Context images, same arrangement.
+  const contextImageSettings = useMemo(
+    () => ({ providers: plugins.contextImageProviders, onChange: plugins.setContextImageOrder, onReset: plugins.resetContextImageOrder }),
+    [plugins.contextImageProviders, plugins.setContextImageOrder, plugins.resetContextImageOrder],
   );
 
   useEffect(() => {
@@ -4186,6 +4193,8 @@ function App() {
       invokePluginSearch: plugins.invokePluginSearch,
       webSearchProviders: plugins.webSearchProviders,
       invokeWebSearch: plugins.invokeWebSearch,
+      contextImageProviders: plugins.contextImageProviders,
+      invokeContextImages: plugins.invokeContextImages,
       invokeInfoFetch: plugins.invokeInfoFetch,
       pluginNames: plugins.pluginNames,
       homeShelves: plugins.homeShelves,
@@ -6093,6 +6102,7 @@ function App() {
               onNotify={notify}
               onStreamResolverOrderChanged={() => setStreamResolverOrderVersion(v => v + 1)}
               webSearch={webSearchSettings}
+              contextImages={contextImageSettings}
               onOpenDependencies={() => {
                 setExtTabRequest((prev) => ({ tab: "tools", seq: (prev?.seq ?? 0) + 1 }));
                 library.setView("extensions");

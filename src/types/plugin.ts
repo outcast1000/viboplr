@@ -111,12 +111,12 @@ export interface PluginManifestInfoType {
    *  plugin offers several for it (two lyrics sources in one plugin). Omit for
    *  the plugin's single provider. See `utils/providerKey.ts`. */
   provider?: string;
-  /** The value also carries pictures of the entity as `images`, in the
-   *  `image_gallery` shape, whatever its own display kind — so a `plugin_view`
-   *  tab can offer them to cue sheets: `get_cue_context` fetches every type
-   *  that sets this, alongside the galleries. Only worth setting on a type
-   *  that isn't `image_gallery` (those are always included). Older hosts
-   *  ignore it. */
+  /** @deprecated Declare a `contextImageProviders` entry and answer
+   *  `api.contextImages.onRequest` instead — it is told the context (the
+   *  track's year, what the picture is for). Still honoured: the value's
+   *  `images` gallery is offered to Now Playing Photos and cue sheets as a
+   *  provider that ignores the context, unless the same plugin declares a
+   *  context-image provider. */
   contextImages?: boolean;
 }
 
@@ -197,6 +197,17 @@ export interface PluginManifestWebSearchProvider {
   icon?: string;
 }
 
+/**
+ * Pictures the plugin picks for a context — see `PluginContextImagesAPI`.
+ * Declared so the gallery and Settings → Providers know about it before the
+ * plugin activates.
+ */
+export interface PluginManifestContextImageProvider {
+  id: string;
+  /** Shown in Settings → Providers and in each picture's credit context. */
+  name: string;
+}
+
 /** Static declaration of the plugin's AI-assistant surface — see
  *  `PluginAssistantAPI`. `instructions` is prose for the model (what the
  *  plugin is for, how the tools compose); each tool still needs an
@@ -228,6 +239,9 @@ export interface PluginManifestContributes {
   searchProviders?: PluginManifestSearchProvider[];
   /** Web searches other plugins and assistants can run — see PluginWebSearchAPI. */
   webSearchProviders?: PluginManifestWebSearchProvider[];
+  /** Pictures chosen for a context (Now Playing Photos, cue sheets) — see
+   *  PluginContextImagesAPI. */
+  contextImageProviders?: PluginManifestContextImageProvider[];
   /** Rich visuals that fill host-owned slots. See types/pluginVisualizer.ts. */
   visualizers?: PluginVisualizerDescriptor[];
   /** Tools + instructions for AI assistants driving the control API. */
@@ -1847,6 +1861,87 @@ export interface PluginWebSearchAPI {
   query(query: string, opts?: { limit?: number; provider?: string }): Promise<PluginWebSearchAnswer>;
 }
 
+/** Who a picture shows, as far as the provider can tell. */
+export type ContextImageAbout = "artist" | "album" | "track" | "event";
+
+/**
+ * What the host is showing pictures for. The provider decides what fits —
+ * e.g. photos of the artist from the years around `track.year` — and says
+ * how well each one does with `relevance`. Every field the host doesn't know
+ * is absent, never guessed: no `year` means the library has none.
+ */
+export interface ContextImageRequest {
+  subject: "track" | "artist" | "album";
+  track?: {
+    title: string;
+    artistName: string | null;
+    albumTitle: string | null;
+    albumArtistName: string | null;
+    /** Release year, from the library copy or its album. */
+    year: number | null;
+    durationSecs: number | null;
+  };
+  artist?: { name: string };
+  album?: { title: string; artistName: string | null; year: number | null };
+  /** `nowplaying`: a slideshow, many pictures welcome. `cue`: an assistant
+   *  picks a few for a cue sheet — captions and credits matter most. */
+  purpose: "nowplaying" | "cue";
+  /** How many pictures are welcome. */
+  limit: number;
+}
+
+export interface ContextImage {
+  /** https only. */
+  url: string;
+  caption?: string;
+  author?: string;
+  /** Attribution line ("Getty Images / Redferns", "CC BY-SA 4.0"). */
+  source?: string;
+  license?: string;
+  /** The picture's own page (http(s) only) — the credit links to it. */
+  pageUrl?: string;
+  width?: number;
+  height?: number;
+  /** When it was taken, if known. Shown in the credit. */
+  year?: number;
+  about?: ContextImageAbout;
+  /** 0–1, the provider's own fit to this request. The host shows the best
+   *  fits first across providers; omitted counts as 0.5. */
+  relevance?: number;
+  /** One line on why it fits ("Taken in 1994, the year of this album"). */
+  reason?: string;
+}
+
+export type ContextImageResult =
+  | { status: "ok"; images: ContextImage[] }
+  | { status: "not_found" }
+  | { status: "error"; message?: string };
+
+/**
+ * Pictures chosen for a context. Providers declare
+ * `contributes.contextImageProviders` and answer with `onRequest`; the host
+ * asks every switched-on provider at once (Settings → Providers → Context
+ * images) and merges the answers by `relevance`. Consumers are host surfaces
+ * — the Now Playing "Photos" visualizer and the cue-sheet context an
+ * assistant writes from. No permission beyond the plugin's own `network:`
+ * grants. Guard for older hosts: `typeof api.contextImages?.onRequest === "function"`.
+ */
+export interface PluginContextImagesAPI {
+  /** Answer for one of this plugin's declared providers. Return `not_found`
+   *  for nothing, `error` with a reason when the source failed. 20s budget. */
+  onRequest(
+    providerId: string,
+    handler: (request: ContextImageRequest) => ContextImageResult | Promise<ContextImageResult>,
+  ): () => void;
+}
+
+/** A declared context-image provider, host-side view. */
+export interface PluginContextImageProvider {
+  pluginId: string;
+  providerId: string;
+  name: string;
+}
+
 /** What `api.plugins.list()` says about one installed plugin. */
 export interface PluginDescriptor {
   id: string;
@@ -2601,6 +2696,8 @@ export interface ViboplrPluginAPI {
   search: PluginSearchAPI;
   /** Web search as a shared service — provide one, or run the user's. */
   webSearch: PluginWebSearchAPI;
+  /** Pictures chosen for a context (Now Playing Photos, cue sheets). */
+  contextImages: PluginContextImagesAPI;
   /** Rich visuals in host-owned slots. Plugins render host state; they do not
    *  own it. See types/pluginVisualizer.ts for the contract. */
   visualizers: PluginVisualizerAPI;

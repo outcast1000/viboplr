@@ -23,10 +23,14 @@ import {
   contextImageTypeIds,
   entityTypesWanted,
   galleryImages,
-  isGalleryType,
   trackInfoEntities,
-  type GalleryImage,
 } from "./trackGalleries";
+import {
+  gatherContextImages,
+  type ContextImageBatch,
+  type OrderedContextImageProvider,
+} from "./contextImages";
+import type { ContextImage, ContextImageRequest, ContextImageResult } from "../types/plugin";
 import { parseLrc } from "./lyrics";
 import { resolveTrackQuality } from "../hooks/useNowPlayingInfo";
 import { CUE_CLIP_GUIDE, CUE_SHEET_GUIDE, type CueSheetRow } from "./cueSheet";
@@ -123,7 +127,10 @@ export function proseText(displayKind: DisplayKind | string, value: unknown): st
   return text ? cap(text) : null;
 }
 
-export type CueContextImageItem = GalleryImage;
+/** A picture as an assistant sees it: the gallery fields, plus — from a
+ *  context-image provider — when it was taken, who it shows, how well it fits
+ *  and why. */
+export type CueContextImageItem = ContextImage;
 
 export interface CueContextLyrics {
   kind: "synced" | "plain";
@@ -232,15 +239,20 @@ interface GatherOpts {
   invokeInfoFetch: InvokeInfoFetch;
   pluginNames?: Map<string, string>;
   /** Types whose values carry an `images` gallery besides their own kind
-   *  (`contextImageTypeIds`). */
+   *  (`contextImageTypeIds`) — the old way of offering pictures. */
   imageTypeIds?: ReadonlySet<string>;
+  /** Context-image providers in the user's order, with their switches, and
+   *  the call that asks one. Absent = only the old-style galleries. */
+  contextImageProviders?: readonly OrderedContextImageProvider[];
+  invokeContextImages?: (pluginId: string, providerId: string, request: ContextImageRequest) => Promise<ContextImageResult>;
+  /** Gallery types whose plugin declares a provider (`typesSpokenForByProviders`). */
+  excludeImageTypeIds?: ReadonlySet<string>;
   /** Overrides `CUE_CONTEXT_DEADLINE_MS` (tests). */
   deadlineMs?: number;
 }
 
 interface EntityMaterial {
   prose: CueContextProse[];
-  images: CueContextImages[];
   pending: CueContextPending[];
 }
 
@@ -251,18 +263,18 @@ function fetchArgs(entity: InfoEntity, typeId: string): CueContextPending["fetch
   return { kind, title: entity.name, ...(entity.artistName ? { artistName: entity.artistName } : {}), typeId };
 }
 
-/** Every prose and gallery info value for one entity, through the provider
- *  chain, as far as it got by `deadline`. One type listing serves both. */
+/** Every prose info value for one entity, through the provider chain, as far
+ *  as it got by `deadline`. Pictures come from the context-image providers
+ *  (`imagesFor`), not from here. */
 async function materialFor(
   about: CueContextProse["about"],
   entity: InfoEntity,
   opts: GatherOpts,
   deadline: Promise<void>,
 ): Promise<EntityMaterial> {
-  const isImageType = (typeId: string, displayKind: string) => isGalleryType(typeId, displayKind, opts.imageTypeIds);
   const wanted = await entityTypesWanted(
     entity,
-    (typeId, displayKind) => CONTEXT_DISPLAY_KINDS.includes(displayKind as DisplayKind) || isImageType(typeId, displayKind),
+    (_typeId, displayKind) => CONTEXT_DISPLAY_KINDS.includes(displayKind as DisplayKind),
     "cue context",
   );
   if (!wanted) return NO_MATERIAL;
@@ -272,10 +284,6 @@ async function materialFor(
         typeId, entity, invokeInfoFetch: opts.invokeInfoFetch, pluginNames: opts.pluginNames,
       });
       if (out.status !== "ok") return null;
-      if (isImageType(typeId, out.displayKind)) {
-        const images = galleryImages(out.value);
-        return images.length ? { images: { about, typeId, name: out.name, images } } : null;
-      }
       const text = proseText(out.displayKind, out.value);
       return text ? { prose: { about, typeId, name: out.name, text } } : null;
     } catch (e) {
@@ -285,17 +293,60 @@ async function materialFor(
   })(), deadline).then((r) => (r === TIMED_OUT
     ? { pending: { about, typeId, name, fetch: fetchArgs(entity, typeId) } }
     : r))));
-  const material: EntityMaterial = { prose: [], images: [], pending: [] };
+  const material: EntityMaterial = { prose: [], pending: [] };
   for (const r of results) {
     if (!r) continue;
     if ("pending" in r) material.pending.push(r.pending);
-    else if (r.prose) material.prose.push(r.prose);
-    else if (r.images) material.images.push(r.images);
+    else material.prose.push(r.prose);
   }
   return material;
 }
 
-const NO_MATERIAL: EntityMaterial = { prose: [], images: [], pending: [] };
+const NO_MATERIAL: EntityMaterial = { prose: [], pending: [] };
+
+/** How many pictures each provider is asked for: enough to choose from. */
+export const CUE_CONTEXT_IMAGES_PER_PROVIDER = CONTEXT_IMAGE_CAP;
+
+const ABOUT_OF: Record<string, CueContextImages["about"]> = { artist: "artist", album: "album", track: "song", event: "song" };
+
+/** One provider's answer as a cue-context gallery. An adapted old-style
+ *  gallery keeps its info type id; a provider is named by its key. */
+export function cueImagesFromBatch(batch: ContextImageBatch): CueContextImages {
+  const typeId = batch.providerKey.startsWith("gallery:") ? batch.providerKey.slice("gallery:".length) : batch.providerKey;
+  return {
+    about: ABOUT_OF[batch.images[0]?.about ?? "artist"] ?? "artist",
+    typeId,
+    name: batch.providerName,
+    images: batch.images,
+  };
+}
+
+/** The pictures for the track: every switched-on context-image provider's
+ *  pick (purpose `cue`), plus the old-style galleries, as far as they got by
+ *  `deadline`. A provider still answering then is left out; it keeps running
+ *  and lands in the session cache for the next ask. */
+async function imagesFor(opts: GatherOpts, deadline: Promise<void>): Promise<CueContextImages[]> {
+  const batches: ContextImageBatch[] = [];
+  let over = false;
+  const gather = gatherContextImages({
+    track: opts.track,
+    purpose: "cue",
+    limit: CUE_CONTEXT_IMAGES_PER_PROVIDER,
+    providers: opts.contextImageProviders ?? [],
+    invokeProvider: opts.invokeContextImages ?? (async () => ({ status: "not_found" as const })),
+    legacy: {
+      invokeInfoFetch: opts.invokeInfoFetch,
+      pluginNames: opts.pluginNames,
+      imageTypeIds: opts.imageTypeIds,
+      excludeTypeIds: opts.excludeImageTypeIds,
+    },
+    onBatch: (b) => { if (!over) batches.push(b); },
+    onError: (name, message) => console.error(`Cue context: ${name} pictures failed: ${message}`),
+  }).catch((e) => console.error("Failed to gather pictures for cue context:", e));
+  await settleBy(gather, deadline);
+  over = true;
+  return [...batches].sort((a, b) => a.order - b.order).map(cueImagesFromBatch);
+}
 
 export async function gatherCueContext(opts: GatherOpts): Promise<CueContext> {
   let timer: ReturnType<typeof setTimeout> | undefined;
@@ -343,9 +394,10 @@ async function gatherBy(opts: GatherOpts, deadline: Promise<void>): Promise<CueC
   const orElse = <T,>(p: Promise<T>, fallback: T) =>
     settleBy(p, deadline).then((r) => (r === TIMED_OUT ? fallback : r));
 
-  const [lyricsOut, song, artist, album, tags, quality, existingSheet] = await Promise.all([
+  const [lyricsOut, song, images, artist, album, tags, quality, existingSheet] = await Promise.all([
     lyricsP,
     materialFor("song", songEntity, opts, deadline),
+    imagesFor(opts, deadline),
     artistEntity ? materialFor("artist", artistEntity, opts, deadline) : Promise.resolve(NO_MATERIAL),
     albumEntity ? materialFor("album", albumEntity, opts, deadline) : Promise.resolve(NO_MATERIAL),
     orElse(tagsP, [] as string[]),
@@ -362,7 +414,6 @@ async function gatherBy(opts: GatherOpts, deadline: Promise<void>): Promise<CueC
   ];
   const lyricsNote = lyricsTimingNote(lyrics, track.duration_secs ?? null);
   const prose = [...song.prose, ...artist.prose, ...album.prose];
-  const images = [...song.images, ...artist.images, ...album.images];
   return {
     track: {
       title,

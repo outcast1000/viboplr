@@ -1,5 +1,5 @@
 import type { QueueTrack } from "../types";
-import { galleryImageCredit, type GalleryAbout, type TrackGallery } from "./trackGalleries";
+import { contextImageCredit, rankContextImages, type ContextImageBatch } from "./contextImages";
 
 /**
  * The image-provider chain the Now Playing view reads: explicit `image_url` →
@@ -119,40 +119,24 @@ export const NOW_PLAYING_PHOTO_CAP = 36;
 /** One picture in the Photos slideshow, with what it must say about itself. */
 export interface PhotoSlide {
   url: string;
-  /** "Photographer · Source / licence" — shown on the slide: Commons licences
+  /** "Photographer · year · Source / licence" — shown on the slide: Commons licences
       need it, and Getty's terms ask for the photographer and a link. */
   credit: string | null;
   /** The picture's own page (Commons file page, Getty detail page). */
   pageUrl?: string;
 }
 
-const ABOUT_ORDER: Record<GalleryAbout, number> = { song: 0, artist: 1, album: 2 };
-
 /**
- * The Photos slideshow's pictures, from every gallery that came back: the
- * song's first, then the artist's, then the album's, dealt round-robin across
- * sources so a prolific one (Getty, 12 photos) doesn't bury another (Commons)
- * at the end of the show. The same picture twice is kept once. Arrival order
- * breaks ties within an `about`.
+ * The Photos slideshow's pictures: every provider's answer merged into one
+ * list by fit (`rankContextImages` — best `relevance` first, equal fits dealt
+ * round-robin across providers, repeats dropped), each with its credit line.
  */
-export function photoSlidesFrom(galleries: readonly TrackGallery[]): PhotoSlide[] {
-  const ordered = galleries
-    .map((g, i) => ({ g, i }))
-    .sort((a, b) => ABOUT_ORDER[a.g.about] - ABOUT_ORDER[b.g.about] || a.i - b.i)
-    .map(({ g }) => g);
-  const seen = new Set<string>();
-  const out: PhotoSlide[] = [];
-  const longest = Math.max(0, ...ordered.map((g) => g.images.length));
-  for (let n = 0; n < longest && out.length < NOW_PLAYING_PHOTO_CAP; n++) {
-    for (const g of ordered) {
-      const img = g.images[n];
-      if (!img || seen.has(img.url)) continue;
-      seen.add(img.url);
-      out.push({ url: img.url, credit: galleryImageCredit(img), ...(img.pageUrl ? { pageUrl: img.pageUrl } : {}) });
-      if (out.length >= NOW_PLAYING_PHOTO_CAP) break;
-    }
-  }
-  return out;
+export function photoSlidesFrom(batches: readonly ContextImageBatch[]): PhotoSlide[] {
+  return rankContextImages(batches, NOW_PLAYING_PHOTO_CAP).map((img) => ({
+    url: img.url,
+    credit: contextImageCredit(img),
+    ...(img.pageUrl ? { pageUrl: img.pageUrl } : {}),
+  }));
 }
 
 export interface NowPlayingSlide {

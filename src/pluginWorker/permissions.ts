@@ -202,6 +202,9 @@ export const PERMISSION_TABLE: Record<string, PermissionCheck | null> = {
   "webSearch.unregisterProvider": OWN,
   "webSearch.listProviders": need("plugins:call"),
   "webSearch.query": need("plugins:call"),
+  // Answering for its own declared provider; the pictures it returns are
+  // fetched by the webview, like any image URL a plugin hands over.
+  "contextImages.onRequest": OWN,
 
   "plugins.list": need("plugins:call"),
 

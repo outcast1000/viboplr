@@ -71,6 +71,9 @@ import type {
   PluginSearchResult,
   PluginWebSearchProvider,
   PluginWebSearchResult,
+  PluginContextImageProvider,
+  ContextImageRequest,
+  ContextImageResult,
   InfoValueMatch,
   StreamCandidate,
   StreamResolveResult,
@@ -114,6 +117,10 @@ import {
   type OrderedWebSearchProvider, type WebSearchOrderEntry,
 } from "../utils/webSearch";
 import { hostInstructions, inProcessContext, invokeHostTool, listHostTools } from "../utils/hostAssistantTools";
+import {
+  CONTEXT_IMAGE_LIMIT_MAX, CONTEXT_IMAGE_ORDER_KEY, CONTEXT_IMAGE_TIMEOUT_MS, normalizeContextImageResult,
+} from "../utils/contextImages";
+import { useStoredProviderOrder } from "./useStoredProviderOrder";
 import { fetchLocalLyrics } from "../utils/localLyrics";
 import { sanitizeViewHeader } from "../utils/pluginViewHeader";
 
@@ -637,6 +644,18 @@ export function usePlugins(
     () => setDynamicWebSearchProviders(Array.from(dynamicWebSearchProvidersRef.current.values())),
     [],
   );
+  // Context-image providers (api.contextImages): manifest-declared, answered
+  // by a handler; the user's order + switches from Settings → Providers.
+  const contextImageHandlersRef = useRef(
+    new Map<string, (request: ContextImageRequest) => ContextImageResult | Promise<ContextImageResult>>(),
+  );
+  const [manifestContextImageProviders, setManifestContextImageProviders] = useState<PluginContextImageProvider[]>([]);
+  const {
+    order: contextImageOrder,
+    loaded: contextImageOrderLoaded,
+    setOrder: setContextImageOrder,
+    resetOrder: resetContextImageOrder,
+  } = useStoredProviderOrder(CONTEXT_IMAGE_ORDER_KEY, "context image");
   const [webSearchOrder, setWebSearchOrderState] = useState<WebSearchOrderEntry[] | null>(null);
   const webSearchOrderRef = useRef<WebSearchOrderEntry[] | null>(null);
   // Until the stored order is read, nobody knows which engines the user
@@ -2088,6 +2107,16 @@ export function usePlugins(
           },
         },
 
+        contextImages: {
+          onRequest(
+            providerId: string,
+            handler: (request: ContextImageRequest) => ContextImageResult | Promise<ContextImageResult>,
+          ): () => void {
+            const key = `${pluginId}:${providerId}`;
+            return trackUnsubscribe(registerKeyed(contextImageHandlersRef.current, key, handler));
+          },
+        },
+
         plugins: {
           list() {
             const r = registry();
@@ -2614,6 +2643,7 @@ export function usePlugins(
       nowPlayingInfoHandlersRef.current,
       searchHandlersRef.current,
       webSearchHandlersRef.current,
+      contextImageHandlersRef.current,
       assistantToolHandlersRef.current,
     ] as Map<string, unknown>[]) {
       deletePluginKeys(handlers, pluginId);
@@ -2922,6 +2952,7 @@ export function usePlugins(
       }> = [];
       const searchers: PluginSearchProvider[] = [];
       const webSearchers: PluginWebSearchProvider[] = [];
+      const contextImagers: PluginContextImageProvider[] = [];
       const vizzes: PluginVisualizerRegistration[] = [];
       const assistTools: PluginAssistantTool[] = [];
       const assistInstructions: Array<[string, string]> = [];
@@ -3156,6 +3187,10 @@ export function usePlugins(
             if (typeof wp?.id !== "string" || typeof wp.name !== "string") continue;
             webSearchers.push({ pluginId: plugin.id, providerId: wp.id, name: wp.name, icon: wp.icon });
           }
+          for (const cp of contrib.contextImageProviders ?? []) {
+            if (typeof cp?.id !== "string" || typeof cp.name !== "string") continue;
+            contextImagers.push({ pluginId: plugin.id, providerId: cp.id, name: cp.name });
+          }
           if (contrib.visualizers) {
             for (const vz of contrib.visualizers) {
               vizzes.push({ pluginId: plugin.id, ...vz });
@@ -3291,6 +3326,7 @@ export function usePlugins(
       setHomeShelves(shelves);
       setSearchProviders(searchers);
       setManifestWebSearchProviders(webSearchers);
+      setManifestContextImageProviders(contextImagers);
       setVisualizers(vizzes);
       setManifestAssistantTools(assistTools);
       setManifestAssistantInstructions(new Map(assistInstructions));
@@ -4170,6 +4206,40 @@ export function usePlugins(
     [],
   );
 
+  // Run one context-image provider. Never rejects: a missing handler, a throw
+  // or the timeout come back as `error`, so one bad provider costs only its
+  // own pictures. The answer is cleaned once here (`normalizeContextImageResult`).
+  const invokeContextImages = useCallback(
+    async (pluginId: string, providerId: string, request: ContextImageRequest): Promise<ContextImageResult> => {
+      const handler = contextImageHandlersRef.current.get(`${pluginId}:${providerId}`);
+      if (!handler) return { status: "error", message: "handler not registered" };
+      const limit = Math.min(CONTEXT_IMAGE_LIMIT_MAX, Math.max(1, request.limit));
+      let timer: ReturnType<typeof setTimeout> | undefined;
+      try {
+        const raw = await Promise.race([
+          Promise.resolve().then(() => handler(request)),
+          new Promise<ContextImageResult>((resolve) => {
+            timer = setTimeout(() => resolve({ status: "error", message: "timed out" }), CONTEXT_IMAGE_TIMEOUT_MS);
+          }),
+        ]);
+        return normalizeContextImageResult(raw, limit);
+      } catch (e) {
+        console.error(`Context images "${pluginId}:${providerId}" failed:`, e);
+        return { status: "error", message: e instanceof Error ? e.message : String(e) };
+      } finally {
+        clearTimeout(timer);
+      }
+    },
+    [],
+  );
+
+  // Context-image providers in the user's order, each with its switch; every
+  // one off until the stored switches are known (fail closed).
+  const contextImageProviders = useMemo(() => {
+    const ordered = orderWebSearchProviders(manifestContextImageProviders, contextImageOrder);
+    return contextImageOrderLoaded ? ordered : ordered.map((p) => ({ ...p, enabled: false }));
+  }, [manifestContextImageProviders, contextImageOrder, contextImageOrderLoaded]);
+
   const pluginNames = useMemo(
     () =>
       new Map([
@@ -4518,6 +4588,10 @@ export function usePlugins(
     invokeWebSearch,
     setWebSearchOrder,
     resetWebSearchOrder,
+    contextImageProviders,
+    invokeContextImages,
+    setContextImageOrder,
+    resetContextImageOrder,
     assistantTools: allAssistantTools,
     assistantInstructions,
     invokeAssistantTool,

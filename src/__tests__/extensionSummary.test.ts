@@ -133,7 +133,12 @@ describe("plugin services", () => {
     expect(Object.keys(PLUGIN_SERVICES)).toEqual([
       "playback-fallback", "downloads", "web-search", "catalog-search", "images",
       "scrobbling", "home-shelves", "assistant-tools", "visualizers", "waveforms",
+      "context-images",
     ]);
+  });
+
+  it("names a plugin that declares a context-image provider", () => {
+    expect(pluginServicesOf({ contextImageProviders: [{ id: "era", name: "Commons" }] })).toEqual(["context-images"]);
   });
 
   it("derives the declared services from a manifest, in vocabulary order", () => {

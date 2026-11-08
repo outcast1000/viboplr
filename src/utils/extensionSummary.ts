@@ -37,6 +37,12 @@ export const PLUGIN_SERVICES: Record<string, CapabilityInfo> = {
   "assistant-tools": { label: "AI tools", description: "Gives AI assistants tools of its own to call." },
   "visualizers": { label: "Visualizer", description: "Draws a visualizer on Now Playing or in fullscreen." },
   "waveforms": { label: "Waveforms", description: "Looks up or shares seek-bar waveforms." },
+  // Appended, not slotted in beside "images": the id list is a wire format
+  // shared with the gallery's scripts/lib.mjs (SERVICE_IDS), in this order.
+  "context-images": {
+    label: "Context images",
+    description: "Picks pictures for what's playing — Now Playing's Photos and cue sheets (Settings → Providers → Context images).",
+  },
 };
 
 /** The finer ids after the `PLUGIN_SERVICES` ones — same pattern as the
@@ -75,6 +81,7 @@ function pluginBaseServicesOf(c: PluginManifestContributes): string[] {
     "assistant-tools": !!c.assistant?.tools?.length,
     "visualizers": !!c.visualizers?.length,
     "waveforms": !!c.waveformProvider,
+    "context-images": !!c.contextImageProviders?.length,
   };
   return Object.keys(PLUGIN_SERVICES).filter((id) => has[id]);
 }

@@ -282,26 +282,47 @@ function FolderPatternEditor({ entity }: { entity: string }) {
   );
 }
 
-/** The web-search providers (Settings → Providers → Web search), owned by
- *  usePlugins: the list in the user's order, and the writer for it. */
-export interface WebSearchSettings {
-  providers: OrderedWebSearchProvider[];
+/** An ordered provider list Settings → Providers edits (web search, context
+ *  images), owned by usePlugins: the list in the user's order, and the
+ *  writer for it. */
+export interface OrderedProviderSettings {
+  providers: Array<Pick<OrderedWebSearchProvider, "key" | "enabled" | "name" | "pluginId">>;
   onChange: (shown: Array<{ key: string; enabled: boolean }>) => void;
   /** Back to every provider on, in registration order. */
   onReset: () => void | Promise<void>;
 }
+export type WebSearchSettings = OrderedProviderSettings;
 
-/** Same list markup as "Playback fallback". The order and switches are what
- *  every web search — a plugin's, the assistant's — walks; a switched-off
- *  engine is never sent a query, even when a caller names it. */
-function WebSearchProviderGroup({
-  webSearch,
+/** What each ordered list says about itself. */
+const ORDERED_GROUP_TEXT = {
+  webSearch: {
+    title: "Web search",
+    description: "Used when a plugin or an AI assistant searches the web. Vibo asks these in order and uses the first that answers; a switched-off one is never sent a search.",
+    rowLabel: "Search the web with",
+    ariaSuffix: "web search",
+  },
+  contextImages: {
+    title: "Context images",
+    description: "Pictures for Now Playing's Photos visualizer and for cue sheets. Vibo asks every switched-on source at once and shows the best fits first; the order breaks ties. A switched-off source is never asked.",
+    rowLabel: "Pictures from",
+    ariaSuffix: "context images",
+  },
+} as const;
+
+/** Same list markup as "Playback fallback". For web search the order and
+ *  switches are what every search walks; for context images they say who is
+ *  asked and who wins a tie. A switched-off provider is never asked. */
+function OrderedProviderGroup({
+  settings,
+  kind,
   pluginStates,
 }: {
-  webSearch: WebSearchSettings;
+  settings: OrderedProviderSettings;
+  kind: keyof typeof ORDERED_GROUP_TEXT;
   pluginStates?: PluginState[];
 }) {
-  const { providers, onChange } = webSearch;
+  const { providers, onChange } = settings;
+  const text = ORDERED_GROUP_TEXT[kind];
   const isMulti = providers.length > 1;
   const sourceName = (pluginId: string) =>
     pluginStates?.find((p) => p.id === pluginId)?.manifest.name ?? pluginId;
@@ -319,15 +340,13 @@ function WebSearchProviderGroup({
 
   return (
     <div className="settings-group">
-      <div className="settings-group-title">Web search</div>
-      <p className="settings-description provider-group-description">
-        Used when a plugin or an AI assistant searches the web. Vibo asks these in order and uses the first that answers; a switched-off one is never sent a search.
-      </p>
+      <div className="settings-group-title">{text.title}</div>
+      <p className="settings-description provider-group-description">{text.description}</p>
       <div className="provider-priority-container">
         <div className="provider-entity-group">
           <div className="provider-entity-rows">
             <div className="provider-priority-row">
-              <span className="provider-priority-label">Search the web with</span>
+              <span className="provider-priority-label">{text.rowLabel}</span>
               <div className="provider-vlist" data-vlist>
                 {providers.map((p, idx) => (
                   <div
@@ -350,7 +369,7 @@ function WebSearchProviderGroup({
                       className={`provider-switch${p.enabled ? " on" : ""}`}
                       role="switch"
                       aria-checked={p.enabled}
-                      aria-label={`${p.name} web search`}
+                      aria-label={`${p.name} ${text.ariaSuffix}`}
                       onClick={() => handleToggle(p.key)}
                       title={p.enabled ? "Enabled — click to disable" : "Disabled — click to enable"}
                     />
@@ -369,10 +388,12 @@ function ProviderPrioritySection({
   pluginStates,
   onStreamResolverOrderChanged,
   webSearch,
+  contextImages,
 }: {
   pluginStates?: PluginState[];
   onStreamResolverOrderChanged?: () => void;
   webSearch?: WebSearchSettings;
+  contextImages?: OrderedProviderSettings;
 }) {
   const [entityData, setEntityData] = useState<Map<string, ProviderRow[]>>(new Map());
   const [collapsedEntities, setCollapsedEntities] = useState<Set<string>>(new Set());
@@ -569,8 +590,10 @@ function ProviderPrioritySection({
     } catch (e) {
       console.error("Failed to reset priorities:", e);
     }
-    // The Web search list sits right above the button, so it resets too.
+    // The Web search and Context images lists sit right above the button, so
+    // they reset too.
     await webSearch?.onReset();
+    await contextImages?.onReset();
   };
 
   const entityLabels: Record<string, string> = {
@@ -716,7 +739,10 @@ function ProviderPrioritySection({
       )}
 
       {webSearch && webSearch.providers.length > 0 && (
-        <WebSearchProviderGroup webSearch={webSearch} pluginStates={pluginStates} />
+        <OrderedProviderGroup settings={webSearch} kind="webSearch" pluginStates={pluginStates} />
+      )}
+      {contextImages && contextImages.providers.length > 0 && (
+        <OrderedProviderGroup settings={contextImages} kind="contextImages" pluginStates={pluginStates} />
       )}
 
       <div className="settings-actions-row provider-priority-actions">
@@ -1570,6 +1596,8 @@ interface SettingsPanelProps {
   onStreamResolverOrderChanged?: () => void;
   /** Web-search provider order + switches (Providers tab). */
   webSearch?: WebSearchSettings;
+  /** Context-image provider order + switches (Providers tab). */
+  contextImages?: OrderedProviderSettings;
   /** Dependencies live in Extensions → Tools; this opens that tab. */
   onOpenDependencies: () => void;
   /** Config for the cycling Now Playing info line (Playback group). */
@@ -1685,6 +1713,7 @@ export function SettingsPanel({
   onNotify,
   onStreamResolverOrderChanged,
   webSearch,
+  contextImages,
   onOpenDependencies,
   nowPlayingInfo,
   scrollToId,
@@ -2365,6 +2394,7 @@ export function SettingsPanel({
                 pluginStates={pluginStates}
                 onStreamResolverOrderChanged={onStreamResolverOrderChanged}
                 webSearch={webSearch}
+                contextImages={contextImages}
               />
             )}
 

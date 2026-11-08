@@ -33,6 +33,8 @@ import type {
   HomeShelfDisplayKind, HomeShelfItem, HomeShelfResult, GalleryPluginEntry,
   PluginAssistantTool, ImageFetchResult, DownloadProvider, DownloadQualityOption,
   PluginWebSearchResult,
+  ContextImageRequest,
+  ContextImageResult,
 } from "../types/plugin";
 import type { OrderedWebSearchProvider } from "../utils/webSearch";
 import { classifyEffectiveSource } from "../queueEntry";
@@ -56,6 +58,7 @@ import { cueCountBucket, cueErrorField, cueText, cueWriteSong, sameCueSong, spli
 import { saveCueSheet, type CueOpsDeps } from "../utils/cueOps";
 import { track } from "../telemetry";
 import { contextImageTypeIds, gatherCueContext } from "../utils/cueContext";
+import { typesSpokenForByProviders, type OrderedContextImageProvider } from "../utils/contextImages";
 import { buildExternalQueueTrack } from "../utils/externalTrack";
 import { errorText } from "../utils/errorKind";
 import { stabilityTier } from "../utils/pluginStability";
@@ -168,6 +171,9 @@ export interface ControlApiDeps {
     /** Web-search providers in the user's order, with their switches. */
     webSearchProviders: OrderedWebSearchProvider[];
     invokeWebSearch: (pluginId: string, providerId: string, query: string, limit: number) => Promise<PluginWebSearchResult>;
+    /** Context-image providers in the user's order (the cue context's pictures). */
+    contextImageProviders: OrderedContextImageProvider[];
+    invokeContextImages: (pluginId: string, providerId: string, request: ContextImageRequest) => Promise<ContextImageResult>;
     invokeInfoFetch: InvokeInfoFetch;
     pluginNames?: Map<string, string>;
     /** Plugin home shelves (merged manifest + runtime, e.g. Spotify sections). */
@@ -968,12 +974,16 @@ export function useControlApi(deps: ControlApiDeps) {
           });
           track = row ? trackToQueueTrack(row) : buildExternalQueueTrack(song.title, song.artistName);
         }
+        const activePlugins = d.plugins.pluginStates.filter((p) => p.status === "active");
         return await gatherCueContext({
           track,
           isPlaying,
           invokeInfoFetch: d.plugins.invokeInfoFetch,
           pluginNames: d.plugins.pluginNames,
-          imageTypeIds: contextImageTypeIds(d.plugins.pluginStates.filter((p) => p.status === "active")),
+          imageTypeIds: contextImageTypeIds(activePlugins),
+          contextImageProviders: d.plugins.contextImageProviders,
+          invokeContextImages: d.plugins.invokeContextImages,
+          excludeImageTypeIds: typesSpokenForByProviders(activePlugins),
         });
       }
 
