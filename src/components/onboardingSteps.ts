@@ -108,13 +108,14 @@ export const PROFILE_PRESETS: Record<OnboardingProfile, ProfilePreset> = {
       "These plugins are where your music comes from. The ones you need are already selected — Continue installs them. You can add more later from Extensions, or a folder of your own under Collections.",
     installPluginsOnContinue: true,
     autoInstallTools: true,
-    // With no library, the library-backed defaults (Recently added, Made for
-    // you, Discover by decade, Forgotten favorites, Liked albums — and the
-    // Radio carousel, whose seeds are library tracks) are always empty and
-    // hide themselves. These two need no library: likes live in the
-    // metadata-keyed entity_likes store and history is name-keyed, and an
-    // artist card with no library row opens the name-based artist page.
-    profileShelves: ["builtin:recently-liked", "builtin:most-played-artists-30d"],
+    // With no library, the library-backed defaults (Made for you, Discover by
+    // decade, Forgotten favorites — and the Radio carousel, whose seeds are
+    // library tracks) are always empty and hide themselves. Your lists is on
+    // for everyone and its liked / most played cards need no library (likes
+    // live in the metadata-keyed entity_likes store, history is name-keyed).
+    // This one needs none either: an artist card with no library row opens
+    // the name-based artist page.
+    profileShelves: ["builtin:most-played-artists-30d"],
   },
 };
 

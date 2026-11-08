@@ -16,8 +16,15 @@ import {
   playlistShelfTrack,
   mixCards,
   madeForYouPlaylists,
-  latestAdditionsCard,
-  LATEST_ADDITIONS_CARD_ID,
+  listCard,
+  recentAdditions,
+  fetchYourLists,
+  historyShelfTrack,
+  LATEST_ADDITIONS_WINDOW_SECS,
+  YOUR_LISTS,
+  YOUR_LISTS_SHELF_ID,
+  MADE_FOR_YOU_SHELF_ID,
+  type YourListSpec,
   type TrackMix,
 } from "../hooks/useHome";
 import type { Track } from "../types";
@@ -89,24 +96,85 @@ describe("mix shelves", () => {
   });
 });
 
-describe("Latest additions card (leads Made for you)", () => {
-  it("is a playable card of the newest tracks, covered by the lead's album", async () => {
-    const cover = vi.fn(async (album: string | null | undefined, artist: string | null | undefined) =>
-      album === "New LP" && artist === "Band" ? "/covers/new.jpg" : null);
-    const card = await latestAdditionsCard(
-      [libTrack(1, { album_title: "New LP", album_artist_name: "Band" }), libTrack(2)],
-      cover,
-    );
-    const c = card as { id: string; name: string; subtitle?: string; coverUrl?: string; tracks: Array<{ path?: string | null }> };
-    expect(c.id).toBe(LATEST_ADDITIONS_CARD_ID);
-    expect(c.name).toBe("Latest additions");
-    expect(c.subtitle).toBe("2 tracks");
-    expect(c.coverUrl).toBe("/covers/new.jpg");
-    expect(c.tracks.map((t) => t.path)).toEqual(["file:///m/1.flac", "file:///m/2.flac"]);
+describe("Your lists", () => {
+  const cardOf = (c: unknown) => c as { id: string; name: string; subtitle?: string; coverUrl?: string; tracks: Array<{ path?: string | null }> };
+
+  it("is on by default, right after Made for you", () => {
+    const ids = BUILTIN_SHELF_DESCRIPTORS.map((d) => d.id);
+    expect(ids.indexOf(YOUR_LISTS_SHELF_ID)).toBe(ids.indexOf(MADE_FOR_YOU_SHELF_ID) + 1);
+    expect(BUILTIN_SHELF_DESCRIPTORS.find((d) => d.id === YOUR_LISTS_SHELF_ID)?.defaultVisible).toBe(true);
   });
 
-  it("is left out when the library has no tracks", async () => {
-    expect(await latestAdditionsCard([], vi.fn(async () => null))).toBeNull();
+  it("keeps the track-row shelves its cards duplicate, all opt-in", () => {
+    for (const id of ["builtin:most-played-30d", "builtin:recently-added-tracks", "builtin:recently-liked", "builtin:random-liked", "builtin:never-played"]) {
+      expect(BUILTIN_SHELF_DESCRIPTORS.find((d) => d.id === id)?.defaultVisible, id).toBe(false);
+    }
+  });
+
+  it("lists its cards in order with stable ids", () => {
+    expect(YOUR_LISTS.map((l) => l.name)).toEqual([
+      "Latest additions", "Most played · 30 days", "Most played · all time",
+      "Recently liked", "Random liked", "Never played",
+    ]);
+    expect(new Set(YOUR_LISTS.map((l) => l.id)).size).toBe(YOUR_LISTS.length);
+  });
+
+  it("a card plays its tracks and is covered by the lead's album", async () => {
+    const cover = vi.fn(async (album: string | null | undefined, artist: string | null | undefined) =>
+      album === "New LP" && artist === "Band" ? "/covers/new.jpg" : null);
+    const card = cardOf(await listCard("list:x", "X", [
+      { title: "A", artist_name: "Solo", album_title: "New LP", album_artist_name: "Band", path: "file:///m/1.flac" },
+      { title: "B", path: "file:///m/2.flac" },
+    ], cover));
+    expect(card).toMatchObject({ id: "list:x", name: "X", subtitle: "2 tracks", coverUrl: "/covers/new.jpg" });
+    expect(card.tracks.map((t) => t.path)).toEqual(["file:///m/1.flac", "file:///m/2.flac"]);
+  });
+
+  it("an empty list has no card", async () => {
+    expect(await listCard("list:x", "X", [], vi.fn(async () => null))).toBeNull();
+  });
+
+  it("Latest additions keeps only tracks added in the last 30 days", () => {
+    const now = 1_800_000_000;
+    const tracks = [
+      libTrack(1, { added_at: now - 60 }),
+      libTrack(2, { added_at: now - LATEST_ADDITIONS_WINDOW_SECS }),
+      libTrack(3, { added_at: now - LATEST_ADDITIONS_WINDOW_SECS - 1 }),
+      libTrack(4, { added_at: null }),
+    ];
+    expect(recentAdditions(tracks, now).map((t) => t.id)).toEqual([1, 2]);
+  });
+
+  it("a history row carries the library copy's album and path", () => {
+    expect(historyShelfTrack({
+      history_track_id: 1, play_count: 3, rank: 1, display_title: "Song", display_artist: "Band",
+      display_album: "LP", display_album_artist: "Various Artists", display_path: "file:///m/s.flac",
+    })).toEqual({ title: "Song", artist_name: "Band", album_title: "LP", album_artist_name: "Various Artists", path: "file:///m/s.flac" });
+  });
+
+  const spec = (id: string, load: YourListSpec["load"]): YourListSpec => ({ id, name: id, load });
+  const noCover = vi.fn(async () => null);
+
+  it("leaves empty lists out and asks each for the card size", async () => {
+    const full = vi.fn(async () => [{ title: "A" }]);
+    const res = await fetchYourLists([spec("a", full), spec("b", async () => [])], 30, noCover);
+    expect(full).toHaveBeenCalledWith(30);
+    expect(res.status).toBe("ok");
+    expect(res.status === "ok" && res.items.map((i) => cardOf(i).id)).toEqual(["a"]);
+  });
+
+  it("a failing list costs only its own card", async () => {
+    const err = vi.spyOn(console, "error").mockImplementation(() => {});
+    const res = await fetchYourLists([spec("a", async () => { throw new Error("db"); }), spec("b", async () => [{ title: "B" }])], 30, noCover);
+    expect(res.status === "ok" && res.items.map((i) => cardOf(i).id)).toEqual(["b"]);
+    err.mockRestore();
+  });
+
+  it("is empty when every list is, and an error only when every list failed", async () => {
+    expect((await fetchYourLists([spec("a", async () => [])], 30, noCover)).status).toBe("empty");
+    const err = vi.spyOn(console, "error").mockImplementation(() => {});
+    expect((await fetchYourLists([spec("a", async () => { throw new Error("db"); })], 30, noCover)).status).toBe("error");
+    err.mockRestore();
   });
 });
 
@@ -181,24 +249,24 @@ describe("findUnattemptedShelfKeys", () => {
 
 describe("findUnattemptedBuiltInKeys", () => {
   // After a refresh with defaults, attemptedKeys holds the default-visible shelves.
-  // "builtin:recently-liked" is off by default, so it was never attempted.
+  // "builtin:liked-artists" is off by default, so it was never attempted.
   it("flags a default-off built-in the user just enabled via Customize", () => {
     const attempted = new Set(["builtin:recently-played", "builtin:liked-albums"]);
-    const visibility = { "builtin:recently-liked": true };
+    const visibility = { "builtin:liked-artists": true };
     const result = findUnattemptedBuiltInKeys(visibility, attempted);
-    expect(result).toContain("builtin:recently-liked");
+    expect(result).toContain("builtin:liked-artists");
   });
 
   it("does not flag a default-off shelf the user has not enabled", () => {
     const attempted = new Set(["builtin:recently-played"]);
     // No explicit visibility -> default-off shelves stay hidden, so not fetched.
-    expect(findUnattemptedBuiltInKeys({}, attempted)).not.toContain("builtin:recently-liked");
+    expect(findUnattemptedBuiltInKeys({}, attempted)).not.toContain("builtin:liked-artists");
   });
 
   it("does not flag a built-in that was already attempted last refresh", () => {
-    const attempted = new Set(["builtin:liked-albums"]);
-    // liked-albums is on by default and was attempted; should not re-trigger.
-    expect(findUnattemptedBuiltInKeys({}, attempted)).not.toContain("builtin:liked-albums");
+    const attempted = new Set(["builtin:forgotten-favorites"]);
+    // forgotten-favorites is on by default and was attempted; should not re-trigger.
+    expect(findUnattemptedBuiltInKeys({}, attempted)).not.toContain("builtin:forgotten-favorites");
   });
 
   it("never flags the Radio shelf (its data is fetched independently)", () => {

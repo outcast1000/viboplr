@@ -40,6 +40,7 @@ export const LATEST_PLAY_SHELF_ID = "builtin:latest-play";
 
 // Id of the "Made for you" shelf — the Playlists view's auto mixes.
 export const MADE_FOR_YOU_SHELF_ID = "builtin:made-for-you";
+export const YOUR_LISTS_SHELF_ID = "builtin:your-lists";
 
 // Canonical built-in shelves in their default order — the single source of truth
 // for the standard shelf set (id + title + default order + default visibility).
@@ -50,22 +51,26 @@ export const BUILTIN_SHELF_DESCRIPTORS: { id: string; title: string; description
   // Visible by default — the curated Home.
   { id: RADIO_SHELF_ID, title: "Radio", description: "Stations spun from songs you’ll like.", defaultVisible: true },
   { id: LATEST_PLAY_SHELF_ID, title: "Latest play", description: "Jump back into what you last played.", defaultVisible: true },
-  { id: MADE_FOR_YOU_SHELF_ID, title: "Made for you", description: "Your latest additions and the mixes from the Playlists view.", defaultVisible: true },
-  { id: "builtin:recently-added", title: "Recently added albums", description: "The newest albums in your library.", defaultVisible: true },
-  { id: "builtin:most-played-30d", title: "Most played · 30 days", description: "Your heavy rotation this month.", defaultVisible: true },
+  { id: MADE_FOR_YOU_SHELF_ID, title: "Made for you", description: "The mixes from the Playlists view.", defaultVisible: true },
+  { id: YOUR_LISTS_SHELF_ID, title: "Your lists", description: "Latest additions, most played, liked and never played — each a list to play.", defaultVisible: true },
   { id: "builtin:discover-by-decade", title: "Discover by decade", description: "A mix from each era in your collection.", defaultVisible: true },
   { id: "builtin:forgotten-favorites", title: "Forgotten favorites", description: "Mixes of old favorites you haven’t played in a while.", defaultVisible: true },
-  // Shuffled, not alphabetical — a 20-card view of an A→Z list showed the same
-  // "A" albums on every refresh. "Recently liked albums" covers the by-date view.
-  { id: "builtin:liked-albums", title: "Liked albums", description: "A shuffle through albums you’ve hearted.", defaultVisible: true },
   // Off by default — opt in via Customize.
   // Recently played is History's Recent tab as a shelf; next to Latest play it
   // read as a second "recent" row, so it's opt-in.
   { id: "builtin:recently-played", title: "Recently played", description: "Songs you’ve heard most recently.", defaultVisible: false },
-  // Track-level counterpart to "Recently added albums": surfaces the newest
-  // tracks (including videos, which carry no album_id and so never appear in the
-  // album-cards shelf). Opt-in to keep the default Home from double-listing a
-  // freshly added album as both cards and rows.
+  // Opt-in since 2026-11-08: Your lists' Latest additions card already covers
+  // the newest arrivals.
+  { id: "builtin:recently-added", title: "Recently added albums", description: "The newest albums in your library.", defaultVisible: false },
+  // Shuffled, not alphabetical — a 20-card view of an A→Z list showed the same
+  // "A" albums on every refresh. "Recently liked albums" covers the by-date view.
+  // Opt-in since 2026-11-08.
+  { id: "builtin:liked-albums", title: "Liked albums", description: "A shuffle through albums you’ve hearted.", defaultVisible: false },
+  // Track-row views of Your lists' cards, for seeing the songs rather than
+  // playing the list. Opt-in since 2026-11-08, when the cards took over Home.
+  { id: "builtin:most-played-30d", title: "Most played · 30 days", description: "Your heavy rotation this month.", defaultVisible: false },
+  // Unlike the Latest additions card (last 30 days only), this shows the
+  // newest tracks whatever their age, videos included.
   { id: "builtin:recently-added-tracks", title: "Recently added tracks", description: "The newest tracks in your library, including videos.", defaultVisible: false },
   { id: "builtin:most-played-artists-30d", title: "Most played artists · 30 days", description: "Who you’ve had on repeat lately.", defaultVisible: false },
   { id: "builtin:recently-liked", title: "Recently liked", description: "Songs you’ve loved most recently.", defaultVisible: false },
@@ -347,20 +352,6 @@ function radioStationItem(id: string, seed: RadioSeedLike, coverUrl: string | nu
 // artwork when the track isn't in the library). Scoped to these liked
 // track-rows shelves, so a plugin's genuinely-explicit image_url on a video
 // elsewhere (queue / now-playing) is unaffected.
-function likedTrackRowItem(r: LikedEntityInfo): HomeShelfItem {
-  const path = r.path ?? undefined;
-  const dropImageUrl = isVideoTrack({ format: null, path }) && isLocalTrack({ path });
-  return {
-    track: {
-      title: r.name,
-      artist_name: r.artist_name ?? undefined,
-      album_title: r.album_title ?? undefined,
-      path,
-      image_url: dropImageUrl ? undefined : (r.image_url ?? undefined),
-    },
-  };
-}
-
 // Resolve a cover image (album image first, artist image fallback) for a seed.
 // Cache-only lookups via get_entity_image, so it stays well within the shelf budget.
 async function resolveCover(
@@ -409,28 +400,162 @@ export async function mixCards(
   }));
 }
 
-// The live "Latest additions" card that opens Made for you: the newest tracks
-// by `added_at`. Built at every shelf fetch rather than stored as an auto
-// playlist — those regenerate on a 24h cycle, and a list of what was just added
-// is only worth anything while it is fresh. Audio and video both: it answers
-// "what did I just add", whatever kind it is.
-export const LATEST_ADDITIONS_CARD_ID = "latest-additions";
-export const LATEST_ADDITIONS_SIZE = 30;
+// Your lists: fixed lists with a name (newest additions, most played, liked,
+// never played), each one card that plays the list under that name. Built at
+// every shelf fetch rather than stored as auto playlists — those regenerate on
+// a 24h cycle, and these lists are only worth anything while they're current.
+export const YOUR_LISTS_SIZE = 30;
+// "Latest additions" holds only tracks added in this window: a library that
+// hasn't grown in months has no latest additions, just old ones.
+export const LATEST_ADDITIONS_WINDOW_SECS = 30 * 24 * 60 * 60;
 
-export async function latestAdditionsCard(
-  tracks: Track[],
+// The tracks among `tracks` added within the Latest additions window, in the
+// order given. A track with no `added_at` is left out (its age is unknown).
+export function recentAdditions(tracks: Track[], nowSecs: number): Track[] {
+  const since = nowSecs - LATEST_ADDITIONS_WINDOW_SECS;
+  return tracks.filter((t) => t.added_at != null && t.added_at >= since);
+}
+
+// A history row (most played) as a shelf track: the library copy's album and
+// path when the backend found one, so the cover and a local video's frame
+// resolve and play uses that exact file.
+export function historyShelfTrack(h: HistoryMostPlayed): PluginTrack {
+  return {
+    title: h.display_title,
+    artist_name: h.display_artist ?? undefined,
+    album_title: h.display_album ?? undefined,
+    album_artist_name: h.display_album_artist ?? undefined,
+    path: h.display_path ?? undefined,
+  };
+}
+
+// A liked song (`pick_liked_entities`) as a shelf track. Likes are keyed by
+// name, so a song with no library copy has no path and plays through the
+// stream resolvers. A local video drops the image so its own frame shows.
+export function likedShelfTrack(r: LikedEntityInfo): PluginTrack {
+  const path = r.path ?? undefined;
+  const dropImageUrl = isVideoTrack({ format: null, path }) && isLocalTrack({ path });
+  return {
+    title: r.name,
+    artist_name: r.artist_name ?? undefined,
+    album_title: r.album_title ?? undefined,
+    path,
+    image_url: dropImageUrl ? undefined : (r.image_url ?? undefined),
+  };
+}
+
+// One card on Your lists, or null when the list is empty (a new library has
+// nothing played or liked yet, and an empty card plays nothing). The cover is
+// the lead track's album → artist, as on the mix cards.
+export async function listCard(
+  id: string,
+  name: string,
+  tracks: PluginTrack[],
   cover: typeof resolveCover = resolveCover,
 ): Promise<HomeShelfItem | null> {
   const lead = tracks[0];
   if (!lead) return null;
   const coverUrl = await cover(lead.album_title, lead.album_artist_name ?? lead.artist_name);
   return {
-    id: LATEST_ADDITIONS_CARD_ID,
-    name: "Latest additions",
+    id,
+    name,
     subtitle: trackCountLabel(tracks.length),
     coverUrl: coverUrl ?? undefined,
-    tracks: tracks.map(libraryShelfTrack),
+    tracks,
   };
+}
+
+// One card of Your lists: `load` reads its tracks. Ids are stable
+// (`list:<slug>`) so a card keeps its place across refreshes.
+export interface YourListSpec {
+  id: string;
+  name: string;
+  load: (limit: number) => Promise<PluginTrack[]>;
+}
+
+// The cards, in shelf order.
+export const YOUR_LISTS: YourListSpec[] = [
+  {
+    id: "list:latest-additions",
+    name: "Latest additions",
+    // Audio and video both: it answers "what did I just add", whatever kind.
+    // A same-second scan batch ties newest row first (the id tie-break follows
+    // the sort direction).
+    load: async (limit) => {
+      const newest = (await invoke<Track[]>("get_tracks", {
+        opts: { sortField: "added", sortDir: "desc", limit },
+      })) ?? [];
+      return recentAdditions(newest, Math.floor(Date.now() / 1000)).map(libraryShelfTrack);
+    },
+  },
+  {
+    id: "list:most-played-30d",
+    name: "Most played · 30 days",
+    // At least two plays in the window: with one each, it was just a
+    // reordered "Recently played".
+    load: async (limit) => {
+      const sinceTs = Math.floor(Date.now() / 1000) - 30 * 24 * 60 * 60;
+      const rows = (await invoke<HistoryMostPlayed[]>("get_history_most_played_since", { sinceTs, limit, minPlays: 2 })) ?? [];
+      return rows.map(historyShelfTrack);
+    },
+  },
+  {
+    id: "list:most-played",
+    name: "Most played · all time",
+    load: async (limit) => {
+      const rows = (await invoke<HistoryMostPlayed[]>("get_history_most_played", { limit })) ?? [];
+      return rows.map(historyShelfTrack);
+    },
+  },
+  {
+    id: "list:recently-liked",
+    name: "Recently liked",
+    load: async (limit) => {
+      const rows = (await invoke<LikedEntityInfo[]>("pick_liked_entities", { kind: "track", order: "recent", limit })) ?? [];
+      return rows.map(likedShelfTrack);
+    },
+  },
+  {
+    id: "list:random-liked",
+    name: "Random liked",
+    // Reshuffled at every refresh.
+    load: async (limit) => {
+      const rows = (await invoke<LikedEntityInfo[]>("pick_liked_entities", { kind: "track", order: "random", limit })) ?? [];
+      return rows.map(likedShelfTrack);
+    },
+  },
+  {
+    id: "list:never-played",
+    name: "Never played",
+    load: async (limit) => {
+      const tracks = (await invoke<Track[]>("pick_never_played_tracks", { limit })) ?? [];
+      return tracks.map(libraryShelfTrack);
+    },
+  },
+];
+
+// Build Your lists. Each card fails apart — an unreadable list costs only its
+// own card; only every list failing makes the shelf an error. Empty lists are
+// left out. `cover` is injectable for tests.
+export async function fetchYourLists(
+  specs: YourListSpec[],
+  size: number,
+  cover: typeof resolveCover = resolveCover,
+): Promise<HomeShelfResult> {
+  const results = await Promise.all(specs.map(async (spec) => {
+    try {
+      return { ok: true as const, card: await listCard(spec.id, spec.name, await spec.load(size), cover) };
+    } catch (e) {
+      console.error(`Failed to build the "${spec.name}" list:`, e);
+      return { ok: false as const, error: e };
+    }
+  }));
+  const errors = results.flatMap((r) => (r.ok ? [] : [r.error]));
+  if (specs.length > 0 && errors.length === specs.length) {
+    return { status: "error", message: String(errors[0]) };
+  }
+  const items = results.flatMap((r) => (r.ok && r.card ? [r.card] : []));
+  return items.length > 0 ? { status: "ok", items } : { status: "empty" };
 }
 
 // A mixtape's cover as a data: URI, read out of the file by the backend. Cached
@@ -812,21 +937,9 @@ export function useHome(opts: UseHomeOptions) {
               // just a reordered "Recently played".
               const tracks = (await invoke<HistoryMostPlayed[]>("get_history_most_played_since", { sinceTs, limit, minPlays: 2 })) ?? [];
               if (tracks.length === 0) return { status: "empty" };
-              return {
-                status: "ok",
-                items: tracks.map(t => ({
-                  track: {
-                    title: t.display_title,
-                    artist_name: t.display_artist ?? undefined,
-                    // Library-resolved album (history stores none) → album cover
-                    // via the shared chain, artist-image fallback when absent.
-                    album_title: t.display_album ?? undefined,
-                    album_artist_name: t.display_album_artist ?? undefined,
-                    // Library copy's path → video frame, as on Recently played.
-                    path: t.display_path ?? undefined,
-                  },
-                })),
-              };
+              // Library-resolved album → cover; library copy's path → video
+              // frame, as on Recently played.
+              return { status: "ok", items: tracks.map(t => ({ track: historyShelfTrack(t) })) };
             } catch (e) {
               return { status: "error", message: String(e) };
             }
@@ -887,32 +1000,17 @@ export function useHome(opts: UseHomeOptions) {
         {
           id: "builtin:recently-added-tracks",
           title: "Recently added tracks",
-          // Track-based (not album-based) so videos — which have no album_id —
-          // and loose singles surface here. Sorted by tracks.added_at desc.
           displayKind: "track-rows",
           limit: 20,
           fetch: async (limit) => {
             try {
+              // Track-based (not album-based) so videos — which have no
+              // album_id — and loose singles surface. tracks.added_at desc.
               const tracks = (await invoke<Track[]>("get_tracks", {
                 opts: { sortField: "added", sortDir: "desc", limit },
               })) ?? [];
               if (tracks.length === 0) return { status: "empty" };
-              return {
-                status: "ok",
-                items: tracks.map(t => ({
-                  track: {
-                    title: t.title,
-                    artist_name: t.artist_name ?? undefined,
-                    album_title: t.album_title ?? undefined,
-                    // Carry the real file:// path + duration so the queued track is a
-                    // first-class local track (Open Folder / delete-by-path work, native
-                    // playback). No image_url: these are library tracks, so their queue
-                    // art resolves via the entity cache (avoids a redundant thumb write).
-                    path: t.path,
-                    duration_secs: t.duration_secs ?? undefined,
-                  },
-                })),
-              };
+              return { status: "ok", items: tracks.map(t => ({ track: libraryShelfTrack(t) })) };
             } catch (e) {
               return { status: "error", message: String(e) };
             }
@@ -927,7 +1025,37 @@ export function useHome(opts: UseHomeOptions) {
             try {
               const rows = (await invoke<LikedEntityInfo[]>("pick_liked_entities", { kind: "track", order: "recent", limit })) ?? [];
               if (rows.length === 0) return { status: "empty" };
-              return { status: "ok", items: rows.map(likedTrackRowItem) };
+              return { status: "ok", items: rows.map(r => ({ track: likedShelfTrack(r) })) };
+            } catch (e) {
+              return { status: "error", message: String(e) };
+            }
+          },
+        },
+        {
+          id: "builtin:random-liked",
+          title: "Random liked",
+          displayKind: "track-rows",
+          limit: 20,
+          fetch: async (limit) => {
+            try {
+              const rows = (await invoke<LikedEntityInfo[]>("pick_liked_entities", { kind: "track", order: "random", limit })) ?? [];
+              if (rows.length === 0) return { status: "empty" };
+              return { status: "ok", items: rows.map(r => ({ track: likedShelfTrack(r) })) };
+            } catch (e) {
+              return { status: "error", message: String(e) };
+            }
+          },
+        },
+        {
+          id: "builtin:never-played",
+          title: "Never played",
+          displayKind: "track-rows",
+          limit: 20,
+          fetch: async (limit) => {
+            try {
+              const tracks = (await invoke<Track[]>("pick_never_played_tracks", { limit })) ?? [];
+              if (tracks.length === 0) return { status: "empty" };
+              return { status: "ok", items: tracks.map(t => ({ track: libraryShelfTrack(t) })) };
             } catch (e) {
               return { status: "error", message: String(e) };
             }
@@ -974,21 +1102,6 @@ export function useHome(opts: UseHomeOptions) {
                 return { libraryId: artist?.id, name: r.name };
               }));
               return { status: "ok", items };
-            } catch (e) {
-              return { status: "error", message: String(e) };
-            }
-          },
-        },
-        {
-          id: "builtin:random-liked",
-          title: "Random liked",
-          displayKind: "track-rows",
-          limit: 20,
-          fetch: async (limit) => {
-            try {
-              const rows = (await invoke<LikedEntityInfo[]>("pick_liked_entities", { kind: "track", order: "random", limit })) ?? [];
-              if (rows.length === 0) return { status: "empty" };
-              return { status: "ok", items: rows.map(likedTrackRowItem) };
             } catch (e) {
               return { status: "error", message: String(e) };
             }
@@ -1060,24 +1173,6 @@ export function useHome(opts: UseHomeOptions) {
           },
         },
         {
-          id: "builtin:never-played",
-          title: "Never played",
-          displayKind: "track-rows",
-          limit: 20,
-          fetch: async (limit) => {
-            try {
-              const tracks = (await invoke<Track[]>("pick_never_played_tracks", { limit })) ?? [];
-              if (tracks.length === 0) return { status: "empty" };
-              return {
-                status: "ok",
-                items: tracks.map(t => ({ track: libraryShelfTrack(t) })),
-              };
-            } catch (e) {
-              return { status: "error", message: String(e) };
-            }
-          },
-        },
-        {
           id: MADE_FOR_YOU_SHELF_ID,
           title: "Made for you",
           // The Playlists view's auto mixes (daily mix, genre, discovery…), so
@@ -1085,31 +1180,16 @@ export function useHome(opts: UseHomeOptions) {
           // 24h cycle (App.tsx, `ensure_auto_playlists`); each card ships its
           // full list so a click plays at once, as on Discover by decade.
           displayKind: "playlist-cards",
-          // Led by the live "Latest additions" card (latestAdditionsCard), so
-          // 13 = the card plus the 12 mixes the shelf showed before it.
-          limit: 13,
+          limit: 12,
           fetch: async (limit) => {
-            // The card and the mixes fail apart: either half still renders
-            // when the other can't be read. Only both failing is an error.
-            const latestTask = invoke<Track[]>("get_tracks", {
-              opts: { sortField: "added", sortDir: "desc", limit: LATEST_ADDITIONS_SIZE },
-            })
-              .then((newest) => latestAdditionsCard(newest ?? []))
-              .then((card) => ({ ok: true as const, card }))
-              .catch((e: unknown) => {
-                console.error("Failed to build the Latest additions card:", e);
-                return { ok: false as const, error: e };
-              });
-            const mixesTask = getPlaylistRows()
-              .then((rows) => ({ ok: true as const, rows }))
-              .catch((e: unknown) => {
-                console.error("Failed to read the Made for you mixes:", e);
-                return { ok: false as const, error: e };
-              });
-            const [latest, mixRows] = await Promise.all([latestTask, mixesTask]);
-            if (!latest.ok && !mixRows.ok) return { status: "error", message: String(mixRows.error) };
-            const card = latest.ok ? latest.card : null;
-            const mixes = mixRows.ok ? madeForYouPlaylists(mixRows.rows).slice(0, card ? limit - 1 : limit) : [];
+            let rows: DecadePlaylistRow[];
+            try {
+              rows = await getPlaylistRows();
+            } catch (e) {
+              console.error("Failed to read the Made for you mixes:", e);
+              return { status: "error", message: String(e) };
+            }
+            const mixes = madeForYouPlaylists(rows).slice(0, limit);
             const items = await Promise.all(mixes.map(async (p): Promise<HomeShelfItem | null> => {
               try {
                 const rows = (await invoke<PlaylistTrackRow[]>("get_playlist_tracks", { playlistId: p.id })) ?? [];
@@ -1133,9 +1213,16 @@ export function useHome(opts: UseHomeOptions) {
                 return null;
               }
             }));
-            const cards = [card, ...items].filter((it): it is HomeShelfItem => it !== null);
+            const cards = items.filter((it): it is HomeShelfItem => it !== null);
             return cards.length > 0 ? { status: "ok", items: cards } : { status: "empty" };
           },
+        },
+        {
+          id: YOUR_LISTS_SHELF_ID,
+          title: "Your lists",
+          displayKind: "playlist-cards",
+          limit: YOUR_LISTS.length,
+          fetch: () => fetchYourLists(YOUR_LISTS, YOUR_LISTS_SIZE),
         },
         {
           id: "builtin:discover-by-decade",

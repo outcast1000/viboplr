@@ -6,7 +6,6 @@ import {
 } from "../components/onboardingSteps";
 import { BUILTIN_SHELF_DESCRIPTORS, isShelfVisible } from "../hooks/useHome";
 
-const LIKED_SHELF = "builtin:recently-liked";
 const ARTISTS_SHELF = "builtin:most-played-artists-30d";
 
 describe("profileShelves", () => {
@@ -36,7 +35,7 @@ describe("profileShelves", () => {
   it("gives the no-collection profile the shelves that fill without a library", () => {
     // Likes are metadata-keyed and history is name-keyed, so both work for a
     // setup whose every track comes from a plugin.
-    expect(PROFILE_PRESETS.streaming.profileShelves).toEqual([LIKED_SHELF, ARTISTS_SHELF]);
+    expect(PROFILE_PRESETS.streaming.profileShelves).toEqual([ARTISTS_SHELF]);
   });
 
   it("seeds nothing for own music — it is every non-wizard user's profile too", () => {
@@ -49,7 +48,6 @@ describe("profileShelves", () => {
 describe("seedProfileShelfVisibility", () => {
   it("switches the shelves on when the user has no opinion yet", () => {
     expect(seedProfileShelfVisibility("streaming", {})).toEqual({
-      [LIKED_SHELF]: true,
       [ARTISTS_SHELF]: true,
     });
   });
@@ -58,32 +56,25 @@ describe("seedProfileShelfVisibility", () => {
     expect(seedProfileShelfVisibility("normal", {})).toBeNull();
   });
 
-  it("fills only the shelves still unset", () => {
-    expect(seedProfileShelfVisibility("streaming", { [LIKED_SHELF]: false })).toEqual({
-      [LIKED_SHELF]: false,
-      [ARTISTS_SHELF]: true,
-    });
-  });
-
   it("never overrides a shelf the user set either way", () => {
     // The wizard is re-runnable from Settings. Re-asserting the profile's
     // shelves on each run would silently undo a deliberate toggle.
-    expect(seedProfileShelfVisibility("streaming", { [LIKED_SHELF]: false, [ARTISTS_SHELF]: false })).toBeNull();
-    expect(seedProfileShelfVisibility("streaming", { [LIKED_SHELF]: true, [ARTISTS_SHELF]: true })).toBeNull();
+    expect(seedProfileShelfVisibility("streaming", { [ARTISTS_SHELF]: false })).toBeNull();
+    expect(seedProfileShelfVisibility("streaming", { [ARTISTS_SHELF]: true })).toBeNull();
   });
 
   it("leaves other shelves untouched", () => {
     const before = { "builtin:liked-artists": false, "builtin:recently-played": true };
     const after = seedProfileShelfVisibility("streaming", before);
-    expect(after).toEqual({ ...before, [LIKED_SHELF]: true, [ARTISTS_SHELF]: true });
+    expect(after).toEqual({ ...before, [ARTISTS_SHELF]: true });
     // Pure — the caller's object is not mutated.
-    expect(before).not.toHaveProperty(LIKED_SHELF);
+    expect(before).not.toHaveProperty(ARTISTS_SHELF);
   });
 
   it("actually makes the shelf visible to the renderer", () => {
     // Ties the seed to the consumer: a written key must survive isShelfVisible.
-    expect(isShelfVisible(LIKED_SHELF, {})).toBe(false);
+    expect(isShelfVisible(ARTISTS_SHELF, {})).toBe(false);
     const seeded = seedProfileShelfVisibility("streaming", {})!;
-    expect(isShelfVisible(LIKED_SHELF, seeded)).toBe(true);
+    expect(isShelfVisible(ARTISTS_SHELF, seeded)).toBe(true);
   });
 });
