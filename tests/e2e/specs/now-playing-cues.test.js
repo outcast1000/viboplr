@@ -103,7 +103,7 @@ test('the details button shows what the sheet records, and Close dismisses it', 
 test('without a cue sheet there is no card and no button', async ({ page }) => {
   await setupNowPlaying(page, { withCues: false });
   const view = page.locator('.now-playing-view');
-  await expect(view.locator('.np-action-btn[aria-label="About this track"]')).toBeVisible();
+  await expect(view.locator('.np-action-btn[aria-label="Choose visualizer"]')).toBeVisible();
   await expect(view.locator('.np-cue')).toHaveCount(0);
   await expect(view.locator('.np-action-btn[aria-label*="cue cards"]')).toHaveCount(0);
   await expect(view.locator('.np-action-btn[aria-label="Cue sheet details"]')).toHaveCount(0);
@@ -132,14 +132,13 @@ test('a clip draws over the whole view, fits its text, and owns the view until h
   await expect.poll(() => clip.locator('.np-clip-dim').evaluate((el) => Number(el.style.opacity))).toBeGreaterThan(0.4);
 
   // The side column steps aside while the clip plays.
-  await expect(view.locator('.np-action-btn[aria-label="About this track"]')).toBeDisabled();
   await expect(view.locator('.np-lyrics-col')).toHaveCount(0);
   // So does the visualizer: a pick couldn't show until the clip ends.
   await expect(view.locator('.np-action-btn[aria-label="Choose visualizer"]')).toBeDisabled();
 
   await view.locator('.np-action-btn[aria-label="Hide clip"]').click();
   await expect(view.locator('.np-clip')).toHaveCount(0);
-  await expect(view.locator('.np-action-btn[aria-label="About this track"]')).toBeEnabled();
+  await expect(view.locator('.np-lyrics-col')).toHaveCount(1);
   await expect(view.locator('.np-action-btn[aria-label="Choose visualizer"]')).toBeEnabled();
   await view.locator('.np-action-btn[aria-label="Show clip"]').click();
   await expect(view.locator('.np-clip')).toHaveCount(1);

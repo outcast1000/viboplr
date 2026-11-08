@@ -119,8 +119,9 @@ export const NOW_PLAYING_PHOTO_CAP = 36;
 /** One picture in the Photos slideshow, with what it must say about itself. */
 export interface PhotoSlide {
   url: string;
-  /** "Photographer · year · Source / licence" — shown on the slide: Commons licences
-      need it, and Getty's terms ask for the photographer and a link. */
+  /** "Photographer · year · Source / licence" — listed with a link to the
+      photo's page in the Now Playing "Photos and credits" dialog: Commons
+      licences need it, and Getty's terms ask for the photographer and a link. */
   credit: string | null;
   /** The picture's own page (Commons file page, Getty detail page). */
   pageUrl?: string;

@@ -7,8 +7,11 @@ import {
   resolveFullscreenSlot,
   buildVisualizerMenuSpecs,
   ARTWORK_VISUALIZER_NAME,
-  PHOTOS_VISUALIZER_KEY,
-  PHOTOS_VISUALIZER_NAME,
+  ARTWORK_OPTION_LABELS,
+  DEFAULT_ARTWORK_OPTIONS,
+  LEGACY_PHOTOS_VISUALIZER_KEY,
+  resolveArtworkOptions,
+  type ArtworkOptions,
 } from "../utils/visualizerSlots";
 
 const deck: PluginVisualizerRegistration = {
@@ -154,7 +157,6 @@ describe("buildVisualizerMenuSpecs", () => {
     const specs = buildVisualizerMenuSpecs(ALL, { nowplaying: "meters:vu" }, "nowplaying", onPick);
     expect(specs.map((s) => ("text" in s ? s.text : "---"))).toEqual([
       "Artwork",
-      "Photos",
       "Vinyl Deck",
       "VU Meters",
     ]);
@@ -221,29 +223,92 @@ describe("buildVisualizerMenuSpecs", () => {
   });
 });
 
-describe("the built-in Photos visualizer", () => {
-  it("resolves in the Now Playing and fullscreen slots with no plugin behind it", () => {
-    const sel = { nowplaying: PHOTOS_VISUALIZER_KEY };
-    expect(resolveSlot([], sel, "nowplaying")).toBe(PHOTOS_VISUALIZER_KEY);
-    expect(resolveSlot([], { fullscreen: PHOTOS_VISUALIZER_KEY }, "fullscreen")).toBe(PHOTOS_VISUALIZER_KEY);
-    expect(resolveSlot([], { sidebar: PHOTOS_VISUALIZER_KEY }, "sidebar")).toBeNull();
+describe("Artwork options", () => {
+  const ALL_OFF: ArtworkOptions = { extraImages: false, lyrics: false, info: false, fill: false };
+
+  it("follow the visualizers under a separator, in menu order, with their state", () => {
+    const options: ArtworkOptions = { extraImages: true, lyrics: true, info: false, fill: true };
+    const specs = buildVisualizerMenuSpecs(ALL, {}, "nowplaying", vi.fn(), { options, onToggle: vi.fn() });
+    const sep = specs.findIndex((s) => s.kind === "separator");
+    expect(specs.slice(0, sep).map((s) => ("text" in s ? s.text : "---"))).toEqual(["Artwork", "Vinyl Deck", "VU Meters"]);
+    expect(specs.slice(sep + 1)).toMatchObject([
+      { kind: "check", text: "Show additional images", checked: true, enabled: true },
+      { kind: "check", text: "Show lyrics", checked: true, enabled: true },
+      { kind: "check", text: "Show info", checked: false, enabled: true },
+      { kind: "check", text: "Images fill the view", checked: true, enabled: true },
+    ]);
   });
 
-  it("is inherited by fullscreen from the Now Playing pick", () => {
-    expect(resolveFullscreenSlot([], { nowplaying: PHOTOS_VISUALIZER_KEY })).toBe(PHOTOS_VISUALIZER_KEY);
+  it("each fires its own option", () => {
+    const onToggle = vi.fn();
+    const specs = buildVisualizerMenuSpecs([], {}, "nowplaying", vi.fn(), { options: ALL_OFF, onToggle });
+    for (const [option, label] of Object.entries(ARTWORK_OPTION_LABELS)) {
+      (specs.find((s) => "text" in s && s.text === label) as { action: () => void }).action();
+      expect(onToggle).toHaveBeenLastCalledWith(option);
+    }
   });
 
-  it("is offered right after Artwork, checked when picked, and fires its key", () => {
-    const onPick = vi.fn();
-    const specs = buildVisualizerMenuSpecs([], { nowplaying: PHOTOS_VISUALIZER_KEY }, "nowplaying", onPick);
-    expect(specs[0]).toMatchObject({ text: ARTWORK_VISUALIZER_NAME, checked: false });
-    expect(specs[1]).toMatchObject({ kind: "check", text: PHOTOS_VISUALIZER_NAME, checked: true });
-    (specs[1] as { action: () => void }).action();
-    expect(onPick).toHaveBeenCalledWith(PHOTOS_VISUALIZER_KEY);
+  it("are disabled while a plugin visualizer fills the slot — it uses none of them", () => {
+    const specs = buildVisualizerMenuSpecs(ALL, { nowplaying: "vinyl-deck:deck" }, "nowplaying", vi.fn(), {
+      options: ALL_OFF,
+      onToggle: vi.fn(),
+    });
+    const labels: string[] = Object.values(ARTWORK_OPTION_LABELS);
+    const optionSpecs = specs.filter((s) => "text" in s && labels.includes(s.text));
+    expect(optionSpecs).toHaveLength(4);
+    for (const s of optionSpecs) expect(s).toMatchObject({ enabled: false });
   });
 
-  it("is not offered in slots it can't fill", () => {
+  it("follow `live` — what the surface shows — over the placement's pick", () => {
+    // Fullscreen resolves its own slot: a windowed plugin pick that can't go
+    // fullscreen leaves Artwork on screen there, and the options must work.
+    const labels: string[] = Object.values(ARTWORK_OPTION_LABELS);
+    const options = (sel: Record<string, string | null>, live: boolean) =>
+      buildVisualizerMenuSpecs(ALL, sel, "nowplaying", vi.fn(), { options: ALL_OFF, onToggle: vi.fn(), live })
+        .filter((s) => "text" in s && labels.includes(s.text));
+    for (const s of options({ nowplaying: "vinyl-deck:deck" }, true)) expect(s).toMatchObject({ enabled: true });
+    for (const s of options({}, false)) expect(s).toMatchObject({ enabled: false });
+  });
+
+  it("read a partial or malformed saved value as off, never undefined", () => {
+    const partial = { info: true } as unknown as typeof DEFAULT_ARTWORK_OPTIONS;
+    expect(resolveArtworkOptions(partial, false, {})).toEqual({
+      extraImages: false, lyrics: true, info: true, fill: false,
+    });
+    const junk = { extraImages: "yes", info: 1, fill: null } as unknown as typeof DEFAULT_ARTWORK_OPTIONS;
+    expect(resolveArtworkOptions(junk, false, {})).toEqual({
+      extraImages: false, lyrics: true, info: false, fill: false,
+    });
+  });
+
+  it("are left out when the caller passes none", () => {
     const texts = buildVisualizerMenuSpecs(ALL, {}, "sidebar", vi.fn()).map((s) => ("text" in s ? s.text : "---"));
-    expect(texts).not.toContain(PHOTOS_VISUALIZER_NAME);
+    expect(texts).not.toContain("Show lyrics");
+  });
+
+  it("resolve lyrics from the inverted lyricsHidden flag", () => {
+    expect(resolveArtworkOptions(DEFAULT_ARTWORK_OPTIONS, false, {})).toEqual({
+      extraImages: false, lyrics: true, info: false, fill: false,
+    });
+    expect(resolveArtworkOptions(DEFAULT_ARTWORK_OPTIONS, true, {}).lyrics).toBe(false);
   });
 });
+
+describe("the retired Photos visualizer", () => {
+  it("resolves to Artwork in every slot", () => {
+    expect(resolveSlot([], { nowplaying: LEGACY_PHOTOS_VISUALIZER_KEY }, "nowplaying")).toBeNull();
+    expect(resolveFullscreenSlot([], { nowplaying: LEGACY_PHOTOS_VISUALIZER_KEY })).toBeNull();
+    const specs = buildVisualizerMenuSpecs([], { nowplaying: LEGACY_PHOTOS_VISUALIZER_KEY }, "nowplaying", vi.fn());
+    expect(specs[0]).toMatchObject({ text: ARTWORK_VISUALIZER_NAME, checked: true });
+    expect(specs.map((s) => ("text" in s ? s.text : "---"))).not.toContain("Photos");
+  });
+
+  it("reads as 'Show additional images' on until the user sets the option", () => {
+    const sel = { nowplaying: LEGACY_PHOTOS_VISUALIZER_KEY };
+    expect(resolveArtworkOptions(DEFAULT_ARTWORK_OPTIONS, false, sel).extraImages).toBe(true);
+    expect(
+      resolveArtworkOptions({ ...DEFAULT_ARTWORK_OPTIONS, extraImagesSet: true }, false, sel).extraImages,
+    ).toBe(false);
+  });
+});
+

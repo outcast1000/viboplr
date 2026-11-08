@@ -16,19 +16,66 @@ export function visualizerKey(v: PluginVisualizerRegistration): string {
 }
 
 /**
- * The built-in Photos visualizer: the art slideshow widened with every picture
- * the plugins have of the song, its artist and its album (`trackGalleries.ts`).
- * It has no plugin and no factory — the Now Playing view draws it itself — so
- * it is a reserved key rather than a registration. The `core:` prefix can't
- * collide with `pluginId:visualizerId`: `:` isn't legal in a plugin id, so no
- * plugin key starts with `core:`.
+ * The retired built-in Photos visualizer's key. Photos is now an Artwork option
+ * ("Show additional images", `ArtworkOptions.extraImages`), not a pick of its
+ * own. A stored `visualizerSlots` that still names it resolves to Artwork, and
+ * `artworkOptionsWithLegacyPhotos` reads it as that option turned on until the
+ * user sets the option. Nothing rewrites the store for it.
  */
-export const PHOTOS_VISUALIZER_KEY = "core:photos";
-export const PHOTOS_VISUALIZER_NAME = "Photos";
+export const LEGACY_PHOTOS_VISUALIZER_KEY = "core:photos";
 
-/** Slots the Photos visualizer can fill — the two Now Playing surfaces. */
-function photosFits(placement: PluginVisualizerPlacement): boolean {
-  return placement === "nowplaying" || placement === "fullscreen";
+/**
+ * How the Artwork pick draws the Now Playing stage. Plugin visualizers ignore
+ * all four: a vinyl deck has nothing to do with lyrics or a bio, so a plugin
+ * pick gets the whole stage with no side column.
+ *
+ * Lyrics and info share the side column; with both on, info takes it.
+ */
+export interface ArtworkOptions {
+  /** The slideshow also deals the plugins' pictures of the song, its artist and
+      its album (`useNowPlayingPhotos`), after the cover and artist image. */
+  extraImages: boolean;
+  /** The lyrics column. Stored inverted as `nowPlayingLyricsHidden`. */
+  lyrics: boolean;
+  /** The About prose (song / artist / album) in the side column. */
+  info: boolean;
+  /** The picture covers the whole view instead of a framed square over a
+      blurred backdrop; lyrics or info sit over it on a scrim. */
+  fill: boolean;
+}
+
+/** Persisted as `nowPlayingArtwork`; lyrics keeps its own `nowPlayingLyricsHidden`
+    key (the control API and the capture scenes read it). `extraImagesSet` records
+    that the user has set the option, which retires the legacy Photos pick. */
+export interface StoredArtworkOptions {
+  extraImages: boolean;
+  extraImagesSet: boolean;
+  info: boolean;
+  fill: boolean;
+}
+export const DEFAULT_ARTWORK_OPTIONS: StoredArtworkOptions = {
+  extraImages: false,
+  extraImagesSet: false,
+  info: false,
+  fill: false,
+};
+
+/** The Artwork options in effect. A profile that picked the old Photos
+    visualizer keeps its pictures until the user sets the option. */
+export function resolveArtworkOptions(
+  stored: StoredArtworkOptions,
+  lyricsHidden: boolean,
+  selection: VisualizerSlotSelection,
+): ArtworkOptions {
+  // `=== true` per field: the store only checks that the saved value is an
+  // object, so a partial or hand-edited one must read as "off", not undefined.
+  const legacyPhotos = stored.extraImagesSet !== true && selection.nowplaying === LEGACY_PHOTOS_VISUALIZER_KEY;
+  return {
+    extraImages: stored.extraImages === true || legacyPhotos,
+    lyrics: lyricsHidden !== true,
+    info: stored.info === true,
+    fill: stored.fill === true,
+  };
 }
 
 /** Visualizers willing to fill this slot. */
@@ -54,8 +101,7 @@ export function resolveSlot(
   placement: PluginVisualizerPlacement,
 ): string | null {
   const key = selection[placement];
-  if (!key) return null;
-  if (key === PHOTOS_VISUALIZER_KEY) return photosFits(placement) ? key : null;
+  if (!key || key === LEGACY_PHOTOS_VISUALIZER_KEY) return null;
   const available = candidatesFor(visualizers, placement).some((v) => visualizerKey(v) === key);
   return available ? key : null;
 }
@@ -81,7 +127,6 @@ export function resolveFullscreenSlot(
   if (explicit) return explicit;
   const nowPlaying = resolveSlot(visualizers, selection, "nowplaying");
   if (!nowPlaying) return null;
-  if (nowPlaying === PHOTOS_VISUALIZER_KEY) return nowPlaying;
   const willing = candidatesFor(visualizers, "fullscreen").some(
     (v) => visualizerKey(v) === nowPlaying,
   );
@@ -115,12 +160,21 @@ export const ARTWORK_VISUALIZER_NAME = "Artwork";
  * Artwork leads the list as a peer of the plugins rather than sitting above a
  * separator, because it is one: picking it is a choice about what fills the slot,
  * not a refusal to choose.
+ *
+ * With `artwork` passed, Artwork's options follow the list under a separator
+ * (owner decision, 2026-11-08: lyrics, info and extra pictures are ways of
+ * drawing the artwork, not view buttons of their own). They are disabled while
+ * a plugin visualizer is live, since it uses none of them. `artwork.live` says
+ * whether Artwork is what the surface the picker opened from actually shows —
+ * fullscreen resolves its own slot (`resolveFullscreenSlot`), so it can differ
+ * from `placement`'s pick; without it, `placement`'s pick decides.
  */
 export function buildVisualizerMenuSpecs(
   visualizers: PluginVisualizerRegistration[],
   selection: VisualizerSlotSelection,
   placement: PluginVisualizerPlacement,
   onPick: (key: string | null) => void,
+  artwork?: { options: ArtworkOptions; onToggle: (option: keyof ArtworkOptions) => void; live?: boolean },
 ): MenuItemSpec[] {
   const candidates = candidatesFor(visualizers, placement);
   const current = resolveSlot(visualizers, selection, placement);
@@ -136,14 +190,6 @@ export function buildVisualizerMenuSpecs(
       action: () => onPick(null),
     },
   ];
-  if (photosFits(placement)) {
-    specs.push({
-      kind: "check",
-      text: PHOTOS_VISUALIZER_NAME,
-      checked: current === PHOTOS_VISUALIZER_KEY,
-      action: () => onPick(PHOTOS_VISUALIZER_KEY),
-    });
-  }
 
   for (const v of candidates) {
     const key = visualizerKey(v);
@@ -170,5 +216,27 @@ export function buildVisualizerMenuSpecs(
     );
   }
 
+  if (artwork) {
+    specs.push({ kind: "separator" });
+    for (const option of ARTWORK_OPTION_ORDER) {
+      specs.push({
+        kind: "check",
+        text: ARTWORK_OPTION_LABELS[option],
+        checked: artwork.options[option],
+        enabled: artwork.live ?? current === null,
+        action: () => artwork.onToggle(option),
+      });
+    }
+  }
+
   return specs;
 }
+
+/** The Artwork options' menu labels. */
+export const ARTWORK_OPTION_LABELS: Record<keyof ArtworkOptions, string> = {
+  extraImages: "Show additional images",
+  lyrics: "Show lyrics",
+  info: "Show info",
+  fill: "Images fill the view",
+};
+const ARTWORK_OPTION_ORDER: (keyof ArtworkOptions)[] = ["extraImages", "lyrics", "info", "fill"];

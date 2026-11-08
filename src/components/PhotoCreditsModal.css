@@ -1,0 +1,54 @@
+.photo-credits-intro {
+  margin: 0 0 12px;
+  font-size: var(--fs-sm);
+  color: var(--text-secondary);
+}
+
+.photo-credits-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  max-height: min(60vh, 560px);
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.photo-credits-row {
+  display: grid;
+  grid-template-columns: 64px 1fr auto;
+  align-items: center;
+  gap: 12px;
+  padding: 6px;
+  border-radius: var(--ds-radius);
+}
+
+.photo-credits-row--current {
+  background: var(--bg-hover);
+}
+
+.photo-credits-thumb {
+  width: 64px;
+  height: 64px;
+  object-fit: cover;
+  object-position: center 30%;
+  border-radius: var(--ds-radius);
+  background: var(--bg-tertiary);
+}
+
+.photo-credits-text {
+  min-width: 0;
+}
+
+.photo-credits-credit {
+  font-size: var(--fs-sm);
+  color: var(--text-primary);
+  overflow-wrap: anywhere;
+}
+
+.photo-credits-now {
+  margin-top: 2px;
+  font-size: var(--fs-xs);
+  color: var(--accent);
+}

@@ -7,7 +7,6 @@ import type { LyricsData } from "../types/informationTypes";
 import type { UseLyricsResult } from "../hooks/useLyrics";
 import { parseLrc, currentSyncedLineIndex, lyricPosition, scrollLineToCenter } from "../utils/lyrics";
 import { LyricsOffsetControl } from "./LyricsOffsetControl";
-import { openUrl } from "@tauri-apps/plugin-opener";
 import {
   resolveNowPlayingSlides,
   withPhotoSlides,
@@ -29,6 +28,7 @@ import type { NowPlayingAboutData } from "../hooks/useNowPlayingAbout";
 import { CueOverlay } from "./CueOverlay";
 import { CueClipOverlay } from "./CueClipOverlay";
 import { CueSheetInfoModal } from "./CueSheetInfoModal";
+import { PhotoCreditsModal } from "./PhotoCreditsModal";
 import { cueTimingNote, type CueSheetRow } from "../utils/cueSheet";
 import "./NowPlayingView.css";
 
@@ -75,21 +75,23 @@ interface NowPlayingViewProps {
       the art column's place — a vinyl deck or a meter belongs where the static
       square was. App owns the plugin plumbing; this view just gives it room. */
   visualizerSlot?: ReactNode;
-  /** The Photos visualizer is picked: the plugins' pictures of the song, its
-      artist and its album (`useNowPlayingPhotos`), shown after the cover and
-      artist image in the same slideshow, each with its credit. Undefined when
-      another visualizer (or Artwork) is picked; an empty array while the
-      galleries are still on their way. */
+  /** Artwork's "Show additional images" is on: the plugins' pictures of the
+      song, its artist and its album (`useNowPlayingPhotos`), shown after the
+      cover and artist image in the same slideshow, each with its credit.
+      Undefined when the option is off or a plugin visualizer is picked; an empty
+      array while the galleries are still on their way. */
   photos?: PhotoSlide[];
+  /** Artwork's "Images fill the view": the current slide covers the whole view
+      instead of sitting framed over a blurred backdrop, and the side column
+      (lyrics or info) reads over it on a scrim. Ignored under a plugin
+      visualizer and while there is no art to show. */
+  fillView?: boolean;
   /** Open the visualizer picker, anchored under the Visualizer button.
       Still a native menu (a list of choices is a menu, and the app-wide rule
-      admits no JS dropdowns) — it just hangs off a visible button now instead of
-      a ⋯ that gave no clue what was behind it. */
+      admits no JS dropdowns). It also carries the Artwork options — lyrics,
+      info, additional images, fill the view — which used to be buttons of
+      their own beside it. */
   onOpenVisualizerPicker?: (x: number, y: number) => void;
-  /** Show/hide the lyrics column. The view gates the button on whether this
-      track has lyrics at all, so there is no `hasLyrics` prop to keep in step
-      with the one it already derives for the layout. */
-  onToggleLyrics?: () => void;
   /** Toggle the fullscreen surface — enter from the view, leave from fullscreen.
       One callback for both directions, because it is one button in one place:
       the row would otherwise have three items windowed and two in fullscreen,
@@ -99,18 +101,16 @@ interface NowPlayingViewProps {
       the two are the same view in the same state, so the affordance shouldn't
       be a visible button for one and a buried menu item for the other. */
   onToggleFullscreen?: () => void;
-  /** The user collapsed the lyrics column. Independent of whether this track
-      has lyrics at all — both end up hiding the column, and both hand the
-      freed width to whatever is in the art column. */
+  /** Artwork's "Show lyrics" is off. Independent of whether this track has
+      lyrics at all — both end up hiding the column, and both hand the freed
+      width to the art. */
   lyricsHidden?: boolean;
   /** Song / artist / album prose for the About panel (`useNowPlayingAbout`). */
   about?: NowPlayingAboutData;
-  /** The About panel is open. It takes the lyrics column's place rather than
-      adding a third one: the stage has room for the art and one thing to read,
-      and a lean-back surface should never show both at once. */
+  /** Artwork's "Show info" is on. The panel takes the lyrics column's place
+      rather than adding a third one: the stage has room for the art and one
+      thing to read, so with both options on, info wins. */
   aboutOpen?: boolean;
-  /** Show/hide the About panel. Absent hides the button. */
-  onToggleAbout?: () => void;
   /** Per-track lyrics timing offset; positive delays. See `lyricPosition`. */
   lyricsOffsetSecs?: number;
   /** Omit to hide the offset control (it is also hidden for plain lyrics, which
@@ -295,23 +295,6 @@ function CrossfadeLayer({ top, children }: { top: boolean; children: ReactNode }
   );
 }
 
-/** One photo's credit line, linking to the photo's page when it has one. */
-function PhotoCredit({ credit, pageUrl }: { credit: string; pageUrl?: string }) {
-  if (!pageUrl) return <div className="np-photo-credit">{credit}</div>;
-  return (
-    <button
-      type="button"
-      className="np-photo-credit np-photo-credit--link"
-      title={`Open the photo's page: ${credit}`}
-      onClick={() => {
-        openUrl(pageUrl).catch((e) => console.error("Failed to open photo page:", e));
-      }}
-    >
-      {credit}
-    </button>
-  );
-}
-
 export function NowPlayingView({
   variant = "view",
   track,
@@ -324,13 +307,12 @@ export function NowPlayingView({
   onSeek,
   visualizerSlot,
   photos,
+  fillView = false,
   onOpenVisualizerPicker,
-  onToggleLyrics,
   onToggleFullscreen,
   lyricsHidden,
   about,
   aboutOpen = false,
-  onToggleAbout,
   lyricsOffsetSecs = 0,
   onLyricsOffsetChange,
   cueSheet,
@@ -432,6 +414,13 @@ export function NowPlayingView({
   // closes itself when the song changes rather than describing the next one.
   const [cueInfoFor, setCueInfoFor] = useState<string | null>(null);
   const closeCueInfo = useCallback(() => setCueInfoFor(null), []);
+  // The photo credits list, held the same way: a new song closes it.
+  const [creditsFor, setCreditsFor] = useState<string | null>(null);
+  const closeCredits = useCallback(() => setCreditsFor(null), []);
+  const photoList = useMemo(
+    () => slideList.flatMap((s) => (s.photo ? [s.photo] : [])),
+    [slideList],
+  );
 
   const currentSlide = slideCount > 0 ? slideList[slideIndexAt(slideList, slidePos)] : null;
   const slideImageSrc = resolveImageSrc(currentSlide?.path ?? null);
@@ -469,11 +458,12 @@ export function NowPlayingView({
   // backdrop itself arrives.
   const artRegime = hasArt || artPending;
   const hasLyrics = lyrics.status === "loaded" && !!lyrics.data;
-  // The side column holds one thing to read: the About panel when it's open,
-  // otherwise the lyrics. One flag drives the layout — "nothing in the side
-  // column", whether because the track has no lyrics or because the user
-  // collapsed them — and the art column (and so a visualizer sitting in it)
-  // takes the whole stage either way.
+  // The side column holds one thing to read: the About panel when "Show info"
+  // is on, otherwise the lyrics. It belongs to the Artwork pick only — a plugin
+  // visualizer (a vinyl deck) has nothing to do with lyrics, so it always gets
+  // the whole stage. One flag drives the layout — "nothing in the side column",
+  // whatever the reason — and the art column takes the whole stage then.
+  const sideAllowed = !visualizerSlot;
   const cues = cueSheet?.sheet.cues ?? [];
   const hasCues = cues.length > 0;
   const showCues = hasCues && !cuesHidden;
@@ -485,17 +475,23 @@ export function NowPlayingView({
   // About) steps aside, so the art takes the stage the clip draws over.
   // Hiding the clip (the cue button) brings the column back.
   const clipOwnsView = isClip && showCues;
-  const showAbout = aboutOpen && !!about && !clipOwnsView;
-  const showLyrics = hasLyrics && !lyricsHidden && !showAbout && !clipOwnsView;
+  const showAbout = sideAllowed && aboutOpen && !!about && !clipOwnsView;
+  const showLyrics = sideAllowed && hasLyrics && !lyricsHidden && !showAbout && !clipOwnsView;
   const sideEmpty = !showLyrics && !showAbout;
   // The clip takes the art column too: under it sits the plain artwork, not
   // the visualizer. Unmounting the slot is what stops its frame loop — its
   // IntersectionObserver still counts it on-screen beneath the clip.
   const stageVisualizer = clipOwnsView ? null : visualizerSlot;
+  // "Images fill the view": the slide is the whole surface. Only with a
+  // picture to show — a pending lookup or the placeholder keep the framed
+  // layout — and never under a plugin visualizer.
+  const fill = fillView && hasArt && !visualizerSlot;
+  // The photos' credits live in a list behind a button, not over the picture.
+  const showPhotoCredits = photoList.length > 0 && !stageVisualizer;
   return (
     <div
       ref={surfaceRef}
-      className={`${rootClass} np-audio${artRegime ? "" : " np-audio--noart"}${sideEmpty ? " np-audio--nolyrics" : ""}`}
+      className={`${rootClass} np-audio${artRegime ? "" : " np-audio--noart"}${sideEmpty ? " np-audio--nolyrics" : ""}${fill ? " np-audio--fill" : ""}`}
       // Leaving the surface hides the row at once rather than after the idle
       // wait — the pointer has gone to the sidebar or the queue, so there is
       // nothing left to wait for.
@@ -505,11 +501,13 @@ export function NowPlayingView({
           menu: everything this view can do is on screen, so a second, hidden
           route to the same buttons would be duplication rather than
           convenience. The visualizer picker is still a native menu — it's a list
-          of choices — but it hangs off the button that describes it.
+          of choices — but it hangs off the button that describes it. Lyrics and
+          info are not buttons here (owner decision, 2026-11-08): they are
+          options of the Artwork pick, in that menu, because a plugin
+          visualizer has nothing to do with them.
 
-          The row travels into fullscreen unchanged; only "enter fullscreen" drops
-          out there, because the control bar under it owns the exit. */}
-      {(onOpenVisualizerPicker || onToggleLyrics || onToggleAbout || onToggleFullscreen || hasCues) && (
+          The row travels into fullscreen unchanged. */}
+      {(onOpenVisualizerPicker || onToggleFullscreen || hasCues || showPhotoCredits) && (
         <div className={`np-actions${actionsVisible ? " is-visible" : ""}`}>
           {onOpenVisualizerPicker && (
             <button
@@ -520,7 +518,7 @@ export function NowPlayingView({
               }}
               // A pick made now couldn't show until the clip ends.
               disabled={clipOwnsView}
-              title={clipOwnsView ? "The visualizer is hidden while the clip plays" : "Choose visualizer"}
+              title={clipOwnsView ? "The visualizer is hidden while the clip plays" : "Visualizer and artwork options"}
               aria-label="Choose visualizer"
             >
               {/* A record, echoing the sidebar's Now Playing disc. Deliberately
@@ -532,54 +530,27 @@ export function NowPlayingView({
               </svg>
             </button>
           )}
-          {onToggleLyrics && (
+          {/* Beside the picker whose option it belongs to. Hidden, not
+              disabled, while there are no photos: most songs have none, and
+              the option is off by default. */}
+          {showPhotoCredits && (
             <button
-              className={`np-action-btn${showLyrics ? "" : " is-off"}`}
-              onClick={onToggleLyrics}
-              // Disabled rather than hidden, so the row doesn't reshuffle as the
-              // queue moves between tracks that have lyrics and tracks that don't.
-              disabled={!hasLyrics || clipOwnsView}
-              title={
-                clipOwnsView
-                  ? "Lyrics are hidden while the clip plays"
-                  : hasLyrics
-                  ? showLyrics
-                    ? "Hide lyrics"
-                    : "Show lyrics"
-                  : "No lyrics for this track"
-              }
-              aria-label={showLyrics ? "Hide lyrics" : "Show lyrics"}
-              aria-pressed={showLyrics}
+              className="np-action-btn"
+              onClick={() => setCreditsFor(trackKey)}
+              title="Photos and credits"
+              aria-label="Photos and credits"
             >
-              {/* Same glyph as the video theater's subtitle toggle — same idea,
-                  same corner of the same view. */}
+              {/* A picture frame with a list beside it. */}
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <rect x="3" y="5" width="18" height="14" rx="2" />
-                <path d="M7 14.5a2 2 0 0 1 0-4" />
-                <path d="M15 14.5a3 3 0 0 1 0-4" />
+                <rect x="3" y="5" width="10" height="10" rx="1.5" />
+                <path d="M3 13l3-3 3 3 2-2 2 2" />
+                <line x1="16" y1="7" x2="21" y2="7" />
+                <line x1="16" y1="11" x2="21" y2="11" />
+                <line x1="3" y1="19" x2="21" y2="19" />
               </svg>
             </button>
           )}
-          {onToggleAbout && (
-            <button
-              className={`np-action-btn${showAbout ? "" : " is-off"}`}
-              onClick={onToggleAbout}
-              disabled={clipOwnsView}
-              title={clipOwnsView ? "Info is hidden while the clip plays" : showAbout ? "Hide info" : "About this track"}
-              aria-label={showAbout ? "Hide info" : "About this track"}
-              aria-pressed={showAbout}
-            >
-              {/* An "i" in a circle — the conventional info glyph. Always
-                  enabled: whether there is anything to read is only known once
-                  the panel asks, and it says so itself when there isn't. */}
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <circle cx="12" cy="12" r="9" />
-                <line x1="12" y1="11" x2="12" y2="16.5" />
-                <line x1="12" y1="7.5" x2="12" y2="7.5" />
-              </svg>
-            </button>
-          )}
-          {/* Hidden, not disabled, without a sheet — unlike Lyrics. Almost no
+          {/* Hidden, not disabled, without a sheet. Almost no
               track has one, so a permanently greyed button would be noise on
               every song for the sake of the few that do. */}
           {onToggleCues && hasCues && (
@@ -653,15 +624,28 @@ export function NowPlayingView({
         <Crossfade
           src={slideImageSrc}
           className="np-xfade--backdrop"
-          render={(src) => (
+          // Filling the view, the slide itself is the surface: sharp, cropped
+          // to cover, with the photo crop and error hook the framed art uses.
+          render={(src) => fill ? (
+            <img
+              className={"np-fill-img" + (photoSrcs.has(src) ? " np-fill-img--photo" : "")}
+              src={src}
+              alt=""
+              onError={photoSrcs.has(src) ? () => markPhotoFailed(src) : undefined}
+            />
+          ) : (
             <div className="np-backdrop" style={{ backgroundImage: `url("${src}")` }} />
           )}
         />
       )}
       <div className="np-stage">
-        <div className={"np-art-col" + (stageVisualizer ? " np-art-col--visualizer" : "")}>
+        <div className={"np-art-col" + (stageVisualizer ? " np-art-col--visualizer" : fill ? " np-art-col--fill" : "")}>
           {stageVisualizer ? (
             stageVisualizer
+          ) : fill ? (
+            // The picture is the backdrop layer; this column only holds the
+            // cue cards that ride on it.
+            null
           ) : hasArt ? (
             <div className="np-art-stack">
               <Crossfade
@@ -675,12 +659,6 @@ export function NowPlayingView({
                   <img className="np-art" src={src} alt="" />
                 )}
               />
-              {/* The photo's credit rides on the picture: Commons licences
-                  require it and Getty's terms ask for the photographer and a
-                  link back. Keyed per picture so it changes with the slide. */}
-              {slidePhoto?.credit && (
-                <PhotoCredit key={slidePhoto.url} credit={slidePhoto.credit} pageUrl={slidePhoto.pageUrl} />
-              )}
             </div>
           ) : artPending ? (
             // An empty frame, not the initials fallback: the lookup may still
@@ -705,7 +683,7 @@ export function NowPlayingView({
           <div className="np-lyrics-col np-lyrics-col--about">
             <NowPlayingAbout data={about} trackKey={track.key} />
           </div>
-        ) : !lyricsHidden && (
+        ) : sideAllowed && !lyricsHidden && (
           <div className="np-lyrics-col">
             {lyrics.status === "loaded" && lyrics.data ? (
               <NowPlayingLyrics key={track.key} data={lyrics.data} onSeek={onSeek} offsetSecs={lyricsOffsetSecs} />
@@ -737,6 +715,9 @@ export function NowPlayingView({
           author={cueSheet?.author}
           timingNote={timingNote}
         />
+      )}
+      {showPhotoCredits && creditsFor !== null && creditsFor === trackKey && (
+        <PhotoCreditsModal photos={photoList} currentUrl={slidePhoto?.url ?? null} onClose={closeCredits} />
       )}
       {cueSheet && cueInfoFor !== null && cueInfoFor === trackKey && (
         <CueSheetInfoModal row={cueSheet} playingSecs={track.duration_secs} onClose={closeCueInfo} />

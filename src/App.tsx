@@ -196,9 +196,12 @@ import { useNowPlayingPhotos } from "./hooks/useNowPlayingPhotos";
 import { AudioFullscreen } from "./components/AudioFullscreen";
 import {
   buildVisualizerMenuSpecs,
-  PHOTOS_VISUALIZER_KEY,
+  DEFAULT_ARTWORK_OPTIONS,
+  resolveArtworkOptions,
   resolveFullscreenSlot,
   resolveSlot,
+  type ArtworkOptions,
+  type StoredArtworkOptions,
   type VisualizerSlotSelection,
 } from "./utils/visualizerSlots";
 import type { PluginVisualizerPlacement } from "./types/pluginVisualizer";
@@ -587,12 +590,51 @@ function App() {
   // the words"), not a per-track state — re-deciding it every launch would be
   // the annoying half of a toggle.
   const [nowPlayingLyricsHidden, setNowPlayingLyricsHidden] = usePersistedSetting("nowPlayingLyricsHidden", false, restoredRef);
-  // The Now Playing About panel (song / artist / album prose). Session-only,
-  // unlike the lyrics flag: reading a bio is an errand, not a standing
-  // preference, and a view that reopened on a wall of text would undo the
-  // point of the surface being lean-back. Shared by both variants so entering
-  // fullscreen keeps what you were reading.
-  const [nowPlayingAboutOpen, setNowPlayingAboutOpen] = useState(false);
+  // The Artwork pick's other options (additional images, info, fill the view),
+  // set from the visualizer picker — see utils/visualizerSlots.ts →
+  // ArtworkOptions. Persisted like the lyrics flag: they are how the user wants
+  // the view drawn, and both variants share them.
+  const [storedArtworkOptions, setStoredArtworkOptions] = usePersistedSetting<StoredArtworkOptions>(
+    "nowPlayingArtwork",
+    DEFAULT_ARTWORK_OPTIONS,
+    restoredRef,
+  );
+  const artworkOptions = useMemo(
+    () => resolveArtworkOptions(storedArtworkOptions, nowPlayingLyricsHidden, visualizerSlots),
+    [storedArtworkOptions, nowPlayingLyricsHidden, visualizerSlots],
+  );
+  const nowPlayingAboutOpen = artworkOptions.info;
+  const setNowPlayingAboutOpen = useCallback(
+    (open: boolean) => setStoredArtworkOptions((prev) => ({ ...prev, info: open })),
+    [setStoredArtworkOptions],
+  );
+  const toggleArtworkOption = useCallback(
+    (option: keyof ArtworkOptions) => {
+      if (option === "lyrics") {
+        // Info takes the column when both are on, so while it is on the lyrics
+        // aren't on screen whatever their flag says. Picking "Show lyrics" then
+        // means "show me the lyrics": info steps aside and lyrics come on —
+        // flipping the flag alone would change nothing visible.
+        if (artworkOptions.info) {
+          setStoredArtworkOptions((prev) => ({ ...prev, info: false }));
+          setNowPlayingLyricsHidden(false);
+        } else {
+          setNowPlayingLyricsHidden((v) => !v);
+        }
+        return;
+      }
+      setStoredArtworkOptions((prev) => {
+        // Read through resolveArtworkOptions (legacy Photos pick, malformed
+        // values), so a toggle flips what is on screen, not what the store says.
+        const current = resolveArtworkOptions(prev, false, visualizerSlots);
+        if (option === "extraImages") {
+          return { ...prev, extraImages: !current.extraImages, extraImagesSet: true };
+        }
+        return { ...prev, [option]: !current[option] };
+      });
+    },
+    [artworkOptions.info, setNowPlayingLyricsHidden, setStoredArtworkOptions, visualizerSlots],
+  );
   // Control API "showcase" mode (`ui.action { action: "showcase" }`): hides the
   // toasts, the update banner and the caption bar's sync indicator so a scripted capture shows the app itself,
   // not whatever happened to be announced at that moment. Session-only —
@@ -605,17 +647,6 @@ function App() {
     if (!showcase || showcaseRedact.length === 0) return;
     return startRedaction(document.body, showcaseRedact);
   }, [showcase, showcaseRedact]);
-  // The lyrics button while About is open means "back to the lyrics", not
-  // "toggle the lyrics preference" — which would hide lyrics nobody could see.
-  const handleToggleNowPlayingLyrics = useCallback(() => {
-    if (nowPlayingAboutOpen) {
-      setNowPlayingAboutOpen(false);
-      setNowPlayingLyricsHidden(false);
-    } else {
-      setNowPlayingLyricsHidden((v) => !v);
-    }
-  }, [nowPlayingAboutOpen, setNowPlayingLyricsHidden]);
-  const handleToggleNowPlayingAbout = useCallback(() => setNowPlayingAboutOpen((v) => !v), []);
   // The user turned the Now Playing cue cards off. Persisted for the same
   // reason as the lyrics flag: "I don't want notes over my artwork" is a
   // standing preference, not a per-song one.
@@ -849,12 +880,17 @@ function App() {
   // for it explicitly — see resolveFullscreenSlot.
   const fullscreenVisualizer = resolveFullscreenSlot(plugins.visualizers, visualizerSlots);
 
-  // The built-in Photos visualizer is drawn by NowPlayingView itself (it
-  // widens the art slideshow), so it never reaches a VisualizerSlot. Its
-  // pictures are fetched only while a surface that shows them is up.
-  const showingPhotos = audioFullscreen
-    ? fullscreenVisualizer === PHOTOS_VISUALIZER_KEY
-    : library.view === "nowplaying" && nowPlayingVisualizer === PHOTOS_VISUALIZER_KEY;
+  // Is the Artwork pick (not a plugin visualizer) on the Now Playing surface
+  // that is up? Its options — additional images, lyrics, info — only apply then.
+  const artworkOnSurface = audioFullscreen
+    ? !fullscreenVisualizer
+    : library.view === "nowplaying" && !nowPlayingVisualizer;
+
+  // "Show additional images" widens the art slideshow with the plugins'
+  // pictures; NowPlayingView draws them itself. Fetched only while a surface
+  // that shows them is up — and the one gate for both the fetch and the
+  // `photos` prop, since each NowPlayingView copy mounts only on its surface.
+  const showingPhotos = artworkOnSurface && artworkOptions.extraImages;
   const nowPlayingPhotos = useNowPlayingPhotos({
     track: playback.currentTrack && !isVideoTrack(playback.currentTrack) ? playback.currentTrack : null,
     enabled: showingPhotos,
@@ -953,13 +989,13 @@ function App() {
   }, [audioFullscreen]);
 
   // The Now Playing view's visualizer picker, opened from the button that names
-  // it. This is all that's left of what used to be a whole view menu behind a ⋯:
-  // fullscreen and the lyrics toggle are their own buttons now, and a picker is
-  // the one item that genuinely is a list of choices — so it stays a native menu.
+  // it — a native menu, since a list of choices is a menu. It also carries the
+  // Artwork options (additional images, lyrics, info, fill the view), which are
+  // not buttons of their own: they only mean something while Artwork fills the
+  // stage (see utils/visualizerSlots.ts → ArtworkOptions).
   //
-  // It sits here with the rest of the visualizer state. It used to be declared
-  // far below, beside `nowPlayingLyrics`, purely because the old menu's "Show
-  // lyrics" item read it; nothing here does any more.
+  // The options are enabled by what the surface the picker opened from shows:
+  // fullscreen resolves its own slot, which can differ from the windowed pick.
   const openVisualizerPicker = useCallback(
     (x: number, y: number) => {
       showNativeMenu(
@@ -970,10 +1006,15 @@ function App() {
           visualizerSlots,
           "nowplaying",
           (key) => setVisualizerSlots((prev) => ({ ...prev, nowplaying: key })),
+          {
+            options: artworkOptions,
+            onToggle: toggleArtworkOption,
+            live: audioFullscreen ? !fullscreenVisualizer : !nowPlayingVisualizer,
+          },
         ),
       );
     },
-    [plugins.visualizers, visualizerSlots],
+    [plugins.visualizers, visualizerSlots, artworkOptions, toggleArtworkOption, audioFullscreen, fullscreenVisualizer, nowPlayingVisualizer],
   );
 
   // Tell plugins the queue moved. One coalesced signal — handlers read the new
@@ -4625,13 +4666,14 @@ function App() {
     invokeInfoFetch: plugins.invokeInfoFetch,
     pluginNames: plugins.pluginNames,
   });
-  // About panel prose — fetched only while the panel is open on a surface that
-  // shows it (the audio Now Playing view, in-grid or fullscreen).
+  // About panel prose — fetched only while "Show info" is on and the Artwork
+  // pick is on a surface that shows it (the audio Now Playing view, in-grid or
+  // fullscreen; a plugin visualizer has no side column).
   const nowPlayingAbout = useNowPlayingAbout({
     track: playback.currentTrack,
     enabled:
       nowPlayingAboutOpen &&
-      (library.view === "nowplaying" || audioFullscreen) &&
+      artworkOnSurface &&
       !!playback.currentTrack && !isVideoTrack(playback.currentTrack),
     invokeInfoFetch: plugins.invokeInfoFetch,
     pluginNames: plugins.pluginNames,
@@ -5790,23 +5832,20 @@ function App() {
               isArtistImageResolved={artistImageCache.isResolved}
               onSeek={playback.handleSeek}
               onOpenVisualizerPicker={openVisualizerPicker}
-              onToggleLyrics={handleToggleNowPlayingLyrics}
               onToggleFullscreen={canAudioFullscreen ? toggleAudioFullscreen : undefined}
               lyricsOffsetSecs={lyricsOffsetSecs}
               onLyricsOffsetChange={handleLyricsOffsetChange}
               lyricsHidden={nowPlayingLyricsHidden}
               about={nowPlayingAbout}
               aboutOpen={nowPlayingAboutOpen}
-              onToggleAbout={handleToggleNowPlayingAbout}
+              fillView={artworkOptions.fill}
               cueSheet={nowPlayingCueSheet}
               cuesHidden={nowPlayingCuesHidden}
               onToggleCues={handleToggleNowPlayingCues}
               visualizerSlot={
-                nowPlayingVisualizer && nowPlayingVisualizer !== PHOTOS_VISUALIZER_KEY
-                  ? renderVisualizerSlot("nowplaying", nowPlayingVisualizer)
-                  : undefined
+                nowPlayingVisualizer ? renderVisualizerSlot("nowplaying", nowPlayingVisualizer) : undefined
               }
-              photos={nowPlayingVisualizer === PHOTOS_VISUALIZER_KEY ? nowPlayingPhotos : undefined}
+              photos={showingPhotos ? nowPlayingPhotos : undefined}
             />
           )}
 
@@ -7087,25 +7126,22 @@ function App() {
               isArtistImageResolved={artistImageCache.isResolved}
               onSeek={playback.handleSeek}
               onOpenVisualizerPicker={openVisualizerPicker}
-              onToggleLyrics={handleToggleNowPlayingLyrics}
-              // Same callback as the windowed view — the row keeps all three
-              // buttons in both states, and this one just points the other way.
+              // Same callback as the windowed view — the row keeps its buttons
+              // in both states, and this one just points the other way.
               onToggleFullscreen={toggleAudioFullscreen}
               lyricsOffsetSecs={lyricsOffsetSecs}
               onLyricsOffsetChange={handleLyricsOffsetChange}
               lyricsHidden={nowPlayingLyricsHidden}
               about={nowPlayingAbout}
               aboutOpen={nowPlayingAboutOpen}
-              onToggleAbout={handleToggleNowPlayingAbout}
+              fillView={artworkOptions.fill}
               cueSheet={nowPlayingCueSheet}
               cuesHidden={nowPlayingCuesHidden}
               onToggleCues={handleToggleNowPlayingCues}
               visualizerSlot={
-                fullscreenVisualizer && fullscreenVisualizer !== PHOTOS_VISUALIZER_KEY
-                  ? renderVisualizerSlot("fullscreen", fullscreenVisualizer)
-                  : undefined
+                fullscreenVisualizer ? renderVisualizerSlot("fullscreen", fullscreenVisualizer) : undefined
               }
-              photos={fullscreenVisualizer === PHOTOS_VISUALIZER_KEY ? nowPlayingPhotos : undefined}
+              photos={showingPhotos ? nowPlayingPhotos : undefined}
             />
           }
           controls={
