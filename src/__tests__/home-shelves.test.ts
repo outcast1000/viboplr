@@ -16,6 +16,8 @@ import {
   playlistShelfTrack,
   mixCards,
   madeForYouPlaylists,
+  latestAdditionsCard,
+  LATEST_ADDITIONS_CARD_ID,
   type TrackMix,
 } from "../hooks/useHome";
 import type { Track } from "../types";
@@ -84,6 +86,27 @@ describe("mix shelves", () => {
     expect(c.coverUrl).toBe("/covers/kob.jpg");
     // Real library paths travel with the card, so it plays without a lookup.
     expect(c.tracks.map((t) => t.path)).toEqual(["file:///m/1.flac", "file:///m/2.flac"]);
+  });
+});
+
+describe("Latest additions card (leads Made for you)", () => {
+  it("is a playable card of the newest tracks, covered by the lead's album", async () => {
+    const cover = vi.fn(async (album: string | null | undefined, artist: string | null | undefined) =>
+      album === "New LP" && artist === "Band" ? "/covers/new.jpg" : null);
+    const card = await latestAdditionsCard(
+      [libTrack(1, { album_title: "New LP", album_artist_name: "Band" }), libTrack(2)],
+      cover,
+    );
+    const c = card as { id: string; name: string; subtitle?: string; coverUrl?: string; tracks: Array<{ path?: string | null }> };
+    expect(c.id).toBe(LATEST_ADDITIONS_CARD_ID);
+    expect(c.name).toBe("Latest additions");
+    expect(c.subtitle).toBe("2 tracks");
+    expect(c.coverUrl).toBe("/covers/new.jpg");
+    expect(c.tracks.map((t) => t.path)).toEqual(["file:///m/1.flac", "file:///m/2.flac"]);
+  });
+
+  it("is left out when the library has no tracks", async () => {
+    expect(await latestAdditionsCard([], vi.fn(async () => null))).toBeNull();
   });
 });
 

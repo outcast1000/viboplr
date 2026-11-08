@@ -50,7 +50,7 @@ export const BUILTIN_SHELF_DESCRIPTORS: { id: string; title: string; description
   // Visible by default — the curated Home.
   { id: RADIO_SHELF_ID, title: "Radio", description: "Stations spun from songs you’ll like.", defaultVisible: true },
   { id: LATEST_PLAY_SHELF_ID, title: "Latest play", description: "Jump back into what you last played.", defaultVisible: true },
-  { id: MADE_FOR_YOU_SHELF_ID, title: "Made for you", description: "Your mixes from the Playlists view.", defaultVisible: true },
+  { id: MADE_FOR_YOU_SHELF_ID, title: "Made for you", description: "Your latest additions and the mixes from the Playlists view.", defaultVisible: true },
   { id: "builtin:recently-added", title: "Recently added albums", description: "The newest albums in your library.", defaultVisible: true },
   { id: "builtin:most-played-30d", title: "Most played · 30 days", description: "Your heavy rotation this month.", defaultVisible: true },
   { id: "builtin:discover-by-decade", title: "Discover by decade", description: "A mix from each era in your collection.", defaultVisible: true },
@@ -407,6 +407,30 @@ export async function mixCards(
       tracks: m.tracks.map(libraryShelfTrack),
     };
   }));
+}
+
+// The live "Latest additions" card that opens Made for you: the newest audio
+// tracks by `added_at`. Built at every shelf fetch rather than stored as an auto
+// playlist — those regenerate on a 24h cycle, and a list of what was just added
+// is only worth anything while it is fresh. Audio and video both: it answers
+// "what did I just add", whatever kind it is.
+export const LATEST_ADDITIONS_CARD_ID = "latest-additions";
+export const LATEST_ADDITIONS_SIZE = 30;
+
+export async function latestAdditionsCard(
+  tracks: Track[],
+  cover: typeof resolveCover = resolveCover,
+): Promise<HomeShelfItem | null> {
+  const lead = tracks[0];
+  if (!lead) return null;
+  const coverUrl = await cover(lead.album_title, lead.album_artist_name ?? lead.artist_name);
+  return {
+    id: LATEST_ADDITIONS_CARD_ID,
+    name: "Latest additions",
+    subtitle: trackCountLabel(tracks.length),
+    coverUrl: coverUrl ?? undefined,
+    tracks: tracks.map(libraryShelfTrack),
+  };
 }
 
 // A mixtape's cover as a data: URI, read out of the file by the backend. Cached
@@ -1061,11 +1085,18 @@ export function useHome(opts: UseHomeOptions) {
           // 24h cycle (App.tsx, `ensure_auto_playlists`); each card ships its
           // full list so a click plays at once, as on Discover by decade.
           displayKind: "playlist-cards",
+          // Led by the live "Latest additions" card (latestAdditionsCard).
           limit: 12,
           fetch: async (limit) => {
             try {
-              const mixes = madeForYouPlaylists(await getPlaylistRows()).slice(0, limit);
-              if (mixes.length === 0) return { status: "empty" };
+              const [rows, newest] = await Promise.all([
+                getPlaylistRows(),
+                invoke<Track[]>("get_tracks", {
+                  opts: { sortField: "added", sortDir: "desc", limit: LATEST_ADDITIONS_SIZE },
+                }),
+              ]);
+              const latest = await latestAdditionsCard(newest ?? []);
+              const mixes = madeForYouPlaylists(rows).slice(0, latest ? limit - 1 : limit);
               const items = await Promise.all(mixes.map(async (p): Promise<HomeShelfItem | null> => {
                 const rows = (await invoke<PlaylistTrackRow[]>("get_playlist_tracks", { playlistId: p.id })) ?? [];
                 if (rows.length === 0) return null;
@@ -1083,7 +1114,7 @@ export function useHome(opts: UseHomeOptions) {
                   tracks: rows.map(playlistShelfTrack),
                 };
               }));
-              const cards = items.filter((it): it is HomeShelfItem => it !== null);
+              const cards = [latest, ...items].filter((it): it is HomeShelfItem => it !== null);
               return cards.length > 0 ? { status: "ok", items: cards } : { status: "empty" };
             } catch (e) {
               return { status: "error", message: String(e) };
