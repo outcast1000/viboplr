@@ -2,15 +2,15 @@
   "comment": "Pinned, ready-to-load libmpv engine-component artifacts the app can download at runtime (Settings > Playback). Baked into the binary at compile time (mpv_engine/component.rs). Artifacts are produced ONCE per pin bump by scripts/package-engine-component.mjs (from the post-processed vendor dir fetched per scripts/libmpv.lock.json) and uploaded to the rolling 'engine-components' GitHub release — the sha256 here pins the exact bytes, so the rolling tag is safe. An entry with empty url/sha256 is a placeholder: install reports 'not published' for that platform.",
   "platforms": {
     "macos-aarch64": {
-      "version": "vibo-git-9028187538-bf60c362",
-      "url": "https://github.com/outcast1000/viboplr/releases/download/engine-components/engine-libmpv-macos-aarch64-vibo-git-9028187538-bf60c362.zip",
-      "sha256": "524c60c5bb0175488784c2b788ccaa1e834a3c2898eeb76e2d48c2951b0e12d5",
+      "version": "vibo-git-8bc468896e-6f700a80",
+      "url": "https://github.com/outcast1000/viboplr/releases/download/engine-components/engine-libmpv-macos-aarch64-vibo-git-8bc468896e-6f700a80.zip",
+      "sha256": "6160288395969c702821c0d9181457eaf2d61435f283b660fa158e301ad54868",
       "size_mb": 15.7
     },
     "windows-x86_64": {
-      "version": "vibo-git-9028187538-bf60c362",
-      "url": "https://github.com/outcast1000/viboplr/releases/download/engine-components/engine-libmpv-windows-x86_64-vibo-git-9028187538-bf60c362.zip",
-      "sha256": "95b814693f111e6cc49aae16a1f526f78c63c3f559083dfb1ac1065558a3908c",
+      "version": "vibo-git-8bc468896e-6f700a80",
+      "url": "https://github.com/outcast1000/viboplr/releases/download/engine-components/engine-libmpv-windows-x86_64-vibo-git-8bc468896e-6f700a80.zip",
+      "sha256": "8fbeb9ab5c8f12136c7b9ea905f411c76e372b5ccd2a75dbf25cd50f017862f5",
       "size_mb": 25.1
     }
   }
