@@ -1352,7 +1352,7 @@ mod tests").next().unwrap();
 
         // Album liked
         state.db.toggle_liked("albums", album_id, 1).unwrap();
-        let albums = state.db.get_albums_sorted(None, None, false, None, None).unwrap();
+        let albums = state.db.get_albums(crate::db::AlbumFilter::default(), None, None, None).unwrap();
         assert!(albums.iter().any(|a| a.id == album_id && a.liked == 1));
     }
 

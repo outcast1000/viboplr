@@ -64,3 +64,29 @@ const CARET_KEYS = new Set(["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown", "
 export function textFieldOwnsKey(e: { key: string }, inTextField: boolean): boolean {
   return inTextField && CARET_KEYS.has(e.key);
 }
+
+/** The window's unmodified transport keys a widget may navigate with. */
+const WIDGET_NAV_KEYS = new Set([" ", "ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown", "Home", "End"]);
+
+/**
+ * True when a widget already handled this navigation key — it called
+ * `preventDefault` on it. The window's transport shortcuts (Space = pause,
+ * ←/→ = seek, ↑/↓ = volume) listen on `window`, so they run in the bubble
+ * phase AFTER every React handler below; without this one keypress both moved
+ * a widget's cursor and seeked the track.
+ *
+ * Keyed on what the widget DID, not on where focus is: an earlier version
+ * matched a `data-keynav` attribute, which also swallowed keys the widget
+ * ignored (Space on the tree's loading row didn't pause; ↑/↓ on the split
+ * divider, which only handles ←/→, didn't change the volume). A widget opts in
+ * by calling `preventDefault` exactly on the keys it acts on.
+ *
+ * This reaches every such widget, not only the ones it was written for: the
+ * plugin `tree` and `split` divider, and also `TrackList` and the plugin
+ * `track-row-list` (listbox cursor: ↑/↓/Home/End, Space toggles selection)
+ * and `EqBarControl` / `EqCurve` (slider steps). Each of those used to act AND
+ * let the window seek, change the volume or pause on the same keypress.
+ */
+export function widgetHandledKey(e: { key: string; defaultPrevented: boolean }): boolean {
+  return e.defaultPrevented && WIDGET_NAV_KEYS.has(e.key);
+}

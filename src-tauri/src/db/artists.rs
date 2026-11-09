@@ -91,13 +91,7 @@ impl Database {
                 artist_album_count_sql("artists")
             ),
             params![artist_id],
-            |row| Ok(Artist {
-                id: row.get(0)?,
-                name: row.get(1)?,
-                track_count: row.get(2)?,
-                liked: row.get::<_, i32>(3).unwrap_or(0),
-                album_count: row.get(4)?,
-            }),
+            artist_from_row,
         ).optional()
     }
 
@@ -124,15 +118,7 @@ impl Database {
         // getArtists) doesn't pull the whole table across IPC per page.
         let sql = format!("{}{}", base, limit_offset_clause(limit, offset));
         let mut stmt = conn.prepare(&sql)?;
-        let rows = stmt.query_map([], |row| {
-            Ok(Artist {
-                id: row.get(0)?,
-                name: row.get(1)?,
-                track_count: row.get(2)?,
-                liked: row.get::<_, i32>(3).unwrap_or(0),
-                album_count: row.get(4)?,
-            })
-        })?;
+        let rows = stmt.query_map([], artist_from_row)?;
         rows.collect()
     }
 
@@ -147,13 +133,7 @@ impl Database {
                 artist_visible_clause("artists")
             ),
             params![name],
-            |row| Ok(Artist {
-                id: row.get(0)?,
-                name: row.get(1)?,
-                track_count: row.get(2)?,
-                liked: row.get::<_, i32>(3).unwrap_or(0),
-                album_count: row.get(4)?,
-            }),
+            artist_from_row,
         ).optional()
     }
 }

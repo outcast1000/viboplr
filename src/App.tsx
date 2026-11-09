@@ -189,6 +189,7 @@ import { PluginViewRenderer } from "./components/PluginViewRenderer";
 import { PluginViewHeader } from "./components/PluginViewHeader";
 import { DevPluginBanner } from "./components/DevPluginBanner";
 import { resolvePluginViewHeader } from "./utils/pluginViewHeader";
+import { coerceSplitSizes, splitSizeKey, splitSizesForPlugin, withoutSplitSize, withSplitSize } from "./utils/pluginSplit";
 import type { PluginSearchSeed } from "./components/pluginViews/pluginViews";
 import { hostItemsNotShadowed } from "./components/pluginViews/pluginViews";
 import { VisualizerSlot } from "./components/VisualizerSlot";
@@ -462,6 +463,11 @@ function App() {
   // Playing theater, and fullscreen. The store key stays the legacy
   // `videoLyricsOverlay` so existing saved preferences carry over.
   const [videoSubtitlesOn, setVideoSubtitlesOn] = usePersistedSetting("videoLyricsOverlay", true, restoredRef);
+  // Plugin `split` view node widths the user dragged, `<pluginId>:<persistKey>`
+  // → px (utils/pluginSplit.ts). Written once per drag, on release.
+  const [pluginSplitSizes, setPluginSplitSizes] = usePersistedSetting<Record<string, number>>(
+    "pluginSplitSizes", {}, restoredRef, { restore: coerceSplitSizes },
+  );
   // Generate seek-preview storyboards for local videos (persisted; default on). Off
   // stops the ffmpeg pass — including one already running — and leaves already-cached
   // sheets and source-published ones (YouTube et al.) working, since neither costs
@@ -5971,6 +5977,11 @@ function App() {
                 />
               )}
               <PluginViewRenderer
+                // One instance per plugin view: node state (a split's dragged
+                // width, a tree's expansion and cursor) is keyed by position in
+                // the tree, so without this it leaked from one plugin's view
+                // into the next one opened.
+                key={view}
                 pluginName={pluginState?.manifest.name ?? pluginId}
                 data={data}
                 scrollKey={scrollKey}
@@ -5988,6 +5999,18 @@ function App() {
                 onTrackRowsDragStart={pluginTrackHandlers.onTrackRowsDragStart}
                 pluginMenuItems={plugins.menuItems}
                 onPluginAction={plugins.dispatchContextMenuAction}
+                extras={{
+                  onEntityContextMenu: (e, entity) => contextMenuActions.handleEntityContextMenu(e, {
+                    kind: entity.kind, id: entity.id, name: entity.name, artistName: entity.artistName ?? null,
+                  }),
+                  splitSizes: splitSizesForPlugin(pluginSplitSizes, pluginId),
+                  onSplitSizeChange: (persistKey, size) => {
+                    setPluginSplitSizes((prev) => withSplitSize(prev, splitSizeKey(pluginId, persistKey), size));
+                  },
+                  onSplitSizeReset: (persistKey) => {
+                    setPluginSplitSizes((prev) => withoutSplitSize(prev, splitSizeKey(pluginId, persistKey)));
+                  },
+                }}
               />
               </>
             );

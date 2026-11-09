@@ -1024,7 +1024,7 @@ async fn handle_artist_albums(
     AxumPath(id): AxumPath<i64>,
 ) -> Response {
     db_read(state.db.clone(), move |db| {
-        db.get_albums_sorted(Some(id), None, false, None, None).map_err(|e| e.to_string())
+        db.get_albums(crate::db::AlbumFilter { artist_id: Some(id), ..Default::default() }, None, None, None).map_err(|e| e.to_string())
     })
     .await
 }

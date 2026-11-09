@@ -9,7 +9,7 @@
 import { useEffect, useRef } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { shouldWakeMiniSearch } from "../utils/miniSearchTrigger";
-import { isTextEntryTarget, textFieldOwnsKey } from "../utils/textEntry";
+import { isTextEntryTarget, textFieldOwnsKey, widgetHandledKey } from "../utils/textEntry";
 import type { QueueTrack } from "../types";
 import type { useLibrary } from "./useLibrary";
 import type { usePlayback } from "./usePlayback";
@@ -104,7 +104,9 @@ export function useInAppKeyboardShortcuts(deps: KeyboardShortcutDeps) {
       }
 
       // Non-modifier shortcuts (only when not typing in an input)
-      if (!e.ctrlKey && !e.metaKey && !e.altKey && !isInput) {
+      // A widget that handled the key (the plugin tree moving its cursor)
+      // already called preventDefault on it — see widgetHandledKey.
+      if (!e.ctrlKey && !e.metaKey && !e.altKey && !isInput && !widgetHandledKey(e)) {
         // The Song Quiz plays its own snippet audio — Space/seek would resume
         // the main track underneath it, so transport keys are inert there
         // (volume arrows stay live; the quiz mirrors the main volume).

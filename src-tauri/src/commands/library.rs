@@ -10,9 +10,13 @@ pub async fn get_artists(
     sort: Option<String>,
     limit: Option<i64>,
     offset: Option<i64>,
+    tag_id: Option<i64>,
 ) -> Result<Vec<Artist>, String> {
-    with_db(&state, move |db| {
-        db.get_artists_filtered(liked_only.unwrap_or(false), sort.as_deref(), limit, offset)
+    with_db(&state, move |db| match tag_id {
+        // Tag-scoped: the album artists of that tag's albums (the plugin
+        // API's getArtists({ tagId })), liked / sort honoured as untagged.
+        Some(tid) => db.get_artists_for_tag(tid, liked_only.unwrap_or(false), sort.as_deref(), limit, offset),
+        None => db.get_artists_filtered(liked_only.unwrap_or(false), sort.as_deref(), limit, offset),
     })
     .await
 }
@@ -26,15 +30,22 @@ pub async fn get_artist_by_id(state: State<'_, AppState>, artist_id: i64) -> Res
 pub async fn get_albums(
     state: State<'_, AppState>,
     artist_id: Option<i64>,
+    album_artist_id: Option<i64>,
     sort: Option<String>,
     liked_only: Option<bool>,
     limit: Option<i64>,
     offset: Option<i64>,
+    tag_id: Option<i64>,
 ) -> Result<Vec<Album>, String> {
-    with_db(&state, move |db| {
-        db.get_albums_sorted(artist_id, sort.as_deref(), liked_only.unwrap_or(false), limit, offset)
-    })
-    .await
+    // `artist_id` = owns or performs on, `album_artist_id` = owns; both mean
+    // the same with or without `tag_id` (AlbumFilter).
+    let filter = crate::db::AlbumFilter {
+        artist_id,
+        album_artist_id,
+        tag_id,
+        liked_only: liked_only.unwrap_or(false),
+    };
+    with_db(&state, move |db| db.get_albums(filter, sort.as_deref(), limit, offset)).await
 }
 
 /// Forgotten favorites grouped by tag into playlists — the Home "Forgotten

@@ -3,8 +3,7 @@ import { invoke, type InvokeArgs, type InvokeOptions } from "@tauri-apps/api/cor
 import { saveCueSheet } from "../utils/cueOps";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { subscribe, safeUnlisten } from "../utils/tauriEvents";
-import { isExperimental } from "../utils/pluginStability";
-import { semverSatisfies } from "../utils/semver";
+import { isExperimental, pluginIncompatibility } from "../utils/pluginStability";
 import { recordPluginLog } from "../utils/pluginLog";
 import { foldHeaderPairs, setCookieValues, type PluginHeaderPairs } from "../utils/pluginFetchHeaders";
 import {
@@ -38,6 +37,8 @@ import type {
   PluginEventName,
   PluginTrack,
   PluginPlayContext,
+  PluginLibraryArtist,
+  PluginLibraryAlbum,
   GalleryPluginEntry,
   PluginGalleryIndex,
   ImageFetchResult,
@@ -1034,6 +1035,8 @@ export function usePlugins(
                 tagId: opts?.tagId ?? null,
                 limit: opts?.limit ?? 100,
                 offset: opts?.offset ?? 0,
+                sortField: opts?.sortField ?? null,
+                sortDir: opts?.sortDir ?? null,
               },
             });
           },
@@ -1072,20 +1075,24 @@ export function usePlugins(
           // slice in JS, so a polite paging plugin paid the full-table cost
           // per page on a large library.
           async getArtists(opts) {
-            return invoke<Array<{ id: number; name: string; track_count: number }>>("get_artists", {
+            return invoke<PluginLibraryArtist[]>("get_artists", {
               limit: opts?.limit ?? null,
               offset: opts?.offset ?? null,
+              sort: opts?.sort ?? null,
+              likedOnly: opts?.likedOnly ?? null,
+              tagId: opts?.tagId ?? null,
             });
           },
           async getAlbums(opts) {
-            return invoke<Array<{ id: number; title: string; artist_name: string | null; year: number | null }>>(
-              "get_albums",
-              {
-                artistId: opts?.artistId ?? null,
-                limit: opts?.limit ?? null,
-                offset: opts?.offset ?? null,
-              },
-            );
+            return invoke<PluginLibraryAlbum[]>("get_albums", {
+              artistId: opts?.artistId ?? null,
+              albumArtistId: opts?.albumArtistId ?? null,
+              limit: opts?.limit ?? null,
+              offset: opts?.offset ?? null,
+              sort: opts?.sort ?? null,
+              likedOnly: opts?.likedOnly ?? null,
+              tagId: opts?.tagId ?? null,
+            });
           },
           async getTags(opts) {
             return invoke<Array<{ id: number; name: string; track_count: number }>>("get_tags", {
@@ -3005,12 +3012,14 @@ export function usePlugins(
           continue;
         }
 
-        if (m.minAppVersion && !semverSatisfies(appVersion, m.minAppVersion)) {
+        // Dev-folder plugins skip it (pluginIncompatibility).
+        const incompatible = pluginIncompatibility(m, appVersion, !!plugin.dev);
+        if (incompatible) {
           states.push({
             id: plugin.id,
             manifest: m,
             status: "incompatible",
-            error: `Requires app version ${m.minAppVersion} (current: ${appVersion})`,
+            error: incompatible,
             enabled: true,
             builtin: plugin.builtin,
             dev: plugin.dev,

@@ -218,7 +218,7 @@ fn test_entity_listings_paginate_in_sql() {
     // Unpaginated call unchanged.
     assert_eq!(db.get_artists_filtered(false, None, None, None).unwrap().len(), 4);
 
-    let albums = db.get_albums_sorted(None, None, false, Some(2), Some(2)).unwrap();
+    let albums = db.get_albums(crate::db::AlbumFilter::default(), None, Some(2), Some(2)).unwrap();
     assert_eq!(
         albums.iter().map(|a| a.title.as_str()).collect::<Vec<_>>(),
         vec!["Charlie Album", "Delta Album"],
@@ -382,7 +382,7 @@ fn test_get_albums_sort_added_desc() {
     }
     db.recompute_counts().unwrap();
 
-    let albums = db.get_albums_sorted(None, Some("added_desc"), false, None, None).unwrap();
+    let albums = db.get_albums(crate::db::AlbumFilter::default(), Some("added_desc"), None, None).unwrap();
     assert_eq!(albums.len(), 2);
     assert_eq!(albums[0].title, "New Album");
     assert_eq!(albums[1].title, "Old Album");
@@ -3986,7 +3986,7 @@ fn test_random_sort_keeps_liked_filter_and_limit() {
     }
     db.recompute_counts().unwrap();
 
-    let albums = db.get_albums_sorted(None, Some("random"), true, Some(2), None).unwrap();
+    let albums = db.get_albums(crate::db::AlbumFilter { liked_only: true, ..Default::default() }, Some("random"), Some(2), None).unwrap();
     assert_eq!(albums.len(), 2);
     assert!(albums.iter().all(|a| a.liked == 1));
     let artists = db.get_artists_filtered(true, Some("random"), Some(2), None).unwrap();

@@ -599,6 +599,27 @@ export interface PluginChatNode {
   };
 }
 
+/** One node of a `tree` view node. `id` must be unique across the whole tree. */
+export interface PluginTreeNode {
+  id: string;
+  label: string;
+  /** Muted second line ("12 albums", "1997"). */
+  sublabel?: string;
+  /** Trailing count or short text. */
+  badge?: string | number;
+  /** Explicit thumbnail (http(s) / data: / a local path). Wins over `entity`. */
+  imageUrl?: string;
+  /** What the node IS in the library, by name: the host draws its artwork
+   *  through the shared image cache and gives it the host's artist / album
+   *  context menu. `id` is the library row when known. */
+  entity?: { kind: "artist" | "album"; id?: number; name: string; artistName?: string };
+  /** Shows a chevron. Without `children` the node is lazy (see `tree`). */
+  hasChildren?: boolean;
+  children?: PluginTreeNode[];
+  /** Opaque, echoed back on select / expand. */
+  data?: unknown;
+}
+
 export type PluginViewData =
   | { type: "track-list"; tracks: Track[]; title?: string }
   | { type: "card-grid"; items: CardGridItem[]; columns?: number }
@@ -686,6 +707,43 @@ export type PluginViewData =
       direction: "vertical" | "horizontal";
       children: PluginViewData[];
       className?: string;
+    }
+  | {
+      // Two panes side by side with a draggable divider — a master/detail
+      // view (a tree beside the tracks of its selected node). Each pane
+      // scrolls on its own. `initialSize` / `minSize` / `maxSize` are the
+      // FIRST pane's width in px; with `persistKey` the user's width is
+      // remembered per plugin + key across sessions. Older hosts don't know
+      // the node and render nothing for it — gate on `api.appVersion`.
+      type: "split";
+      children: [PluginViewData, PluginViewData];
+      initialSize?: number;
+      minSize?: number;
+      maxSize?: number;
+      persistKey?: string;
+    }
+  | {
+      // A collapsible tree (ARIA `tree`): artists › albums, tags › artists ›
+      // albums… Expansion is host-local and immediate; a node with
+      // `hasChildren` and no `children` is LAZY — expanding it fires
+      // `expandAction` ({ id, expanded, data }) and shows a loading row until
+      // the plugin re-renders with the children inline. Clicking or Enter on a
+      // node fires `selectAction` ({ id, data }); the plugin re-renders with
+      // `selectedId`. Keyboard: ↑/↓, →/← (expand / collapse, or step into the
+      // child / out to the parent), Home/End, Enter/Space. Nodes carrying an
+      // `entity` get the host's own artist / album context menu (with every
+      // plugin's items) and its artwork. `expandedIds` seeds expansion and
+      // resets it whenever its value changes; `stateKey` keeps the keyboard
+      // cursor when the plugin swaps trees (one key per hierarchy).
+      type: "tree";
+      nodes: PluginTreeNode[];
+      selectAction: string;
+      expandAction?: string;
+      selectedId?: string;
+      expandedIds?: string[];
+      stateKey?: string;
+      emptyText?: string;
+      ariaLabel?: string;
     }
   | { type: "spacer" }
   | {
@@ -830,14 +888,42 @@ export type ReplaceTrackFileResult =
   | { status: "replaced"; trackId: number; path: string; previousPath: string }
   | { status: "declined" };
 
+// An artist row from `api.library.getArtists`. `album_count` (albums it owns as
+// album artist) is what describes an album-artist-only artist, whose
+// `track_count` is 0 — "Various Artists". Optional: older hosts omit both.
+export interface PluginLibraryArtist {
+  id: number;
+  name: string;
+  track_count: number;
+  album_count?: number;
+  liked?: number;
+}
+
+// An album row from `api.library.getAlbums`. `artist_id` / `artist_name` are
+// the ALBUM artist. Optional fields: older hosts omit them from the types.
+export interface PluginLibraryAlbum {
+  id: number;
+  title: string;
+  artist_id?: number | null;
+  artist_name: string | null;
+  year: number | null;
+  track_count?: number;
+  liked?: number;
+}
+
 export interface PluginLibraryAPI {
   getTrackCount(): Promise<number>;
+  // A scoped read (artistId / albumId / tagId) returns EVERY matching track in
+  // its natural order (album: track number; artist: album, track; tag: artist,
+  // album, track) — limit / offset / sort apply only to the unscoped listing.
   getTracks(opts?: {
     artistId?: number;
     albumId?: number;
     tagId?: number;
     limit?: number;
     offset?: number;
+    sortField?: string;
+    sortDir?: "asc" | "desc";
   }): Promise<Track[]>;
   ftsTracks(query: string, opts?: {
     limit?: number;
@@ -855,24 +941,31 @@ export interface PluginLibraryAPI {
     limit?: number;
     offset?: number;
   }): Promise<Array<{ id: number; name: string; track_count: number }>>;
+  // `tagId`: the ALBUM artists of albums holding a track with that tag.
+  // `likedOnly` and `sort` apply either way; `"random"` shuffles, default name.
   getArtists(opts?: {
     limit?: number;
     offset?: number;
-  }): Promise<
-    Array<{ id: number; name: string; track_count: number }>
-  >;
+    sort?: "name" | "random";
+    likedOnly?: boolean;
+    tagId?: number;
+  }): Promise<PluginLibraryArtist[]>;
+  // Filters AND together and mean the same with or without each other:
+  // `artistId` = albums the artist owns OR performs a track on (an artist
+  // page); `albumArtistId` = albums the artist owns as album artist only (a
+  // browse by album artist — a compilation stays under "Various Artists");
+  // `tagId` = albums holding a track with that tag; `likedOnly`. `sort`
+  // always applies; default year when any of the three filters is set, else
+  // title.
   getAlbums(opts?: {
     artistId?: number;
+    albumArtistId?: number;
     limit?: number;
     offset?: number;
-  }): Promise<
-    Array<{
-      id: number;
-      title: string;
-      artist_name: string | null;
-      year: number | null;
-    }>
-  >;
+    sort?: "title" | "year" | "added_desc" | "random";
+    likedOnly?: boolean;
+    tagId?: number;
+  }): Promise<PluginLibraryAlbum[]>;
   getTags(opts?: {
     limit?: number;
     offset?: number;

@@ -329,8 +329,9 @@ window.__TAURI_INTERNALS__.invoke = async function (cmd, args) {
       // ArtistDetail calls this with an artistId and renders `albums.length`,
       // so an unfiltered answer made every artist page claim every album.
       // No artistId (the Library Albums tab) still gets the whole list.
-      return args && args.artistId != null
-        ? TEST_ALBUMS.filter(a => a.artist_id === args.artistId)
+      // albumArtistId (owned only) narrows the same way in this fixture.
+      return args && (args.artistId ?? args.albumArtistId) != null
+        ? TEST_ALBUMS.filter(a => a.artist_id === (args.artistId ?? args.albumArtistId))
         : TEST_ALBUMS;
     // Latest play snapshots, kept in memory for the page so the queue's Back /
     // Forward can read back what a write stored. The startup sweep has

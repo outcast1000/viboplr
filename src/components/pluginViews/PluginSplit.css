@@ -1,0 +1,76 @@
+/* The plugin `split` view node (PluginSplit.tsx). Skin tokens only. */
+
+/* A split that is the whole view body fills it (like a full-height chat), so
+   each pane scrolls by itself instead of the generic view scroller. */
+.content > .plugin-view.plugin-view--fill,
+.plugin-view.plugin-view--fill {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  padding: 0;
+}
+
+.psplit {
+  display: flex;
+  flex-direction: row;
+  flex: 1 1 auto;
+  min-height: 0;
+  min-width: 0;
+  height: 100%;
+}
+
+.psplit-pane {
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+}
+
+.psplit-pane--first {
+  flex: 0 0 auto;
+  border-right: 1px solid var(--border);
+  padding: 0 8px 12px 12px;
+}
+
+.psplit-pane--second {
+  flex: 1 1 auto;
+  min-width: 0;
+  padding: 0 16px 16px;
+}
+
+.psplit-divider {
+  flex: 0 0 6px;
+  margin-left: -3px;
+  margin-right: -3px;
+  cursor: col-resize;
+  position: relative;
+  z-index: 1;
+  outline: none;
+  touch-action: none;
+}
+
+.psplit-divider::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 2px;
+  width: 2px;
+  background: transparent;
+  transition: background-color var(--dur-fast) var(--ease-out-quart);
+}
+
+.psplit-divider:hover::after,
+.psplit-divider:focus-visible::after,
+.psplit--dragging .psplit-divider::after {
+  background: var(--accent);
+}
+
+/* No text selection or stray hovers while the divider is being dragged. */
+.psplit--dragging {
+  cursor: col-resize;
+  user-select: none;
+}
+
+.psplit--dragging .psplit-pane {
+  pointer-events: none;
+}

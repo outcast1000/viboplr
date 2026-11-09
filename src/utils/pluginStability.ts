@@ -1,6 +1,9 @@
-// Plugin maturity classification. One shared rule for every consumer
-// (gallery grouping, badges, onboarding filter) so the fail-safe direction
-// can't drift between call sites.
+// Plugin maturity classification, and whether a plugin can run on this app
+// at all. One shared rule for every consumer (gallery grouping, badges,
+// onboarding filter, activation) so the fail-safe direction can't drift
+// between call sites.
+
+import { semverSatisfies } from "./semver";
 
 export type StabilityTier = "stable" | "experimental";
 
@@ -41,6 +44,26 @@ export function resolveInstalledStability(
 ): string | undefined {
   if (isDev) return manifestValue;
   return String(manifestValue ?? "").trim() !== "" ? manifestValue : galleryValue;
+}
+
+/**
+ * Why a plugin can't run on this app version, or null when it can.
+ *
+ * A plugin loaded from the **dev plugin folder** is exempt: it is being built
+ * against the unreleased source, so it legitimately declares the version that
+ * source will ship as — a dev build of 1.0.117 carrying 1.0.118's host work
+ * refused the very plugin that work was for. The dev folder is debug-mode only
+ * and chosen by hand, so nothing reaches a user through this. (Same dev
+ * carve-out as `resolveInstalledStability`.)
+ */
+export function pluginIncompatibility(
+  manifest: { minAppVersion?: string | null },
+  appVersion: string,
+  dev: boolean,
+): string | null {
+  if (dev || !manifest.minAppVersion) return null;
+  if (semverSatisfies(appVersion, manifest.minAppVersion)) return null;
+  return `Requires app version ${manifest.minAppVersion} (current: ${appVersion})`;
 }
 
 /** Split a list into stable and experimental pools (order preserved). */

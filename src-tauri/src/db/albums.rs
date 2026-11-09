@@ -136,61 +136,138 @@ impl Database {
         ).optional()
     }
 
-    pub fn get_albums_sorted(
+    /// The one album listing: every non-empty album, narrowed by `filter`
+    /// (its fields AND together), ordered by `sort` (`album_order_sql`).
+    /// `limit` / `offset` are applied in SQL so bounded consumers (the Home
+    /// shelves show 20 cards; the plugin API's getAlbums pages) don't pull the
+    /// whole album table across the IPC bridge.
+    pub fn get_albums(
         &self,
-        artist_id: Option<i64>,
+        filter: AlbumFilter,
         sort: Option<&str>,
-        liked_only: bool,
         limit: Option<i64>,
         offset: Option<i64>,
     ) -> SqlResult<Vec<Album>> {
         let conn = self.reader();
-        if let Some(aid) = artist_id {
-            let liked_clause = if liked_only { " AND a.liked = 1" } else { "" };
-            let sql = format!(
-                "SELECT DISTINCT a.id, a.title, a.artist_id, ar.name, a.year, a.track_count, a.liked \
-                 FROM albums a LEFT JOIN artists ar ON a.artist_id = ar.id \
-                 WHERE a.track_count > 0{} \
-                   AND (a.artist_id = ?1 OR a.id IN (SELECT album_id FROM tracks WHERE artist_id = ?1)) \
-                 ORDER BY a.year, a.title{}",
-                liked_clause,
-                limit_offset_clause(limit, offset),
-            );
-            let mut stmt = conn.prepare(&sql)?;
-            let rows = stmt.query_map(params![aid], |row| album_from_row(row))?;
-            return rows.collect();
+        let mut clauses = vec!["a.track_count > 0".to_string()];
+        let mut binds: Vec<i64> = Vec::new();
+        let mut bind = |v: i64| { binds.push(v); binds.len() };
+        if let Some(aid) = filter.artist_id {
+            let n = bind(aid);
+            clauses.push(format!(
+                "(a.artist_id = ?{n} OR a.id IN (SELECT album_id FROM tracks WHERE artist_id = ?{n}))"
+            ));
         }
-
-        let order_clause = match sort {
-            Some("added_desc") =>
-                format!("ORDER BY {} DESC, a.title", album_added_at_sql("a")),
-            // A fresh shuffle per call — the Home "Liked albums" shelf, so its
-            // 20 cards aren't the same alphabetical head on every refresh.
-            Some("random") => "ORDER BY RANDOM()".to_string(),
-            _ => "ORDER BY a.title".to_string(),
-        };
-        let liked_clause = if liked_only { " AND a.liked = 1" } else { "" };
-        // Optional LIMIT/OFFSET so bounded consumers (the Home shelves show 20
-        // cards; the plugin API's getAlbums pages) don't pull the whole album
-        // table across the IPC bridge.
-        let limit_clause = limit_offset_clause(limit, offset);
+        if let Some(aid) = filter.album_artist_id {
+            let n = bind(aid);
+            clauses.push(format!("a.artist_id = ?{n}"));
+        }
+        if let Some(tid) = filter.tag_id {
+            let n = bind(tid);
+            clauses.push(format!(
+                "a.id IN (SELECT t.album_id FROM track_tags tt \
+                 JOIN tracks t ON t.id = tt.track_id \
+                 LEFT JOIN collections co ON t.collection_id = co.id \
+                 WHERE tt.tag_id = ?{n} {ENABLED_COLLECTION_FILTER})"
+            ));
+        }
+        if filter.liked_only {
+            clauses.push("a.liked = 1".to_string());
+        }
         let sql = format!(
-            "SELECT a.id, a.title, a.artist_id, ar.name, a.year, a.track_count, a.liked
-             FROM albums a LEFT JOIN artists ar ON a.artist_id = ar.id
-             WHERE a.track_count > 0{}
-             {}{}",
-            liked_clause, order_clause, limit_clause,
+            "SELECT a.id, a.title, a.artist_id, ar.name, a.year, a.track_count, a.liked \
+             FROM albums a LEFT JOIN artists ar ON a.artist_id = ar.id \
+             WHERE {} ORDER BY {}{}",
+            clauses.join(" AND "),
+            album_order_sql(sort, filter.is_scoped()),
+            limit_offset_clause(limit, offset),
         );
         let mut stmt = conn.prepare(&sql)?;
-        let rows = stmt.query_map([], |row| album_from_row(row))?;
+        let rows = stmt.query_map(rusqlite::params_from_iter(binds.iter()), album_from_row)?;
+        rows.collect()
+    }
+
+    /// The album artists (ALBUMARTIST, i.e. `albums.artist_id`) of albums that
+    /// hold at least one track carrying `tag_id`, in enabled collections —
+    /// the middle level of a Tag › Artist › Album browse. Album-artist, not
+    /// track-artist, so a tagged compilation sits under "Various Artists"
+    /// exactly as it does everywhere else. `track_count` / `album_count` are
+    /// the artist's library-wide numbers, not tag-scoped ones. `liked_only` and
+    /// `sort` mean what they do on the untagged listing (`"random"` shuffles,
+    /// anything else is by name).
+    pub fn get_artists_for_tag(
+        &self,
+        tag_id: i64,
+        liked_only: bool,
+        sort: Option<&str>,
+        limit: Option<i64>,
+        offset: Option<i64>,
+    ) -> SqlResult<Vec<Artist>> {
+        let conn = self.reader();
+        let sql = format!(
+            "SELECT id, name, track_count, liked, {albums} FROM artists \
+             WHERE id IN (SELECT al.artist_id FROM track_tags tt \
+                 JOIN tracks t ON t.id = tt.track_id \
+                 JOIN albums al ON al.id = t.album_id \
+                 LEFT JOIN collections co ON t.collection_id = co.id \
+                 WHERE tt.tag_id = ?1 AND al.track_count > 0 {enabled}){liked} \
+             ORDER BY {order}{page}",
+            albums = artist_album_count_sql("artists"),
+            enabled = ENABLED_COLLECTION_FILTER,
+            liked = if liked_only { " AND liked = 1" } else { "" },
+            order = if sort == Some("random") { "RANDOM()" } else { "name" },
+            page = limit_offset_clause(limit, offset),
+        );
+        let mut stmt = conn.prepare(&sql)?;
+        let rows = stmt.query_map(params![tag_id], artist_from_row)?;
         rows.collect()
     }
 
 }
 
+/// What an album listing (`Database::get_albums`) is narrowed to. Every field
+/// is optional and they AND together.
+#[derive(Debug, Default, Clone, Copy)]
+pub struct AlbumFilter {
+    /// Albums this artist owns (album artist) **or performs a track on** —
+    /// what an artist page lists.
+    pub artist_id: Option<i64>,
+    /// Albums this artist owns as album artist (ALBUMARTIST) only — what a
+    /// browse by album artist lists, so a compilation stays under "Various
+    /// Artists" and not under each performer.
+    pub album_artist_id: Option<i64>,
+    /// Albums holding at least one track with this tag, in an enabled
+    /// collection.
+    pub tag_id: Option<i64>,
+    pub liked_only: bool,
+}
+
+impl AlbumFilter {
+    /// Narrowed to an artist or a tag — a short list that reads best
+    /// chronologically, so it defaults to year order.
+    fn is_scoped(&self) -> bool {
+        self.artist_id.is_some() || self.album_artist_id.is_some() || self.tag_id.is_some()
+    }
+}
+
+/// The ORDER BY of an album listing (alias `a`). `"title"`, `"year"`
+/// (undated albums first), `"added_desc"` (`album_added_at_sql`), `"random"`
+/// (a fresh shuffle per call — the Home "Liked albums" shelf); anything else is
+/// year order for a scoped listing, title order for the whole library.
+fn album_order_sql(sort: Option<&str>, scoped: bool) -> String {
+    match sort {
+        Some("title") => "a.title".to_string(),
+        Some("year") => "a.year, a.title".to_string(),
+        Some("added_desc") => format!("{} DESC, a.title", album_added_at_sql("a")),
+        Some("random") => "RANDOM()".to_string(),
+        _ if scoped => "a.year, a.title".to_string(),
+        _ => "a.title".to_string(),
+    }
+}
+
 #[cfg(test)]
 mod tests {
-    use crate::db::{Database, ScannedFileMeta};
+    use crate::db::{AlbumFilter, Database, ScannedFileMeta};
 
     fn file(rel: &str, title: &str, artist: &str, album_artist: Option<&str>, album: &str) -> ScannedFileMeta {
         ScannedFileMeta {
@@ -342,5 +419,81 @@ mod tests {
         let alpha = db.find_artist_by_name("Alpha").unwrap().unwrap();
         assert_eq!(alpha.track_count, 2, "one comp track plus its own");
         assert_eq!(alpha.album_count, 1, "owns Alpha Album, not the compilation");
+    }
+
+    /// Tag › Artist › Album browsing is album-artist keyed: a tagged track on a
+    /// compilation files the compilation under its ALBUMARTIST, not under the
+    /// performer, and an artist's untagged album is left out.
+    #[test]
+    fn test_tag_scoped_artists_and_albums_follow_the_album_artist() {
+        let db = Database::new_in_memory().unwrap();
+        let tagged = |rel: &str, title: &str, artist: &str, aa: Option<&str>, album: &str| {
+            let mut f = file(rel, title, artist, aa, album);
+            f.tag_names = vec!["Trip Hop".to_string()];
+            f
+        };
+        db.ingest_scanned_files(
+            &[
+                tagged("comp/01.flac", "One", "Alpha", Some("Various Artists"), "Comp"),
+                file("comp/02.flac", "Two", "Beta", Some("Various Artists"), "Comp"),
+                tagged("alpha/01.flac", "Own", "Alpha", None, "Alpha Album"),
+                file("alpha2/01.flac", "Other", "Alpha", None, "Untagged Album"),
+                file("gamma/01.flac", "G", "Gamma", None, "Gamma Album"),
+            ],
+            None,
+        )
+        .unwrap();
+        db.recompute_counts().unwrap();
+        let tag = db.find_tag_by_name("Trip Hop").unwrap().expect("tag ingested");
+
+        let artists: Vec<String> =
+            db.get_artists_for_tag(tag.id, false, None, None, None).unwrap().into_iter().map(|a| a.name).collect();
+        assert_eq!(artists, vec!["Alpha".to_string(), "Various Artists".to_string()]);
+
+        let titles = |filter: AlbumFilter, sort: Option<&str>| -> Vec<String> {
+            db.get_albums(filter, sort, None, None).unwrap().into_iter().map(|a| a.title).collect()
+        };
+        let tagged_only = AlbumFilter { tag_id: Some(tag.id), ..Default::default() };
+
+        let all = titles(tagged_only, None);
+        assert_eq!(all.len(), 2);
+        assert!(all.contains(&"Comp".to_string()) && all.contains(&"Alpha Album".to_string()));
+
+        let alpha = db.find_artist_by_name("Alpha").unwrap().unwrap();
+        assert_eq!(
+            titles(AlbumFilter { album_artist_id: Some(alpha.id), ..tagged_only }, None),
+            vec!["Alpha Album".to_string()],
+            "albumArtistId: the compilation is not Alpha's",
+        );
+        // artistId means what it means untagged — owns OR performs on — so
+        // the compilation Alpha appears on is included.
+        let performs = titles(AlbumFilter { artist_id: Some(alpha.id), ..tagged_only }, None);
+        assert_eq!(performs.len(), 2, "artistId: Alpha performs on Comp");
+        assert_eq!(
+            titles(AlbumFilter { artist_id: Some(alpha.id), ..Default::default() }, None).len(),
+            3,
+            "artistId untagged: both own albums plus the compilation",
+        );
+        assert_eq!(
+            titles(AlbumFilter { album_artist_id: Some(alpha.id), ..Default::default() }, Some("title")),
+            vec!["Alpha Album".to_string(), "Untagged Album".to_string()],
+            "albumArtistId untagged, and sort applies to a scoped listing",
+        );
+
+        // likedOnly and sort reach the tag-scoped reads too — a plugin asking
+        // for a tag's liked albums must not get every album of the tag.
+        use crate::db::likes::build_entity_key;
+        db.set_entity_like("album", &build_entity_key("album", "Comp", Some("Various Artists")), 1, None, 100).unwrap();
+        db.set_entity_like("artist", &build_entity_key("artist", "Alpha", None), 1, None, 100).unwrap();
+        db.recompute_counts().unwrap();
+        assert_eq!(titles(AlbumFilter { liked_only: true, ..tagged_only }, None), vec!["Comp".to_string()]);
+        let liked_artists: Vec<String> = db
+            .get_artists_for_tag(tag.id, true, None, None, None)
+            .unwrap()
+            .into_iter()
+            .map(|a| a.name)
+            .collect();
+        assert_eq!(liked_artists, vec!["Alpha".to_string()]);
+        assert_eq!(titles(tagged_only, Some("title")), vec!["Alpha Album".to_string(), "Comp".to_string()]);
     }
 }

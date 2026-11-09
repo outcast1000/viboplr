@@ -240,6 +240,18 @@ fn collection_from_row(row: &rusqlite::Row) -> rusqlite::Result<Collection> {
     })
 }
 
+/// An `Artist` from a row selected as `id, name, track_count, liked,
+/// {artist_album_count_sql}` — the one column order every artist query uses.
+fn artist_from_row(row: &rusqlite::Row) -> rusqlite::Result<Artist> {
+    Ok(Artist {
+        id: row.get(0)?,
+        name: row.get(1)?,
+        track_count: row.get(2)?,
+        liked: row.get::<_, i32>(3).unwrap_or(0),
+        album_count: row.get(4)?,
+    })
+}
+
 fn album_from_row(row: &rusqlite::Row) -> rusqlite::Result<Album> {
     Ok(Album {
         id: row.get(0)?,
@@ -381,6 +393,7 @@ pub mod publish_servers;
 mod search;
 mod tags;
 mod tracks;
+pub use albums::AlbumFilter;
 pub use tracks::ScannedFileMeta;
 
 /// `-ln(u) / weight` for a uniform `u` in (0, 1) derived from a 64-bit random

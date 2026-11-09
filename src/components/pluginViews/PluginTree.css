@@ -1,0 +1,143 @@
+/* The plugin `tree` view node (PluginTree.tsx). Skin tokens only. */
+
+.ptree {
+  --ptree-indent: 18px;
+  --ptree-row-h: 36px;
+  display: flex;
+  flex-direction: column;
+  padding: 4px 0;
+  outline: none;
+  min-width: 0;
+}
+
+.ptree-empty {
+  padding: 16px 12px;
+  color: var(--text-tertiary);
+  font-size: var(--fs-sm);
+}
+
+.ptree-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-height: var(--ptree-row-h);
+  padding-right: 10px;
+  border-radius: var(--ds-radius);
+  color: var(--text-primary);
+  font-size: var(--fs-sm);
+  cursor: default;
+  user-select: none;
+  /* The left padding is the indent, set inline per depth; this adds the
+     constant gutter in front of the chevron. */
+  margin: 0 4px;
+}
+
+.ptree-row:hover {
+  background: var(--bg-hover);
+}
+
+/* Same selection fill as the library list and the plugin row list. */
+.ptree-row--selected {
+  background: rgba(var(--accent-rgb), 0.15);
+}
+
+/* Keyboard cursor: drawn only while the tree has keyboard focus, so a mouse
+   user never sees a ring next to their selection. */
+.ptree:focus-visible .ptree-row--active {
+  box-shadow: inset 0 0 0 2px var(--accent);
+}
+
+.ptree--cv > .ptree-row {
+  content-visibility: auto;
+  contain-intrinsic-size: auto var(--ptree-row-h);
+}
+
+.ptree-chevron {
+  flex: 0 0 18px;
+  width: 18px;
+  height: 18px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-tertiary);
+}
+
+.ptree-chevron--btn {
+  border: none;
+  background: none;
+  padding: 0;
+  border-radius: var(--ds-radius);
+  cursor: pointer;
+}
+
+.ptree-chevron--btn:hover {
+  color: var(--text-primary);
+  background: var(--bg-tertiary);
+}
+
+.ptree-chevron--btn svg {
+  transition: transform var(--dur-fast) var(--ease-out-quart);
+}
+
+.ptree-chevron--open svg {
+  transform: rotate(90deg);
+}
+
+.ptree-art {
+  flex: 0 0 26px;
+  width: 26px;
+  height: 26px;
+  border-radius: 4px;
+  overflow: hidden;
+  background: var(--placeholder-spotlight, var(--bg-tertiary));
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.ptree-art--round {
+  border-radius: 50%;
+}
+
+.ptree-art img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.ptree-art .entity-art-fallback {
+  width: 80%;
+  height: 80%;
+}
+
+.ptree-text {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  line-height: 1.25;
+}
+
+.ptree-label,
+.ptree-sublabel {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ptree-sublabel {
+  color: var(--text-secondary);
+  font-size: var(--fs-xs);
+}
+
+.ptree-badge {
+  flex: 0 0 auto;
+  color: var(--text-tertiary);
+  font-size: var(--fs-xs);
+  font-variant-numeric: tabular-nums;
+}
+
+.ptree-row--loading {
+  color: var(--text-tertiary);
+}

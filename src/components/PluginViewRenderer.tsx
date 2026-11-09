@@ -30,6 +30,20 @@ import { PluginChat } from "./pluginViews/PluginChat";
 import { mapDetailHeaderToHeroProps } from "./pluginViews/mapDetailHeader";
 import { resolveImageUrl } from "../utils/resolveImageUrl";
 import { EntityArtFallback } from "./EntityArtFallback";
+import { PluginTree, type TreeEntityMenuTarget } from "./pluginViews/PluginTree";
+import { PluginSplit } from "./pluginViews/PluginSplit";
+
+/** Host state and callbacks only some node kinds need, bundled so a new one
+ *  doesn't mean another prop threaded through every recursion below. */
+export interface PluginViewHostExtras {
+  /** The host's artist / album menu for a `tree` node carrying an `entity`. */
+  onEntityContextMenu?: (e: React.MouseEvent, entity: TreeEntityMenuTarget) => void;
+  /** Stored `split` widths for this plugin, keyed by the node's `persistKey`. */
+  splitSizes?: Record<string, number>;
+  onSplitSizeChange?: (persistKey: string, size: number) => void;
+  /** Forget a stored width (the divider's double-click reset). */
+  onSplitSizeReset?: (persistKey: string) => void;
+}
 
 interface PluginViewRendererProps {
   pluginName: string;
@@ -57,6 +71,7 @@ interface PluginViewRendererProps {
   /** Identifies this view (e.g. `plugin:<id>:<view>`) for state the host keeps
    *  across the view being left: a chat's unsent draft. */
   viewKey?: string;
+  extras?: PluginViewHostExtras;
 }
 
 export function PluginViewRenderer({
@@ -74,6 +89,7 @@ export function PluginViewRenderer({
   searchSeed,
   onSearchSeedConsumed,
   viewKey,
+  extras,
 }: PluginViewRendererProps) {
   // Per-view scroll memory, keyed by scrollKey. Standard scroll-restoration
   // pattern: continuously record the CURRENT key's scrollTop via a scroll
@@ -137,12 +153,25 @@ export function PluginViewRenderer({
   // A chat that is the whole body takes the full height: its thread scrolls by
   // itself and its composer stays pinned under it, instead of scrolling away
   // inside the generic view scroller.
-  const fillChat =
-    contentData.type === "chat"
-      ? contentData
-      : contentData.type === "layout" && contentData.children.length === 1 && contentData.children[0].type === "chat"
-        ? contentData.children[0]
-        : null;
+  const fillChat = soleBodyNode(contentData, "chat");
+  // Likewise a split that is the whole body: its panes scroll by themselves
+  // (a master/detail view), so it fills the view rather than scrolling in it.
+  const fillSplit = soleBodyNode(contentData, "split");
+
+  // Everything a top-level node gets — one object, so no call site below can
+  // drop a prop (the same rule `child()` keeps inside PluginViewNode).
+  const nodeProps: Omit<PluginViewNodeProps, "node"> = {
+    currentTrack,
+    playing,
+    onPlayTrack,
+    onAction,
+    onTrackContextMenu,
+    onTrackRowContextMenu,
+    onTrackRowsDragStart,
+    pluginMenuItems,
+    onPluginAction,
+    extras,
+  };
 
   return (
     <>
@@ -162,45 +191,36 @@ export function PluginViewRenderer({
             onAction={onAction}
           />
         ) : (
-        <PluginViewNode
-          key={i}
-          node={node}
-          currentTrack={currentTrack}
-          playing={playing}
-          onPlayTrack={onPlayTrack}
-          onAction={onAction}
-          onTrackContextMenu={onTrackContextMenu}
-          onTrackRowContextMenu={onTrackRowContextMenu}
-          onTrackRowsDragStart={onTrackRowsDragStart}
-          pluginMenuItems={pluginMenuItems}
-          onPluginAction={onPluginAction}
-        />
+          <PluginViewNode key={i} node={node} {...nodeProps} />
         )
       ))}
       {fillChat ? (
         <div className="plugin-view plugin-view--chat">
           <PluginChat node={fillChat} onAction={onAction} fill draftKey={viewKey} />
         </div>
+      ) : fillSplit ? (
+        <div className="plugin-view plugin-view--fill">
+          <PluginViewNode node={fillSplit} {...nodeProps} />
+        </div>
       ) : (
       <div className="plugin-view" ref={scrollElRef}>
         <div className="plugin-view-content">
-          <PluginViewNode
-            node={contentData}
-            currentTrack={currentTrack}
-            playing={playing}
-            onPlayTrack={onPlayTrack}
-            onAction={onAction}
-            onTrackContextMenu={onTrackContextMenu}
-            onTrackRowContextMenu={onTrackRowContextMenu}
-            onTrackRowsDragStart={onTrackRowsDragStart}
-            pluginMenuItems={pluginMenuItems}
-            onPluginAction={onPluginAction}
-          />
+          <PluginViewNode node={contentData} {...nodeProps} />
         </div>
       </div>
       )}
     </>
   );
+}
+
+/** `data` when it is a node of `type`, or the only child of a layout that is
+ *  — a body that fills the view (a full-height chat, a master/detail split). */
+function soleBodyNode<T extends PluginViewData["type"]>(
+  data: PluginViewData,
+  type: T,
+): Extract<PluginViewData, { type: T }> | null {
+  const node = data.type === "layout" && data.children.length === 1 ? data.children[0] : data;
+  return node.type === type ? (node as Extract<PluginViewData, { type: T }>) : null;
 }
 
 interface PluginViewNodeProps {
@@ -214,21 +234,57 @@ interface PluginViewNodeProps {
   onTrackRowsDragStart?: (items: TrackRowItem[]) => void;
   pluginMenuItems?: PluginMenuItem[];
   onPluginAction?: (pluginId: string, actionId: string, target: PluginContextMenuTarget) => void;
+  extras?: PluginViewHostExtras;
 }
 
-function PluginViewNode({
-  node,
-  currentTrack,
-  playing,
-  onPlayTrack,
-  onAction,
-  onTrackContextMenu,
-  onTrackRowContextMenu,
-  onTrackRowsDragStart,
-  pluginMenuItems,
-  onPluginAction,
-}: PluginViewNodeProps) {
+function PluginViewNode(props: PluginViewNodeProps) {
+  const {
+    node,
+    currentTrack,
+    onPlayTrack,
+    onAction,
+    onTrackContextMenu,
+    onTrackRowContextMenu,
+    onTrackRowsDragStart,
+    pluginMenuItems,
+    onPluginAction,
+    extras,
+  } = props;
+  // A child node gets everything its parent got — the one place nesting
+  // forwards props, so no container can drop one (settings-row and section
+  // used to drop the plugin menu items).
+  const child = (n: PluginViewData, key?: number) => <PluginViewNode key={key} {...props} node={n} />;
   switch (node.type) {
+    case "tree":
+      return (
+        <PluginTree
+          nodes={node.nodes}
+          selectAction={node.selectAction}
+          expandAction={node.expandAction}
+          selectedId={node.selectedId}
+          expandedIds={node.expandedIds}
+          stateKey={node.stateKey}
+          emptyText={node.emptyText}
+          ariaLabel={node.ariaLabel}
+          onAction={onAction}
+          onEntityContextMenu={extras?.onEntityContextMenu}
+        />
+      );
+    case "split": {
+      const key = node.persistKey;
+      return (
+        <PluginSplit
+          first={child(node.children[0])}
+          second={child(node.children[1])}
+          initialSize={node.initialSize}
+          minSize={node.minSize}
+          maxSize={node.maxSize}
+          storedSize={key ? extras?.splitSizes?.[key] : undefined}
+          onSizeCommit={key && extras?.onSplitSizeChange ? (size) => extras.onSplitSizeChange!(key, size) : undefined}
+          onSizeReset={key && extras?.onSplitSizeReset ? () => extras.onSplitSizeReset!(key) : undefined}
+        />
+      );
+    }
     case "track-list":
       return (
         <PluginTrackList
@@ -286,21 +342,7 @@ function PluginViewNode({
         <div
           className={`plugin-layout plugin-layout-${node.direction}${node.className ? " " + node.className : ""}`}
         >
-          {node.children.map((child, i) => (
-            <PluginViewNode
-              key={i}
-              node={child}
-              currentTrack={currentTrack}
-              playing={playing}
-              onPlayTrack={onPlayTrack}
-              onAction={onAction}
-              onTrackContextMenu={onTrackContextMenu}
-              onTrackRowContextMenu={onTrackRowContextMenu}
-              onTrackRowsDragStart={onTrackRowsDragStart}
-              pluginMenuItems={pluginMenuItems}
-              onPluginAction={onPluginAction}
-            />
-          ))}
+          {node.children.map((c, i) => child(c, i))}
         </div>
       );
     case "spacer":
@@ -424,18 +466,7 @@ function PluginViewNode({
       const control = node.control || node.child;
       return (
         <PluginSettingsRow label={node.label} description={node.description}>
-          {control && (
-            <PluginViewNode
-              node={control}
-              currentTrack={currentTrack}
-              playing={playing}
-              onPlayTrack={onPlayTrack}
-              onAction={onAction}
-              onTrackContextMenu={onTrackContextMenu}
-              onTrackRowContextMenu={onTrackRowContextMenu}
-              onTrackRowsDragStart={onTrackRowsDragStart}
-            />
-          )}
+          {control && child(control)}
         </PluginSettingsRow>
       );
     }
@@ -444,19 +475,7 @@ function PluginViewNode({
         <div className="settings-group">
           <div className="settings-group-title">{node.title}</div>
           <div className="settings-card">
-            {node.children.map((child, i) => (
-              <PluginViewNode
-                key={i}
-                node={child}
-                currentTrack={currentTrack}
-                playing={playing}
-                onPlayTrack={onPlayTrack}
-                onAction={onAction}
-                onTrackContextMenu={onTrackContextMenu}
-                onTrackRowContextMenu={onTrackRowContextMenu}
-                onTrackRowsDragStart={onTrackRowsDragStart}
-              />
-            ))}
+            {node.children.map((c, i) => child(c, i))}
           </div>
         </div>
       );

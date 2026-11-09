@@ -65,15 +65,7 @@ impl Database {
                     artist_visible_clause("a")
                 )
             )?;
-            let rows = stmt.query_map(params![fts_query, fts_album_artist_query, artist_limit], |row| {
-                Ok(Artist {
-                    id: row.get(0)?,
-                    name: row.get(1)?,
-                    track_count: row.get(2)?,
-                    liked: row.get::<_, i32>(3).unwrap_or(0),
-                    album_count: row.get(4)?,
-                })
-            })?;
+            let rows = stmt.query_map(params![fts_query, fts_album_artist_query, artist_limit], artist_from_row)?;
             rows.collect::<SqlResult<Vec<_>>>()?
         };
 
@@ -165,9 +157,7 @@ impl Database {
                     artist_album_count_sql("a"), where_clause, order
                 );
                 let mut stmt = conn.prepare(&sql)?;
-                let rows = stmt.query_map(params![limit, offset], |row| {
-                    Ok(Artist { id: row.get(0)?, name: row.get(1)?, track_count: row.get(2)?, liked: row.get::<_, i32>(3).unwrap_or(0), album_count: row.get(4)? })
-                })?;
+                let rows = stmt.query_map(params![limit, offset], artist_from_row)?;
                 let artists = rows.collect::<SqlResult<Vec<_>>>()?;
                 Ok(SearchEntityResult { tracks: None, albums: None, artists: Some(artists), tags: None, total })
             }
@@ -307,15 +297,7 @@ impl Database {
                      WHERE {} \
                      {} LIMIT ?3 OFFSET ?4", artist_album_count_sql("a"), match_clause, order)
                 )?;
-                let rows = stmt.query_map(params![fts_query, fts_album_artist_query, limit, offset], |row| {
-                    Ok(Artist {
-                        id: row.get(0)?,
-                        name: row.get(1)?,
-                        track_count: row.get(2)?,
-                        liked: row.get::<_, i32>(3).unwrap_or(0),
-                        album_count: row.get(4)?,
-                    })
-                })?;
+                let rows = stmt.query_map(params![fts_query, fts_album_artist_query, limit, offset], artist_from_row)?;
                 let artists = rows.collect::<SqlResult<Vec<_>>>()?;
 
                 Ok(SearchEntityResult { tracks: None, albums: None, artists: Some(artists), tags: None, total })
