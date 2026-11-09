@@ -21,6 +21,12 @@ describe("humanizeUpdateError", () => {
     expect(msg).not.toContain("503");
   });
 
+  it("explains a manifest the server wouldn't serve (status dropped by the updater)", () => {
+    const msg = humanizeUpdateError("Could not fetch a valid release JSON from the remote", "check");
+    expect(msg).toContain("GitHub didn't answer");
+    expect(msg).not.toBe("Couldn't check for updates.");
+  });
+
   it("treats the other gateway statuses the same way", () => {
     for (const status of ["502", "504"]) {
       expect(humanizeUpdateError(`Download request failed with status: ${status}`, "install"))

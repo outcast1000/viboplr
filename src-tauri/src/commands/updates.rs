@@ -99,8 +99,7 @@ pub struct AppUpdateMeta {
 const CHECK_ATTEMPTS: u32 = 3;
 
 /// Check, retrying transient failures. `check()` is a plain GET, so a retry is
-/// safe; only the errors `is_transient` admits are retried, exactly as on the
-/// download side.
+/// safe; only the errors `is_transient_check` admits are retried.
 async fn check_with_retry(
     updater: &tauri_plugin_updater::Updater,
 ) -> Result<Option<tauri_plugin_updater::Update>, String> {
@@ -109,7 +108,7 @@ async fn check_with_retry(
             Ok(update) => return Ok(update),
             Err(e) => {
                 let detail = err_chain(&e);
-                if !is_transient(&e) || attempt == CHECK_ATTEMPTS {
+                if !is_transient_check(&e) || attempt == CHECK_ATTEMPTS {
                     return Err(detail);
                 }
                 log::warn!("app-update: check attempt {attempt} failed ({detail}); retrying");
@@ -181,6 +180,17 @@ const DOWNLOAD_ATTEMPTS: u32 = 3;
 fn is_transient(e: &tauri_plugin_updater::Error) -> bool {
     use tauri_plugin_updater::Error;
     matches!(e, Error::Network(_) | Error::Reqwest(_) | Error::Io(_))
+}
+
+/// The check's transient set: `is_transient` plus `ReleaseNotFound`, which is
+/// what `check()` returns when the manifest URL answered a non-success status.
+/// The plugin drops the status (it only logs "did not respond with a successful
+/// status code"), so a GitHub 502/503/504 — measured 2026-11-09, every release
+/// asset on github.com answering 504 for minutes — arrives as this variant and
+/// was reported on the first try. A 404 (a manifest not uploaded yet) lands here
+/// too; retrying it costs the same ~4s ladder and is just as likely to clear.
+fn is_transient_check(e: &tauri_plugin_updater::Error) -> bool {
+    is_transient(e) || matches!(e, tauri_plugin_updater::Error::ReleaseNotFound)
 }
 
 /// Download (with retries) then install. Split out of the command so the
@@ -271,6 +281,18 @@ mod tests {
             draft,
             assets: assets.iter().map(|n| GhAsset { name: (*n).into() }).collect(),
         }
+    }
+
+    #[test]
+    fn test_a_bad_status_check_is_retried_but_not_a_bad_signature() {
+        use tauri_plugin_updater::Error;
+        // A non-success status (GitHub 504) reaches us only as ReleaseNotFound.
+        assert!(is_transient_check(&Error::ReleaseNotFound));
+        assert!(is_transient_check(&Error::Network("refused stream".into())));
+        // The download side keeps its own, narrower set.
+        assert!(!is_transient(&Error::ReleaseNotFound));
+        // Deterministic failures are never retried.
+        assert!(!is_transient_check(&Error::UnsupportedArch));
     }
 
     #[test]

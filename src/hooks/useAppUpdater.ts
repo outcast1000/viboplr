@@ -74,6 +74,12 @@ export function humanizeUpdateError(raw: string, stage: UpdateStage): string {
   if (/\b(503|502|504)\b/.test(s) || s.includes("service unavailable")) {
     return "GitHub is temporarily unavailable. This usually clears within a few minutes — try again shortly.";
   }
+  // The updater's text for "the manifest URL answered a non-success status" —
+  // it drops the status itself, so a GitHub 504 never reaches the branch above.
+  // The backend has already retried it three times.
+  if (s.includes("could not fetch a valid release json")) {
+    return "GitHub didn't answer with the update information. This is usually temporary — try again in a few minutes.";
+  }
   if (s.includes("429") || s.includes("rate limit")) {
     return "GitHub is rate-limiting this connection. Try again in a few minutes.";
   }
