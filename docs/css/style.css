@@ -2544,3 +2544,132 @@ ol.docs-list {
   }
 }
 
+/* --- Example MCP session (examples/mcp-session.html) --- */
+.session-stats {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: var(--space-sm);
+  max-width: 820px;
+  margin: var(--space-lg) auto 0;
+}
+
+.session-stat {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: var(--space-md);
+  background: var(--color-bg);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  text-align: center;
+}
+
+.session-stat b,
+.session-num {
+  font-family: var(--font-display);
+  font-weight: 800;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+  background: var(--gradient-accent);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+
+.session-stat b {
+  font-size: 2.4rem;
+}
+
+.session-stat span {
+  font-size: 0.88rem;
+  color: var(--color-text-muted);
+}
+
+.session-steps {
+  list-style: none;
+  max-width: 820px;
+  margin: 0 auto;
+  display: flex;
+  flex-direction: column;
+}
+
+.session-step {
+  display: grid;
+  grid-template-columns: 3.5rem minmax(0, 1fr);
+  gap: var(--space-md);
+  padding: var(--space-lg) 0;
+  border-top: 1px solid var(--color-border);
+}
+
+.session-step:last-child {
+  border-bottom: 1px solid var(--color-border);
+}
+
+.session-num {
+  font-size: 2rem;
+}
+
+.session-body {
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+  min-width: 0;
+}
+
+.session-ask {
+  align-self: flex-start;
+  max-width: 100%;
+  padding: 0.6rem 0.9rem;
+  background: var(--gradient-accent);
+  color: #fff;
+  border-radius: var(--radius-md);
+  border-bottom-left-radius: 4px;
+  font-size: 0.92rem;
+  overflow-wrap: anywhere;
+}
+
+.session-body h3 {
+  font-family: var(--font-display);
+  font-size: 1.25rem;
+}
+
+.session-body p {
+  color: var(--color-text-muted);
+  max-width: 65ch;
+}
+
+.session-body .session-catch {
+  color: var(--color-text);
+  font-size: 0.92rem;
+  padding: 0.5rem 0.9rem;
+  background: var(--color-bg-alt);
+  border-radius: var(--radius-sm);
+}
+
+.session-tools {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+
+.session-tools code {
+  font-family: var(--font-mono);
+  font-size: 0.78rem;
+  padding: 2px 8px;
+  background: var(--color-bg-alt);
+  border: 1px solid var(--color-border);
+  border-radius: 6px;
+  color: var(--color-text);
+}
+
+@media (max-width: 768px) {
+  .session-stats {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .session-step {
+    grid-template-columns: minmax(0, 1fr);
+    gap: var(--space-xs);
+  }
+}
+

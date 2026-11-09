@@ -1,0 +1,251 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>A real Vibo MCP session</title>
+  <meta name="description" content="One conversation with Claude and the Vibo MCP server: finding gaps against Last.fm, downloading the missing albums, fixing tags and repairing listening history.">
+  <link rel="canonical" href="https://viboplr.com/examples/mcp-session.html">
+  <meta property="og:type" content="article">
+  <meta property="og:url" content="https://viboplr.com/examples/mcp-session.html">
+  <meta property="og:title" content="A real Vibo MCP session">
+  <meta property="og:description" content="One conversation with Claude and the Vibo MCP server: finding gaps against Last.fm, downloading the missing albums, fixing tags and repairing listening history.">
+  <meta name="twitter:card" content="summary">
+  <meta name="twitter:title" content="A real Vibo MCP session">
+  <meta name="twitter:description" content="One conversation with Claude and the Vibo MCP server: finding gaps against Last.fm, downloading the missing albums, fixing tags and repairing listening history.">
+  <link rel="icon" href="../assets/icon.svg" type="image/svg+xml">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="../css/style.css">
+</head>
+<body>
+
+  <!-- Navigation -->
+  <nav class="nav">
+    <div class="nav-inner">
+      <a href="../index.html" class="nav-logo">
+        <img class="nav-logo-mark" src="../assets/logo-mark.svg" alt="" width="34" height="34">
+        <span class="wordmark" data-text="Vibo">Vibo</span>
+      </a>
+      <div class="nav-links" id="navLinks">
+        <a href="../index.html" class="nav-link">Home</a>
+        <a href="../plugins.html" class="nav-link">Plugins</a>
+        <a href="../skins.html" class="nav-link">Skins</a>
+        <a href="../community.html" class="nav-link">Community</a>
+        <a href="../help.html" class="nav-link">Help</a>
+        <a href="../support.html" class="nav-link nav-link--sponsor">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z"/></svg>
+          Support
+        </a>
+        <a href="../download.html" class="nav-cta">Get Vibo</a>
+      </div>
+      <button class="nav-hamburger" id="navHamburger" aria-label="Toggle menu">
+        <span></span>
+        <span></span>
+        <span></span>
+      </button>
+    </div>
+  </nav>
+
+  <!-- Hero -->
+  <section class="persona-hero">
+    <div class="container">
+      <span class="feature-label animate-in">Example session</span>
+      <h1 class="animate-in animate-delay-1">One conversation,<br><span class="gradient-text">a tidier library</span></h1>
+      <p class="hero-subtitle animate-in animate-delay-2">A real session with Claude Code and Vibo&rsquo;s MCP server. Claude compared a listener&rsquo;s most-played artists with Last.fm&rsquo;s top songs, downloaded the albums they were missing, filed them into the library, fixed broken tags and merged play history that was split across misspelled names. The listener only said what they wanted, and approved each change.</p>
+      <div class="session-stats animate-in animate-delay-3">
+        <div class="session-stat"><b>40</b><span>top artists checked against Last.fm</span></div>
+        <div class="session-stat"><b>73</b><span>tracks downloaded and filed</span></div>
+        <div class="session-stat"><b>6</b><span>misspelled names repaired</span></div>
+        <div class="session-stat"><b>2</b><span>duplicates found and removed</span></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Steps -->
+  <section class="section">
+    <div class="container">
+      <div class="section-header reveal">
+        <span class="feature-label">Step by step</span>
+        <h2>What was asked, <span class="gradient-text">what Claude did</span></h2>
+        <p>The listener&rsquo;s own words, then what happened and which MCP tools did it. Plays, paths and account names are left out.</p>
+      </div>
+
+      <ol class="session-steps">
+        <li class="session-step reveal">
+          <div class="session-num">01</div>
+          <div class="session-body">
+            <div class="session-ask">Lets work with vibo mcp</div>
+            <h3>Start the app and check the connection</h3>
+            <p>Vibo wasn&rsquo;t running, so Claude launched it, checked which permissions the listener had switched on, and reported what was queued.</p>
+            <div class="session-tools"><code>launch_app</code><code>app_version</code><code>get_status</code></div>
+          </div>
+        </li>
+
+        <li class="session-step reveal">
+          <div class="session-num">02</div>
+          <div class="session-body">
+            <div class="session-ask">Lets get a list of my most played artists. For each one of them lets get the list of their most popular songs based on last.fm. Do I miss any of them?</div>
+            <h3>Find the gaps against Last.fm</h3>
+            <p>Claude ranked artists with read-only SQL over the play history, fetched each artist&rsquo;s Last.fm top 50 and compared them with the library. That included matching Greeklish titles on Last.fm to the Greek titles in the files. It found that an entire PJ Harvey album, <i>White Chalk</i>, was missing.</p>
+            <p class="session-catch"><b>Spotted along the way:</b> plays split between &ldquo;Cure&rdquo; and &ldquo;The Cure&rdquo;, and a song tagged &ldquo;The Mess We&rsquo;re In&rdquo; instead of &ldquo;This Mess We&rsquo;re In&rdquo;.</p>
+            <div class="session-tools"><code>query_library</code><code>get_entity_info</code><span class="feature-tag">plugin</span></div>
+          </div>
+        </li>
+
+        <li class="session-step reveal">
+          <div class="session-num">03</div>
+          <div class="session-body">
+            <div class="session-ask">Lets go to the next batch of artists. I am looking for tracks in the top 10.</div>
+            <h3>Same check for the next batch</h3>
+            <p>Turnstile was missing its five biggest songs, all from <i>Glow On</i>. Bob Marley was missing 9 of his top 10: the library had only his early Wailers recordings.</p>
+            <div class="session-tools"><code>get_entity_info</code><code>query_library</code></div>
+          </div>
+        </li>
+
+        <li class="session-step reveal">
+          <div class="session-num">04</div>
+          <div class="session-body">
+            <div class="session-ask">Lets download turnstile tracks. I love them. What is available? &hellip; queue glow on but at mp3 320kbps</div>
+            <h3>Find copies, compare them, download one</h3>
+            <p>Through the listener&rsquo;s download plugin, Claude listed full copies of the album and compared them on format, quality and how soon each would arrive. It skipped a folder labelled 320kbps that held three tracks at 128kbps, and queued a complete 320kbps copy.</p>
+            <div class="session-tools"><code>plugin_tools</code><span class="feature-tag">plugin</span></div>
+          </div>
+        </li>
+
+        <li class="session-step reveal">
+          <div class="session-num">05</div>
+          <div class="session-body">
+            <div class="session-ask">add them and then play it</div>
+            <h3>File the album into the library and play it</h3>
+            <p>Each of the 15 files went into an Artist/Album folder in the listener&rsquo;s music collection as a library track, and the album played from those copies. At first Vibo had streamed the songs from an online source, and Claude pointed out the difference.</p>
+            <div class="session-tools"><code>collections</code><code>download_plugin_track</code><code>jobs</code><code>play_tracks</code></div>
+          </div>
+        </li>
+
+        <li class="session-step reveal">
+          <div class="session-num">06</div>
+          <div class="session-body">
+            <div class="session-ask">set it &middot; rescan it &middot; Remove the duplicate track from &ldquo;Glow on&rdquo;</div>
+            <h3>Set the year, find a duplicate, remove it</h3>
+            <p>Claude wrote the album&rsquo;s year into the files and rescanned. When it read the album back, it found 16 tracks instead of 15: an older copy of one song. That copy went to the trash once the listener had seen and confirmed the plan.</p>
+            <div class="session-tools"><code>write_file_tags</code><code>collections</code><code>delete_tracks</code></div>
+          </div>
+        </li>
+
+        <li class="session-step reveal">
+          <div class="session-num">07</div>
+          <div class="session-body">
+            <div class="session-ask">Lets fix the following library and tags issues &hellip;</div>
+            <h3>Repair names in the history, tags and likes</h3>
+            <p>Claude followed Vibo&rsquo;s own renaming guide. It checked which songs were liked under the old names, previewed every history merge before applying it, and wrote the corrected title into the file. The split play history of both songs became one.</p>
+            <div class="session-tools"><code>guide</code><code>rename_history</code><code>write_file_tags</code></div>
+          </div>
+        </li>
+
+        <li class="session-step reveal">
+          <div class="session-num">08</div>
+          <div class="session-body">
+            <div class="session-ask">Lets get some Bob marley tracks now &middot; I also want the &ldquo;Iron Lion Zion&rdquo;</div>
+            <h3>Download four albums and a single</h3>
+            <p><i>Legend</i>, <i>Survival</i>, <i>Rastaman Vibration</i> and <i>Catch a Fire</i> came in at 320kbps. For <i>Catch a Fire</i>, Claude took the disc of the deluxe edition that holds the original album. For Iron Lion Zion it chose the familiar 1992 single over an earlier, previously unreleased take.</p>
+            <div class="session-tools"><code>plugin_tools</code><span class="feature-tag">plugin</span><code>download_plugin_track</code></div>
+          </div>
+        </li>
+
+        <li class="session-step reveal">
+          <div class="session-num">09</div>
+          <div class="session-body">
+            <div class="session-ask">Fill &ldquo;Pixies&rdquo; &amp; &ldquo;queens of the stone age&rdquo; &amp; &ldquo;Fontains D.C.&rdquo; with the missing top 15 songs. Make sure that there are no duplicates</div>
+            <h3>Fill the gaps without adding duplicates</h3>
+            <p>Before downloading anything, Claude checked every title against the whole library. Pixies&rsquo; &ldquo;Tame&rdquo; was already there, mistyped as &ldquo;Fame&rdquo;. The file&rsquo;s length matched, so Claude fixed the title instead of downloading the song again. It also completed a title cut off at &ldquo;The Lost Art Of Keeping A Secr&rdquo;. Then it downloaded the 13 songs that were really missing, and retagged two that would have created separate one-track albums.</p>
+            <p class="session-catch"><b>Also caught:</b> a second copy of &ldquo;Go With the Flow&rdquo; in a different format, which was removed.</p>
+            <div class="session-tools"><code>query_library</code><code>write_file_tags</code><code>delete_tracks</code></div>
+          </div>
+        </li>
+
+        <li class="session-step reveal">
+          <div class="session-num">10</div>
+          <div class="session-body">
+            <div class="session-ask">retag them &middot; yes merge it</div>
+            <h3>Combine everything under one artist</h3>
+            <p>The new albums were credited to &ldquo;Bob Marley &amp; The Wailers&rdquo; and the older tracks to &ldquo;Bob Marley&rdquo;. Claude retagged the new tracks so all 90 sit under one artist, liked again the songs that had been liked under the old name, and merged the play history. Bob Marley moved into the listener&rsquo;s top ten.</p>
+            <div class="session-tools"><code>write_file_tags</code><code>set_like</code><code>rename_history</code></div>
+          </div>
+        </li>
+      </ol>
+    </div>
+  </section>
+
+  <!-- Safety -->
+  <section class="section section-alt">
+    <div class="container">
+      <div class="section-header reveal">
+        <span class="feature-label">On a leash</span>
+        <h2>What kept it <span class="gradient-text">safe</span></h2>
+        <p>AI control is off until you switch it on, and each kind of change has its own permission.</p>
+      </div>
+      <div class="cards-grid">
+        <div class="card reveal">
+          <h3>Asks before downloading</h3>
+          <p>Every download started from a shortlist of copies and an explicit go-ahead. Nothing was fetched because a web page or a result suggested it.</p>
+        </div>
+        <div class="card reveal">
+          <h3>Removals in two steps</h3>
+          <p>A removal first returns a plan. Nothing moves until the plan is confirmed, and files go to the trash, so they can be restored.</p>
+        </div>
+        <div class="card reveal">
+          <h3>Merges are previewed</h3>
+          <p>A history merge can&rsquo;t be undone, so each one ran as a dry run first, with the counts shown before it was applied.</p>
+        </div>
+        <div class="card reveal">
+          <h3>Checks its own work</h3>
+          <p>After each change Claude read the library back: track counts, artists, albums. That is how both duplicates were caught.</p>
+        </div>
+      </div>
+      <div class="section-cta hero-buttons reveal">
+        <a href="../for/ai.html" class="btn btn-primary btn-lg">Vibo for AI-assistant users</a>
+        <a href="../help.html#mcp-server" class="btn btn-outline btn-lg">Connect an assistant</a>
+      </div>
+    </div>
+  </section>
+
+  <!-- Bottom CTA -->
+  <section class="bottom-cta">
+    <div class="container reveal">
+      <h2>Ready to try <span class="gradient-text">Vibo</span>?</h2>
+      <p>Free, open source, and <a href="../story.html" class="cta-story-link">built end-to-end with an AI assistant</a> &mdash; every feature, every detail.</p>
+      <div class="hero-buttons">
+        <a href="../install-mac.html" class="btn btn-primary">
+          <svg class="btn-icon" viewBox="0 0 24 24" fill="currentColor"><path d="M18.71 19.5c-.83 1.24-1.71 2.45-3.05 2.47-1.34.03-1.77-.79-3.29-.79-1.53 0-2 .77-3.27.82-1.31.05-2.3-1.32-3.14-2.53C4.25 17 2.94 12.45 4.7 9.39c.87-1.52 2.43-2.48 4.12-2.51 1.28-.02 2.5.87 3.29.87.78 0 2.26-1.07 3.8-.91.65.03 2.47.26 3.64 1.98-.09.06-2.17 1.28-2.15 3.81.03 3.02 2.65 4.03 2.68 4.04-.03.07-.42 1.44-1.38 2.83M13 3.5c.73-.83 1.94-1.46 2.94-1.5.13 1.17-.34 2.35-1.04 3.19-.69.85-1.83 1.51-2.95 1.42-.15-1.15.41-2.35 1.05-3.11z"/></svg>
+          Download for macOS
+        </a>
+        <a href="../install-windows.html" class="btn btn-outline">
+          <svg class="btn-icon" viewBox="0 0 24 24" fill="currentColor"><path d="M3 12V6.75l8-1.25V12H3zm0 .5h8v6.5l-8-1.25V12.5zM11.5 5.35l9.5-1.6V12h-9.5V5.35zM11.5 12.5H21v7.75l-9.5-1.6V12.5z"/></svg>
+          Download for Windows
+        </a>
+      </div>
+    </div>
+  </section>
+
+  <!-- Footer -->
+  <footer class="footer">
+    <div class="container">
+      <div class="footer-inner">
+        <div class="footer-left">&copy; 2026 Vibo. All rights reserved.</div>
+        <div class="footer-right">
+          <a href="../support.html" class="footer-link">Support</a>
+          <a href="https://github.com/outcast1000/viboplr" class="footer-link" target="_blank" rel="noopener">GitHub</a>
+          <a href="../story.html" class="footer-link">Built with Tauri + React &mdash; and an AI assistant</a>
+        </div>
+      </div>
+    </div>
+  </footer>
+
+  <script src="../js/main.js"></script>
+  <script defer src="../js/analytics.js"></script>
+  <!-- Cloudflare Web Analytics -->
+  <script defer src='https://static.cloudflareinsights.com/beacon.min.js' data-cf-beacon='{"token": "cbb978698d3744cca00a24f8cac8bc3c"}'></script>
+</body>
+</html>
