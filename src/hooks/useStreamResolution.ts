@@ -16,7 +16,7 @@ import {
   type ResolverAttempt,
   type TrackFailure,
 } from "../playback/trackFailures";
-import type { PlaybackFailureInfo } from "./usePlayback";
+import type { PlaybackFailureInfo, ResolveTrackOptions } from "./usePlayback";
 
 import { useAssignRef } from "./useLatestRef";
 import type { Notify } from "./useToasts";
@@ -174,7 +174,7 @@ export function unownedSchemeLabel(scheme: string): string {
 interface UseStreamResolutionDeps {
   /** Created in App (must precede `usePlayback`, which consumes it). This hook
    * assigns its `.current` to the real resolver once plugins are available. */
-  resolveTrackSrcRef: React.MutableRefObject<(track: QueueTrack, opts?: { preload?: boolean }) => Promise<ResolvedTrackSource>>;
+  resolveTrackSrcRef: React.MutableRefObject<(track: QueueTrack, opts?: ResolveTrackOptions) => Promise<ResolvedTrackSource>>;
   /** Created in App; kept fresh here from `resolveStreamByUri`. */
   resolveStreamByUriRef: React.MutableRefObject<(scheme: string, id: string, quality?: string | null, opts?: { externalAudio?: boolean; fresh?: boolean; video?: boolean }) => Promise<{ url: string; candidates?: StreamCandidate[]; sourceUrl?: string }>>;
   /** Ordered, user-configured plugin stream resolvers (populated elsewhere in App). */
@@ -303,6 +303,9 @@ export function useStreamResolution({
   // The chain's last walk per entry — what a playback failure reports as "what
   // was tried" (the walk that found the source the engine then refused).
   const attemptsByKeyRef = useRef<Map<string, ResolverAttempt[]>>(new Map());
+  // Whether that walk was restricted to the entry's own source (a row's play
+  // button) — carried onto a playback failure the same way.
+  const ownOnlyByKeyRef = useRef<Map<string, boolean>>(new Map());
   // Which source each entry last played from when it wasn't its own (see
   // EntrySourceNote) — the queue row's "via X" chip. Unlike `sourcesByKey` it is
   // not cleared when a re-resolve starts, so the row keeps saying where the
@@ -348,7 +351,7 @@ export function useStreamResolution({
   // engine-error → handlePlay retry).
   // Every entry carries `id` (resolveIdentity) and is only reused for a track
   // with the same one — never on the key alone.
-  const inFlightResolvesRef = useRef<Map<string, { id: string; promise: Promise<ResolvedTrackSource> }>>(new Map());
+  const inFlightResolvesRef = useRef<Map<string, { id: string; exactSource: boolean; promise: Promise<ResolvedTrackSource> }>>(new Map());
   const resolveCacheRef = useRef<Map<string, { at: number; id: string; resolved: ResolvedTrackSource; meta: ResolvedSource | null; note: EntrySourceNote | null }>>(new Map());
   // Negative counterpart, read by preloads only — see RESOLVE_FAILURE_TTL_MS.
   // Keyed by QueueTrack.key; the entry's `id` carries the metadata it failed with.
@@ -463,6 +466,9 @@ export function useStreamResolution({
       // The previous answer for this track failed to play: bypass every cache on
       // the way down, including the resolving plugin's own.
       fresh: boolean,
+      // Only the track's own source (a row's play button): the native entry
+      // alone, so a failure is that source's, never a different file.
+      exactSource = false,
     ): Promise<ResolvedTrackSource & { meta?: ResolvedSource | null; note?: EntrySourceNote | null }> => {
       const walk = ++walkCounterRef.current;
       // How many failed native attempts this track has already had — each one
@@ -662,8 +668,13 @@ export function useStreamResolution({
         return entry;
       };
 
+      // A play restricted to the entry's own source stops here: no Library
+      // copy, no plugin fallback, no "Prefer video" pass below. An entry with
+      // no source of its own has nothing to restrict to, so it walks the chain.
+      const ownOnly = exactSource && chain.length > 0;
+
       // Append user-configured stream resolvers as fallbacks.
-      for (const sr of streamResolversRef.current) {
+      for (const sr of ownOnly ? [] : streamResolversRef.current) {
         if (nativeSchemeOwner && sr.source === nativeSchemeOwner) continue;
         chain.push(buildResolverEntry(sr, false));
       }
@@ -680,7 +691,7 @@ export function useStreamResolution({
       // null and the pass moves on. A plugin that owns the track's own scheme
       // is skipped (its by-id entry already ran / would just re-search).
       let triedVideoFirst = false;
-      if (preferVideoRef.current && !isVideoTrack(track)) {
+      if (!ownOnly && preferVideoRef.current && !isVideoTrack(track)) {
         const videoFirst: ResolverEntry[] = [];
         for (const sr of streamResolversRef.current) {
           if (nativeSchemeOwner && sr.source === nativeSchemeOwner) continue;
@@ -732,6 +743,7 @@ export function useStreamResolution({
           noteResolvedEntry(track.key, index, chain.length);
           attempts.push({ name: entry.name, outcome: "found" });
           attemptsByKeyRef.current.set(track.key, attempts);
+          ownOnlyByKeyRef.current.set(track.key, ownOnly);
           // Resolved — a "no source" note is now wrong. A playback-stage note
           // stays until the engine actually plays it.
           clearResolveStageFailure(track.key);
@@ -798,7 +810,11 @@ export function useStreamResolution({
       // explaining what happened even after playback moves to another track.
       // Blamed on the track's own source, not the last fallback resolver tried.
       attemptsByKeyRef.current.set(track.key, attempts);
-      const failure: TrackFailure = { stage: "resolve", summary: describeChainFailure(failures), at: Date.now(), attempts };
+      ownOnlyByKeyRef.current.set(track.key, ownOnly);
+      const failure: TrackFailure = {
+        stage: "resolve", summary: describeChainFailure(failures), at: Date.now(), attempts,
+        ...(ownOnly ? { ownSourceOnly: true } : {}),
+      };
       setTrackFailures(prev => ({ ...prev, [track.key]: failure }));
       // `providers_tried` separates "no resolver could play it" from "nothing
       // even offered to try", which are different bugs with the same symptom.
@@ -818,6 +834,8 @@ export function useStreamResolution({
     // again for the same track.
     resolveTrackSrcRef.current = async (track, opts) => {
       const preload = !!opts?.preload;
+      // Only meaningful for an entry with a source of its own (see doResolve).
+      const exactSource = !!opts?.exactSource && !!track.path;
       const key = track.key;
       const id = resolveIdentity(track);
 
@@ -840,7 +858,9 @@ export function useStreamResolution({
 
       const cached = fresh ? undefined : resolveCacheRef.current.get(key);
       if (cached) {
-        if (cached.id === id && Date.now() - cached.at < RESOLVE_CACHE_TTL_MS && cached.resolved.src) {
+        // A restricted play can reuse only an answer from the entry's own
+        // source (no "via X" note) — a fallback's is exactly what it refuses.
+        if (cached.id === id && Date.now() - cached.at < RESOLVE_CACHE_TTL_MS && cached.resolved.src && (!exactSource || cached.note === null)) {
           // A cache hit skips doResolve, which is what normally writes the
           // now-playing source UI — replay those side effects for a real play so
           // the source/quality label still updates. Preload must not touch the
@@ -858,13 +878,14 @@ export function useStreamResolution({
 
       // A retry must not join the in-flight resolve it is retrying — that promise
       // is the answer that just failed.
+      // Nor may a restricted play join a full walk, which can end on a fallback.
       const existing = fresh ? undefined : inFlightResolvesRef.current.get(key);
-      if (existing && existing.id === id) return existing.promise;
+      if (existing && existing.id === id && existing.exactSource === exactSource) return existing.promise;
 
       const promise = (async () => {
         let out: Awaited<ReturnType<typeof doResolve>>;
         try {
-          out = await doResolve(track, preload, fresh);
+          out = await doResolve(track, preload, fresh, exactSource);
         } catch (e) {
           if (resolveFailedRef.current.size >= RESOLVE_CACHE_MAX) resolveFailedRef.current.clear();
           resolveFailedRef.current.set(key, { at: Date.now(), id });
@@ -895,7 +916,7 @@ export function useStreamResolution({
         // may have replaced it since.
         if (inFlightResolvesRef.current.get(key)?.promise === promise) inFlightResolvesRef.current.delete(key);
       });
-      inFlightResolvesRef.current.set(key, { id, promise });
+      inFlightResolvesRef.current.set(key, { id, exactSource, promise });
       return promise;
     };
   }, [resolveTrackSrcRef, resolveStreamByUriRef, streamResolversRef, preferVideoRef, clearResolveStageFailure, setSourceNote, setResolving]);
@@ -917,6 +938,7 @@ export function useStreamResolution({
         source: meta ? { name: meta.name, url: meta.sourceUrl ?? meta.url ?? null } : null,
         engineError: info.engineError ?? null,
         tries: info.tries ?? null,
+        ...(info.stage === "playback" && ownOnlyByKeyRef.current.get(key) ? { ownSourceOnly: true } : {}),
       };
       setTrackFailures(prev => {
         const merged = mergeTrackFailure(prev[key], incoming);
@@ -958,6 +980,9 @@ export function useStreamResolution({
     if (currentKey) live.add(currentKey);
     for (const k of attemptsByKeyRef.current.keys()) {
       if (!live.has(k)) attemptsByKeyRef.current.delete(k);
+    }
+    for (const k of ownOnlyByKeyRef.current.keys()) {
+      if (!live.has(k)) ownOnlyByKeyRef.current.delete(k);
     }
     const dropStale = <T,>(prev: Record<string, T>): Record<string, T> => {
       const stale = Object.keys(prev).filter(k => !live.has(k));

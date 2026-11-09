@@ -45,6 +45,16 @@ describe("suggestPlaybackFallbacks", () => {
     });
   });
 
+  it("suggests nothing after a row's play button failed — that play asks no fallback", () => {
+    const out = suggestPlaybackFallbacks({
+      failure: failure({ ownSourceOnly: true, attempts: [{ name: "qBittorrent", outcome: "error" }] }),
+      pluginStates: [],
+      gallery: [gallery("ytdlp")],
+      appVersion: "1.0.112",
+    });
+    expect(out).toBeNull();
+  });
+
   it("puts switched-off installed fallbacks first, then gallery ones stable-before-experimental", () => {
     const out = suggestPlaybackFallbacks({
       failure: failure(),

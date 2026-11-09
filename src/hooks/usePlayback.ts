@@ -85,6 +85,21 @@ export function isCurrentPlayGeneration(captured: number, current: number): bool
   return captured === current;
 }
 
+/** How `handlePlay` should find a source. */
+export interface PlayOptions {
+  /** Play the entry's own source only — a row's play button. See handlePlay. */
+  exactSource?: boolean;
+}
+
+/** What `resolveTrackSrcRef` is asked to do. */
+export interface ResolveTrackOptions {
+  /** A preload of the next track, off the play-resolution lane. */
+  preload?: boolean;
+  /** Only the entry's own source: no Library copy, no plugin fallback, no
+   *  "Prefer video" pass. Ignored for an entry with no source of its own. */
+  exactSource?: boolean;
+}
+
 export type HandlePlayOutcome = "play" | "bail" | "retry" | "fail";
 
 // Decides what handlePlay should do once its stream resolution settles.
@@ -124,7 +139,7 @@ export function usePlayback(
    *  on. False: it is asked again on later ticks, so a switch turned on
    *  mid-play still records it. */
   onScrobbleRef: React.RefObject<(track: QueueTrack) => boolean>,
-  resolveTrackSrcRef: React.RefObject<(track: QueueTrack, opts?: { preload?: boolean }) => Promise<ResolvedTrackSource>>,
+  resolveTrackSrcRef: React.RefObject<(track: QueueTrack, opts?: ResolveTrackOptions) => Promise<ResolvedTrackSource>>,
   prefetchNextRef: React.RefObject<() => void>,
   // True once libmpv has loaded. App owns the capability probe. Nothing plays
   // without it — a play then surfaces ENGINE_UNAVAILABLE_ERROR.
@@ -371,6 +386,13 @@ export function usePlayback(
   // where currentAssetUrl would be a stale closure.
   const lastPlaySrcRef = useRef<string | null>(null);
   const [loadingTrack, setLoadingTrack] = useState<QueueTrack | null>(null);
+  // The handlePlay still resolving its source, if any — a resolver chain can
+  // walk several fallbacks for a minute each. Pause / Stop read it to cancel
+  // that play instead of acting on a session it hasn't opened yet.
+  const pendingPlayRef = useRef<{ generation: number; track: QueueTrack } | null>(null);
+  // The entry whose play is restricted to its own source (a row's play
+  // button) — inherited by that entry's engine-error replays. See handlePlay.
+  const exactSourceKeyRef = useRef<string | null>(null);
   const playStartedAtRef = useRef(0);
   // Set by swapCurrentFile: the scrobble state of a session that is resuming
   // on a replaced file, restored by playWithSrc for that key instead of reset.
@@ -861,7 +883,18 @@ export function usePlayback(
     );
   }, []);
 
-  async function handlePlay(track: QueueTrack, source: "user" | "auto" = "user") {
+  async function handlePlay(track: QueueTrack, source: "user" | "auto" = "user", opts?: PlayOptions) {
+    // A row's play button plays that row's own file and nothing else (owner
+    // decision, 2026-11-09): no Library copy, no plugin fallback, no "Prefer
+    // video" substitution — it fails visibly instead. The engine-error replays
+    // of the same entry come back through here as "auto" and inherit it, which
+    // is also what keeps the engine-error fallback off: with a one-entry chain
+    // `fallBackFromFailedSource` has nothing to fall back to. Any other play
+    // (Next, end of track, auto-continue, a list's Play) uses the whole chain.
+    exactSourceKeyRef.current = opts?.exactSource
+      ? track.key
+      : source === "auto" && exactSourceKeyRef.current === track.key ? track.key : null;
+    const exactSource = exactSourceKeyRef.current === track.key;
     // A deliberate play is a fresh start, so it starts at the top of the stream
     // ladder again — a track that stepped down to 480p an hour ago must not stay
     // there for the session. The engine-error replay comes through as "auto",
@@ -879,10 +912,13 @@ export function usePlayback(
     // Tier-1: reuse a pre-resolved VIDEO source prepared during the previous
     // track (captured before invalidatePreload clears it). Single-use.
     const preVideo = videoPreresolvedRef.current;
-    const reuseVideoResolved = preVideo && preVideo.key === track.key ? preVideo.resolved : null;
+    // The pre-resolve walked the whole chain, so its answer may not be this
+    // entry's own source.
+    const reuseVideoResolved = preVideo && preVideo.key === track.key && !exactSource ? preVideo.resolved : null;
     invalidatePreload();
     setPlaybackError(null);
     setLoadingTrack(track);
+    pendingPlayRef.current = { generation, track };
     // Whether a source reached the engine — a failure before that is no source
     // (or no engine), not a source the player rejected.
     let handedToEngine = false;
@@ -891,7 +927,7 @@ export function usePlayback(
       // Nothing can play without the engine — say so before running a resolver
       // that may take seconds (yt-dlp) only to fail at the end.
       if (!useNativeEngineRef.current) throw new Error(ENGINE_UNAVAILABLE_ERROR);
-      let resolved = reuseVideoResolved ?? await resolveTrackSrcRef.current(track);
+      let resolved = reuseVideoResolved ?? await resolveTrackSrcRef.current(track, { exactSource });
       if (reuseVideoResolved) logPlayback(`Play: used pre-resolved video "${track.title}"`);
       // resolveTrackSrc returns an empty-src sentinel whenever ITS resolve
       // generation was bumped mid-flight — by a newer play, but ALSO by a
@@ -906,7 +942,7 @@ export function usePlayback(
       );
       if (decision === "retry") {
         diagnosePlayOutcome("retry", track, generation, !!resolved.src);
-        resolved = await resolveTrackSrcRef.current(track);
+        resolved = await resolveTrackSrcRef.current(track, { exactSource });
         decision = decideHandlePlayOutcome(
           isCurrentPlayGeneration(generation, playGenerationRef.current),
           !!resolved.src,
@@ -931,6 +967,9 @@ export function usePlayback(
       // the now-playing UI classifies it correctly via currentTrack.
       const playTrack = resolved.patch ? { ...track, ...resolved.patch } : track;
       handedToEngine = true;
+      // From here the engine owns the session (playWithSrc opens it before
+      // awaiting the engine), so Pause / Stop act on that, not on this play.
+      if (pendingPlayRef.current?.generation === generation) pendingPlayRef.current = null;
       await playWithSrc(playTrack, resolved.src, source, resolved.engineSource ?? null);
     } catch (e) {
       // A newer play request has superseded this one — its outcome belongs to a
@@ -953,10 +992,40 @@ export function usePlayback(
         : message === ENGINE_UNAVAILABLE_ERROR ? "engine" : "resolve";
       surfacePlaybackFailure(message, track, lastPlaySrcRef.current, stage);
     } finally {
+      if (pendingPlayRef.current?.generation === generation) pendingPlayRef.current = null;
       if (isCurrentPlayGeneration(generation, playGenerationRef.current)) {
         setLoadingTrack(null);
       }
     }
+  }
+
+  /**
+   * A play still resolving its source — before it reached the engine — or
+   * null. Without a way to retire it, a play walking the resolver chain
+   * (fallback providers, up to a minute each) ignored the transport: Stop
+   * didn't touch it and it started the music anyway once a fallback answered,
+   * and Pause — with no session open — called handlePlay again, restarting the
+   * play it meant to stop.
+   */
+  function livePendingPlay(): QueueTrack | null {
+    const pending = pendingPlayRef.current;
+    return pending && isCurrentPlayGeneration(pending.generation, playGenerationRef.current) ? pending.track : null;
+  }
+
+  /** Retire whatever play is in flight: a handlePlay still resolving bails on
+   *  the stale generation when it lands, as does the audio-output retry timer. */
+  function retirePendingPlays() {
+    pendingPlayRef.current = null;
+    playGenerationRef.current++;
+    setLoadingTrack(null);
+  }
+
+  /** Make a cancelled play's track the current one, nothing playing: its own
+   *  length, and no scrobble state carried over from the track before it. */
+  function cueCancelledTrack(track: QueueTrack) {
+    setCurrentTrack(track);
+    setDurationSecs(track.duration_secs ?? 0);
+    resetScrobble();
   }
 
   // Latest handlePlay / surfacePlaybackFailure for the once-mounted engine-event
@@ -1027,6 +1096,25 @@ export function usePlayback(
   }
 
   function handlePause() {
+    // A play still resolving (a fallback provider searching). This is a
+    // toggle on `playing`, like the rest of this function — every "play" /
+    // "pause" caller (media keys, control API, visualizers) decides from it:
+    //  - showing playing (the old track, or an engine-error replay that kept
+    //    the flag): pause means "don't start it". The track it was for becomes
+    //    current, cued where it would have started (a replay keeps its
+    //    position), and the old session stops. The next press plays it,
+    //    joining the resolve still in flight rather than starting the walk over.
+    //  - showing paused: a play request — the pending play is that play, so
+    //    leave it to land. Starting another would restart the walk.
+    const pending = livePendingPlay();
+    if (pending) {
+      if (!playing) return;
+      const seekTo = pendingSeekRef.current;
+      retirePendingPlays();
+      loadPaused(pending, seekTo);
+      cueCancelledTrack(pending);
+      return;
+    }
     // Open session: the engine owns play/pause. Optimistic UI flip;
     // engine-state reconciles.
     if (nativeSessionRef.current) {
@@ -1040,8 +1128,9 @@ export function usePlayback(
     }
     // Nothing open in the engine (restored at launch, cued by loadPaused,
     // handed over to a clip, or after an error): a play opens the track,
-    // starting where pendingSeekRef says.
-    if (currentTrack) handlePlay(currentTrack);
+    // starting where pendingSeekRef says — still restricted to its own source
+    // when a row's play button picked it (a Pause that cancelled that play).
+    if (currentTrack) handlePlay(currentTrack, "user", { exactSource: exactSourceKeyRef.current === currentTrack.key });
   }
 
   /**
@@ -1125,6 +1214,13 @@ export function usePlayback(
   }
 
   function handleStop() {
+    // A play still resolving would start the music after Stop once its
+    // resolver answered, and the audio-output retry timer would reopen the
+    // track it is waiting on: retire both. A resolving play's track becomes
+    // current (the queue already points at it), so Play starts it from the top.
+    const pending = livePendingPlay();
+    retirePendingPlays();
+    if (pending) cueCancelledTrack(pending);
     invalidatePreload();
     takeEngineFromClip();
     if (nativeSessionRef.current) endNativeSession();

@@ -48,6 +48,10 @@ export interface TrackFailure {
   engineError?: string | null;
   /** `playback` only: how many times the engine was asked to open it. */
   tries?: number | null;
+  /** The play was a row's play button, so only the entry's own source was
+   *  tried (usePlayback.handlePlay). Try again keeps that restriction, and no
+   *  fallback plugin is suggested — the row wouldn't ask one. */
+  ownSourceOnly?: boolean;
 }
 
 /** The message `useStreamResolution` throws once the whole chain came back

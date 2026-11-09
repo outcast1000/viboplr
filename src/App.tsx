@@ -310,6 +310,9 @@ const IS_WINDOWS = navigator.platform.startsWith("Win");
 /** How long the same deep link counts as a duplicate delivery, not a new click. */
 const DEEP_LINK_REPEAT_MS = 3000;
 
+/** A row's play button: the row's own source only (see `playRow`). */
+const ROW_PLAY = { exactSource: true } as const;
+
 /** The open detail page's subject, by name — the same resolution App's render
  *  uses to title each page. */
 function resolveUiEntity(s: {
@@ -1595,9 +1598,21 @@ function App() {
     });
   }, [library.view, library.selectedArtist, library.selectedAlbum, library.selectedTag, library.selectedTrack, currentSearchQuery, getScrollEl]);
 
+  // A row's play button (queue, library and detail lists, History, playlist
+  // rows, plugin rows, search results): the row plays its own file and
+  // nothing else — no Library copy, no plugin fallback, failing visibly
+  // instead (owner decision, 2026-11-09; usePlayback.handlePlay). The rest of
+  // the list it starts, Next and auto-continue keep the whole resolver chain.
+  const queuePlayTracks = queueHook.playTracks;
+  const playRow = useCallback(
+    (tracks: Array<Track | QueueTrack>, startIndex = 0, context?: PlaylistContext | null) =>
+      queuePlayTracks(tracks, startIndex, context, ROW_PLAY),
+    [queuePlayTracks],
+  );
+
   const centralSearch = useCentralSearch({
     onPlayTrack: (track) => {
-      queueHook.playTracks([track], 0);
+      playRow([track]);
     },
     onEnqueueTrack: (track) => {
       queueHook.enqueueTracks([track]);
@@ -2109,7 +2124,7 @@ function App() {
   // Mini search drives both useMiniMode's window resize (via onOpen/ClosePanel)
   // and the keyboard trigger's "already open?" guard (via miniSearch.isOpen).
   const miniSearch = useMiniSearch({
-    onPlayTrack: (track) => { queueHook.playTracks([track], 0); },
+    onPlayTrack: (track) => { playRow([track]); },
     onEnqueueTrack: (track) => { queueHook.enqueueTracks([track]); },
     // Album/artist picks open the detail page, which only exists in the main
     // window — so leave mini mode first, then navigate.
@@ -2883,7 +2898,8 @@ function App() {
             });
             return;
           }
-          queueHook.playTracks(head, 0, ctx);
+          // A track-row shelf's row is a row; a card plays its list.
+          queueHook.playTracks(head, 0, ctx, shelf.displayKind === "track-rows" ? ROW_PLAY : undefined);
           return;
         }
         // Nothing playable shipped: the card's list loads while the current
@@ -4553,7 +4569,8 @@ function App() {
     navigateToTagByName: library.navigateToTagByName,
     goBack,
     canGoBack,
-    playTracks: queueHook.playTracks,
+    // Only the detail pages' track rows call this (row ▶ and double-click).
+    playTracks: playRow,
     playEntityAll: handlePlayEntityAll,
     playAlbum: playActions.playAlbum,
     enqueueTracks: queueHook.enqueueTracks,
@@ -4629,7 +4646,7 @@ function App() {
     library.handleArtistClick, library.handleAlbumClick, library.handleTagClick, library.navigateToTagByName,
     library.handleTrackClick, library.navigateToTrackByName, contextMenuActions.startRadio,
     goBack, canGoBack,
-    queueHook.playTracks, queueHook.enqueueTracks, handlePlayEntityAll, playActions.playAlbum,
+    queueHook.playTracks, playRow, queueHook.enqueueTracks, handlePlayEntityAll, playActions.playAlbum,
     likeActions.handleToggleLike, likeActions.handleToggleDislike,
     likeActions.handleToggleArtistLike, likeActions.handleToggleArtistDislike,
     likeActions.handleToggleAlbumLike, likeActions.handleToggleAlbumDislike,
@@ -4777,7 +4794,7 @@ function App() {
   // Stable wrappers, so the section context doesn't change every render.
   const pluginTrackFns = useStableCallbacks({
     onPlayTrack: (track: Track) => {
-      queueHook.playTracks([track], 0);
+      playRow([track]);
     },
     onTrackContextMenu: (e: React.MouseEvent, track: Track) => {
       buildAndShowNativeMenu({ x: e.clientX, y: e.clientY, target: { kind: "track", trackId: track.id ?? undefined, isLocal: isLocalTrack(track), title: track.title, artistName: track.artist_name, albumTitle: track.album_title ?? null } });
@@ -5775,7 +5792,7 @@ function App() {
             getArtistImage={artistImageCache.getImage}
             getAlbumImage={albumImageCache.getImage}
             getTagImage={tagImageCache.getImage}
-            onPlayTracks={queueHook.playTracks}
+            onPlayTracks={playRow}
             onEnqueueTrack={(t) => queueHook.enqueueTracks([t])}
             onStartRadio={(t) => contextMenuActions.startRadio({ title: t.title, artistName: t.artist_name, coverPath: t.image_url ?? null })}
             onLocateTrack={(t) => { const sel = trackSelection(t); if (sel) library.handleTrackClick(sel); }}
@@ -5858,7 +5875,7 @@ function App() {
                 placeholder="Search history..."
                 {...historySearchNav}
               />
-              <HistoryView ref={historyRef} searchQuery={viewSearch.getQuery("history")} highlightedIndex={highlightedListIndex} onPlayTrack={queueHook.playTracks} onEnqueueTrack={queueHook.enqueueTracks} onLocateTrack={(t) => { const sel = trackSelection(t); if (sel) library.handleTrackClick(sel); }} onArtistClick={library.handleArtistClick} onPlayArtist={playActions.playArtist} onEnqueueArtist={playActions.enqueueArtist} onStartRadio={contextMenuActions.startRadio} onShowContextMenu={(x, y, target) => buildAndShowNativeMenu({ x, y, target })} />
+              <HistoryView ref={historyRef} searchQuery={viewSearch.getQuery("history")} highlightedIndex={highlightedListIndex} onPlayTrack={playRow} onEnqueueTrack={queueHook.enqueueTracks} onLocateTrack={(t) => { const sel = trackSelection(t); if (sel) library.handleTrackClick(sel); }} onArtistClick={library.handleArtistClick} onPlayArtist={playActions.playArtist} onEnqueueArtist={playActions.enqueueArtist} onStartRadio={contextMenuActions.startRadio} onShowContextMenu={(x, y, target) => buildAndShowNativeMenu({ x, y, target })} />
             </>
           )}
 
@@ -6339,7 +6356,7 @@ function App() {
           queueIndex={queueHook.queueIndex}
           queuePanelRef={queueHook.queuePanelRef}
           playlistContext={queueHook.playlistContext}
-          onPlay={(track, index) => { queueHook.setQueueIndex(index); playback.handlePlay(track); }}
+          onPlay={(track, index) => { queueHook.setQueueIndex(index); playback.handlePlay(track, "user", ROW_PLAY); }}
           onTogglePlayPause={playback.handlePause}
           onRemove={queueHook.removeFromQueue}
           onLocateTrack={(track) => {
@@ -6797,7 +6814,8 @@ function App() {
             onRetry={() => {
               setFailureDetailsKey(null);
               queueHook.setQueueIndex(index);
-              playback.handlePlay(track);
+              // A row play that failed retries the row's own file, not the chain.
+              playback.handlePlay(track, "user", failure.ownSourceOnly ? ROW_PLAY : undefined);
             }}
             onReportProblem={() => {
               setFailureDetailsKey(null);

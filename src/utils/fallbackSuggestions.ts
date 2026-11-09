@@ -32,6 +32,9 @@ export function suggestPlaybackFallbacks(args: {
 }): FallbackSuggestions | null {
   const { failure, pluginStates, gallery, appVersion } = args;
   if (failure.stage !== "resolve") return null;
+  // A row's play button tries only the row's own file; a fallback plugin
+  // would not have been asked, so pointing at one would mislead.
+  if (failure.ownSourceOnly) return null;
   const plugins = suggestProviders({
     service: "playback-fallback",
     declares: (c) => (c.streamResolvers?.length ?? 0) > 0,

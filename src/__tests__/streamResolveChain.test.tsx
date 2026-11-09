@@ -77,7 +77,7 @@ function mountChain(opts: Opts = {}) {
   });
 
   const track: QueueTrack = pathless ? { ...QBT_TRACK, path: null } : QBT_TRACK;
-  const resolveTrackSrcRef = { current: null as unknown as (t: QueueTrack) => Promise<ResolvedTrackSource> };
+  const resolveTrackSrcRef = { current: null as unknown as (t: QueueTrack, o?: { exactSource?: boolean }) => Promise<ResolvedTrackSource> };
   const resolveStreamByUri = uriFails
     ? vi.fn().mockRejectedValue(new Error("that torrent is no longer in qBittorrent"))
     : vi.fn().mockResolvedValue(uriResult);
@@ -101,7 +101,14 @@ function mountChain(opts: Opts = {}) {
     }),
   );
 
-  return { resolve: () => resolveTrackSrcRef.current(track), resolveStreamByUri, notify, result };
+  return {
+    resolve: () => resolveTrackSrcRef.current(track),
+    /** A row's play button: the track's own source only. */
+    resolveExact: () => resolveTrackSrcRef.current(track, { exactSource: true }),
+    resolveStreamByUri,
+    notify,
+    result,
+  };
 }
 
 beforeEach(() => {
@@ -209,6 +216,69 @@ describe("chain order: the track's own source, then a library copy of it", () =>
     const out = await resolve();
 
     expect(resolveStreamByUri).not.toHaveBeenCalled();
+    expect(out.engineSource).toEqual({ kind: "file", path: STALE_LIBRARY_PATH });
+  });
+});
+
+describe("a row's play button: the row's own file and nothing else", () => {
+  const fallback: StreamResolver = {
+    id: "ytdlp", name: "yt-dlp", source: "ytdlp",
+    resolve: vi.fn().mockResolvedValue({ url: "https://youtube.example/stream", video: false }),
+  } as unknown as StreamResolver;
+
+  it("fails visibly instead of playing a library copy or a plugin fallback", async () => {
+    const { resolveExact, result } = mountChain({
+      libraryMatches: [{ path: `file://${STALE_LIBRARY_PATH}`, format: "mp3" }],
+      fileOnDisk: true,
+      uriFails: true,
+      extraResolvers: [fallback],
+    });
+
+    await expect(resolveExact()).rejects.toThrow(/Couldn't find a playable source/);
+    expect(invoke).not.toHaveBeenCalledWith("find_tracks_by_metadata", expect.anything());
+    expect(fallback.resolve).not.toHaveBeenCalled();
+    // The row's failure note names only its own source.
+    await vi.waitFor(() => expect(result.current.trackFailures[QBT_TRACK.key]?.attempts.map((a) => a.name)).toEqual(["qBittorrent"]));
+    // …and says it was a row play, so the dialog's Try again keeps the rule.
+    expect(result.current.trackFailures[QBT_TRACK.key]?.ownSourceOnly).toBe(true);
+  });
+
+  it("skips the Prefer video pass", async () => {
+    const { resolveExact } = mountChain({ preferVideo: true, extraResolvers: [fallback] });
+    const out = await resolveExact();
+    expect(fallback.resolve).not.toHaveBeenCalled();
+    expect(out.engineSource).toEqual({ kind: "file", path: "D:/Torrents/Vitalogy/05. Nothingman.mp3" });
+  });
+
+  it("leaves nothing for the engine-error fallback to move to", async () => {
+    clearAllNativeRetries();
+    const { resolveExact } = mountChain({
+      libraryMatches: [{ path: SUBSONIC_COPY_PATH, format: "mp3" }],
+    });
+    await resolveExact();
+    expect(fallBackFromFailedSource(QBT_TRACK.key)).toBe(false);
+    clearAllNativeRetries();
+  });
+
+  it("doesn't reuse a cached answer that came from a fallback", async () => {
+    const { resolve, resolveExact, resolveStreamByUri } = mountChain({
+      libraryMatches: [{ path: `file://${STALE_LIBRARY_PATH}`, format: "mp3" }],
+      fileOnDisk: true,
+      uriFails: true,
+    });
+    const full = await resolve();
+    expect(full.engineSource).toEqual({ kind: "file", path: STALE_LIBRARY_PATH });
+    await expect(resolveExact()).rejects.toThrow(/Couldn't find a playable source/);
+    expect(resolveStreamByUri).toHaveBeenCalledTimes(2);
+  });
+
+  it("a track with no source of its own still walks the chain — there is no file to restrict to", async () => {
+    const { resolveExact } = mountChain({
+      pathless: true,
+      libraryMatches: [{ path: `file://${STALE_LIBRARY_PATH}`, format: "mp3" }],
+      fileOnDisk: true,
+    });
+    const out = await resolveExact();
     expect(out.engineSource).toEqual({ kind: "file", path: STALE_LIBRARY_PATH });
   });
 });
