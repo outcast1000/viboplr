@@ -15,6 +15,7 @@ import {
   SLIDESHOW_START,
   NOW_PLAYING_PHOTO_INTERVAL_MS,
   NOW_PLAYING_SLIDE_INTERVAL_MS,
+  kenBurnsMove,
   type PhotoSlide,
   type SlidePosition,
 } from "../utils/nowPlayingArt";
@@ -491,7 +492,7 @@ export function NowPlayingView({
   return (
     <div
       ref={surfaceRef}
-      className={`${rootClass} np-audio${artRegime ? "" : " np-audio--noart"}${sideEmpty ? " np-audio--nolyrics" : ""}${fill ? " np-audio--fill" : ""}`}
+      className={`${rootClass} np-audio${artRegime ? "" : " np-audio--noart"}${sideEmpty ? " np-audio--nolyrics" : ""}${fill ? " np-audio--fill" : ""}${playing ? "" : " np-audio--paused"}`}
       // Leaving the surface hides the row at once rather than after the idle
       // wait — the pointer has gone to the sidebar or the queue, so there is
       // nothing left to wait for.
@@ -626,9 +627,14 @@ export function NowPlayingView({
           className="np-xfade--backdrop"
           // Filling the view, the slide itself is the surface: sharp, cropped
           // to cover, with the photo crop and error hook the framed art uses.
+          // Each picture also gets a slow camera move (zoom in / out, pan) —
+          // see `.np-fill-img` in the CSS.
           render={(src) => fill ? (
             <img
-              className={"np-fill-img" + (photoSrcs.has(src) ? " np-fill-img--photo" : "")}
+              className={
+                "np-fill-img np-fill-img--kb-" + kenBurnsMove(src) +
+                (photoSrcs.has(src) ? " np-fill-img--photo" : "")
+              }
               src={src}
               alt=""
               onError={photoSrcs.has(src) ? () => markPhotoFailed(src) : undefined}

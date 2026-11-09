@@ -1,6 +1,18 @@
 import { describe, it, expect, vi } from "vitest";
-import { resolveNowPlayingArt, resolveNowPlayingSlides } from "../utils/nowPlayingArt";
+import { kenBurnsMove, resolveNowPlayingArt, resolveNowPlayingSlides } from "../utils/nowPlayingArt";
 import type { QueueTrack } from "../types";
+
+describe("kenBurnsMove", () => {
+  it("gives a picture the same move every time, so the crossfade never switches it mid-fade", () => {
+    const src = "asset://localhost/covers/a.jpg";
+    expect(kenBurnsMove(src)).toBe(kenBurnsMove(src));
+  });
+
+  it("varies across pictures and uses every move", () => {
+    const moves = new Set(Array.from({ length: 40 }, (_, i) => kenBurnsMove(`https://img/${i}.jpg`)));
+    expect(moves).toEqual(new Set(["zoom-in", "zoom-out", "pan-left", "pan-right"]));
+  });
+});
 
 function makeTrack(over: Partial<QueueTrack> = {}): QueueTrack {
   return {

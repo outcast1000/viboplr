@@ -60,6 +60,22 @@ export function resolveNowPlayingArt(
   return { path: null, pending: albumOut || artistOut };
 }
 
+/** The slow camera moves "Images fill the view" gives its pictures. */
+export type KenBurnsMove = "zoom-in" | "zoom-out" | "pan-left" | "pan-right";
+const KEN_BURNS_MOVES: readonly KenBurnsMove[] = ["zoom-in", "pan-left", "zoom-out", "pan-right"];
+
+/**
+ * The move a picture gets, picked from its own source so it is the same move
+ * every time that picture is drawn — the crossfade renders the outgoing and the
+ * incoming layer from their sources, and a move picked by position would
+ * switch under the outgoing picture as the incoming one arrived.
+ */
+export function kenBurnsMove(src: string): KenBurnsMove {
+  let h = 0;
+  for (let i = 0; i < src.length; i++) h = (h * 31 + src.charCodeAt(i)) | 0;
+  return KEN_BURNS_MOVES[Math.abs(h) % KEN_BURNS_MOVES.length];
+}
+
 /** How long each slide holds before the Now Playing surface rotates to the
     next one (issue #135). A constant, not a setting — tune here if feedback
     asks for a different pace. */

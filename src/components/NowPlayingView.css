@@ -96,18 +96,76 @@
 /* The slide is the surface: sharp and cropped to cover, in the backdrop's
    place. Text still needs the scrim (always-light text on any picture), but a
    lighter one in the middle so the picture reads as a picture, and a heavier
-   band on the side the lyrics or info sit on. */
+   band on the side the lyrics or info sit on.
+
+   Each picture also gets a slow camera move (Ken Burns): zoom in, zoom out or
+   a pan, picked per picture (`kenBurnsMove`), 20s each way and `alternate`, so
+   it drifts back and forth for as long as the picture is up. The length is
+   fixed on purpose rather than tied to the slide interval: that interval drops
+   from 20s to 12s when the first photo lands, and a changed duration re-maps an
+   animation already running — the picture on screen visibly jumped. Slide
+   changes therefore land anywhere in the drift, which a crossfade hides. Each
+   incoming layer mounts fresh and starts its own move under the crossfade.
+
+   An exception to frontend.md's "runs continuously while music plays" rule,
+   by owner decision (2026-11-09): this is an opt-in look on the visualizer
+   surface, like a plugin visualizer's frame loop. It still keeps to the cheap
+   kind of motion — `transform` only, on one composited layer — pauses with the
+   music, stops while the window is hidden (base.css), and is switched off
+   under reduced motion (below). The pan's travel stays inside the zoom's
+   overhang (scale 1.12 leaves 6% each side), so no edge ever shows. */
 .np-fill-img {
   position: absolute;
   inset: 0;
   width: 100%;
   height: 100%;
   object-fit: cover;
+  animation-duration: 20s;
+  animation-timing-function: ease-in-out;
+  animation-iteration-count: infinite;
+  animation-direction: alternate;
+  animation-fill-mode: both;
+  will-change: transform;
 }
 /* Same upward bias as the framed photos: press and concert shots lose the
-   faces off the top when cropped from the middle. */
+   faces off the top when cropped from the middle — for the crop and the zoom. */
 .np-fill-img--photo {
   object-position: center 30%;
+  transform-origin: center 30%;
+}
+.np-fill-img--kb-zoom-in { animation-name: np-kb-zoom-in; }
+.np-fill-img--kb-zoom-out { animation-name: np-kb-zoom-out; }
+.np-fill-img--kb-pan-left { animation-name: np-kb-pan-left; }
+.np-fill-img--kb-pan-right { animation-name: np-kb-pan-right; }
+.np-audio--paused .np-fill-img {
+  animation-play-state: paused;
+}
+/* Reduced motion: no move at all. The global guard alone would run each move
+   once in 0.01ms and, with `fill-mode: both`, leave every picture on its end
+   frame — some 12% zoomed or shifted, others at rest. */
+@media (prefers-reduced-motion: reduce) {
+  .np-audio .np-fill-img {
+    animation-name: none;
+  }
+}
+:root[data-reduce-motion] .np-audio .np-fill-img {
+  animation-name: none;
+}
+@keyframes np-kb-zoom-in {
+  from { transform: scale(1); }
+  to   { transform: scale(1.12); }
+}
+@keyframes np-kb-zoom-out {
+  from { transform: scale(1.12); }
+  to   { transform: scale(1); }
+}
+@keyframes np-kb-pan-left {
+  from { transform: scale(1.12) translateX(4%); }
+  to   { transform: scale(1.12) translateX(-4%); }
+}
+@keyframes np-kb-pan-right {
+  from { transform: scale(1.12) translateX(-4%); }
+  to   { transform: scale(1.12) translateX(4%); }
 }
 /* Two classes, and after the art-regime scrim, to replace it. */
 .np-audio.np-audio--fill::after {
