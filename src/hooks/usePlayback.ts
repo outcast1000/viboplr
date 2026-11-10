@@ -25,6 +25,7 @@ import {
 } from "../playback/playbackErrors";
 import { track as trackTelemetry, sourceClass } from "../telemetry";
 import { classifyErrorKind } from "../utils/errorKind";
+import { applyWindowFullscreen } from "../utils/windowFullscreen";
 import {
   nativeEngine,
   type EnginePositionEvent,
@@ -334,8 +335,7 @@ export function usePlayback(
   }
 
   function setWindowFullscreen(fullscreen: boolean) {
-    import("../utils/windowFullscreen")
-      .then(({ applyWindowFullscreen }) => applyWindowFullscreen(fullscreen))
+    applyWindowFullscreen(fullscreen)
       .catch((e) => console.error("Failed to set window fullscreen:", e));
   }
 
