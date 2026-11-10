@@ -1735,6 +1735,14 @@ function App() {
   // Monotonic counter bumped whenever a collection resync changes the library.
   // Drives Home's generic post-resync refresh (see useHome / HomeView).
   const [libraryRevision, setLibraryRevision] = useState(0);
+  // Every Home revision bump also persists when it happened: the revision only
+  // lives in memory, and Home is frozen while hidden, so a change made on
+  // another view and followed by a quit would otherwise never reach Home's
+  // cached shelves (see useHome's hydrate).
+  const bumpLibraryRevision = () => {
+    setLibraryRevision(k => k + 1);
+    store.set("homeLibraryChangedAt", Date.now()).catch((e) => console.error("Failed to record library change for Home:", e));
+  };
   const [searchDeletedBatch, setSearchDeletedBatch] = useState<{ ids: number[]; key: number }>({ ids: [], key: 0 });
   const [searchDeletedTagBatch, setSearchDeletedTagBatch] = useState<{ ids: number[]; key: number }>({ ids: [], key: 0 });
   const [searchBulkEditKey, setSearchBulkEditKey] = useState(0);
@@ -2041,7 +2049,7 @@ function App() {
     // Queue rows look their size up from the library; a rescan can change it.
     forgetFileSizes();
     setSearchLibraryKey(k => k + 1);
-    setLibraryRevision(k => k + 1);
+    bumpLibraryRevision();
     void queueHook.reconcileLibraryIds().then(idByPath => {
       if (!idByPath) return;
       playback.setCurrentTrack(prev => {
@@ -2253,7 +2261,7 @@ function App() {
       // per-shelf wiring). We only bump the Home revision here (not the full
       // notifyLibraryChanged) because SearchView already handles deletes via the
       // searchDeletedBatch above.
-      setLibraryRevision(k => k + 1);
+      bumpLibraryRevision();
     },
     onCurrentTrackDeleted: (indices) => currentTrackDeletedRef.current(indices),
     onShowMenu: (state) => showNativeMenuRef.current?.(state),

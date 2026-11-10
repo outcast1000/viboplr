@@ -61,6 +61,11 @@ const STORE_DEFAULTS = {
   uiZoom: 1,
   miniZoom: 1,
   quizBestScores: {},
+  // When the library's track population last changed (App bumps it beside
+  // `libraryRevision`). Home compares it with its snapshot's `libraryAsOf` at
+  // launch, so a change made while Home was hidden still refreshes it after a
+  // restart. Epoch ms; 0 = never.
+  homeLibraryChangedAt: 0,
 };
 
 // Keys the app once wrote and no longer does; dropped from the profile's store

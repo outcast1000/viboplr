@@ -675,6 +675,12 @@ interface HomeSnapshot {
   radioStations: RadioStation[];
   shelves: ResolvedShelf[];
   savedAt?: number;
+  // When the refresh that produced these shelves STARTED reading the library
+  // (`savedAt` is when it finished). Compared at hydrate against the store's
+  // `homeLibraryChangedAt`: a library change after this point (a delete, a
+  // scan) makes the snapshot stale even inside the 24h window. Absent in older
+  // snapshots, which fall back to `savedAt`.
+  libraryAsOf?: number;
   // Resolver ids attempted in the last refresh (built-in + visible plugin
   // shelves). Persisted so a later mount can tell an already-seen plugin shelf
   // from a freshly installed one without re-fetching everything.
@@ -838,6 +844,9 @@ export function useHome(opts: UseHomeOptions) {
   const shelvesRef = useRef<ResolvedShelf[]>(shelves);
   useAssignRef(shelvesRef, shelves);
   const savedAtRef = useRef<number>(0);
+  // See HomeSnapshot.libraryAsOf. Carried by every snapshot write so a write
+  // that isn't a refresh (prune, Latest play) doesn't drop it.
+  const libraryAsOfRef = useRef<number>(0);
   // Resolver ids attempted in the last completed refresh — used to detect
   // freshly-installed plugin shelves that have never been fetched.
   const attemptedKeysRef = useRef<Set<string>>(new Set());
@@ -1279,6 +1288,7 @@ export function useHome(opts: UseHomeOptions) {
     // Capture the library revision this refresh accounts for, up front: its DB
     // reads run after this point, so they observe any resync that has completed.
     refreshedRevRef.current = libRevRef.current;
+    const libraryAsOf = Date.now();
     setIsLoading(true);
     try {
       const playsAtStart = recentPlaysRef.current;
@@ -1373,10 +1383,12 @@ export function useHome(opts: UseHomeOptions) {
         // Persist the snapshot so the next mount can hydrate instantly.
         const savedAt = Date.now();
         savedAtRef.current = savedAt;
+        libraryAsOfRef.current = libraryAsOf;
         writeHomeSnapshot<HomeSnapshot>({
           radioStations: radioStationsRef.current,
           shelves: finalShelves,
           savedAt,
+          libraryAsOf,
           attemptedKeys,
         }).catch((e) => console.error("Failed to persist home snapshot:", e));
       }
@@ -1391,11 +1403,21 @@ export function useHome(opts: UseHomeOptions) {
     let cancelled = false;
     (async () => {
       try {
-        const snap = await readHomeSnapshot<HomeSnapshot>();
+        const [snap, libraryChangedAt] = await Promise.all([
+          readHomeSnapshot<HomeSnapshot>(),
+          store.get<number>("homeLibraryChangedAt"),
+        ]);
         if (cancelled) return;
         if (snap?.radioStations?.length) setRadioStations(snap.radioStations);
         if (snap?.shelves?.length) setShelves(dropRetiredBuiltInShelves(snap.shelves));
-        if (snap?.savedAt) savedAtRef.current = snap.savedAt;
+        libraryAsOfRef.current = snap?.libraryAsOf ?? snap?.savedAt ?? 0;
+        // The library changed after this snapshot was read from it — e.g.
+        // tracks deleted while Home was hidden, then the app quit before Home
+        // was shown again (the in-memory revision that would have refreshed it
+        // is gone). Leave savedAt at 0 so the mount check refreshes; the stale
+        // shelves still paint meanwhile.
+        const changedSince = (libraryChangedAt ?? 0) > libraryAsOfRef.current;
+        if (snap?.savedAt && !changedSince) savedAtRef.current = snap.savedAt;
         if (snap?.attemptedKeys) attemptedKeysRef.current = new Set(snap.attemptedKeys);
       } catch (e) {
         console.error("Failed to hydrate home snapshot:", e);
@@ -1440,6 +1462,7 @@ export function useHome(opts: UseHomeOptions) {
       radioStations: radioStationsRef.current,
       shelves: next,
       savedAt: savedAtRef.current,
+      libraryAsOf: libraryAsOfRef.current,
       attemptedKeys: Array.from(attemptedKeysRef.current),
     }).catch((e) => console.error("Failed to persist pruned home snapshot:", e));
   }, [pluginsLoaded, hydrated, pluginShelves, shelves]);
@@ -1481,6 +1504,7 @@ export function useHome(opts: UseHomeOptions) {
         radioStations: radioStationsRef.current,
         shelves: next,
         savedAt: savedAtRef.current,
+        libraryAsOf: libraryAsOfRef.current,
         attemptedKeys: Array.from(attemptedKeysRef.current),
       }).catch((e) => console.error("Failed to persist the Latest play shelf:", e));
     })();
