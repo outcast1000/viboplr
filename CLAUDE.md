@@ -179,6 +179,13 @@ breakdowns ride along so a regression can be attributed without re-running; `sta
 movers past 20ms in absolute milliseconds, not percentages, because startup phases are often
 sub-millisecond where a percentage turns noise into a headline.
 
+What happens *before* the frontend clock starts is recorded too: `page.document`, `page.bundle_fetch`
+and `page.bundle_eval` (waiting on, parsing, compiling and running every module evaluated ahead of
+`startupTiming.ts` — what the bundle's size actually costs), read from Navigation / Resource Timing and
+stored at **negative** offsets so they never move `frontend_span_ms` or break the series. `app:smoke`
+prints their sum as "before script" on every run. `checkDump` ignores `page.*` entries when asking
+whether the webview recorded anything, since they exist the moment the bundle runs.
+
 **One-time setup:** `npm run perf:setup -- --music /path/to/music` (then `-- --check` to verify).
 Four things must be true or the run silently measures the wrong thing, and the script does all four:
 onboarding dismissed (a fresh profile shows the wizard over everything), a collection added (no

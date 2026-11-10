@@ -35,7 +35,7 @@ import {
   waitFor,
   PROBE_PROFILE,
 } from "./lib/appControl.mjs";
-import { checkDump, startupEntry, startupDelta } from "./lib/appSmoke.mjs";
+import { checkDump, pageLoadMs, startupEntry, startupDelta } from "./lib/appSmoke.mjs";
 
 const REPO_ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 const STARTUP_HISTORY = join(REPO_ROOT, "benchmarks", "startup-history.json");
@@ -152,6 +152,20 @@ async function main() {
     process.exit(1);
   }
   console.log("✓ built app launches, mounts, opens its database and answers.");
+
+  // What the bundle costs before our code runs — printed on every run, since
+  // it is the number that decides whether shrinking the bundle is worth it.
+  const page = pageLoadMs(dump);
+  if (page != null) {
+    const phase = (label) => {
+      const e = dump.startup.frontend.find((x) => x.label === label);
+      return e ? Math.round(e.duration_ms * 10) / 10 : "–";
+    };
+    console.log(
+      `before script: ${page} ms  (document ${phase("page.document")} · bundle fetch ${phase("page.bundle_fetch")}` +
+        ` · bundle parse+eval ${phase("page.bundle_eval")})`,
+    );
+  }
 
   if (flags.save) {
     recordStartup(dump, {

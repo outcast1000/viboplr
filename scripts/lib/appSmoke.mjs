@@ -63,7 +63,10 @@ export function checkDump(dump, { expectedVersion = null, expectedProfile = "per
   if (!Array.isArray(dump.startup?.backend) || dump.startup.backend.length === 0) {
     problems.push("no backend startup timings — the Rust startup path did not record");
   }
-  if (!Array.isArray(dump.startup?.frontend) || dump.startup.frontend.length === 0) {
+  // The `page.*` phases come from the browser's own load timing and exist the
+  // moment the bundle runs, so they prove nothing about the startup path.
+  const frontend = Array.isArray(dump.startup?.frontend) ? dump.startup.frontend : [];
+  if (!frontend.some((e) => !isPagePhase(e))) {
     problems.push("no frontend startup timings — the webview did not record");
   }
 
@@ -94,6 +97,24 @@ export function compareState(dump, expected) {
     wrong.push("nothing is loaded (is the perf profile's queue empty?)");
   }
   return wrong.length ? wrong.join(", ") : null;
+}
+
+/** Label prefix of the pre-script phases (`src/startupTiming.ts` → `pageLoadEntries`). */
+export const PAGE_PHASE_PREFIX = "page.";
+
+function isPagePhase(e) {
+  return String(e?.label ?? "").startsWith(PAGE_PHASE_PREFIX);
+}
+
+/**
+ * The page-load phases of a dump — the document, the bundle's fetch, then its
+ * parse + evaluation — summed: what the bundle costs before any of our code
+ * runs. `null` for a dump from a build that didn't record them. Printed beside
+ * the frontend span, never added to it (that clock starts where these end).
+ */
+export function pageLoadMs(dump) {
+  const page = (dump.startup?.frontend ?? []).filter(isPagePhase);
+  return page.length ? round1(page.reduce((sum, e) => sum + (Number(e.duration_ms) || 0), 0)) : null;
 }
 
 /**

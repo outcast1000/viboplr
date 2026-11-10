@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 // @ts-expect-error — plain .mjs dev script, no type declarations
-import { checkDump, startupEntry, startupDelta, compareState, EXPECTED_SCHEMA } from "../../scripts/lib/appSmoke.mjs";
+import { checkDump, pageLoadMs, startupEntry, startupDelta, compareState, EXPECTED_SCHEMA } from "../../scripts/lib/appSmoke.mjs";
 import { PROBE_DUMP_SCHEMA } from "../utils/probeControl";
 
 // These checks decide whether a release is broken, so they are tested here
@@ -73,6 +73,26 @@ describe("checkDump", () => {
   it("catches a startup path that recorded nothing on either side", () => {
     const dump = { ...healthy, startup: { ...healthy.startup, backend: [], frontend: [] } };
     expect(checkDump(dump)).toHaveLength(2);
+  });
+
+  // The page-load phases are recorded the moment the bundle runs, so a dump
+  // holding only those still means the startup path never ran.
+  it("doesn't count the page-load phases as the frontend recording", () => {
+    const pageOnly = [{ label: "page.bundle_eval", offset_ms: -40, duration_ms: 40 }];
+    const dump = { ...healthy, startup: { ...healthy.startup, frontend: pageOnly } };
+    expect(checkDump(dump)).toEqual([expect.stringContaining("webview did not record")]);
+    const both = { ...healthy, startup: { ...healthy.startup, frontend: [...pageOnly, ...healthy.startup.frontend] } };
+    expect(checkDump(both)).toEqual([]);
+  });
+
+  it("sums the page-load phases, and has none for an older build", () => {
+    const frontend = [
+      { label: "page.document", offset_ms: -50, duration_ms: 5.04 },
+      { label: "page.bundle_eval", offset_ms: -45, duration_ms: 45 },
+      ...healthy.startup.frontend,
+    ];
+    expect(pageLoadMs({ ...healthy, startup: { ...healthy.startup, frontend } })).toBe(50);
+    expect(pageLoadMs(healthy)).toBeNull();
   });
 
   it("reports every independent failure at once", () => {
