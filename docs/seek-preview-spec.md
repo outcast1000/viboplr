@@ -120,6 +120,13 @@ on from each seek to the tile's time. The cache key went to `v3` (and
 `RESUME_RECIPE` to 2), so sheets cut by the old recipe are regenerated on next play
 and swept at startup.
 
+A tile's time is the **middle** of the slice it stands for (`tile_time`): tile *i*
+covers `[i·interval, (i+1)·interval)`, which is the range the seek bubble shows it for,
+so it is cut at `(i+0.5)·interval` — the last, shorter slice halfway between its start
+and the video's end. Cutting at the slice's start showed its opening instant, and tile 0
+was nearly always the black lead-in. The cache key went to `v4` (and `RESUME_RECIPE` to
+3) for it.
+
 ## Switching it off, and stopping a pass
 
 Generation is a setting: **Settings → Playback → "Video seek previews"** (store key

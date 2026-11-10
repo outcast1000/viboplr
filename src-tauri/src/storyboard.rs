@@ -80,12 +80,24 @@ pub struct Geometry {
 /// near-square grid that holds the resulting tile count.
 pub fn geometry(duration_secs: f64) -> Geometry {
     let interval_secs = (duration_secs / MAX_TILES as f64).max(MIN_INTERVAL_SECS);
-    // `fps=1/interval` emits a frame at 0, interval, 2*interval, … so the tile count
-    // is the number of those positions that land inside the video.
+    // One tile per slice `[i·interval, (i+1)·interval)` that starts inside the video;
+    // each is cut at its middle (`tile_time`).
     let count = ((duration_secs / interval_secs).ceil() as usize).clamp(1, MAX_TILES);
     let cols = (count as f64).sqrt().ceil() as usize;
     let rows = count.div_ceil(cols);
     Geometry { interval_secs, count, cols, rows, tile_w: tile_width(cols) }
+}
+
+/// Where tile `tile`'s frame is cut: the **middle** of the slice it stands for. A
+/// tile covers `[tile·interval, (tile+1)·interval)` — the range the seek bubble shows
+/// it for (`tileIndexAt` floors) — so a frame from the slice's start showed the
+/// opening instant of a 10–300s stretch, and tile 0 was nearly always the black
+/// lead-in or a title card. The last slice is cut short by the video's end, so its
+/// middle is taken between its start and `duration_secs`.
+pub fn tile_time(g: &Geometry, duration_secs: f64, tile: usize) -> f64 {
+    let start = tile as f64 * g.interval_secs;
+    let end = ((tile + 1) as f64 * g.interval_secs).min(duration_secs);
+    if end > start { (start + end) / 2.0 } else { start }
 }
 
 /// What the frontend needs to render a tile. `sheets` is a Vec (not a single path)
@@ -119,8 +131,10 @@ fn dir(app_dir: &Path) -> PathBuf {
 /// with `scale=W:-2`, which stretched anamorphic sources, and there is no way to tell
 /// from a cached sheet whether its source was anamorphic. `v3` is the 36-tile cap:
 /// a `v2` sheet of a long video carries 100 tiles at 200px, softer in the bubble.
+/// `v4` cuts each tile at the middle of its slice (`tile_time`); a `v3` tile is the
+/// slice's first instant.
 fn key(track_path: &str) -> String {
-    format!("{:x}", md5::compute(format!("v3::{}", track_path)))
+    format!("{:x}", md5::compute(format!("v4::{}", track_path)))
 }
 
 fn sheet_path(app_dir: &Path, k: &str) -> PathBuf {
@@ -223,7 +237,7 @@ fn entry_key(path: &Path) -> Option<String> {
 /// Bump when anything about the tiles themselves changes — the interval/grid maths,
 /// the scale filter, the encoder. A partial cut by an older recipe cannot be extended
 /// by a newer one, and the seam would be the only symptom.
-const RESUME_RECIPE: u32 = 2;
+const RESUME_RECIPE: u32 = 3;
 
 /// Only keep a partial when the pass had already been running this long. What a
 /// resume saves is roughly the time already spent, and a typical music video's whole
@@ -781,15 +795,15 @@ fn ffconcat_quote(path: &str) -> String {
 }
 
 /// The ffconcat list behind a seek pass: the source once per tile from
-/// `start_tile`, each entry cut to the instant at its tile's time. `inpoint` makes
+/// `start_tile`, each entry cut to the instant at its tile's time (`tile_time`). `inpoint` makes
 /// the demuxer seek to the keyframe at or before it; the 1 ms `outpoint` drops every
 /// packet after it, so with `-skip_frame nokey` that keyframe is all that decodes.
 /// `duration` spaces the entries `CONCAT_SLOT_SECS` apart (see there).
-fn concat_list(video_path: &str, g: &Geometry, start_tile: usize) -> String {
+fn concat_list(video_path: &str, g: &Geometry, duration_secs: f64, start_tile: usize) -> String {
     let file = ffconcat_quote(video_path);
     let mut list = String::from("ffconcat version 1.0\n");
     for tile in start_tile..g.count {
-        let at = tile as f64 * g.interval_secs;
+        let at = tile_time(g, duration_secs, tile);
         list.push_str(&format!(
             "file {}\ninpoint {:.4}\noutpoint {:.4}\nduration {}\n",
             file, at, at + 0.001, CONCAT_SLOT_SECS
@@ -1062,7 +1076,7 @@ fn generate(
             // it goes wherever the frames go. A resumed pass simply lists the remaining
             // tiles: nothing before them is ever read.
             let list_path = fdir.join("tiles.ffconcat");
-            if let Err(e) = std::fs::write(&list_path, concat_list(&video_path.to_string_lossy(), &g, start_tile)) {
+            if let Err(e) = std::fs::write(&list_path, concat_list(&video_path.to_string_lossy(), &g, duration_secs, start_tile)) {
                 discard_failed();
                 return Err(format!("Failed to write storyboard seek list: {}", e));
             }
@@ -1167,7 +1181,7 @@ fn generate(
                 // Same %03d numbering the seek pass's image2 muxer uses, so
                 // `tile_frames` and the progress events read both alike.
                 let file = fdir.join(format!("{:03}.jpg", n + 1));
-                let at = format!("{:.4}", tile as f64 * g.interval_secs);
+                let at = format!("{:.4}", tile_time(&g, duration_secs, tile));
                 let mut cmd = ffmpeg_command();
                 cmd.args([
                     "-hide_banner", "-loglevel", "error", "-y",
@@ -1446,17 +1460,18 @@ mod tests {
     #[test]
     fn test_concat_list_seeks_once_per_remaining_tile() {
         let g = geometry(1800.0);
-        let list = concat_list("/m/a.mp4", &g, 0);
+        let list = concat_list("/m/a.mp4", &g, 1800.0, 0);
         assert!(list.starts_with("ffconcat version 1.0\n"));
         assert_eq!(list.matches("file '/m/a.mp4'\n").count(), g.count);
-        let second = format!("inpoint {:.4}\noutpoint {:.4}\n", g.interval_secs, g.interval_secs + 0.001);
-        assert!(list.contains(&second), "tile 1 seeks to one interval in");
+        let mid = 1.5 * g.interval_secs;
+        let second = format!("inpoint {:.4}\noutpoint {:.4}\n", mid, mid + 0.001);
+        assert!(list.contains(&second), "tile 1 seeks to the middle of its slice");
         // Every entry claims a full slot, so slot numbers survive a GOP-early frame.
         assert_eq!(list.matches(&format!("duration {}\n", CONCAT_SLOT_SECS)).count(), g.count);
         // A resumed pass lists only what it still needs, starting at its tile.
-        let resumed = concat_list("/m/a.mp4", &g, 20);
+        let resumed = concat_list("/m/a.mp4", &g, 1800.0, 20);
         assert_eq!(resumed.matches("file ").count(), g.count - 20);
-        assert!(resumed.contains(&format!("inpoint {:.4}\n", 20.0 * g.interval_secs)));
+        assert!(resumed.contains(&format!("inpoint {:.4}\n", 20.5 * g.interval_secs)));
     }
 
     #[test]
@@ -1529,8 +1544,23 @@ mod tests {
     fn test_geometry_last_tile_lands_inside_the_video() {
         for secs in [30.0, 213.0, 1000.0, 5021.0, 11138.0] {
             let g = geometry(secs);
-            let last = (g.count - 1) as f64 * g.interval_secs;
+            let last = tile_time(&g, secs, g.count - 1);
             assert!(last < secs, "{secs}s: last tile at {last}s is past the end");
+        }
+    }
+
+    #[test]
+    fn test_each_tile_is_cut_from_the_middle_of_its_slice() {
+        // 213s at a 10s interval: 22 slices, the last one 210–213s.
+        let g = geometry(213.0);
+        assert_eq!(tile_time(&g, 213.0, 0), 5.0);
+        assert_eq!(tile_time(&g, 213.0, 7), 75.0);
+        // The short last slice is halved between its start and the video's end.
+        assert_eq!(tile_time(&g, 213.0, 21), 211.5);
+        // Every cut lands inside the slice the seek bubble shows it for.
+        for tile in 0..g.count {
+            let t = tile_time(&g, 213.0, tile);
+            assert_eq!((t / g.interval_secs).floor() as usize, tile, "tile {tile} cut at {t}s");
         }
     }
 
