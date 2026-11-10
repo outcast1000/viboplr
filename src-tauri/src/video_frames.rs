@@ -64,15 +64,23 @@ fn frame_ext() -> &'static str {
 
 /// Locate frame `i` in `dir`, accepting either output format. A cache written
 /// by an earlier session (or a different ffmpeg build) may use the other
-/// extension; we honor whichever is on disk.
+/// extension; we honor whichever is on disk. An empty file is not a frame: builds
+/// before the `-t` fix in `extract_frames` stored one whenever `thumbnail` picked a
+/// window's last frame, and serving it left the track with no art at all — so it
+/// counts as missing and the frame is cut again.
 fn frame_file(dir: &Path, i: usize) -> Option<PathBuf> {
     for ext in ["webp", "jpg"] {
         let p = dir.join(format!("frame_{}.{}", i, ext));
-        if p.exists() {
+        if written_image(&p) {
             return Some(p);
         }
     }
     None
+}
+
+/// Whether `path` holds an image ffmpeg actually wrote — present and non-empty.
+fn written_image(path: &Path) -> bool {
+    std::fs::metadata(path).map(|m| m.is_file() && m.len() > 0).unwrap_or(false)
 }
 
 pub fn parse_duration(stderr: &str) -> Option<f64> {
@@ -264,8 +272,14 @@ pub fn extract_frames(app_dir: &Path, track_id: i64, video_path: &Path) -> Resul
             // Fast input seek to ~position, then decode only a short window so
             // long videos stay cheap (we never decode the whole file).
             "-ss", &timestamp_str,
-            "-i", &video_path.to_string_lossy(),
+            // `-t` BEFORE `-i`: an input option, bounding what is read. After `-i` it
+            // is an output limit, which also trims the filter's OUTPUT — and
+            // `thumbnail` emits its pick with the frame's own timestamp, so whenever
+            // it picked the window's last frame (pts just past 2.00s) that frame was
+            // cut, nothing was encoded, and ffmpeg exited 0 with an empty file. About
+            // one video in 200 was left with no thumbnail that way.
             "-t", &window_str,
+            "-i", &video_path.to_string_lossy(),
             "-an",
             "-vf", SCALE_FILTER,
             "-frames:v", "1",
@@ -322,9 +336,15 @@ pub fn extract_frames(app_dir: &Path, track_id: i64, video_path: &Path) -> Resul
             let _ = std::fs::remove_dir_all(&dir);
             return Err(CANCELLED.to_string());
         }
-        if !status.success() || !output_path.exists() {
+        if !status.success() {
             let _ = std::fs::remove_dir_all(&dir);
             return Err(format!("ffmpeg frame extraction failed for frame {}: {}", i, stderr));
+        }
+        // ffmpeg exits 0 on an empty output, so the status alone can't be trusted —
+        // an empty file stored here would be served as the thumbnail forever.
+        if !written_image(&output_path) {
+            let _ = std::fs::remove_dir_all(&dir);
+            return Err(format!("ffmpeg produced no image for frame {}: {}", i, stderr));
         }
 
         paths.push(output_str);
@@ -371,6 +391,63 @@ mod tests {
             get_cached_frames(dir.path(), 7).is_none(),
             "a stamp from a recipe this build doesn't know is not ours to serve either"
         );
+    }
+
+    /// An empty frame file is what builds before the `-t` fix stored when
+    /// `thumbnail` picked a window's last frame. It must read as missing —
+    /// re-extracted — not be served as a thumbnail that never loads.
+    #[test]
+    fn test_an_empty_cached_frame_is_not_served() {
+        let dir = tempfile::tempdir().unwrap();
+        let fdir = frames_dir(dir.path(), 9);
+        std::fs::create_dir_all(&fdir).unwrap();
+        std::fs::write(recipe_path(&fdir), FRAME_RECIPE.to_string()).unwrap();
+        std::fs::write(fdir.join("frame_0.webp"), b"").unwrap();
+        assert!(get_cached_frames(dir.path(), 9).is_none(), "an empty frame is no frame");
+
+        std::fs::write(fdir.join("frame_0.webp"), b"RIFF....WEBP").unwrap();
+        assert!(get_cached_frames(dir.path(), 9).is_some(), "a written frame is served");
+    }
+
+    /// The bug behind the empty files: with `-t` after `-i` (an output limit),
+    /// whenever `thumbnail` picked the window's LAST frame — its timestamp just past
+    /// the 2s window — that frame was trimmed and ffmpeg exited 0 with an empty
+    /// file. The clip forces that pick: `thumbnail` keeps the frame whose histogram is
+    /// closest to the window's average, so the window alternates all-black and
+    /// all-white frames (average: half of each) and only its last frame (pts ≈ 2.04s)
+    /// is split half black, half white — the exact average. Under the old argument
+    /// order this clip produced a 0-byte file (checked by hand against ffmpeg
+    /// 2026-04-22). Self-skips without ffmpeg; `mpeg4` rather than libx264 so a
+    /// minimal build can encode the clip.
+    #[test]
+    fn test_a_pick_at_the_window_edge_is_kept() {
+        if !is_ffmpeg_available() {
+            eprintln!("[video-frames-test] SKIPPED — ffmpeg not available");
+            return;
+        }
+        let dir = tempfile::tempdir().unwrap();
+        let clip = dir.path().join("edge-pick.mp4");
+        // 20s at 24 fps, so the window (10% in, 2s long) starts at exactly 2.00s.
+        let encoded = ffmpeg_command()
+            .args([
+                "-hide_banner", "-loglevel", "error", "-f", "lavfi", "-i",
+                "color=c=gray:size=320x180:rate=24:duration=20,format=yuv420p,\
+                 geq=lum='if(lt(T\\,4.03)\\,if(mod(N\\,2)\\,235\\,16)\\,if(lt(X\\,W/2)\\,16\\,235))':cb=128:cr=128",
+                "-c:v", "mpeg4", "-g", "12", "-q:v", "2", "-y",
+            ])
+            .arg(&clip)
+            .status()
+            .map(|s| s.success())
+            .unwrap_or(false);
+        assert!(encoded, "failed to encode the test clip");
+
+        let (paths, _) = extract_frames(dir.path(), 31, &clip).expect("extraction must succeed");
+        assert_eq!(paths.len(), FRAME_COUNT);
+        for p in &paths {
+            let len = std::fs::metadata(p).map(|m| m.len()).unwrap_or(0);
+            assert!(len > 0, "frame {p} must not be empty");
+        }
+        assert!(get_cached_frames(dir.path(), 31).is_some(), "and it must be served from the cache");
     }
 
     /// Deleting a track that has no extraction running must not block or leave a
