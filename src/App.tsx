@@ -5122,9 +5122,18 @@ function App() {
   // CSS, like theater/fullscreen — no remount); theater and native fullscreen
   // still win, and a collapsed queue has no room so the video hides with it.
   const videoPlaying = !!(playback.currentTrack && isVideoTrack(playback.currentTrack));
-  // The still shown in the video surface until mpv presents: the current
-  // track's own artwork, which for a local video is its cached first frame.
-  const videoStill = videoPlaying ? resolveImageUrl(playback.currentTrack?.image_url ?? null) ?? null : null;
+  // The still shown in the video surface while no video is being opened — a
+  // restored, stopped or failed video would otherwise be an empty box. It is
+  // the track's thumbnail, which is NOT its first frame (a local video's is cut
+  // 10% in, `video_frames.rs`; a plugin's is the source's own thumbnail), so
+  // it must not bridge a start: shown then, it reads as the video opening
+  // mid-way. While a play is starting (`playing`, or the engine's video
+  // session already open) the surface keeps the plain `--video-bg` fill until
+  // mpv presents.
+  const videoStarting = playback.playing || playback.nativeVideoActive;
+  const videoStill = videoPlaying && !videoStarting
+    ? resolveImageUrl(playback.currentTrack?.image_url ?? null) ?? null
+    : null;
   const videoInQueue = videoPlaying && videoLayout.dockSide === "queue" && !videoTheater && !playback.nativeFullscreen && !queueCollapsed;
 
   // Arrow key navigation helpers for search bars
@@ -6284,9 +6293,10 @@ function App() {
             />
           )}
           {/* The engine draws the picture into a native layer under the webview;
-              this surface only takes the clicks, and shows the video's cached
-              first frame until mpv is presenting (a restored or loading video
-              would otherwise be an empty box). */}
+              this surface only takes the clicks, and shows the video's
+              thumbnail while nothing is opening it (a restored or stopped
+              video would otherwise be an empty box) — never during a start,
+              see `videoStill`. */}
           <div
             className="video-surface"
             onClick={playback.handlePause}
