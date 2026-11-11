@@ -1,3 +1,7 @@
+/* Everything here paints on artwork, so it uses the never-flipped on-image tokens
+   (--scrim-rgb / --hero-text-*), never --overlay-* or skin surfaces — those flip
+   on light skins and would put a pale band under always-light text. */
+
 /* Storyboard tile over a card's resting art while hovered. Cover-cropped in JS
    (CSS can't crop a sprite); the video surround fills in until it's measured. */
 .hover-preview-tile {
@@ -8,16 +12,47 @@
   pointer-events: none;
 }
 
-/* Thin indeterminate bar along the bottom while the sheet is fetched or built. */
-.hover-preview-loading {
+/* The moment the tile shows, bottom-left — the play button owns bottom-right. */
+.hover-preview-time {
+  position: absolute;
+  left: 8px;
+  bottom: 9px;
+  padding: 2px 6px;
+  border-radius: 4px;
+  background: rgba(var(--scrim-rgb), 0.72);
+  color: var(--hero-text-primary);
+  font-size: var(--fs-2xs);
+  font-variant-numeric: tabular-nums;
+  line-height: 1.4;
+  white-space: nowrap;
+  pointer-events: none;
+}
+
+/* The thin bar along the bottom edge: how far the sheet's generation has got
+   while it runs (a sweep when there's no count), then how far into the video the
+   tile is. */
+.hover-preview-progress {
   position: absolute;
   left: 0;
   right: 0;
   bottom: 0;
   height: 3px;
   overflow: hidden;
-  background: color-mix(in srgb, var(--bg-primary) 60%, transparent);
+  background: rgba(var(--scrim-rgb), 0.45);
   pointer-events: none;
+}
+/* Steps with each tile; scaled, never width-animated (frontend.md: transform and
+   opacity only). No transition — the loop's wrap to the start would sweep back. */
+.hover-preview-progress-fill {
+  display: block;
+  width: 100%;
+  height: 100%;
+  background: var(--accent);
+  transform-origin: left center;
+}
+/* Generation progress reads as "filling in", not as a position in the video. */
+.hover-preview-progress-fill--making {
+  opacity: 0.6;
 }
 .hover-preview-loading-fill {
   display: block;
