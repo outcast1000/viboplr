@@ -108,6 +108,7 @@
   .home-hero-content { animation: none; }
 }
 .home-hero-art {
+  position: relative; /* anchors the hover preview (HoverPreviewArt) */
   width: 320px; height: 320px;
   border-radius: 8px; overflow: hidden;
   background: var(--bg-tertiary);

@@ -1,0 +1,28 @@
+/* Storyboard tile over a card's resting art while hovered. Cover-cropped in JS
+   (CSS can't crop a sprite); the video surround fills in until it's measured. */
+.hover-preview-tile {
+  position: absolute;
+  inset: 0;
+  background-repeat: no-repeat;
+  background-color: var(--video-bg, #000);
+  pointer-events: none;
+}
+
+/* Thin indeterminate bar along the bottom while the sheet is fetched or built. */
+.hover-preview-loading {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 3px;
+  overflow: hidden;
+  background: color-mix(in srgb, var(--bg-primary) 60%, transparent);
+  pointer-events: none;
+}
+.hover-preview-loading-fill {
+  display: block;
+  width: 35%;
+  height: 100%;
+  background: var(--accent);
+  animation: ds-sweep 1.2s ease-in-out infinite;
+}

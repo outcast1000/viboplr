@@ -1,7 +1,6 @@
 import { useState, useEffect } from "react";
 import { invoke, convertFileSrc } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
-import type { Track, QueueTrack } from "../types";
 import { isVideoTrack } from "../utils";
 import { schemeOf, worthGeneratingStoryboard, type Storyboard } from "../utils/storyboard";
 import { useLatestRef } from "./useLatestRef";
@@ -36,6 +35,14 @@ export interface PartialStoryboard {
   count: number;
   tileW: number | null;
   tileH: number | null;
+}
+
+/** The fields `useStoryboard` reads off a track — satisfied by `Track`,
+ *  `QueueTrack` and a Home shelf row alike. */
+export interface StoryboardTrack {
+  path?: string | null;
+  format: string | null;
+  duration_secs?: number | null;
 }
 
 export interface StoryboardState {
@@ -74,9 +81,9 @@ let nextRequestId = 0;
  * page can want the same sheet without either one's teardown killing it.
  */
 export function useStoryboard(
-  // Either shape: only `path`/`format` are read (the detail page holds a
-  // library `Track`, the now-playing bar a `QueueTrack`).
-  track: Track | QueueTrack | null,
+  // Only `path`/`format`/`duration_secs` are read: the detail page holds a
+  // library `Track`, the now-playing bar a `QueueTrack`, a Home card a shelf row.
+  track: StoryboardTrack | null,
   resolveByUri?: (scheme: string, id: string) => Promise<Storyboard | null>,
   /** Where the track's resolution actually landed on THIS disk
    *  (`effectiveLocalPath`), or null. Lets a plugin scheme whose file is local

@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import type { ResolvedShelf } from "../hooks/useHome";
 import type { HomeShelfItem, PluginTrack } from "../types/plugin";
-import { useShelfVideoFrames, shelfVideoKey } from "../hooks/useShelfVideoFrames";
+import { useShelfVideoFrames, shelfVideoKey, playlistLead } from "../hooks/useShelfVideoFrames";
 import { resolveShelfPlayAction } from "../utils/homeShelfPlay";
 import { shouldPauseEffect } from "./DetailHeroEffect";
 import { playlistCardCandidates } from "./HomeShelf";
@@ -9,6 +9,9 @@ import { resolveImageSrc, resolveImageUrl } from "../utils/resolveImageUrl";
 import { firstUsableImage, type ImageCandidate } from "../utils/imageCandidates";
 import { PersonArt, VinylArt } from "./PlaceholderArt";
 import { TrackArtFallback, type FallbackArtTrack } from "./TrackArtFallback";
+import { HoverPreviewArt } from "./HoverPreviewArt";
+import { hoverPreviewTrack, type HoverPreviewSource } from "../hooks/useHoverStoryboard";
+import type { StoryboardTrack } from "../hooks/useStoryboard";
 
 const ROTATE_MS = 8_000;
 
@@ -20,6 +23,8 @@ interface Slide {
   placeholder: { kind: "track"; track: FallbackArtTrack } | { kind: "album" } | { kind: "artist" };
   title: string;
   subtitle: string | null;
+  /** The slide's video, previewed on hover over the art; null for anything else. */
+  preview: StoryboardTrack | null;
 }
 
 // Map a shelf item to a hero slide (cover chain + title + subtitle) per display
@@ -45,6 +50,7 @@ function slideFor(
       title: it.name,
       subtitle: it.artistName ?? null,
       placeholder: { kind: "album" },
+      preview: null,
     };
   }
   if (shelf.displayKind === "artist-cards") {
@@ -54,6 +60,7 @@ function slideFor(
       title: it.name,
       subtitle: null,
       placeholder: { kind: "artist" },
+      preview: null,
     };
   }
   if (shelf.displayKind === "playlist-cards") {
@@ -66,10 +73,11 @@ function slideFor(
       title: it.name,
       subtitle: it.subtitle ?? null,
       placeholder: seed ? { kind: "track", track: seed } : { kind: "album" },
+      preview: hoverPreviewTrack(playlistLead(it)),
     };
   }
   // track-rows — video frame URLs are already converted and used verbatim.
-  const it = item as { track: { title: string; artist_name?: string; album_artist_name?: string; album_title?: string; path?: string | null; image_url?: string } };
+  const it = item as { track: { title: string; artist_name?: string; album_artist_name?: string; album_title?: string; path?: string | null; format?: string | null; duration_secs?: number | null; image_url?: string } };
   const t = it.track;
   return {
     covers: [
@@ -81,6 +89,7 @@ function slideFor(
     title: t.title,
     subtitle: t.artist_name ?? null,
     placeholder: { kind: "track", track: t },
+    preview: hoverPreviewTrack(t),
   };
 }
 
@@ -100,9 +109,11 @@ export interface HeroCarouselProps {
   onItemPlay: (shelf: ResolvedShelf, item: HomeShelfItem) => void;
   /** Opens the shelf's own ⋯ native menu (move / hide / customize). */
   onShelfMenu?: (shelf: ResolvedShelf, e: React.MouseEvent<HTMLButtonElement>) => void;
+  /** Where a video slide's hover preview gets its storyboard. */
+  previewSource: HoverPreviewSource;
 }
 
-export function HeroCarousel({ shelf, albumImageFor, artistImageFor, onItemClick, onItemPlay, onShelfMenu }: HeroCarouselProps) {
+export function HeroCarousel({ shelf, albumImageFor, artistImageFor, onItemClick, onItemPlay, onShelfMenu, previewSource }: HeroCarouselProps) {
   const items = shelf.items;
   const videoFrames = useShelfVideoFrames(shelf);
   const [idx, setIdx] = useState(0);
@@ -228,8 +239,12 @@ export function HeroCarousel({ shelf, albumImageFor, artistImageFor, onItemClick
 
       {/* key re-mounts the content on each change so it fades in fresh. */}
       <div className="home-hero-content" key={safeIdx}>
-        <div className="home-hero-art" onClick={() => onItemClick(shelf, item)}>
-          {coverSrc
+        <HoverPreviewArt
+          className="home-hero-art"
+          track={slide.preview}
+          source={previewSource}
+          onClick={() => onItemClick(shelf, item)}
+          art={coverSrc
             ? <img
                 key={coverSrc}
                 src={coverSrc}
@@ -237,7 +252,7 @@ export function HeroCarousel({ shelf, albumImageFor, artistImageFor, onItemClick
                 onError={() => setFailedSrcs((prev) => new Set(prev).add(coverSrc))}
               />
             : <div className="home-hero-art-fallback"><HeroPlaceholder placeholder={slide.placeholder} /></div>}
-        </div>
+        />
         <div className="home-hero-info">
           <div className="home-hero-eyebrow">{shelf.title.toUpperCase()}</div>
           <h1 className="home-hero-title">{slide.title}</h1>

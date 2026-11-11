@@ -5788,6 +5788,8 @@ function App() {
             onConnectServer={() => setShowAddServer(true)}
             onBrowseExtensions={() => library.setView("extensions")}
             onRunSetup={() => setShowOnboarding(true)}
+            resolveStoryboardByUri={plugins.resolveStoryboardByUri}
+            videoStoryboards={videoStoryboards}
           />
           </FreezeWhileHidden>
 

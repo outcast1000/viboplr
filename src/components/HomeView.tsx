@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { HomeShelfItem, HomeShelfResult, HomeShelfDisplayKind } from "../types/plugin";
 import type { ResolvedShelf } from "../hooks/useHome";
 import type { RecentPlaySession } from "../utils/recentPlays";
@@ -18,6 +18,8 @@ import {
 import { useImageCache } from "../hooks/useImageCache";
 import { HeroCarousel } from "./HeroCarousel";
 import { HomeShelf } from "./HomeShelf";
+import type { HoverPreviewSource } from "../hooks/useHoverStoryboard";
+import type { Storyboard } from "../utils/storyboard";
 import { CustomizeHomeModal, type CustomizeShelfRow } from "./CustomizeHomeModal";
 import { buildHomeShelfMenuSpecs } from "../contextMenu/buildHomeShelfMenuSpecs";
 import { showNativeMenu } from "../nativeMenu";
@@ -72,11 +74,21 @@ export interface HomeViewProps {
    *  restore, which seeds nothing — so an unrestored render is a no-op rather
    *  than a wrong seed. */
   onboardingProfile: OnboardingProfile;
+  /** A plugin scheme's own storyboard, for a video card's hover preview. */
+  resolveStoryboardByUri?: (scheme: string, id: string) => Promise<Storyboard | null>;
+  /** Settings > Playback > "Video seek previews": off, a hover preview shows
+   *  only sheets that already exist and never starts an ffmpeg pass. */
+  videoStoryboards: boolean;
 }
 
 export function HomeView(props: HomeViewProps) {
   const albumImages = useImageCache("album");
   const artistImages = useImageCache("artist");
+  const { resolveStoryboardByUri, videoStoryboards } = props;
+  const previewSource = useMemo<HoverPreviewSource>(
+    () => ({ resolveByUri: resolveStoryboardByUri, generate: videoStoryboards }),
+    [resolveStoryboardByUri, videoStoryboards],
+  );
 
   const [visibility, setVisibility] = useState<Record<string, boolean>>({});
   // User-defined shelf order — built-in and plugin ids alike. A plugin shelf the
@@ -305,6 +317,7 @@ export function HomeView(props: HomeViewProps) {
           onItemClick={props.onShelfItemClick}
           onItemPlay={props.onShelfItemPlay}
           onShelfMenu={openShelfMenu}
+          previewSource={previewSource}
         />
       )}
 
@@ -319,6 +332,7 @@ export function HomeView(props: HomeViewProps) {
           onItemPlay={props.onShelfItemPlay}
           onShelfMenu={openShelfMenu}
           loadingOriginKey={props.loadingOriginKey ?? null}
+          previewSource={previewSource}
         />
       ))}
     </div>

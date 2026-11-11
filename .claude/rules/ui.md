@@ -269,6 +269,8 @@ Track-row cards have an additional async image fallback: `track.image_url` → a
 
 **An explicit cover is never the only candidate.** Covers persist (the 24h snapshot, a Latest play session's `imagePath`), so they can name a file a plugin has since pruned (a rotated Spotify mix) or one that won't decode. Playlist cards and every hero slide therefore carry an ordered chain — explicit cover → lead track's `image_url` → album → artist (`HomeShelf.tsx` → `playlistCardCandidates`; a Latest play card's lead is its `__session.track`) — and an `<img>` load error drops to the next one (`utils/imageCandidates.ts` → `firstUsableImage`). Later candidates are thunks, so the album/artist lookup (which may fetch) only runs once the earlier ones have failed. The hero keeps one failed-src set shared by its art and its background layers, so both step down together.
 
+**Video cards preview on hover.** A `track-rows` card for a video, a `playlist-cards` card led by one (a station seeded by a video, a replayed video) and the matching hero slide flip through the video's storyboard while hovered, then go back to their art (`HoverPreviewArt`, see frontend.md → **useHoverStoryboard.ts**). Remote videos work when their plugin publishes a storyboard. A local video under a minute has no storyboard and stays still. Hover-only, so Home costs nothing at rest.
+
 ## Queue Panel
 
 **Component:** `QueuePanel.tsx` (column 3, all rows)

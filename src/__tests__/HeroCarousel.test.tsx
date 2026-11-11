@@ -29,6 +29,7 @@ function renderCarousel(count = 4) {
         artistImageFor={() => null}
         onItemClick={() => {}}
         onItemPlay={() => {}}
+        previewSource={{ generate: false }}
       />
     </VideoFrameQueueProvider>,
   );

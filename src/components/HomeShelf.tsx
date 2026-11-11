@@ -12,6 +12,8 @@ import { firstUsableImage, type ImageCandidate } from "../utils/imageCandidates"
 import "./HomeView.css";
 import { VinylArt } from "./PlaceholderArt";
 import { homeCardOriginKey } from "../utils/homeCardOrigin";
+import { HoverPreviewArt } from "./HoverPreviewArt";
+import { hoverPreviewTrack, type HoverPreviewSource } from "../hooks/useHoverStoryboard";
 
 // First track's album image, falling back to its artist image — the on-demand
 // (fetch + refresh) cover for a playlist card with no explicit coverUrl. Used for
@@ -96,9 +98,11 @@ export interface HomeShelfProps {
   onShelfMenu?: (shelf: ResolvedShelf, e: React.MouseEvent<HTMLButtonElement>) => void;
   /** The card whose play is still loading (utils/homeCardOrigin), if any. */
   loadingOriginKey?: string | null;
+  /** Where a video card's hover preview gets its storyboard. */
+  previewSource: HoverPreviewSource;
 }
 
-export function HomeShelf({ shelf, albumImageFor, artistImageFor, onItemClick, onItemContextMenu, onItemPlay, onShelfMenu, loadingOriginKey }: HomeShelfProps) {
+export function HomeShelf({ shelf, albumImageFor, artistImageFor, onItemClick, onItemContextMenu, onItemPlay, onShelfMenu, loadingOriginKey, previewSource }: HomeShelfProps) {
   const scrollerRef = useRef<HTMLDivElement>(null);
   const videoFrames = useShelfVideoFrames(shelf);
 
@@ -131,7 +135,7 @@ export function HomeShelf({ shelf, albumImageFor, artistImageFor, onItemClick, o
         </div>
       </div>
       <div className="home-shelf-scroller" ref={scrollerRef}>
-        {shelf.items.map((item, i) => renderCard(shelf, item, i, { albumImageFor, artistImageFor, onItemClick, onItemContextMenu, onItemPlay, videoFrames, loadingOriginKey: loadingOriginKey ?? null }))}
+        {shelf.items.map((item, i) => renderCard(shelf, item, i, { albumImageFor, artistImageFor, onItemClick, onItemContextMenu, onItemPlay, videoFrames, loadingOriginKey: loadingOriginKey ?? null, previewSource }))}
       </div>
     </section>
   );
@@ -146,6 +150,7 @@ interface RenderCtx {
   // shelfVideoKey(path) -> already-converted file URL (from VideoFrameQueue)
   videoFrames: Record<string, string>;
   loadingOriginKey: string | null;
+  previewSource: HoverPreviewSource;
 }
 
 // A spinner over the card whose play is still loading, so the place the user
@@ -222,17 +227,24 @@ function renderCard(shelf: ResolvedShelf, item: HomeShelfItem, idx: number, ctx:
   }
   if (shelf.displayKind === "playlist-cards") {
     const it = item as { id: string; name: string; coverUrl?: string; subtitle?: string; tracks?: PluginTrack[] };
+    // A card led by a video (a station seeded by one, a replayed video) previews it.
     return (
       <div key={`${idx}-${it.id}`} className="ds-card home-shelf-card" onClick={onClick} onContextMenu={onCtx}>
-        <div className="ds-card-art">
-          <ShelfCardArt
-            candidates={playlistCardCandidates(it, ctx.albumImageFor, ctx.artistImageFor, ctx.videoFrames)}
-            name={it.name}
-            fallback={<PlaylistCardFallback lead={playlistLead(it)} />}
-          />
+        <HoverPreviewArt
+          className="ds-card-art"
+          track={hoverPreviewTrack(playlistLead(it))}
+          source={ctx.previewSource}
+          art={
+            <ShelfCardArt
+              candidates={playlistCardCandidates(it, ctx.albumImageFor, ctx.artistImageFor, ctx.videoFrames)}
+              name={it.name}
+              fallback={<PlaylistCardFallback lead={playlistLead(it)} />}
+            />
+          }
+        >
           {playButton(shelf, item, ctx)}
           {loadingVeil(shelf, item, ctx)}
-        </div>
+        </HoverPreviewArt>
         <div className="ds-card-body">
           <div className="ds-card-title">{it.name}</div>
           {it.subtitle && <div className="ds-card-subtitle">{it.subtitle}</div>}
@@ -241,7 +253,7 @@ function renderCard(shelf: ResolvedShelf, item: HomeShelfItem, idx: number, ctx:
     );
   }
   // track-rows
-  const it = item as { track: { title: string; artist_name?: string; album_title?: string; path?: string | null; image_url?: string } };
+  const it = item as { track: { title: string; artist_name?: string; album_title?: string; path?: string | null; format?: string | null; duration_secs?: number | null; image_url?: string } };
   // Shared chain (image_url → video frame → album → artist), identical to the
   // queue panel. Video frame URLs from the queue are already converted and used
   // verbatim; everything else goes through resolveImageUrl inside the helper.
@@ -252,11 +264,15 @@ function renderCard(shelf: ResolvedShelf, item: HomeShelfItem, idx: number, ctx:
   });
   return (
     <div key={`${idx}-${it.track.title}`} className="ds-card home-shelf-card home-shelf-card--track" onClick={onClick} onContextMenu={onCtx}>
-      <div className="ds-card-art">
-        <ShelfCardArt candidates={[src]} name={it.track.title} fallback={<TrackArtFallback track={it.track} size={null} className="home-shelf-card-fallback-art" />} />
+      <HoverPreviewArt
+        className="ds-card-art"
+        track={hoverPreviewTrack(it.track)}
+        source={ctx.previewSource}
+        art={<ShelfCardArt candidates={[src]} name={it.track.title} fallback={<TrackArtFallback track={it.track} size={null} className="home-shelf-card-fallback-art" />} />}
+      >
         {playButton(shelf, item, ctx)}
         {loadingVeil(shelf, item, ctx)}
-      </div>
+      </HoverPreviewArt>
       <div className="ds-card-body">
         <div className="ds-card-title">{it.track.title}</div>
         {it.track.artist_name && <div className="ds-card-subtitle">{it.track.artist_name}</div>}
