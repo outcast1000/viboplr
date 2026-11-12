@@ -927,7 +927,7 @@ fn test_history_most_played_and_search_resolve_albums() {
     for rows in [
         db.get_history_most_played(10).unwrap(),
         db.get_history_most_played_since(0, 10, 1).unwrap(),
-        db.search_history_tracks("song", 10).unwrap(),
+        db.history_tracks_page(&HistoryPageQuery { query: Some("song"), limit: 10, ..Default::default() }).unwrap().rows,
     ] {
         let r = rows.iter().find(|r| r.display_title == "Song A").expect("Song A in history");
         assert_eq!(r.display_album.as_deref(), Some("Greatest Hits"));
@@ -970,10 +970,16 @@ fn test_history_rows_carry_the_library_copys_path() {
     let e = recent.iter().find(|e| e.display_title == "Live Clip").expect("in history");
     assert_eq!(e.display_path.as_deref(), Some("file:///test/clip.mp4"));
     assert_eq!(e.display_album, None);
+    // The same copy's id, length and format ride along (the History view plays,
+    // highlights and shows the length from them).
+    assert_eq!(e.display_track_id, Some(video));
+    assert_eq!(e.display_duration_secs, Some(200.0));
+    assert_eq!(e.display_format.as_deref(), Some("mp4"));
 
     let most = db.get_history_most_played_since(0, 10, 1).unwrap();
     let r = most.iter().find(|r| r.display_title == "Live Clip").expect("in most played");
     assert_eq!(r.display_path.as_deref(), Some("file:///test/clip.mp4"));
+    assert_eq!(r.display_track_id, Some(video));
 
     // A play with no library copy carries neither.
     let other = db.get_or_create_artist("Nobody").unwrap();
@@ -2578,12 +2584,13 @@ fn test_history_search_tracks() {
     }
 
     // Search by track title
-    let results = db.search_history_tracks("tear", 10).unwrap();
+    let search = |q: &str| db.history_tracks_page(&HistoryPageQuery { query: Some(q), limit: 10, ..Default::default() }).unwrap().rows;
+    let results = search("tear");
     assert_eq!(results.len(), 1);
     assert_eq!(results[0].display_title, "Teardrop");
 
     // Search by artist name
-    let results = db.search_history_tracks("massive", 10).unwrap();
+    let results = search("massive");
     assert_eq!(results.len(), 2);
 }
 
@@ -2605,7 +2612,7 @@ fn test_history_search_artists() {
         ).unwrap();
     }
 
-    let results = db.search_history_artists("head", 10).unwrap();
+    let results = db.history_artists_page(&HistoryPageQuery { query: Some("head"), limit: 10, ..Default::default() }).unwrap().rows;
     assert_eq!(results.len(), 2);
     // Radiohead has more plays, should come first
     assert_eq!(results[0].display_name, "Radiohead");
@@ -3274,12 +3281,16 @@ fn bench_search_performance() {
         let _ = db.get_history_most_played_since(1700050000, 50, 1).unwrap();
     }));
 
-    results.push(bench("search_history_tracks(\"track\")", 50, || {
-        let _ = db.search_history_tracks("track", 50).unwrap();
+    results.push(bench("history_tracks_page(\"track\")", 50, || {
+        let _ = db.history_tracks_page(&HistoryPageQuery { query: Some("track"), limit: 50, ..Default::default() }).unwrap();
     }));
 
-    results.push(bench("search_history_artists(\"artist\")", 50, || {
-        let _ = db.search_history_artists("artist", 50).unwrap();
+    results.push(bench("history_artists_page(\"artist\")", 50, || {
+        let _ = db.history_artists_page(&HistoryPageQuery { query: Some("artist"), limit: 50, ..Default::default() }).unwrap();
+    }));
+
+    results.push(bench("history_recent_page(\"track\")", 50, || {
+        let _ = db.history_recent_page(&HistoryPageQuery { query: Some("track"), limit: 50, ..Default::default() }).unwrap();
     }));
 
     results.push(bench("get_track_rank", 50, || {
@@ -4872,8 +4883,9 @@ fn test_history_reads_do_not_wait_for_an_open_write() {
             d.get_history_plays_page(None, None, 10).unwrap().len() as i64,
             d.get_history_most_played_since(0, 10, 1).unwrap().len() as i64,
             d.get_history_most_played_artists_since(0, 10).unwrap().len() as i64,
-            d.search_history_tracks("song", 10).unwrap().len() as i64,
-            d.search_history_artists("artist", 10).unwrap().len() as i64,
+            d.history_recent_page(&HistoryPageQuery { query: Some("song"), limit: 10, ..Default::default() }).unwrap().rows.len() as i64,
+            d.history_tracks_page(&HistoryPageQuery { query: Some("song"), limit: 10, ..Default::default() }).unwrap().rows.len() as i64,
+            d.history_artists_page(&HistoryPageQuery { query: Some("artist"), limit: 10, ..Default::default() }).unwrap().rows.len() as i64,
             d.get_track_play_history("Song", Some("Artist"), 10).unwrap().len() as i64,
         ];
         let ranks = (
@@ -4891,7 +4903,7 @@ fn test_history_reads_do_not_wait_for_an_open_write() {
     let (counts, ranks, reconnects) = rx
         .recv_timeout(std::time::Duration::from_secs(2))
         .expect("a history read waited on the writer");
-    assert_eq!(counts, vec![1; 8]);
+    assert_eq!(counts, vec![1; 9]);
     assert_eq!(ranks, (Some(1), Some(1), Some(1)));
     assert_eq!(reconnects, (true, true));
 

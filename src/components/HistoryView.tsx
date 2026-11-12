@@ -1,682 +1,846 @@
-import { useEffect, useState, useRef, useCallback, forwardRef, useImperativeHandle, useMemo } from "react";
+// The History view, laid out like the Library (SearchView): its own search box,
+// tabs with counts (Plays · Tracks · Artists — the first, id "recent", is the
+// play log), one range for every tab shown in the tab bar, a collapsible sort
+// bar, and the three view modes (table / list / tiles) over paged rows. The
+// search narrows every tab at once, as in the Library.
+//
+// History rows aren't library tracks: they are name-keyed plays, and a play can
+// outlive its file (a "ghost"). The backend matches each row to a library copy
+// (`display_track_id` / `display_path` / album / length), so a row plays,
+// highlights, drags and opens its links without a reconnect round-trip; a ghost
+// plays through the stream resolvers by name (`historyQueueTrack`). Only the
+// track page and the artist play/enqueue still reconnect, because those need a
+// library row the name alone doesn't give.
+import { useEffect, useState, useRef, useCallback, useMemo } from "react";
 import { invoke } from "@tauri-apps/api/core";
-import type { Track, HistoryEntry, HistoryMostPlayed, HistoryArtistStats } from "../types";
+import type { QueueTrack, HistoryEntry, HistoryMostPlayed, HistoryArtistStats, HistoryPage, ViewMode } from "../types";
 import type { ContextMenuTarget } from "../types/contextMenu";
+import type { Notify } from "../hooks/useToasts";
 import { isLocalTrack } from "../queueEntry";
-import { formatRelativeTime } from "../utils";
+import { formatDuration, formatRelativeTime, formatDateTime } from "../utils";
 import { resolveImageUrl } from "../utils/resolveImageUrl";
 import { useImageCache } from "../hooks/useImageCache";
 import { pickEntityImagePath, resolveTrackImage } from "../utils/trackImage";
 import { useQueueVideoFrames, shelfVideoKey } from "../hooks/useShelfVideoFrames";
-import { TrackRow } from "./TrackRow";
-import type { FallbackArtTrack } from "./TrackArtFallback";
-// Index-based multi-select over the currently-visible rows (string keys so
-// tracks and artists can share one ordered list). The prefixed keys are built
-// by the parent; the algorithm itself is the shared generic.
+import { useLatestRef } from "../hooks/useLatestRef";
+import { store } from "../store";
+import { trackLikeKey } from "../likeKeys";
+import { toggleSortKey, chainDir, type SortKey } from "../sortChain";
 import { computeSelection as computeKeySelection } from "../utils/rowSelection";
+import {
+  coerceHistorySettings, rangeSinceTs, historyQueueTrack, playsLabel,
+  DEFAULT_HISTORY_SETTINGS, HISTORY_RANGES, HISTORY_PAGE_SIZE, HISTORY_TABS,
+  type HistorySettings, type HistoryTab, type HistoryRange, type HistoryTrackFields,
+} from "../utils/historyView";
+import { TrackRow } from "./TrackRow";
+import { TrackCard } from "./TrackCard";
+import { RowHoverActions } from "./RowHoverActions";
+import { LikeDislikeButtons } from "./LikeDislikeButtons";
+import { EntityArtFallback } from "./EntityArtFallback";
+import { ViewModeToggle } from "./ViewModeToggle";
+import { SortButton, LoadMoreSentinel } from "./search/searchShared";
+import "./TrackList.css";
 import "./HistoryView.css";
 
-export interface HistoryViewHandle {
-  count: number;
-  playItem(index: number): void;
-  enqueueItem(index: number): void;
-  reload(): void;
-}
-
-type HistoryTab = "recent" | "tracks" | "artists";
-type Timespan = "30-days" | "year" | "all-time";
-
 interface HistoryViewProps {
-  searchQuery: string;
-  highlightedIndex: number;
-  onPlayTrack: (tracks: Track[], index: number) => void;
-  onEnqueueTrack: (tracks: Track[]) => void;
-  onLocateTrack: (track: Track) => void;
+  /** The query lives in App (`viewSearch`), so it survives leaving the view. */
+  query: string;
+  onQueryChange: (q: string) => void;
+  currentTrack: QueueTrack | null;
+  onPlayTracks: (tracks: QueueTrack[], index: number) => void;
+  onEnqueueTracks: (tracks: QueueTrack[]) => void;
+  /** Open the track page of a library row (the copy the history row plays). */
+  onLocateTrackId: (trackId: number) => void;
+  onLocateTrackByName: (title: string, artistName?: string, albumTitle?: string) => void;
   onArtistClick: (artistId: number, name?: string) => void;
+  onAlbumClick: (albumId: number, artistId?: number | null, name?: string, artistName?: string) => void;
   onPlayArtist: (artistId: number) => void;
   onEnqueueArtist: (artistId: number) => void;
   onStartRadio?: (seed: { title: string; artistName: string | null; coverPath: string | null }) => void;
   onShowContextMenu?: (x: number, y: number, target: ContextMenuTarget) => void;
+  onToggleLike: (track: QueueTrack) => void;
+  onToggleDislike: (track: QueueTrack) => void;
+  onTrackDragStart: (tracks: QueueTrack[]) => void;
+  onNotify: Notify;
 }
 
+type TrackLikeRow = HistoryEntry | HistoryMostPlayed;
+type AnyRow = TrackLikeRow | HistoryArtistStats;
 
-// A history entry — track OR artist — rendered via the shared TrackRow. The row
-// is entity-agnostic (rank in the leading slot, art with a disc or person
-// placeholder, plays/relative-time in the subtitle); selection/keyboard/ghost logic stays in
-// the parent, which passes `selected`/`active` + bound actions. `imageUrl` is
-// already resolved by the caller — track rows run the shared album→artist chain,
-// artist rows a plain artist lookup.
-function HistoryRow({
-  selected, active, dataIndex, rank, kind = "track", imageUrl, artTrack, title, subtitle,
-  onClick, onContextMenu, onDoubleClick, onPlay, onEnqueue, onStartRadio, onDetails,
-}: {
-  selected: boolean;
-  kind?: "track" | "artist";
-  active?: boolean;
-  dataIndex?: number;
-  rank?: number;
-  imageUrl: string | null;
-  /** What a track row's no-art placeholder reads (audio vs video, artist colour). */
-  artTrack?: FallbackArtTrack;
-  title: string;
-  subtitle: React.ReactNode;
-  onClick: (e: React.MouseEvent) => void;
-  onContextMenu: (e: React.MouseEvent) => void;
-  onDoubleClick: () => void;
-  onPlay: () => void;
-  onEnqueue: () => void;
-  onStartRadio?: () => void;   // track rows only (artists have no radio seed)
-  onDetails: () => void;
-}) {
-  return (
-    <TrackRow
-      selected={selected}
-      active={active}
-      dataAttrs={dataIndex != null ? { "data-history-index": dataIndex } : undefined}
-      leading={rank != null ? <span className="history-rank">{rank}</span> : undefined}
-      thumb={kind === "artist"
-        ? (imageUrl ? { kind: "image", url: imageUrl, fallback: { kind: "artist" } } : { kind: "artist" })
-        : (imageUrl ? { kind: "image", url: imageUrl, track: artTrack } : { kind: "disc", track: artTrack })}
-      title={title}
-      subtitle={subtitle}
-      onClick={onClick}
-      onContextMenu={onContextMenu}
-      onDoubleClick={onDoubleClick}
-      actions={{ onPlay, onEnqueue, onStartRadio, onDetails }}
-    />
-  );
+interface TabData<T> {
+  rows: T[];
+  total: number;
+  /** Rows the backend has handed over, repeats included — the next offset. */
+  fetched: number;
+  hasMore: boolean;
+  loadingMore: boolean;
+  /** Rows (or an error) are in for the tab's current list. */
+  loaded: boolean;
+  error: string | null;
+  /** The window start and the cutoff the first page was read with; every
+   *  later page reuses them so the pages describe one list. */
+  sinceTs: number | null;
+  asOf: number | null;
+}
+const EMPTY_TAB = { rows: [], total: 0, fetched: 0, hasMore: false, loadingMore: false, loaded: false, error: null, sinceTs: null, asOf: null };
+
+const TAB_LABELS: Record<HistoryTab, string> = { recent: "Plays", tracks: "Tracks", artists: "Artists" };
+
+const PAGE_COMMANDS: Record<HistoryTab, string> = {
+  recent: "history_recent_page",
+  tracks: "history_tracks_page",
+  artists: "history_artists_page",
+};
+
+// Sort-bar buttons per tab; field names are the backend's whitelist
+// (db/history.rs RECENT/TRACK/ARTIST_SORT_FIELDS).
+const SORT_BUTTONS: Record<HistoryTab, { label: string; field: string }[]> = {
+  recent: [{ label: "Played", field: "played" }, { label: "Title", field: "title" }, { label: "Artist", field: "artist" }, { label: "Plays", field: "plays" }],
+  tracks: [{ label: "Plays", field: "plays" }, { label: "Title", field: "title" }, { label: "Artist", field: "artist" }, { label: "Last played", field: "played" }],
+  artists: [{ label: "Plays", field: "plays" }, { label: "Name", field: "name" }, { label: "Tracks", field: "tracks" }, { label: "Last played", field: "played" }],
+};
+
+// Clicks on these land on a control inside the row, not on the row.
+const ROW_CONTROL_SELECTOR = ".track-link, .col-like, .like-dislike, .album-card-menu-btn, .ds-card-play, .row-hover-action, .album-card-art-wrapper";
+
+function rowKey(tab: HistoryTab, r: AnyRow): string {
+  if (tab === "recent") return `r:${(r as HistoryEntry).id}`;
+  if (tab === "tracks") return `t:${(r as HistoryMostPlayed).history_track_id}`;
+  return `a:${(r as HistoryArtistStats).history_artist_id}`;
 }
 
-const TIMESPAN_OPTIONS: { key: Timespan; label: string }[] = [
-  { key: "30-days", label: "30 days" },
-  { key: "year", label: "Year" },
-  { key: "all-time", label: "All time" },
-];
+export function HistoryView({
+  query, onQueryChange, currentTrack,
+  onPlayTracks, onEnqueueTracks, onLocateTrackId, onLocateTrackByName,
+  onArtistClick, onAlbumClick, onPlayArtist, onEnqueueArtist, onStartRadio,
+  onShowContextMenu, onToggleLike, onToggleDislike, onTrackDragStart, onNotify,
+}: HistoryViewProps) {
+  const [settings, setSettings] = useState<HistorySettings>(DEFAULT_HISTORY_SETTINGS);
+  const [restored, setRestored] = useState(false);
+  const { activeTab, sortChains, range, viewModes, sortBarCollapsed } = settings;
+  const viewMode = viewModes[activeTab];
 
-function timespanSinceTs(ts: Timespan): number | null {
-  if (ts === "all-time") return null;
-  const days = ts === "30-days" ? 30 : 365;
-  return Math.floor(Date.now() / 1000) - days * 86400;
-}
+  const [recent, setRecent] = useState<TabData<HistoryEntry>>(EMPTY_TAB);
+  const [tracks, setTracks] = useState<TabData<HistoryMostPlayed>>(EMPTY_TAB);
+  const [artists, setArtists] = useState<TabData<HistoryArtistStats>>(EMPTY_TAB);
 
-export const HistoryView = forwardRef<HistoryViewHandle, HistoryViewProps>(
-  function HistoryView({ searchQuery, highlightedIndex, onPlayTrack, onEnqueueTrack, onLocateTrack, onArtistClick, onPlayArtist, onEnqueueArtist, onStartRadio, onShowContextMenu }, ref) {
-  const [activeTab, setActiveTab] = useState<HistoryTab>("recent");
-  const [tracksTimespan, setTracksTimespan] = useState<Timespan>("30-days");
-  const [artistsTimespan, setArtistsTimespan] = useState<Timespan>("30-days");
+  const [debouncedQuery, setDebouncedQuery] = useState(query.trim());
+  useEffect(() => {
+    const t = setTimeout(() => setDebouncedQuery(query.trim()), 200);
+    return () => clearTimeout(t);
+  }, [query]);
 
-  const [recentPlays, setRecentPlays] = useState<HistoryEntry[]>([]);
-  // Cached datasets keyed by timespan so toggling is instant after the first fetch.
-  const [tracksByTimespan, setTracksByTimespan] = useState<Partial<Record<Timespan, HistoryMostPlayed[]>>>({});
-  const [artistsByTimespan, setArtistsByTimespan] = useState<Partial<Record<Timespan, HistoryArtistStats[]>>>({});
+  // --- settings: restored once, saved on every change after that ---
+  useEffect(() => {
+    store.get<unknown>("historySettings")
+      .then(saved => setSettings(coerceHistorySettings(saved)))
+      .catch(e => console.error("Failed to restore history settings:", e))
+      .finally(() => setRestored(true));
+  }, []);
+  useEffect(() => {
+    if (!restored) return;
+    store.set("historySettings", settings).catch(e => console.error("Failed to save history settings:", e));
+  }, [settings, restored]);
 
-  // Images go through the shared entity caches, the same chain the queue, home
-  // shelves and playlists use: a track row prefers its ALBUM cover and falls
-  // back to the artist, an artist row is artist-only. This view used to keep its
-  // own artist-only cache, which is why every tab showed an artist photo even
-  // for track rows (issue #133) — and it also never fetched a missing image or
-  // refreshed when one landed, both of which useImageCache does.
-  const albumImages = useImageCache("album");
-  const artistImages = useImageCache("artist");
+  const update = useCallback((patch: (s: HistorySettings) => HistorySettings) => setSettings(patch), []);
+  const setTab = (tab: HistoryTab) => update(s => ({ ...s, activeTab: tab }));
+  const setViewMode = (mode: ViewMode) => update(s => ({ ...s, viewModes: { ...s.viewModes, [s.activeTab]: mode } }));
+  const setRange = (r: HistoryRange) => update(s => ({ ...s, range: r }));
+  const setSortChain = (chain: SortKey[]) => update(s => ({ ...s, sortChains: { ...s.sortChains, [s.activeTab]: chain } }));
+  const handleSort = (field: string, e?: { shiftKey: boolean }) =>
+    setSortChain(toggleSortKey(sortChains[activeTab], field, !!e?.shiftKey));
 
-  // The album/artist pair a history track row keys its cover by. History stores
-  // no album, so display_album is resolved from the library by the backend, and
-  // display_album_artist is the album's OWN artist (compilations).
-  const trackImageMeta = useCallback((t: {
-    display_title: string;
-    display_artist: string | null;
-    display_album: string | null;
-    display_album_artist: string | null;
-  }) => ({
-    title: t.display_title,
-    artist_name: t.display_artist,
-    album_title: t.display_album,
-    album_artist_name: t.display_album_artist,
+  // --- data: one paged query per tab; a generation per tab drops stale pages ---
+  const genRef = useRef<Record<HistoryTab, number>>({ recent: 0, tracks: 0, artists: 0 });
+  const setters = useMemo(() => ({
+    recent: setRecent as React.Dispatch<React.SetStateAction<TabData<AnyRow>>>,
+    tracks: setTracks as React.Dispatch<React.SetStateAction<TabData<AnyRow>>>,
+    artists: setArtists as React.Dispatch<React.SetStateAction<TabData<AnyRow>>>,
   }), []);
 
+  // What decides a tab's list. A change reloads that tab; the query is in all
+  // three, so typing reloads every badge.
+  const listKeys = useMemo<Record<HistoryTab, string>>(() => {
+    const k = (tab: HistoryTab) => `${debouncedQuery}|${range}|${JSON.stringify(sortChains[tab])}`;
+    return { recent: k("recent"), tracks: k("tracks"), artists: k("artists") };
+  }, [debouncedQuery, range, sortChains]);
+
+  /** Load a tab's first page, or — for a tab not on screen — only its total
+   *  (`limit: 0`), for the badge; its rows come when it is opened. The window
+   *  start and the cutoff are fixed here, for every later page of this list. */
+  const loadTab = useCallback((tab: HistoryTab, full: boolean) => {
+    const gen = ++genRef.current[tab];
+    const sinceTs = rangeSinceTs(range);
+    const asOf = Math.floor(Date.now() / 1000);
+    invoke<HistoryPage<AnyRow>>(PAGE_COMMANDS[tab], {
+      query: debouncedQuery || null,
+      sinceTs,
+      asOf,
+      sortChain: sortChains[tab].length > 0 ? sortChains[tab] : null,
+      offset: 0,
+      limit: full ? HISTORY_PAGE_SIZE : 0,
+    })
+      .then(page => {
+        if (genRef.current[tab] !== gen) return;
+        setters[tab](full
+          ? { ...EMPTY_TAB, rows: page.rows, total: page.total, fetched: page.rows.length, hasMore: page.rows.length < page.total, loaded: true, sinceTs, asOf }
+          : { ...EMPTY_TAB, total: page.total });
+      })
+      .catch(e => {
+        console.error(`Failed to load history (${tab}):`, e);
+        if (genRef.current[tab] !== gen) return;
+        if (!full) return; // a badge goes missing; the tab reports it when opened
+        setters[tab]({ ...EMPTY_TAB, loaded: true, error: String(e) });
+        onNotify("Couldn't load your history", { kind: "error" });
+      });
+  }, [debouncedQuery, range, sortChains, setters, onNotify]);
+
+  // What each tab last asked for, so a re-run of the effect below only loads
+  // what changed: a tab whose list moved, or a counted tab that was opened.
+  const requestedRef = useRef<Record<HistoryTab, { key: string; full: boolean } | null>>({ recent: null, tracks: null, artists: null });
+  useEffect(() => {
+    if (!restored) return;
+    for (const tab of HISTORY_TABS) {
+      const full = tab === activeTab;
+      const req = requestedRef.current[tab];
+      if (req && req.key === listKeys[tab] && (req.full || !full)) continue;
+      requestedRef.current[tab] = { key: listKeys[tab], full };
+      loadTab(tab, full);
+    }
+  }, [restored, activeTab, listKeys, loadTab]);
+
+  const retry = () => {
+    requestedRef.current[activeTab] = { key: listKeys[activeTab], full: true };
+    loadTab(activeTab, true);
+  };
+
+  const data: Record<HistoryTab, TabData<AnyRow>> = { recent, tracks, artists };
+  const current = data[activeTab];
+
+  const loadMore = () => {
+    const tab = activeTab;
+    const d = data[tab];
+    if (!d.hasMore || d.loadingMore || !d.loaded) return;
+    const gen = genRef.current[tab];
+    setters[tab](prev => ({ ...prev, loadingMore: true }));
+    invoke<HistoryPage<AnyRow>>(PAGE_COMMANDS[tab], {
+      query: debouncedQuery || null,
+      sinceTs: d.sinceTs,
+      asOf: d.asOf,
+      sortChain: sortChains[tab].length > 0 ? sortChains[tab] : null,
+      offset: d.fetched,
+      limit: HISTORY_PAGE_SIZE,
+    })
+      .then(page => {
+        if (genRef.current[tab] !== gen) return;
+        setters[tab](prev => {
+          // The cutoff holds the play log and the windowed rankings still; the
+          // all-time rankings read live counters, so a play can still move a
+          // row across the page boundary — never show it twice.
+          const seen = new Set(prev.rows.map(r => rowKey(tab, r)));
+          const rows = [...prev.rows, ...page.rows.filter(r => !seen.has(rowKey(tab, r)))];
+          const fetched = prev.fetched + page.rows.length;
+          return { ...prev, rows, fetched, total: page.total, hasMore: fetched < page.total && page.rows.length > 0, loadingMore: false };
+        });
+      })
+      .catch(e => {
+        console.error(`Failed to load more history (${tab}):`, e);
+        if (genRef.current[tab] !== gen) return;
+        setters[tab](prev => ({ ...prev, loadingMore: false, hasMore: false }));
+        onNotify("Couldn't load more of your history", { kind: "error" });
+      });
+  };
+  // Stable for LoadMoreSentinel (it re-observes when the callback changes);
+  // the ref always reaches this render's closure.
+  const loadMoreRef = useLatestRef(loadMore);
+  const handleLoadMore = useCallback(() => loadMoreRef.current(), [loadMoreRef]);
+
+  // --- images: the shared entity caches (album → artist), plus a video's frame ---
+  const albumImages = useImageCache("album");
+  const artistImages = useImageCache("artist");
   const entityLookups = useMemo(() => ({
     albumImageFor: albumImages.getImage,
     artistImageFor: artistImages.getImage,
   }), [albumImages, artistImages]);
-
-  // The RAW path the same chain picks, for a radio seed's cover (the queue
-  // banner converts it itself — see pickEntityImagePath's contract).
-  const trackCoverPath = useCallback((t: Parameters<typeof trackImageMeta>[0]): string | null =>
-    pickEntityImagePath(trackImageMeta(t), entityLookups),
-  [trackImageMeta, entityLookups]);
-
-  const artistImageUrl = useCallback((name: string): string | null =>
-    resolveImageUrl(artistImages.getImage(name)) ?? null,
-  [artistImages]);
-
-  const fetchTracks = useCallback((ts: Timespan) => {
-    const sinceTs = timespanSinceTs(ts);
-    const promise = sinceTs == null
-      ? invoke<HistoryMostPlayed[]>("get_history_most_played", { limit: 100 })
-      : invoke<HistoryMostPlayed[]>("get_history_most_played_since", { sinceTs, limit: 100 });
-    promise
-      .then((tracks) => setTracksByTimespan((prev) => ({ ...prev, [ts]: tracks })))
-      .catch((e) => console.error("Failed to load tracks history:", e));
-  }, []);
-
-  const fetchArtists = useCallback((ts: Timespan) => {
-    const sinceTs = timespanSinceTs(ts);
-    const promise = sinceTs == null
-      ? invoke<HistoryArtistStats[]>("get_history_most_played_artists", { limit: 100 })
-      : invoke<HistoryArtistStats[]>("get_history_most_played_artists_since", { sinceTs, limit: 100 });
-    promise
-      .then((artists) => setArtistsByTimespan((prev) => ({ ...prev, [ts]: artists })))
-      .catch((e) => console.error("Failed to load artists history:", e));
-  }, []);
-
-  const fetchRecent = useCallback(() => {
-    // Albums come back resolved (one batched, indexed lookup in the backend) and
-    // are what the row thumbnails are keyed by — the view renders the cover, not
-    // the album name.
-    invoke<HistoryEntry[]>("get_history_recent", { limit: 100 })
-      .then(setRecentPlays)
-      .catch((e) => console.error("Failed to load recent history:", e));
-  }, []);
-
-  const reloadAll = useCallback(() => {
-    fetchRecent();
-    fetchTracks(tracksTimespan);
-    fetchArtists(artistsTimespan);
-  }, [fetchRecent, fetchTracks, fetchArtists, tracksTimespan, artistsTimespan]);
-
-  // Initial load: only the active tab's data; other tabs lazy-load on switch.
-  useEffect(() => { fetchRecent(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
-
-  // Lazy-fetch when the user switches tabs or changes timespan.
-  useEffect(() => {
-    if (activeTab === "tracks" && !tracksByTimespan[tracksTimespan]) {
-      fetchTracks(tracksTimespan);
-    }
-  }, [activeTab, tracksTimespan, tracksByTimespan, fetchTracks]);
-
-  useEffect(() => {
-    if (activeTab === "artists" && !artistsByTimespan[artistsTimespan]) {
-      fetchArtists(artistsTimespan);
-    }
-  }, [activeTab, artistsTimespan, artistsByTimespan, fetchArtists]);
-
-  // Server-side search when query is active
-  const [searchedArtists, setSearchedArtists] = useState<HistoryArtistStats[] | null>(null);
-  const [searchedTracks, setSearchedTracks] = useState<HistoryMostPlayed[] | null>(null);
-
-  useEffect(() => {
-    const q = searchQuery.trim();
-    if (!q) {
-      setSearchedArtists(null);
-      setSearchedTracks(null);
-      return;
-    }
-    const timer = setTimeout(() => {
-      Promise.all([
-        invoke<HistoryArtistStats[]>("search_history_artists", { query: q, limit: 50 }),
-        invoke<HistoryMostPlayed[]>("search_history_tracks", { query: q, limit: 50 }),
-      ]).then(([artists, tracks]) => {
-        setSearchedArtists(artists);
-        setSearchedTracks(tracks);
-      }).catch(console.error);
-    }, 200);
-    return () => clearTimeout(timer);
-  }, [searchQuery]);
-
-  const q = searchQuery.trim();
-
-  const currentTracks = tracksByTimespan[tracksTimespan];
-  const currentArtists = artistsByTimespan[artistsTimespan];
-
-  // Determine what is visible
-  const visibleTracks: HistoryMostPlayed[] | null = (() => {
-    if (q) return searchedTracks; // search overrides tabs
-    if (activeTab === "tracks") return currentTracks ?? [];
-    return null;
-  })();
-
-  const visibleArtists: HistoryArtistStats[] | null = (() => {
-    if (q) return searchedArtists;
-    if (activeTab === "artists") return currentArtists ?? [];
-    return null;
-  })();
-
-  const visibleRecent: HistoryEntry[] | null = (() => {
-    if (q) return null;
-    if (activeTab === "recent") return recentPlays;
-    return null;
-  })();
-
-  // A video play shows its own first frame. The backend resolves each row to a
-  // library copy (`display_path`); only rows on screen are candidates, and the
-  // frame queue extracts local videos only. Keyed on the joined paths because
-  // the visible lists above are rebuilt every render.
-  const framePathsKey = [...(visibleTracks ?? []), ...(visibleRecent ?? [])]
-    .map(r => r.display_path ?? "").join("\n");
+  const imageMeta = (t: HistoryTrackFields) => ({
+    title: t.display_title,
+    artist_name: t.display_artist,
+    album_title: t.display_album,
+    album_artist_name: t.display_album_artist,
+  });
+  const trackRows = activeTab === "artists" ? [] : (current.rows as TrackLikeRow[]);
+  const framePathsKey = trackRows.map(r => r.display_path ?? "").join("\n");
   const frameRows = useMemo(
     () => framePathsKey.split("\n").filter(Boolean).map(path => ({ path })),
     [framePathsKey],
   );
   const videoFrames = useQueueVideoFrames(frameRows);
+  const trackImageUrl = (t: TrackLikeRow): string | null =>
+    resolveTrackImage(imageMeta(t), { ...entityLookups, videoFrame: videoFrames[shelfVideoKey(t.display_path)] ?? null });
+  const trackCoverPath = (t: TrackLikeRow): string | null => pickEntityImagePath(imageMeta(t), entityLookups);
+  const artistImageUrl = (name: string): string | null => resolveImageUrl(artistImages.getImage(name)) ?? null;
 
-  // Render-ready URL for a track row (video frame → album cover → artist photo).
-  const trackImageUrl = useCallback((t: Parameters<typeof trackImageMeta>[0] & { display_path: string | null }): string | null =>
-    resolveTrackImage(trackImageMeta(t), { ...entityLookups, videoFrame: videoFrames[shelfVideoKey(t.display_path)] ?? null }),
-  [trackImageMeta, entityLookups, videoFrames]);
+  // --- what's playing: by song (title + artist), library row or not ---
+  const playingKey = currentTrack ? trackLikeKey(currentTrack.title, currentTrack.artist_name) : null;
+  const isPlayingRow = (t: TrackLikeRow) => playingKey !== null && trackLikeKey(t.display_title, t.display_artist) === playingKey;
 
-  const flatItems = useMemo(() => {
-    const items: { historyTrackId: number }[] = [];
-    if (visibleTracks) {
-      for (const t of visibleTracks) items.push({ historyTrackId: t.history_track_id });
+  // --- selection + keyboard cursor over the active tab's rows ---
+  const orderedKeys = useMemo(() => current.rows.map(r => rowKey(activeTab, r)), [current.rows, activeTab]);
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [cursor, setCursor] = useState(-1);
+  const lastClickRef = useRef<number | null>(null);
+  const didDragRef = useRef(false);
+  const resultsRef = useRef<HTMLDivElement>(null);
+
+  // A new list (tab, query, sort, range) starts with nothing selected; a page
+  // appended at the bottom keeps the selection.
+  // Reset with React's previous-value-in-state form (not an effect), so the
+  // new list never renders a frame with the old list's selection.
+  const listIdentity = `${activeTab}|${listKeys[activeTab]}`;
+  const [shownIdentity, setShownIdentity] = useState(listIdentity);
+  if (shownIdentity !== listIdentity) {
+    setShownIdentity(listIdentity);
+    setSelected(new Set());
+    setCursor(-1);
+  }
+  useEffect(() => {
+    lastClickRef.current = null;
+    if (resultsRef.current) resultsRef.current.scrollTop = 0;
+  }, [listIdentity]);
+
+  const selectedRows = <T extends AnyRow>(rows: T[]): T[] =>
+    rows.filter(r => selected.has(rowKey(activeTab, r)));
+
+  function handleRowClick(e: React.MouseEvent, index: number) {
+    if (didDragRef.current) return;
+    if ((e.target as HTMLElement).closest(ROW_CONTROL_SELECTOR)) return;
+    setSelected(prev => computeKeySelection(prev, index, orderedKeys, lastClickRef.current, e.metaKey || e.ctrlKey, e.shiftKey));
+    lastClickRef.current = index;
+    setCursor(index);
+  }
+
+  // Cmd/Ctrl+A selects the loaded rows, Escape clears — as in the Library.
+  // Not while a modal is up: those keys are the modal's then.
+  useEffect(() => {
+    function onKey(e: KeyboardEvent) {
+      if ((e.target as HTMLElement)?.closest("input, textarea, [contenteditable]")) return;
+      if (document.querySelector(".ds-modal-overlay")) return;
+      if (e.key === "Escape" && selected.size > 0) setSelected(new Set());
+      else if (e.key === "a" && (e.metaKey || e.ctrlKey) && orderedKeys.length > 0) {
+        e.preventDefault();
+        setSelected(new Set(orderedKeys));
+      }
     }
-    if (visibleRecent) {
-      for (const t of visibleRecent) items.push({ historyTrackId: t.history_track_id });
-    }
-    return items;
-  }, [visibleTracks, visibleRecent]);
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [selected, orderedKeys]);
 
-  // --- Multi-select + native context menu over the visible rows ---
-  // Keys use distinct prefixes per list so the same track/artist showing in two
-  // lists doesn't cross-highlight. Recent keys by play-row id (a track can recur);
-  // the others key by entity id. Search lists use sa:/st: to stay distinct.
-  type RowMeta = { kind: "track" | "artist"; histId: number; title: string; artist: string | null };
-  const [selectedKeys, setSelectedKeys] = useState<Set<string>>(new Set());
-  const lastClickIndexRef = useRef<number | null>(null);
+  // --- actions ---
+  const playRows = (rows: TrackLikeRow[], index: number) => {
+    setSelected(new Set());
+    onPlayTracks(rows.map(historyQueueTrack), index);
+  };
+  const playOne = (t: TrackLikeRow) => playRows([t], 0);
+  const enqueueOne = (t: TrackLikeRow) => onEnqueueTracks([historyQueueTrack(t)]);
+  const radioFor = (t: TrackLikeRow) => onStartRadio
+    ? () => onStartRadio({ title: t.display_title, artistName: t.display_artist ?? null, coverPath: trackCoverPath(t) })
+    : undefined;
 
-  const rowMetaByKey = useMemo(() => {
-    const m = new Map<string, RowMeta>();
-    if (visibleArtists) for (const a of visibleArtists) m.set(`${q ? "sa" : "a"}:${a.history_artist_id}`, { kind: "artist", histId: a.history_artist_id, title: a.display_name, artist: null });
-    if (visibleTracks) for (const t of visibleTracks) m.set(`${q ? "st" : "t"}:${t.history_track_id}`, { kind: "track", histId: t.history_track_id, title: t.display_title, artist: t.display_artist ?? null });
-    if (visibleRecent) for (const e of visibleRecent) m.set(`r:${e.id}`, { kind: "track", histId: e.history_track_id, title: e.display_title, artist: e.display_artist ?? null });
-    return m;
-  }, [visibleArtists, visibleTracks, visibleRecent, q]);
+  // The row's own library copy — the one it plays — or, for a ghost, the
+  // name-only track page.
+  function openTrackPage(t: TrackLikeRow) {
+    if (t.display_track_id != null) onLocateTrackId(t.display_track_id);
+    else onLocateTrackByName(t.display_title, t.display_artist ?? undefined, t.display_album ?? undefined);
+  }
 
-  const orderedKeys = useMemo(() => {
-    const keys: string[] = [];
-    if (q) {
-      if (visibleArtists) for (const a of visibleArtists) keys.push(`sa:${a.history_artist_id}`);
-      if (visibleTracks) for (const t of visibleTracks) keys.push(`st:${t.history_track_id}`);
-    } else if (visibleRecent) {
-      for (const e of visibleRecent) keys.push(`r:${e.id}`);
-    } else if (visibleTracks) {
-      for (const t of visibleTracks) keys.push(`t:${t.history_track_id}`);
-    } else if (visibleArtists) {
-      for (const a of visibleArtists) keys.push(`a:${a.history_artist_id}`);
-    }
-    return keys;
-  }, [q, visibleArtists, visibleTracks, visibleRecent]);
-
-  const orderedIndex = useMemo(() => {
-    const m = new Map<string, number>();
-    orderedKeys.forEach((k, i) => m.set(k, i));
-    return m;
-  }, [orderedKeys]);
-
-  // Clear selection whenever the visible set changes (tab / timespan / search).
-  useEffect(() => { setSelectedKeys(new Set()); lastClickIndexRef.current = null; }, [activeTab, tracksTimespan, artistsTimespan, q]);
-
-  const handleRowClick = useCallback((e: React.MouseEvent, key: string) => {
-    const idx = orderedIndex.get(key);
-    if (idx == null) return;
-    setSelectedKeys(prev => computeKeySelection(prev, idx, orderedKeys, lastClickIndexRef.current, e.metaKey || e.ctrlKey, e.shiftKey));
-    lastClickIndexRef.current = idx;
-  }, [orderedIndex, orderedKeys]);
-
-  const reconnectTrackById = useCallback(async (historyTrackId: number): Promise<Track | null> => {
-    try { return await invoke<Track | null>("reconnect_history_track", { historyTrackId }); }
-    catch (e) { console.error("Failed to reconnect track:", e); return null; }
-  }, []);
-
-  const reconnectArtistById = useCallback(async (historyArtistId: number): Promise<number | null> => {
+  const reconnectArtist = useCallback(async (historyArtistId: number): Promise<number | null> => {
     try { return await invoke<number | null>("reconnect_history_artist", { historyArtistId }); }
     catch (e) { console.error("Failed to reconnect artist:", e); return null; }
   }, []);
-
-  // The history row carries no library id, so a target is resolved on demand by
-  // reconnecting the history row to a real track/artist (same path as play).
-  const showSingleMenu = useCallback(async (key: string, x: number, y: number) => {
-    const meta = rowMetaByKey.get(key);
-    if (!meta || !onShowContextMenu) return;
-    if (meta.kind === "artist") {
-      const artistId = await reconnectArtistById(meta.histId);
-      onShowContextMenu(x, y, { kind: "artist", artistId: artistId ?? undefined, name: meta.title });
-    } else {
-      const track = await reconnectTrackById(meta.histId);
-      if (track) onShowContextMenu(x, y, { kind: "track", trackId: track.id ?? undefined, isLocal: isLocalTrack(track), title: track.title, artistName: track.artist_name, albumTitle: track.album_title ?? null });
-      else onShowContextMenu(x, y, { kind: "track", title: meta.title, artistName: meta.artist, albumTitle: null });
-    }
-  }, [rowMetaByKey, onShowContextMenu, reconnectArtistById, reconnectTrackById]);
-
-  const handleRowContextMenu = useCallback((e: React.MouseEvent, key: string) => {
-    e.preventDefault();
-    if (!onShowContextMenu) return;
-    const x = e.clientX, y = e.clientY;
-    // Right-click outside the current selection collapses to just that row.
-    let sel = selectedKeys;
-    if (!sel.has(key)) {
-      sel = new Set([key]);
-      setSelectedKeys(sel);
-      lastClickIndexRef.current = orderedIndex.get(key) ?? null;
-    }
-    if (sel.size <= 1) { void showSingleMenu(key, x, y); return; }
-    const metas = [...sel].map(k => rowMetaByKey.get(k)).filter((m): m is RowMeta => !!m);
-    const tracks = metas.filter(m => m.kind === "track");
-    const artists = metas.filter(m => m.kind === "artist");
-    // A mixed track+artist selection has no single sensible target — act on the clicked row.
-    if (tracks.length && artists.length) { void showSingleMenu(key, x, y); return; }
-    (async () => {
-      if (artists.length) {
-        const ids = (await Promise.all(artists.map(a => reconnectArtistById(a.histId)))).filter((id): id is number => id != null);
-        if (ids.length) onShowContextMenu(x, y, { kind: "multi-artist", artistIds: ids });
-      } else {
-        const reconnected = (await Promise.all(tracks.map(t => reconnectTrackById(t.histId)))).filter((tr): tr is Track => tr?.id != null);
-        if (reconnected.length) onShowContextMenu(x, y, {
-          kind: "multi-track",
-          trackIds: reconnected.map(tr => tr.id!),
-          tracks: reconnected.map(tr => ({ id: tr.id!, path: tr.path ?? null })),
-        });
-      }
-    })();
-  }, [onShowContextMenu, selectedKeys, orderedIndex, rowMetaByKey, showSingleMenu, reconnectArtistById, reconnectTrackById]);
-
-  async function playTrackById(historyTrackId: number) {
-    try {
-      const track = await invoke<Track | null>("reconnect_history_track", { historyTrackId });
-      if (track) {
-        onPlayTrack([track], 0);
-      }
-    } catch (e) {
-      console.error("Failed to reconnect track:", e);
-    }
-  }
-
-  async function enqueueTrackById(historyTrackId: number) {
-    try {
-      const track = await invoke<Track | null>("reconnect_history_track", { historyTrackId });
-      if (track) {
-        onEnqueueTrack([track]);
-      }
-    } catch (e) {
-      console.error("Failed to reconnect track:", e);
-    }
-  }
-
-  async function detailsTrackById(historyTrackId: number) {
-    try {
-      const track = await invoke<Track | null>("reconnect_history_track", { historyTrackId });
-      if (track) {
-        onLocateTrack(track);
-      }
-    } catch (e) {
-      console.error("Failed to reconnect track:", e);
-    }
-  }
-
-  async function handleArtistDoubleClick(historyArtistId: number) {
-    try {
-      const artistId = await invoke<number | null>("reconnect_history_artist", { historyArtistId });
-      if (artistId) {
-        onArtistClick(artistId);
-      }
-    } catch (e) {
-      console.error("Failed to reconnect artist:", e);
-    }
-  }
-
-  async function playArtistById(historyArtistId: number) {
-    try {
-      const artistId = await invoke<number | null>("reconnect_history_artist", { historyArtistId });
-      if (artistId) {
-        onPlayArtist(artistId);
-      }
-    } catch (e) {
-      console.error("Failed to reconnect artist:", e);
-    }
-  }
-
-  async function enqueueArtistById(historyArtistId: number) {
-    try {
-      const artistId = await invoke<number | null>("reconnect_history_artist", { historyArtistId });
-      if (artistId) {
-        onEnqueueArtist(artistId);
-      }
-    } catch (e) {
-      console.error("Failed to reconnect artist:", e);
-    }
-  }
-
-  const tabs: { key: HistoryTab; label: string }[] = [
-    { key: "recent", label: "Recent" },
-    { key: "tracks", label: "Tracks" },
-    { key: "artists", label: "Artists" },
-  ];
-
-  useImperativeHandle(ref, () => ({
-    count: flatItems.length,
-    playItem(index: number) {
-      if (index >= 0 && index < flatItems.length) {
-        const item = flatItems[index];
-        playTrackById(item.historyTrackId);
-      }
-    },
-    enqueueItem(index: number) {
-      if (index >= 0 && index < flatItems.length) {
-        const item = flatItems[index];
-        enqueueTrackById(item.historyTrackId);
-      }
-    },
-    reload: reloadAll,
-  }), [flatItems, reloadAll]);
-
-  let flatIndex = 0;
-  function nextFlatIndex() { return flatIndex++; }
-
-  const showTimespan = !q && (activeTab === "tracks" || activeTab === "artists");
-  const currentTimespan = activeTab === "tracks" ? tracksTimespan : artistsTimespan;
-  const setCurrentTimespan = (ts: Timespan) => {
-    if (activeTab === "tracks") setTracksTimespan(ts);
-    else if (activeTab === "artists") setArtistsTimespan(ts);
+  const withArtistId = (a: HistoryArtistStats, act: (id: number) => void) => {
+    reconnectArtist(a.history_artist_id).then(id => { if (id) act(id); });
+  };
+  const openArtist = (a: HistoryArtistStats) => onArtistClick(0, a.display_name);
+  const openArtistByName = (name: string | null) => { if (name) onArtistClick(0, name); };
+  const openAlbum = (t: TrackLikeRow) => {
+    if (t.display_album) onAlbumClick(0, null, t.display_album, t.display_album_artist ?? t.display_artist ?? undefined);
   };
 
-  return (
-    <div className="history-view">
-      {!q && (
-        <div className="history-toolbar">
-          <div className="ds-tabs">
-            {tabs.map(tab => (
-              <button
-                key={tab.key}
-                className={`ds-tab${activeTab === tab.key ? " active" : ""}`}
-                onClick={() => setActiveTab(tab.key)}
-              >
-                {tab.label}
-              </button>
-            ))}
-          </div>
-          {showTimespan && (
-            <div className="history-timespan">
-              {TIMESPAN_OPTIONS.map(opt => (
-                <button
-                  key={opt.key}
-                  className={`ds-btn ds-btn--ghost ds-btn--sm${currentTimespan === opt.key ? " active" : ""}`}
-                  onClick={() => setCurrentTimespan(opt.key)}
-                >
-                  {opt.label}
-                </button>
-              ))}
-            </div>
-          )}
+  // Right-click outside the selection collapses to that row, as everywhere.
+  function handleContextMenu(e: React.MouseEvent, index: number) {
+    e.preventDefault();
+    if (!onShowContextMenu) return;
+    const key = orderedKeys[index];
+    let sel = selected;
+    if (!sel.has(key)) {
+      sel = new Set([key]);
+      setSelected(sel);
+      lastClickRef.current = index;
+    }
+    const x = e.clientX, y = e.clientY;
+    if (activeTab === "artists") {
+      const rows = (current.rows as HistoryArtistStats[]).filter(r => sel.has(rowKey("artists", r)));
+      if (rows.length <= 1) {
+        const a = current.rows[index] as HistoryArtistStats;
+        reconnectArtist(a.history_artist_id).then(id =>
+          onShowContextMenu(x, y, { kind: "artist", artistId: id ?? undefined, name: a.display_name }));
+        return;
+      }
+      Promise.all(rows.map(r => reconnectArtist(r.history_artist_id))).then(ids => {
+        const artistIds = ids.filter((id): id is number => id != null);
+        if (artistIds.length) onShowContextMenu(x, y, { kind: "multi-artist", artistIds });
+      });
+      return;
+    }
+    const rows = (current.rows as TrackLikeRow[]).filter(r => sel.has(rowKey(activeTab, r)));
+    if (rows.length <= 1) {
+      const t = current.rows[index] as TrackLikeRow;
+      onShowContextMenu(x, y, {
+        kind: "track",
+        trackId: t.display_track_id ?? undefined,
+        isLocal: isLocalTrack({ path: t.display_path }),
+        title: t.display_title,
+        artistName: t.display_artist,
+        albumTitle: t.display_album,
+      });
+      return;
+    }
+    // A multi-track menu acts on library rows; ghost plays have none to name.
+    // Each track once — the play log can hold several plays of one song.
+    const byId = new Map<number, string | null>();
+    for (const r of rows) if (r.display_track_id != null && !byId.has(r.display_track_id)) byId.set(r.display_track_id, r.display_path ?? null);
+    if (byId.size) onShowContextMenu(x, y, {
+      kind: "multi-track",
+      trackIds: [...byId.keys()],
+      tracks: [...byId].map(([id, path]) => ({ id, path })),
+    });
+  }
+
+  function handleMouseDown(e: React.MouseEvent, index: number) {
+    if (e.button !== 0 || activeTab === "artists") return;
+    if ((e.target as HTMLElement).closest(ROW_CONTROL_SELECTOR)) return;
+    const startX = e.clientX, startY = e.clientY;
+    didDragRef.current = false;
+    const rows = current.rows as TrackLikeRow[];
+    const key = orderedKeys[index];
+    const onMove = (ev: MouseEvent) => {
+      if (Math.abs(ev.clientX - startX) + Math.abs(ev.clientY - startY) < 5) return;
+      didDragRef.current = true;
+      window.removeEventListener("mousemove", onMove);
+      window.removeEventListener("mouseup", onUp);
+      const dragged = selected.has(key) && selected.size > 1 ? selectedRows(rows) : [rows[index]];
+      onTrackDragStart(dragged.map(historyQueueTrack));
+    };
+    const onUp = () => {
+      window.removeEventListener("mousemove", onMove);
+      window.removeEventListener("mouseup", onUp);
+      setTimeout(() => { didDragRef.current = false; }, 0);
+    };
+    window.addEventListener("mousemove", onMove);
+    window.addEventListener("mouseup", onUp);
+  }
+
+  // The search box moves the cursor: ↓/↑ step through the rows, Enter plays the
+  // row (or opens the artist), Shift+Enter enqueues it.
+  function handleInputKeyDown(e: React.KeyboardEvent<HTMLInputElement>) {
+    const n = current.rows.length;
+    if (n === 0) return;
+    if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+      e.preventDefault();
+      const next = e.key === "ArrowDown" ? Math.min(cursor + 1, n - 1) : Math.max(cursor - 1, 0);
+      setCursor(next);
+      resultsRef.current?.querySelector(`[data-history-index="${next}"]`)?.scrollIntoView({ block: "nearest" });
+    } else if (e.key === "Enter" && cursor >= 0 && cursor < n) {
+      e.preventDefault();
+      const row = current.rows[cursor];
+      if (activeTab === "artists") {
+        const a = row as HistoryArtistStats;
+        if (e.shiftKey) withArtistId(a, onEnqueueArtist); else openArtist(a);
+      } else if (e.shiftKey) {
+        enqueueOne(row as TrackLikeRow);
+      } else {
+        playOne(row as TrackLikeRow);
+      }
+    }
+  }
+
+  // --- rendering helpers ---
+  const sortArrow = (field: string) => {
+    const dir = chainDir(sortChains[activeTab], field);
+    return dir === "asc" ? "▲" : dir === "desc" ? "▼" : "";
+  };
+  const header = (label: string, field: string | null, className: string) => (
+    <span
+      className={`${className}${field ? " sortable" : ""}${field && chainDir(sortChains[activeTab], field) ? " sorted" : ""}`}
+      onClick={field ? (e) => handleSort(field, e) : undefined}
+    >
+      <span className="col-header-label">{label}</span>
+      {field && sortArrow(field) && <span className="col-header-sort">{sortArrow(field)}</span>}
+    </span>
+  );
+
+  const likeFor = (t: TrackLikeRow, variant: "inline" | "overlay" = "inline") => {
+    const qt = () => historyQueueTrack(t);
+    return (
+      <LikeDislikeButtons
+        liked={0}
+        track={{ title: t.display_title, artist_name: t.display_artist }}
+        onToggleLike={() => onToggleLike(qt())}
+        onToggleDislike={() => onToggleDislike(qt())}
+        variant={variant}
+        size={12}
+      />
+    );
+  };
+
+  const artistLink = (name: string | null) => name
+    ? <span className="track-link" onClick={(e) => { e.stopPropagation(); openArtistByName(name); }}>{name}</span>
+    : <>Unknown</>;
+  const albumLink = (t: TrackLikeRow) => t.display_album
+    ? <span className="track-link" onClick={(e) => { e.stopPropagation(); openAlbum(t); }}>{t.display_album}</span>
+    : null;
+
+  const rowState = (index: number, key: string) => ({
+    selected: selected.has(key),
+    active: index === cursor,
+  });
+
+  const playedTitle = (ts: number | null | undefined) => (ts ? formatDateTime(ts) : undefined);
+
+  function renderTrackTable(rows: TrackLikeRow[]) {
+    const isRecent = activeTab === "recent";
+    return (
+      <div className="track-list history-table" role="listbox" aria-multiselectable="true" aria-label="History">
+        <div className="track-header" role="presentation">
+          {!isRecent && header("#", null, "col-num")}
+          <span className="col-like" />
+          {header("Title", "title", "col-title")}
+          {header("Artist", "artist", "col-artist")}
+          <span className="col-album"><span className="col-header-label">Album</span></span>
+          {isRecent ? header("Played", "played", "col-played") : header("Last played", "played", "col-played")}
+          {header("Plays", "plays", "col-plays")}
+          <span className="col-duration"><span className="col-header-label">Length</span></span>
         </div>
-      )}
+        {rows.map((t, i) => {
+          const key = rowKey(activeTab, t);
+          const st = rowState(i, key);
+          const ts = isRecent ? (t as HistoryEntry).played_at : (t as HistoryMostPlayed).last_played_at;
+          const ghost = t.display_track_id == null;
+          return (
+            <div
+              key={key}
+              role="option"
+              aria-selected={st.selected}
+              data-history-index={i}
+              className={`track-row${isPlayingRow(t) ? " playing" : ""}${st.active ? " highlighted" : ""}${st.selected ? " selected" : ""}${ghost ? " history-row--ghost" : ""}`}
+              onMouseDown={(e) => handleMouseDown(e, i)}
+              onClick={(e) => handleRowClick(e, i)}
+              onDoubleClick={() => playRows(rows, i)}
+              onContextMenu={(e) => handleContextMenu(e, i)}
+            >
+              {!isRecent && <span className="col-num">{(t as HistoryMostPlayed).rank}</span>}
+              <span className="col-like">{likeFor(t)}</span>
+              <span className="col-title">
+                <span className="col-title-main">
+                  <span className="col-title-text" title={t.display_title}>{t.display_title}</span>
+                  {ghost && <span className="track-missing-badge">Not in library</span>}
+                </span>
+                <RowHoverActions onPlay={() => playOne(t)} onEnqueue={() => enqueueOne(t)} onStartRadio={radioFor(t)} onDetails={() => openTrackPage(t)} />
+              </span>
+              <span className="col-artist">{t.display_artist ? artistLink(t.display_artist) : ""}</span>
+              <span className="col-album">{albumLink(t)}</span>
+              <span className="col-played" title={playedTitle(ts)}>{ts ? formatRelativeTime(ts) : ""}</span>
+              <span className="col-plays">{t.play_count}</span>
+              <span className="col-duration">{t.display_duration_secs ? formatDuration(t.display_duration_secs) : ""}</span>
+            </div>
+          );
+        })}
+      </div>
+    );
+  }
 
-      <div className="history-content">
-        {/* Search results: artists */}
-        {q && visibleArtists && visibleArtists.length > 0 && (
-          <div className="history-section">
-            <div className="section-title">Artists</div>
-            <div className="history-list">
-              {visibleArtists.map((a) => {
-                const selKey = `sa:${a.history_artist_id}`;
-                return (
-                <HistoryRow
-                  key={`artist-${a.history_artist_id}`}
-                  selected={selectedKeys.has(selKey)}
-                  rank={a.rank}
-                  kind="artist"
-                  imageUrl={artistImageUrl(a.display_name)}
-                  title={a.display_name}
-                  subtitle={<>{a.play_count} play{a.play_count !== 1 ? "s" : ""} &middot; {a.track_count} track{a.track_count !== 1 ? "s" : ""}</>}
-                  onClick={(e) => handleRowClick(e, selKey)}
-                  onContextMenu={(e) => handleRowContextMenu(e, selKey)}
-                  onDoubleClick={() => handleArtistDoubleClick(a.history_artist_id)}
-                  onPlay={() => playArtistById(a.history_artist_id)}
-                  onEnqueue={() => enqueueArtistById(a.history_artist_id)}
-                  onDetails={() => handleArtistDoubleClick(a.history_artist_id)}
+  function renderArtistTable(rows: HistoryArtistStats[]) {
+    return (
+      <div className="track-list history-table" role="listbox" aria-multiselectable="true" aria-label="History artists">
+        <div className="track-header" role="presentation">
+          <span className="col-num"><span className="col-header-label">#</span></span>
+          {header("Name", "name", "col-title")}
+          {header("Plays", "plays", "col-plays")}
+          {header("Tracks", "tracks", "col-plays")}
+          {header("Last played", "played", "col-played")}
+        </div>
+        {rows.map((a, i) => {
+          const key = rowKey("artists", a);
+          const st = rowState(i, key);
+          return (
+            <div
+              key={key}
+              role="option"
+              aria-selected={st.selected}
+              data-history-index={i}
+              className={`track-row${st.active ? " highlighted" : ""}${st.selected ? " selected" : ""}`}
+              onClick={(e) => handleRowClick(e, i)}
+              onDoubleClick={() => openArtist(a)}
+              onContextMenu={(e) => handleContextMenu(e, i)}
+            >
+              <span className="col-num">{a.rank}</span>
+              <span className="col-title">
+                <span className="col-title-main"><span className="col-title-text" title={a.display_name}>{a.display_name}</span></span>
+                <RowHoverActions onPlay={() => withArtistId(a, onPlayArtist)} onEnqueue={() => withArtistId(a, onEnqueueArtist)} onDetails={() => openArtist(a)} />
+              </span>
+              <span className="col-plays">{a.play_count}</span>
+              <span className="col-plays">{a.track_count}</span>
+              <span className="col-played" title={playedTitle(a.last_played_at)}>{a.last_played_at ? formatRelativeTime(a.last_played_at) : ""}</span>
+            </div>
+          );
+        })}
+      </div>
+    );
+  }
+
+  function renderTrackList(rows: TrackLikeRow[]) {
+    const isRecent = activeTab === "recent";
+    return (
+      <div className="entity-list">
+        {rows.map((t, i) => {
+          const key = rowKey(activeTab, t);
+          const img = trackImageUrl(t);
+          const artTrack = { artist_name: t.display_artist, path: t.display_path };
+          const meta = isRecent
+            ? <span title={playedTitle((t as HistoryEntry).played_at)}>{formatRelativeTime((t as HistoryEntry).played_at)}</span>
+            : <>#{(t as HistoryMostPlayed).rank} {"·"} {playsLabel(t.play_count)}</>;
+          return (
+            <TrackRow
+              key={key}
+              {...rowState(i, key)}
+              playing={isPlayingRow(t)}
+              dataAttrs={{ "data-history-index": i }}
+              leading={likeFor(t)}
+              thumb={img ? { kind: "image", url: img, track: artTrack } : { kind: "disc", track: artTrack }}
+              title={t.display_title}
+              subtitle={<>
+                {artistLink(t.display_artist)}
+                {t.display_album && <> {"·"} {albumLink(t)}</>}
+              </>}
+              meta={meta}
+              onClick={(e) => handleRowClick(e, i)}
+              onMouseDown={(e) => handleMouseDown(e, i)}
+              onDoubleClick={() => playOne(t)}
+              onContextMenu={(e) => handleContextMenu(e, i)}
+              actions={{ onPlay: () => playOne(t), onEnqueue: () => enqueueOne(t), onStartRadio: radioFor(t), onDetails: () => openTrackPage(t) }}
+            />
+          );
+        })}
+      </div>
+    );
+  }
+
+  function renderArtistList(rows: HistoryArtistStats[]) {
+    return (
+      <div className="entity-list">
+        {rows.map((a, i) => {
+          const key = rowKey("artists", a);
+          const img = artistImageUrl(a.display_name);
+          return (
+            <TrackRow
+              key={key}
+              {...rowState(i, key)}
+              dataAttrs={{ "data-history-index": i }}
+              thumb={img ? { kind: "image", url: img, fallback: { kind: "artist" } } : { kind: "artist" }}
+              thumbClassName="entity-list-img circular"
+              title={a.display_name}
+              subtitle={<>{a.track_count} track{a.track_count === 1 ? "" : "s"}</>}
+              meta={<>#{a.rank} {"·"} {playsLabel(a.play_count)}</>}
+              onClick={(e) => handleRowClick(e, i)}
+              onDoubleClick={() => openArtist(a)}
+              onContextMenu={(e) => handleContextMenu(e, i)}
+              actions={{ onPlay: () => withArtistId(a, onPlayArtist), onEnqueue: () => withArtistId(a, onEnqueueArtist), onDetails: () => openArtist(a) }}
+            />
+          );
+        })}
+      </div>
+    );
+  }
+
+  function renderTrackTiles(rows: TrackLikeRow[]) {
+    const isRecent = activeTab === "recent";
+    return (
+      <div className="tiles-scroll">
+        <div className="entity-grid">
+          {rows.map((t, i) => {
+            const key = rowKey(activeTab, t);
+            const img = trackImageUrl(t);
+            const second = isRecent ? formatRelativeTime((t as HistoryEntry).played_at) : playsLabel(t.play_count);
+            return (
+              <div key={key} data-history-index={i} className="history-tile">
+                <TrackCard
+                  art={img ? { kind: "image", url: img, alt: t.display_title } : { kind: "placeholder", track: { artist_name: t.display_artist, path: t.display_path } }}
+                  title={t.display_title}
+                  subtitle={<>{t.display_artist && <>{t.display_artist} {"·"} </>}{second}</>}
+                  liked={0}
+                  track={{ title: t.display_title, artist_name: t.display_artist }}
+                  playing={isPlayingRow(t)}
+                  selected={selected.has(key)}
+                  onClick={(e) => handleRowClick(e, i)}
+                  onMouseDown={(e) => handleMouseDown(e, i)}
+                  onDoubleClick={() => playOne(t)}
+                  onContextMenu={(e) => handleContextMenu(e, i)}
+                  onPlay={() => playOne(t)}
+                  onLocate={() => openTrackPage(t)}
+                  onToggleLike={() => onToggleLike(historyQueueTrack(t))}
+                  onToggleDislike={() => onToggleDislike(historyQueueTrack(t))}
                 />
-                );
-              })}
-            </div>
-          </div>
-        )}
+              </div>
+            );
+          })}
+        </div>
+      </div>
+    );
+  }
 
-        {/* Search results: tracks */}
-        {q && visibleTracks && visibleTracks.length > 0 && (
-          <div className="history-section">
-            <div className="section-title">Tracks</div>
-            <div className="history-list">
-              {visibleTracks.map((t) => {
-                const idx = nextFlatIndex();
-                const selKey = `st:${t.history_track_id}`;
-                return (
-                  <HistoryRow
-                    key={`search-${t.history_track_id}`}
-                    selected={selectedKeys.has(selKey)}
-                    active={idx === highlightedIndex}
-                    dataIndex={idx}
-                    rank={t.rank}
-                    imageUrl={trackImageUrl(t)}
-                    artTrack={{ artist_name: t.display_artist, path: t.display_path }}
-                    title={t.display_title}
-                    subtitle={<>{t.display_artist ?? "Unknown"} &middot; {t.play_count} play{t.play_count !== 1 ? "s" : ""}</>}
-                    onClick={(e) => handleRowClick(e, selKey)}
-                    onContextMenu={(e) => handleRowContextMenu(e, selKey)}
-                    onDoubleClick={() => playTrackById(t.history_track_id)}
-                    onPlay={() => playTrackById(t.history_track_id)}
-                    onEnqueue={() => enqueueTrackById(t.history_track_id)}
-                    onStartRadio={onStartRadio ? () => onStartRadio({ title: t.display_title, artistName: t.display_artist ?? null, coverPath: trackCoverPath(t) }) : undefined}
-                    onDetails={() => detailsTrackById(t.history_track_id)}
-                  />
-                );
-              })}
-            </div>
-          </div>
-        )}
+  function renderArtistTiles(rows: HistoryArtistStats[]) {
+    return (
+      <div className="tiles-scroll">
+        <div className="entity-grid">
+          {rows.map((a, i) => {
+            const key = rowKey("artists", a);
+            const img = artistImageUrl(a.display_name);
+            return (
+              <div
+                key={key}
+                data-history-index={i}
+                className={`artist-card${selected.has(key) ? " selected" : ""}`}
+                onClick={(e) => handleRowClick(e, i)}
+                onContextMenu={(e) => handleContextMenu(e, i)}
+              >
+                <div className="album-card-art-wrapper" onClick={(e) => { e.stopPropagation(); openArtist(a); }}>
+                  <div className="artist-card-art">
+                    {img ? <img className="artist-card-art-img" src={img} alt={a.display_name} /> : <EntityArtFallback kind="artist" />}
+                  </div>
+                  <button className="album-card-menu-btn" onClick={(e) => { e.stopPropagation(); handleContextMenu(e, i); }} title="More options">&#x22EF;</button>
+                  <button className="ds-card-play" onClick={(e) => { e.stopPropagation(); withArtistId(a, onPlayArtist); }} title="Play">
+                    <svg viewBox="0 0 24 24" fill="currentColor"><path d="M8 6.82v10.36c0 .79.87 1.27 1.54.84l8.14-5.18a1 1 0 0 0 0-1.69L9.54 5.98A.998.998 0 0 0 8 6.82z"/></svg>
+                  </button>
+                </div>
+                <div className="artist-card-body">
+                  <div className="artist-card-name" title={a.display_name}>{a.display_name}</div>
+                  <div className="history-tile-sub">{playsLabel(a.play_count)}</div>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+    );
+  }
 
-        {/* Tab: Recent */}
-        {!q && activeTab === "recent" && (
-          <div className="history-section">
-            <div className="history-list">
-              {recentPlays.map((entry) => {
-                const idx = nextFlatIndex();
-                const selKey = `r:${entry.id}`;
-                return (
-                  <HistoryRow
-                    key={entry.id}
-                    selected={selectedKeys.has(selKey)}
-                    active={idx === highlightedIndex}
-                    dataIndex={idx}
-                    imageUrl={trackImageUrl(entry)}
-                    artTrack={{ artist_name: entry.display_artist, path: entry.display_path }}
-                    title={entry.display_title}
-                    subtitle={<>{entry.display_artist ?? "Unknown"} &middot; {formatRelativeTime(entry.played_at)}</>}
-                    onClick={(e) => handleRowClick(e, selKey)}
-                    onContextMenu={(e) => handleRowContextMenu(e, selKey)}
-                    onDoubleClick={() => playTrackById(entry.history_track_id)}
-                    onPlay={() => playTrackById(entry.history_track_id)}
-                    onEnqueue={() => enqueueTrackById(entry.history_track_id)}
-                    onStartRadio={onStartRadio ? () => onStartRadio({ title: entry.display_title, artistName: entry.display_artist ?? null, coverPath: trackCoverPath(entry) }) : undefined}
-                    onDetails={() => detailsTrackById(entry.history_track_id)}
-                  />
-                );
-              })}
-              {recentPlays.length === 0 && (
-                <div className="empty">No play history yet. Start listening to build your history.</div>
+  function renderBody() {
+    if (!current.loaded) return null;
+    if (current.error) {
+      return (
+        <div className="empty history-error">
+          <p>Couldn't load your history.</p>
+          <button className="ds-btn ds-btn--secondary ds-btn--sm" onClick={retry}>Try again</button>
+        </div>
+      );
+    }
+    if (current.rows.length === 0) {
+      const anyHistory = recent.total > 0 || tracks.total > 0 || artists.total > 0 || range !== "all-time";
+      let message = "No play history yet. Start listening to build your history.";
+      if (debouncedQuery) message = `No ${activeTab === "artists" ? "artists" : "plays"} matching "${debouncedQuery}"`;
+      else if (anyHistory) message = `No ${activeTab === "artists" ? "artists" : activeTab === "tracks" ? "tracks" : "plays"} in this range.`;
+      return <div className="empty">{message}</div>;
+    }
+    if (activeTab === "artists") {
+      const rows = current.rows as HistoryArtistStats[];
+      return viewMode === "basic" ? renderArtistTable(rows) : viewMode === "tiles" ? renderArtistTiles(rows) : renderArtistList(rows);
+    }
+    const rows = current.rows as TrackLikeRow[];
+    return viewMode === "basic" ? renderTrackTable(rows) : viewMode === "tiles" ? renderTrackTiles(rows) : renderTrackList(rows);
+  }
+
+  // A ghost play has no file, so its media type is unknown — which is why,
+  // unlike the Library, the sort bar has no Audio/Video filter.
+  const chain = sortChains[activeTab];
+
+  return (
+    <div className="search-view history-view">
+      <div className="search-view-input-wrapper">
+        <svg width={18} height={18} viewBox="0 0 24 24" fill="none" stroke="var(--text-secondary)" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
+          <circle cx="11" cy="11" r="8" /><line x1="21" y1="21" x2="16.65" y2="16.65" />
+        </svg>
+        <input
+          className="search-view-input"
+          type="text"
+          placeholder="Search your history..."
+          aria-label="Search history"
+          value={query}
+          onChange={(e) => onQueryChange(e.target.value)}
+          onKeyDown={handleInputKeyDown}
+          spellCheck={false}
+          autoFocus
+        />
+        {query && (
+          <button className="search-view-clear" onClick={() => onQueryChange("")} title="Clear">
+            <svg width={18} height={18} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
+              <line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" />
+            </svg>
+          </button>
+        )}
+      </div>
+
+      <div className="ds-tabs" style={{ padding: "0 16px", gap: 4 }}>
+        <div style={{ display: "flex", flex: 1 }}>
+          {(["recent", "tracks", "artists"] as HistoryTab[]).map(tab => (
+            <button
+              key={tab}
+              className={`ds-tab ${activeTab === tab ? "active" : ""}`}
+              onClick={() => setTab(tab)}
+              role="tab"
+              aria-selected={activeTab === tab}
+              aria-label={TAB_LABELS[tab]}
+            >
+              {TAB_LABELS[tab]}
+              {data[tab].total > 0 && <span className="ds-tab-badge">{data[tab].total}</span>}
+            </button>
+          ))}
+        </div>
+        {/* In the tab bar, not the collapsible sort bar: it decides what every
+            tab counts, so it must be on screen whenever the numbers are. */}
+        <div className="history-range" role="group" aria-label="Range">
+          {HISTORY_RANGES.map(r => (
+            <button
+              key={r.key}
+              className={`sort-btn${range === r.key ? " active" : ""}`}
+              aria-pressed={range === r.key}
+              onClick={() => setRange(r.key)}
+            >{r.label}</button>
+          ))}
+        </div>
+        <button className="sort-btn sort-bar-toggle" onClick={() => update(s => ({ ...s, sortBarCollapsed: !s.sortBarCollapsed }))} title={sortBarCollapsed ? "Show sort bar" : "Hide sort bar"}>{sortBarCollapsed ? "▼" : "▲"}</button>
+        <ViewModeToggle mode={viewMode} onChange={setViewMode} />
+      </div>
+
+      <div className={`sort-bar-wrapper${sortBarCollapsed ? " collapsed" : ""}`}>
+        <div className="sort-bar">
+          <div className="sort-bar-row">
+            <span className="sort-bar-label">Sort:</span>
+            <div className="sort-bar-group">
+              {SORT_BUTTONS[activeTab].map(b => (
+                <SortButton key={b.field} label={b.label} field={b.field} chain={chain} onClick={handleSort} />
+              ))}
+              {chain.length >= 2 && (
+                <button className="sort-btn sort-btn-clear" onClick={() => setSortChain([])}>Clear</button>
               )}
             </div>
           </div>
-        )}
+        </div>
+      </div>
 
-        {/* Tab: Tracks */}
-        {!q && activeTab === "tracks" && (
-          <div className="history-section">
-            <div className="history-list">
-              {(currentTracks ?? []).map((t) => {
-                const idx = nextFlatIndex();
-                const selKey = `t:${t.history_track_id}`;
-                return (
-                  <HistoryRow
-                    key={`tracks-${tracksTimespan}-${t.history_track_id}`}
-                    selected={selectedKeys.has(selKey)}
-                    active={idx === highlightedIndex}
-                    dataIndex={idx}
-                    rank={t.rank}
-                    imageUrl={trackImageUrl(t)}
-                    artTrack={{ artist_name: t.display_artist, path: t.display_path }}
-                    title={t.display_title}
-                    subtitle={<>{t.display_artist ?? "Unknown"} &middot; {t.play_count} play{t.play_count !== 1 ? "s" : ""}</>}
-                    onClick={(e) => handleRowClick(e, selKey)}
-                    onContextMenu={(e) => handleRowContextMenu(e, selKey)}
-                    onDoubleClick={() => playTrackById(t.history_track_id)}
-                    onPlay={() => playTrackById(t.history_track_id)}
-                    onEnqueue={() => enqueueTrackById(t.history_track_id)}
-                    onStartRadio={onStartRadio ? () => onStartRadio({ title: t.display_title, artistName: t.display_artist ?? null, coverPath: trackCoverPath(t) }) : undefined}
-                    onDetails={() => detailsTrackById(t.history_track_id)}
-                  />
-                );
-              })}
-              {currentTracks && currentTracks.length === 0 && (
-                <div className="empty">No tracks in this timespan.</div>
-              )}
-            </div>
-          </div>
-        )}
-
-        {/* Tab: Artists */}
-        {!q && activeTab === "artists" && (
-          <div className="history-section">
-            <div className="history-list">
-              {(currentArtists ?? []).map((a) => {
-                const selKey = `a:${a.history_artist_id}`;
-                return (
-                <HistoryRow
-                  key={`artists-${artistsTimespan}-${a.history_artist_id}`}
-                  selected={selectedKeys.has(selKey)}
-                  rank={a.rank}
-                  kind="artist"
-                  imageUrl={artistImageUrl(a.display_name)}
-                  title={a.display_name}
-                  subtitle={<>{a.play_count} play{a.play_count !== 1 ? "s" : ""} &middot; {a.track_count} track{a.track_count !== 1 ? "s" : ""}</>}
-                  onClick={(e) => handleRowClick(e, selKey)}
-                  onContextMenu={(e) => handleRowContextMenu(e, selKey)}
-                  onDoubleClick={() => handleArtistDoubleClick(a.history_artist_id)}
-                  onPlay={() => playArtistById(a.history_artist_id)}
-                  onEnqueue={() => enqueueArtistById(a.history_artist_id)}
-                  onDetails={() => handleArtistDoubleClick(a.history_artist_id)}
-                />
-                );
-              })}
-              {currentArtists && currentArtists.length === 0 && (
-                <div className="empty">No artists in this timespan.</div>
-              )}
-            </div>
-          </div>
-        )}
-
-        {/* Search: no results */}
-        {q && (!visibleTracks || visibleTracks.length === 0) && (!visibleArtists || visibleArtists.length === 0) && (
-          <div className="empty">No history matching "{searchQuery}"</div>
-        )}
+      <div className="search-view-results history-content" ref={resultsRef}>
+        {renderBody()}
+        <LoadMoreSentinel hasMore={current.hasMore} loading={current.loadingMore} onLoadMore={handleLoadMore} />
       </div>
     </div>
   );
-});
+}

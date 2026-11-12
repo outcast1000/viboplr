@@ -145,7 +145,6 @@ import { PluginSectionContext, type PluginSectionHost, type PluginTrackHandlers 
 import { mergeSeekMarkers, type SeekMarker } from "./utils/seekMarkers";
 import type { VideoFrameQueue } from "./videoFrameQueue";
 import { CaptionBar } from "./components/CaptionBar";
-import { ViewSearchBar } from "./components/ViewSearchBar";
 
 import { Sidebar } from "./components/Sidebar";
 import { NowPlayingBar } from "./components/NowPlayingBar";
@@ -166,7 +165,6 @@ import { ArtistDetail } from "./components/ArtistDetail";
 import { AlbumDetail } from "./components/AlbumDetail";
 import { TagDetail } from "./components/TagDetail";
 import { HistoryView } from "./components/HistoryView";
-import type { HistoryViewHandle } from "./components/HistoryView";
 import { PlaylistsView } from "./components/PlaylistsView";
 import { SavePlaylistModal } from "./components/SavePlaylistModal";
 import { PlaylistPickerModal } from "./components/PlaylistPickerModal";
@@ -391,7 +389,6 @@ function App() {
     return el.querySelector<HTMLElement>('.track-list, .entity-list, .entity-table, .entity-grid, .artist-detail, .album-detail, .history-view, .collections-view, .plugin-view, .settings-content-body');
   }, []);
   const searchInputRef = useRef<HTMLInputElement>(null);
-  const historyRef = useRef<HistoryViewHandle>(null);
   // Set by applyNavState (back/forward) so the scroll-reset effect skips one run
   // and lets the nav restore set the saved scroll position instead.
   const suppressScrollResetRef = useRef(false);
@@ -5102,8 +5099,7 @@ function App() {
     });
   });
 
-  const { view, selectedArtist, selectedAlbum, selectedTag, artists, albums, tags,
-    highlightedListIndex } = library;
+  const { view, selectedArtist, selectedAlbum, selectedTag, artists, albums, tags } = library;
 
   const localCollections = library.collections.filter(c => c.kind === "local" && c.enabled).map(c => ({ id: c.id, name: c.name, path: c.path ?? "" }));
 
@@ -5134,20 +5130,6 @@ function App() {
     ? resolveImageUrl(playback.currentTrack?.image_url ?? null) ?? null
     : null;
   const videoInQueue = videoPlaying && videoLayout.dockSide === "queue" && !videoTheater && !playback.nativeFullscreen && !queueCollapsed;
-
-  // Arrow key navigation helpers for search bars
-  function scrollHighlightedIntoView(selector: string) {
-    requestAnimationFrame(() => {
-      const el = contentRef.current?.querySelector(selector + ' .highlighted') as HTMLElement | null;
-      el?.scrollIntoView({ block: "nearest" });
-    });
-  }
-
-  const historySearchNav = {
-    onArrowDown: () => { const count = historyRef.current?.count ?? 0; if (count > 0) { const next = Math.min(highlightedListIndex + 1, count - 1); library.setHighlightedListIndex(next); scrollHighlightedIntoView('.history-content'); } },
-    onArrowUp: () => { const next = Math.max(highlightedListIndex - 1, 0); library.setHighlightedListIndex(next); scrollHighlightedIntoView('.history-content'); },
-    onEnter: () => { if (highlightedListIndex >= 0) historyRef.current?.playItem(highlightedListIndex); },
-  };
 
   // Every NowPlayingBar callback goes through useStableCallbacks so the memo'd
   // bar (see NowPlayingBar.tsx) isn't re-rendered just because App's frequent
@@ -5891,13 +5873,25 @@ function App() {
           {/* History view */}
           {view === "history" && (
             <>
-              <ViewSearchBar
+              <HistoryView
                 query={viewSearch.getQuery("history")}
                 onQueryChange={(q) => viewSearch.setQuery("history", q)}
-                placeholder="Search history..."
-                {...historySearchNav}
+                currentTrack={playback.currentTrack}
+                onPlayTracks={playRow}
+                onEnqueueTracks={queueHook.enqueueTracks}
+                onLocateTrackId={(id) => { const sel = trackSelection({ id }); if (sel) library.handleTrackClick(sel); }}
+                onLocateTrackByName={(title, artistName, albumTitle) => { library.navigateToTrackByName(title, artistName, albumTitle).catch(console.error); }}
+                onArtistClick={library.handleArtistClick}
+                onAlbumClick={library.handleAlbumClick}
+                onPlayArtist={playActions.playArtist}
+                onEnqueueArtist={playActions.enqueueArtist}
+                onStartRadio={contextMenuActions.startRadio}
+                onShowContextMenu={(x, y, target) => buildAndShowNativeMenu({ x, y, target })}
+                onToggleLike={(t) => { likeActions.handleToggleLike(t); }}
+                onToggleDislike={(t) => { likeActions.handleToggleDislike(t); }}
+                onTrackDragStart={contextMenuActions.handleTrackDragStart}
+                onNotify={notify}
               />
-              <HistoryView ref={historyRef} searchQuery={viewSearch.getQuery("history")} highlightedIndex={highlightedListIndex} onPlayTrack={playRow} onEnqueueTrack={queueHook.enqueueTracks} onLocateTrack={(t) => { const sel = trackSelection(t); if (sel) library.handleTrackClick(sel); }} onArtistClick={library.handleArtistClick} onPlayArtist={playActions.playArtist} onEnqueueArtist={playActions.enqueueArtist} onStartRadio={contextMenuActions.startRadio} onShowContextMenu={(x, y, target) => buildAndShowNativeMenu({ x, y, target })} />
             </>
           )}
 

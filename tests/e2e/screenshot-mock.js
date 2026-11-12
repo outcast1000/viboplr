@@ -426,6 +426,9 @@ window.__TAURI_INTERNALS__.invoke = async function (cmd, args) {
     case 'get_history_most_played_since': return HISTORY_MOST_PLAYED.slice(0, 7);
     case 'get_history_most_played_artists': return HISTORY_MOST_PLAYED_ARTISTS;
     case 'get_history_most_played_artists_since': return HISTORY_MOST_PLAYED_ARTISTS;
+    case 'history_recent_page': return { rows: HISTORY_RECENT, total: HISTORY_RECENT.length };
+    case 'history_tracks_page': return { rows: HISTORY_MOST_PLAYED, total: HISTORY_MOST_PLAYED.length };
+    case 'history_artists_page': return { rows: HISTORY_MOST_PLAYED_ARTISTS, total: HISTORY_MOST_PLAYED_ARTISTS.length };
     case 'pick_radio_seeds': return TRACKS.slice(0, (args && args.count) || 7);
     case 'find_artist_by_name': return ARTISTS.find(a => a.name === (args && args.name)) || null;
     case 'find_album_by_name': {
@@ -449,8 +452,6 @@ window.__TAURI_INTERNALS__.invoke = async function (cmd, args) {
       if (entity === 'tags') return { tracks: null, albums: null, artists: null, tags: TAGS, total: TAGS.length };
       return { tracks: null, albums: null, artists: null, tags: null, total: 0 };
     }
-    case 'search_history_artists': return [];
-    case 'search_history_tracks': return [];
     case 'list_user_skins': return [];
     case 'get_download_status': return [];
     case 'info_sync_types': return [];

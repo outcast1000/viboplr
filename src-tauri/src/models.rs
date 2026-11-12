@@ -417,6 +417,12 @@ pub struct HistoryEntry {
     // display_album), so a video play can show its own frame. None when the
     // play has no library track.
     pub display_path: Option<String>,
+    // The same library copy's row id, length and format (`HistoryLibraryMatch`),
+    // so the History view can play, highlight and drag a row without a
+    // reconnect round-trip, and show its length. None for a ghost play.
+    pub display_track_id: Option<i64>,
+    pub display_duration_secs: Option<f64>,
+    pub display_format: Option<String>,
 }
 
 /// A single play row, stripped to only what bulk listening-pattern aggregation
@@ -451,6 +457,13 @@ pub struct HistoryMostPlayed {
     // display_album), so a video play can show its own frame. None when the
     // play has no library track.
     pub display_path: Option<String>,
+    // Same contract as HistoryEntry's.
+    pub display_track_id: Option<i64>,
+    pub display_duration_secs: Option<f64>,
+    pub display_format: Option<String>,
+    /// Latest play inside the window the row was counted over (all time for
+    /// the all-time lists).
+    pub last_played_at: Option<i64>,
 }
 
 /// Lightweight liked-entity row read from the durable entity_likes table (the
@@ -492,6 +505,36 @@ pub struct HistoryArtistStats {
     pub track_count: i64,
     pub display_name: String,
     pub rank: i64,
+    /// Latest play inside the window the row was counted over.
+    pub last_played_at: Option<i64>,
+}
+
+/// One History-view page request (`Database::history_*_page`).
+#[derive(Debug, Default)]
+pub struct HistoryPageQuery<'a> {
+    /// Every whitespace-separated term must match the title or the artist.
+    pub query: Option<&'a str>,
+    /// Keep plays at or after this (unix secs); `None` = all time.
+    pub since_ts: Option<i64>,
+    /// Ignore plays after this: the moment the caller's first page was read,
+    /// passed again for every later page, so a play recorded while the user
+    /// scrolls can't shift the pages under them (offset paging would repeat a
+    /// row). The all-time rankings read the denormalized counters and don't
+    /// apply it; the frontend drops a repeated row for those.
+    pub as_of: Option<i64>,
+    /// The tab's own sort fields; unknown ones are ignored.
+    pub sort: &'a [SortKey],
+    pub offset: i64,
+    /// `0` answers the total alone, for the badge of a tab not on screen.
+    pub limit: i64,
+}
+
+/// One page of a History view tab plus how many rows the whole tab holds
+/// (after the search filter), which the tab badge shows.
+#[derive(Debug, Clone, Serialize)]
+pub struct HistoryPage<T> {
+    pub rows: Vec<T>,
+    pub total: i64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

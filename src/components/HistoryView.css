@@ -1,61 +1,64 @@
-
-/* History view */
+/* History view. The frame (search box, tabs, sort bar, results scroller) is the
+   Library's — `.search-view*`, `.sort-bar*` in App.css — and rows render through
+   the shared table / list / tile classes. Only what is history-specific lives
+   here: the play-count and played-at table columns. */
 .history-view {
   flex: 1;
-  overflow: hidden;
   min-height: 0;
-  display: flex;
-  flex-direction: column;
 }
 
-.history-content {
-  flex: 1;
-  overflow-y: auto;
-  min-height: 0;
-  padding-bottom: 16px;
-}
-
-.history-toolbar {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  flex-wrap: wrap;
-}
-
-.history-timespan {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  padding: 0 16px;
-}
-
-.history-timespan .ds-btn.active {
-  background: var(--bg-hover);
-  color: var(--text-primary);
-  font-weight: 600;
-}
-
-.history-section {
-  padding: 8px 16px;
-}
-
-.history-section + .history-section {
-  border-top: 1px solid var(--border);
-}
-
-.history-list {
-  display: flex;
-  flex-direction: column;
-}
-
-/* History rows render via the shared TrackRow (.entity-list-item); only the
-   rank cell keeps a history-specific style (used in TrackRow's leading slot). */
-.history-rank {
-  width: 36px;
+.history-table .col-plays {
+  width: 64px;
   flex-shrink: 0;
   text-align: right;
   color: var(--text-secondary);
-  font-weight: 600;
   font-variant-numeric: tabular-nums;
+}
+
+.history-table .col-played {
+  width: 96px;
+  flex-shrink: 0;
+  color: var(--text-secondary);
+}
+
+.history-table .col-num {
+  font-variant-numeric: tabular-nums;
+}
+
+/* A play no enabled collection holds: read as a gap, like an album page's
+   "Not in library" rows — but it still plays (by name, through the resolvers). */
+.history-table .track-row.history-row--ghost:not(.playing) {
+  color: var(--text-tertiary);
+}
+
+/* The tile wrapper only carries the keyboard cursor's data attribute; it must
+   not change the grid cell's layout. */
+.history-tile {
+  display: contents;
+}
+
+/* The range, in the tab bar beside the sort-bar toggle. */
+.history-range {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  margin-right: 8px;
+}
+
+/* A tab whose load failed: the reason, and a way to ask again. */
+.history-error {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+}
+
+.history-error p {
+  margin: 0;
+}
+
+.history-tile-sub {
+  font-size: var(--fs-xs);
+  color: var(--text-secondary);
+  text-align: center;
 }

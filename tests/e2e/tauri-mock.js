@@ -395,6 +395,10 @@ window.__TAURI_INTERNALS__.invoke = async function (cmd, args) {
     }
     case 'get_history_recent':
       return [];
+    case 'history_recent_page':
+    case 'history_tracks_page':
+    case 'history_artists_page':
+      return { rows: [], total: 0 };
     case 'get_history_most_played':
       return [];
     case 'get_history_most_played_since':

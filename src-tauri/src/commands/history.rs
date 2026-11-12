@@ -19,6 +19,63 @@ pub async fn get_history_recent(state: State<'_, AppState>, limit: i64) -> Resul
     with_db(&state, move |db| db.get_history_recent(limit)).await
 }
 
+// The History view's three tabs, one page at a time. Each answers the tab's
+// total too (after the search), which is what the tab badge shows; `limit: 0`
+// answers only that. `sinceTs` limits the window and `asOf` ignores plays after
+// the first page was read (see `db::history::HistoryPageQuery`); `sortChain`
+// uses the tab's own field names — anything else is ignored.
+
+#[tauri::command]
+#[allow(clippy::too_many_arguments)]
+pub async fn history_recent_page(
+    state: State<'_, AppState>,
+    query: Option<String>,
+    since_ts: Option<i64>,
+    as_of: Option<i64>,
+    sort_chain: Option<Vec<SortKey>>,
+    offset: i64,
+    limit: i64,
+) -> Result<HistoryPage<HistoryEntry>, String> {
+    with_db(&state, move |db| {
+        let sort = sort_chain.unwrap_or_default();
+        db.history_recent_page(&HistoryPageQuery { query: query.as_deref(), since_ts, as_of, sort: &sort, offset, limit })
+    }).await
+}
+
+#[tauri::command]
+#[allow(clippy::too_many_arguments)]
+pub async fn history_tracks_page(
+    state: State<'_, AppState>,
+    query: Option<String>,
+    since_ts: Option<i64>,
+    as_of: Option<i64>,
+    sort_chain: Option<Vec<SortKey>>,
+    offset: i64,
+    limit: i64,
+) -> Result<HistoryPage<HistoryMostPlayed>, String> {
+    with_db(&state, move |db| {
+        let sort = sort_chain.unwrap_or_default();
+        db.history_tracks_page(&HistoryPageQuery { query: query.as_deref(), since_ts, as_of, sort: &sort, offset, limit })
+    }).await
+}
+
+#[tauri::command]
+#[allow(clippy::too_many_arguments)]
+pub async fn history_artists_page(
+    state: State<'_, AppState>,
+    query: Option<String>,
+    since_ts: Option<i64>,
+    as_of: Option<i64>,
+    sort_chain: Option<Vec<SortKey>>,
+    offset: i64,
+    limit: i64,
+) -> Result<HistoryPage<HistoryArtistStats>, String> {
+    with_db(&state, move |db| {
+        let sort = sort_chain.unwrap_or_default();
+        db.history_artists_page(&HistoryPageQuery { query: query.as_deref(), since_ts, as_of, sort: &sort, offset, limit })
+    }).await
+}
+
 #[tauri::command]
 pub async fn get_history_play_count(state: State<'_, AppState>) -> Result<i64, String> {
     with_db(&state, move |db| db.get_history_play_count()).await
@@ -60,15 +117,6 @@ pub async fn get_history_most_played_artists_since(state: State<'_, AppState>, s
     with_db(&state, move |db| db.get_history_most_played_artists_since(since_ts, limit)).await
 }
 
-#[tauri::command]
-pub async fn search_history_artists(state: State<'_, AppState>, query: String, limit: i64) -> Result<Vec<HistoryArtistStats>, String> {
-    with_db(&state, move |db| db.search_history_artists(&query, limit)).await
-}
-
-#[tauri::command]
-pub async fn search_history_tracks(state: State<'_, AppState>, query: String, limit: i64) -> Result<Vec<HistoryMostPlayed>, String> {
-    with_db(&state, move |db| db.search_history_tracks(&query, limit)).await
-}
 
 #[tauri::command]
 pub async fn reconnect_history_track(state: State<'_, AppState>, history_track_id: i64) -> Result<Option<Track>, String> {

@@ -214,6 +214,19 @@ export interface HistoryEntry {
   // display_album) — lets a video play show its own frame. Null when the play
   // has no library track.
   display_path: string | null;
+  // The same library copy's row id, length and format — what the History view
+  // plays, highlights and shows without a reconnect round-trip. Absent/null
+  // for a play no enabled collection holds (a "ghost").
+  display_track_id?: number | null;
+  display_duration_secs?: number | null;
+  display_format?: string | null;
+}
+
+/** One page of a History view tab, plus the whole tab's row count (after the
+ *  search) for the tab badge (`history_*_page` commands). */
+export interface HistoryPage<T> {
+  rows: T[];
+  total: number;
 }
 
 // A single play row stripped to what bulk listening-pattern aggregation needs.
@@ -236,8 +249,13 @@ export interface HistoryMostPlayed {
   // pair — history stores no album and both are needed to key an album cover.
   display_album: string | null;
   display_album_artist: string | null;
-  // Library copy's path, same contract as HistoryEntry's.
+  // Library copy's path, id, length and format — same contract as HistoryEntry's.
   display_path: string | null;
+  display_track_id?: number | null;
+  display_duration_secs?: number | null;
+  display_format?: string | null;
+  // Latest play inside the window the row was counted over.
+  last_played_at?: number | null;
 }
 
 // A liked entity (track/artist/album) read from the durable entity_likes table
@@ -258,6 +276,8 @@ export interface HistoryArtistStats {
   track_count: number;
   display_name: string;
   rank: number;
+  // Latest play inside the window the row was counted over.
+  last_played_at?: number | null;
 }
 
 export interface PlaylistEntry {

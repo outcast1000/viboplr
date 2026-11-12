@@ -10,9 +10,10 @@ export interface SortKey {
  * Ascending is the right opening move for a name or a title, and the wrong one
  * for a date: nobody asks for "Added" wanting the oldest thing in the library
  * first — the question behind the button is always "what's new?". Same for
- * "Modified". Everything else keeps the ascending default, and the second
+ * "Modified", and for the History view's "Played" (latest first) and "Plays"
+ * (most first). Everything else keeps the ascending default, and the second
  * click still flips, so nothing becomes unreachable. */
-const DESC_FIRST_FIELDS = new Set(["added", "modified"]);
+const DESC_FIRST_FIELDS = new Set(["added", "modified", "played", "plays"]);
 
 function firstDir(field: string): SortDir {
   return DESC_FIRST_FIELDS.has(field) ? "desc" : "asc";

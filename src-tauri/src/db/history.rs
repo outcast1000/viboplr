@@ -105,7 +105,7 @@ fn history_album_sql(title_count: usize) -> String {
                 strip_diacritics(unicode_lower(ar.name)), \
                 al.title, alar.name, \
                 CASE WHEN co.kind = 'local' THEN 0 WHEN co.kind = 'subsonic' THEN 1 ELSE 2 END, \
-                al.id, {PATH_EXPR}, t.id \
+                al.id, {PATH_EXPR}, t.id, t.duration_secs, t.format \
            FROM tracks t \
            JOIN artists ar ON t.artist_id = ar.id \
            LEFT JOIN albums al ON t.album_id = al.id \
@@ -124,6 +124,56 @@ struct HistoryLibraryMatch {
     album: Option<(String, Option<String>)>,
     /// Scheme-prefixed path (`PATH_EXPR`) of the preferred library copy.
     path: Option<String>,
+    /// That same copy's row id, length and format.
+    track_id: Option<i64>,
+    duration_secs: Option<f64>,
+    format: Option<String>,
+}
+
+/// A history row that carries the library-match fields. Implemented by both
+/// track-shaped history rows so `stamp_history_library` fills them one way.
+trait HistoryLibraryRow {
+    fn song(&self) -> (String, String);
+    fn apply(&mut self, m: &HistoryLibraryMatch);
+}
+
+fn apply_match(
+    m: &HistoryLibraryMatch,
+    album: &mut Option<String>,
+    album_artist: &mut Option<String>,
+    path: &mut Option<String>,
+    track_id: &mut Option<i64>,
+    duration: &mut Option<f64>,
+    format: &mut Option<String>,
+) {
+    if let Some((a, aa)) = &m.album {
+        *album = Some(a.clone());
+        *album_artist = aa.clone();
+    }
+    *path = m.path.clone();
+    *track_id = m.track_id;
+    *duration = m.duration_secs;
+    *format = m.format.clone();
+}
+
+impl HistoryLibraryRow for HistoryEntry {
+    fn song(&self) -> (String, String) {
+        (norm_segment(Some(&self.display_title)), norm_segment(self.display_artist.as_deref()))
+    }
+    fn apply(&mut self, m: &HistoryLibraryMatch) {
+        apply_match(m, &mut self.display_album, &mut self.display_album_artist, &mut self.display_path,
+            &mut self.display_track_id, &mut self.display_duration_secs, &mut self.display_format);
+    }
+}
+
+impl HistoryLibraryRow for HistoryMostPlayed {
+    fn song(&self) -> (String, String) {
+        (norm_segment(Some(&self.display_title)), norm_segment(self.display_artist.as_deref()))
+    }
+    fn apply(&mut self, m: &HistoryLibraryMatch) {
+        apply_match(m, &mut self.display_album, &mut self.display_album_artist, &mut self.display_path,
+            &mut self.display_track_id, &mut self.display_duration_secs, &mut self.display_format);
+    }
 }
 
 /// Resolve a library album — and the album's own album artist — plus a library
@@ -184,10 +234,12 @@ fn resolve_history_library(
                 row.get::<_, Option<i64>>(5)?,
                 row.get::<_, String>(6)?,
                 row.get::<_, i64>(7)?,
+                row.get::<_, Option<f64>>(8)?,
+                row.get::<_, Option<String>>(9)?,
             ))
         })?;
         for row in rows {
-            let (norm_title, norm_artist, album, album_artist, prio, album_id, path, track_id) = row?;
+            let (norm_title, norm_artist, album, album_artist, prio, album_id, path, track_id, duration, format) = row?;
             let key = (norm_title, norm_artist);
             // The IN list matches on title alone, so most rows here belong to a
             // different artist's same-titled track.
@@ -196,7 +248,11 @@ fn resolve_history_library(
             }
             if better(best_copy.get(&key), prio, track_id) {
                 best_copy.insert(key.clone(), (prio, track_id));
-                out.entry(key.clone()).or_default().path = Some(path);
+                let m = out.entry(key.clone()).or_default();
+                m.path = Some(path);
+                m.track_id = Some(track_id);
+                m.duration_secs = duration;
+                m.format = format;
             }
             if let (Some(album), Some(album_id)) = (album, album_id) {
                 if better(best_album.get(&key), prio, album_id) {
@@ -209,32 +265,126 @@ fn resolve_history_library(
     Ok(out)
 }
 
-/// Fill in `display_album` / `display_album_artist` / `display_path` on a batch
-/// of most-played or searched history tracks. Wraps
-/// `resolve_history_library` so the three queries returning `HistoryMostPlayed`
-/// stamp them identically — the History
-/// view's Tracks tab, its search results and the Home "Most played" shelves all
+/// Fill in the library-match fields (`display_album` / `display_album_artist` /
+/// `display_path` / `display_track_id` / `display_duration_secs` /
+/// `display_format`) on a batch of history rows. Wraps
+/// `resolve_history_library` so every query returning history rows stamps them
+/// identically — the History view, its search and the Home history shelves all
 /// render art from these fields.
-fn stamp_history_albums(conn: &Connection, tracks: &mut [HistoryMostPlayed]) -> SqlResult<()> {
-    if tracks.is_empty() {
+fn stamp_history_library<T: HistoryLibraryRow>(conn: &Connection, rows: &mut [T]) -> SqlResult<()> {
+    if rows.is_empty() {
         return Ok(());
     }
-    let keys: Vec<(String, String)> = tracks
-        .iter()
-        .map(|t| (norm_segment(Some(&t.display_title)), norm_segment(t.display_artist.as_deref())))
-        .collect();
+    let keys: Vec<(String, String)> = rows.iter().map(|r| r.song()).collect();
     let matches = resolve_history_library(conn, &keys)?;
-    for (t, key) in tracks.iter_mut().zip(keys) {
+    for (r, key) in rows.iter_mut().zip(keys) {
         if let Some(m) = matches.get(&key) {
-            if let Some((album, album_artist)) = &m.album {
-                t.display_album = Some(album.clone());
-                t.display_album_artist = album_artist.clone();
-            }
-            t.display_path = m.path.clone();
+            r.apply(m);
         }
     }
     Ok(())
 }
+
+/// The History view's search: every whitespace-separated term must appear in
+/// the title or the artist (accent- and case-folded, like the stored canonical
+/// columns), which is how the Library's search narrows too. Returns the SQL
+/// fragment (`AND …` per term, or empty) and its LIKE patterns, `%`/`_`/`\`
+/// escaped so a literal underscore doesn't match any character.
+fn history_search_clause(query: Option<&str>, title_col: &str, artist_col: &str) -> (String, Vec<String>) {
+    let folded = strip_diacritics(&query.unwrap_or("").to_lowercase());
+    let mut sql = String::new();
+    let mut patterns = Vec::new();
+    for term in folded.split_whitespace() {
+        let escaped = term.replace('\\', "\\\\").replace('%', "\\%").replace('_', "\\_");
+        patterns.push(format!("%{escaped}%"));
+        let n = patterns.len();
+        if title_col.is_empty() {
+            sql.push_str(&format!(" AND {artist_col} LIKE ?{n} ESCAPE '\\'"));
+        } else {
+            sql.push_str(&format!(" AND ({title_col} LIKE ?{n} ESCAPE '\\' OR {artist_col} LIKE ?{n} ESCAPE '\\')"));
+        }
+    }
+    (sql, patterns)
+}
+
+/// `ORDER BY` for a History tab from the caller's sort chain. Fields are looked
+/// up in the tab's own whitelist (anything else is ignored, so a chain can never
+/// inject SQL), and `fallback` — the tab's natural order — always ends the
+/// clause, which keeps paging stable on ties.
+fn history_order_by(chain: &[SortKey], fields: &[(&str, &str)], fallback: &str) -> String {
+    let mut parts: Vec<String> = Vec::new();
+    for key in chain {
+        if let Some((_, expr)) = fields.iter().find(|(f, _)| *f == key.field) {
+            let dir = if key.dir == "desc" { "DESC" } else { "ASC" };
+            parts.push(format!("{expr} {dir}"));
+        }
+    }
+    parts.push(fallback.to_string());
+    parts.join(", ")
+}
+
+/// The search patterns followed by `since_ts` and `as_of` (Null when unset) —
+/// the bind order every plays-table History page query uses.
+fn history_params(patterns: Vec<String>, q: &HistoryPageQuery) -> Vec<rusqlite::types::Value> {
+    use rusqlite::types::Value;
+    let mut v: Vec<Value> = patterns.into_iter().map(Value::Text).collect();
+    v.push(q.since_ts.map_or(Value::Null, Value::Integer));
+    v.push(q.as_of.map_or(Value::Null, Value::Integer));
+    v
+}
+
+/// A most-played row from `SELECT id, count, display_title, display_name,
+/// rank, last_played …`; the library fields are stamped afterwards.
+fn most_played_row(row: &rusqlite::Row) -> SqlResult<HistoryMostPlayed> {
+    Ok(HistoryMostPlayed {
+        history_track_id: row.get(0)?,
+        play_count: row.get(1)?,
+        display_title: row.get(2)?,
+        display_artist: row.get(3)?,
+        rank: row.get(4)?,
+        last_played_at: row.get(5)?,
+        display_album: None,
+        display_album_artist: None,
+        display_path: None,
+        display_track_id: None,
+        display_duration_secs: None,
+        display_format: None,
+    })
+}
+
+/// An artist row from `SELECT id, count, track_count, display_name, rank,
+/// last_played …`.
+fn artist_stats_row(row: &rusqlite::Row) -> SqlResult<HistoryArtistStats> {
+    Ok(HistoryArtistStats {
+        history_artist_id: row.get(0)?,
+        play_count: row.get(1)?,
+        track_count: row.get(2)?,
+        display_name: row.get(3)?,
+        rank: row.get(4)?,
+        last_played_at: row.get(5)?,
+    })
+}
+
+/// Sort fields per History tab: the field name the frontend sends → the SQL
+/// expression over that tab's outer query. Text sorts fold case and accents.
+const RECENT_SORT_FIELDS: &[(&str, &str)] = &[
+    ("played", "played_at"),
+    ("title", "strip_diacritics(unicode_lower(display_title))"),
+    ("artist", "strip_diacritics(unicode_lower(COALESCE(display_name, '')))"),
+    ("plays", "play_count"),
+];
+const TRACK_SORT_FIELDS: &[(&str, &str)] = &[
+    ("plays", "cnt"),
+    ("title", "strip_diacritics(unicode_lower(display_title))"),
+    ("artist", "strip_diacritics(unicode_lower(COALESCE(display_name, '')))"),
+    ("played", "last_played"),
+];
+const ARTIST_SORT_FIELDS: &[(&str, &str)] = &[
+    ("plays", "cnt"),
+    ("name", "strip_diacritics(unicode_lower(COALESCE(display_name, '')))"),
+    ("tracks", "track_count"),
+    ("played", "last_played"),
+];
 
 impl Database {
 
@@ -1084,27 +1234,197 @@ impl Database {
                     display_album: None,
                     display_album_artist: None,
                     display_path: None,
+                    display_track_id: None,
+                    display_duration_secs: None,
+                    display_format: None,
                 })
             })?
             .collect::<SqlResult<Vec<_>>>()?;
-
-        if !entries.is_empty() {
-            let keys: Vec<(String, String)> = entries
-                .iter()
-                .map(|e| (norm_segment(Some(&e.display_title)), norm_segment(e.display_artist.as_deref())))
-                .collect();
-            let matches = resolve_history_library(&conn, &keys)?;
-            for (e, key) in entries.iter_mut().zip(keys) {
-                if let Some(m) = matches.get(&key) {
-                    if let Some((album, album_artist)) = &m.album {
-                        e.display_album = Some(album.clone());
-                        e.display_album_artist = album_artist.clone();
-                    }
-                    e.display_path = m.path.clone();
-                }
-            }
-        }
+        stamp_history_library(&conn, &mut entries)?;
         Ok(entries)
+    }
+
+    /// One page of the History view's **Recent** tab: plays newest first (or by
+    /// the caller's sort chain), narrowed by `query` (every term in the title
+    /// or artist), with the total the tab badge shows. See `HistoryPageQuery`
+    /// for the window and the cutoff.
+    pub fn history_recent_page(&self, q: &HistoryPageQuery) -> SqlResult<HistoryPage<HistoryEntry>> {
+        let conn = self.reader();
+        let (search, patterns) = history_search_clause(q.query, "ht.canonical_title", "ha.canonical_name");
+        let (since_p, as_of_p) = (patterns.len() + 1, patterns.len() + 2);
+        let filter = format!(
+            "FROM history_plays hp \
+             JOIN history_tracks ht ON ht.id = hp.history_track_id \
+             JOIN history_artists ha ON ha.id = ht.history_artist_id \
+             WHERE (?{since_p} IS NULL OR hp.played_at >= ?{since_p}) \
+               AND (?{as_of_p} IS NULL OR hp.played_at <= ?{as_of_p}){search}"
+        );
+        let mut params_vec = history_params(patterns, q);
+
+        let total: i64 = conn.query_row(
+            &format!("SELECT COUNT(*) {filter}"),
+            rusqlite::params_from_iter(params_vec.iter()),
+            |r| r.get(0),
+        )?;
+        if q.limit <= 0 {
+            return Ok(HistoryPage { rows: Vec::new(), total });
+        }
+        let order = history_order_by(q.sort, RECENT_SORT_FIELDS, "played_at DESC, play_id DESC");
+        let n = params_vec.len();
+        let sql = format!(
+            "SELECT play_id, track_id, played_at, display_title, display_name, play_count FROM ( \
+               SELECT hp.id AS play_id, ht.id AS track_id, hp.played_at, ht.display_title, \
+                      ha.display_name, ht.play_count {filter} \
+             ) ORDER BY {order} LIMIT ?{} OFFSET ?{}",
+            n + 1,
+            n + 2,
+        );
+        params_vec.push(rusqlite::types::Value::Integer(q.limit));
+        params_vec.push(rusqlite::types::Value::Integer(q.offset.max(0)));
+        let mut stmt = conn.prepare(&sql)?;
+        let mut rows: Vec<HistoryEntry> = stmt
+            .query_map(rusqlite::params_from_iter(params_vec.iter()), |row| {
+                Ok(HistoryEntry {
+                    id: row.get(0)?,
+                    history_track_id: row.get(1)?,
+                    played_at: row.get(2)?,
+                    display_title: row.get(3)?,
+                    display_artist: row.get(4)?,
+                    play_count: row.get(5)?,
+                    display_album: None,
+                    display_album_artist: None,
+                    display_path: None,
+                    display_track_id: None,
+                    display_duration_secs: None,
+                    display_format: None,
+                })
+            })?
+            .collect::<SqlResult<Vec<_>>>()?;
+        stamp_history_library(&conn, &mut rows)?;
+        Ok(HistoryPage { rows, total })
+    }
+
+    /// One page of the History view's **Tracks** tab: songs ranked by plays
+    /// (inside `since_ts`'s window when given), then narrowed by `query`. The
+    /// rank is taken over the whole window *before* the search filter, so a
+    /// searched row keeps the rank it has on the unfiltered tab.
+    pub fn history_tracks_page(&self, q: &HistoryPageQuery) -> SqlResult<HistoryPage<HistoryMostPlayed>> {
+        let conn = self.reader();
+        let (search, patterns) = history_search_clause(q.query, "canonical_title", "canonical_name");
+        let windowed = q.since_ts.is_some();
+        // The ranked set: all time reads the denormalized counters (so it
+        // ignores `as_of`); a window counts its plays, up to the cutoff.
+        let ranked = if windowed {
+            let (p, c) = (patterns.len() + 1, patterns.len() + 2);
+            format!(
+                "SELECT ht.id, COUNT(*) AS cnt, ht.display_title, ha.display_name, \
+                        ht.canonical_title, ha.canonical_name, MAX(hp.played_at) AS last_played, \
+                        RANK() OVER (ORDER BY COUNT(*) DESC) AS rank \
+                   FROM history_plays hp \
+                   JOIN history_tracks ht ON ht.id = hp.history_track_id \
+                   JOIN history_artists ha ON ha.id = ht.history_artist_id \
+                  WHERE hp.played_at >= ?{p} AND (?{c} IS NULL OR hp.played_at <= ?{c}) \
+                  GROUP BY ht.id"
+            )
+        } else {
+            "SELECT ht.id, ht.play_count AS cnt, ht.display_title, ha.display_name, \
+                    ht.canonical_title, ha.canonical_name, ht.last_played_at AS last_played, \
+                    RANK() OVER (ORDER BY ht.play_count DESC) AS rank \
+               FROM history_tracks ht \
+               JOIN history_artists ha ON ha.id = ht.history_artist_id \
+              WHERE ht.play_count > 0"
+                .to_string()
+        };
+        let mut params_vec = if windowed {
+            history_params(patterns, q)
+        } else {
+            patterns.into_iter().map(rusqlite::types::Value::Text).collect()
+        };
+        let filtered = format!("FROM ({ranked}) WHERE 1 = 1{search}");
+        let total: i64 = conn.query_row(
+            &format!("SELECT COUNT(*) {filtered}"),
+            rusqlite::params_from_iter(params_vec.iter()),
+            |r| r.get(0),
+        )?;
+        if q.limit <= 0 {
+            return Ok(HistoryPage { rows: Vec::new(), total });
+        }
+        let order = history_order_by(q.sort, TRACK_SORT_FIELDS, "cnt DESC, id ASC");
+        let n = params_vec.len();
+        let sql = format!(
+            "SELECT id, cnt, display_title, display_name, rank, last_played {filtered} \
+             ORDER BY {order} LIMIT ?{} OFFSET ?{}",
+            n + 1,
+            n + 2,
+        );
+        params_vec.push(rusqlite::types::Value::Integer(q.limit));
+        params_vec.push(rusqlite::types::Value::Integer(q.offset.max(0)));
+        let mut stmt = conn.prepare(&sql)?;
+        let mut rows: Vec<HistoryMostPlayed> = stmt
+            .query_map(rusqlite::params_from_iter(params_vec.iter()), most_played_row)?
+            .collect::<SqlResult<Vec<_>>>()?;
+        stamp_history_library(&conn, &mut rows)?;
+        Ok(HistoryPage { rows, total })
+    }
+
+    /// One page of the History view's **Artists** tab — same shape as
+    /// `history_tracks_page`: ranked by plays inside the window, then narrowed
+    /// by `query` (every term in the artist's name).
+    pub fn history_artists_page(&self, q: &HistoryPageQuery) -> SqlResult<HistoryPage<HistoryArtistStats>> {
+        let conn = self.reader();
+        let (search, patterns) = history_search_clause(q.query, "", "canonical_name");
+        let windowed = q.since_ts.is_some();
+        let ranked = if windowed {
+            let (p, c) = (patterns.len() + 1, patterns.len() + 2);
+            format!(
+                "SELECT ha.id, COUNT(*) AS cnt, COUNT(DISTINCT ht.id) AS track_count, \
+                        ha.display_name, ha.canonical_name, MAX(hp.played_at) AS last_played, \
+                        RANK() OVER (ORDER BY COUNT(*) DESC) AS rank \
+                   FROM history_plays hp \
+                   JOIN history_tracks ht ON ht.id = hp.history_track_id \
+                   JOIN history_artists ha ON ha.id = ht.history_artist_id \
+                  WHERE hp.played_at >= ?{p} AND (?{c} IS NULL OR hp.played_at <= ?{c}) \
+                    AND ha.canonical_name != '' \
+                  GROUP BY ha.id"
+            )
+        } else {
+            "SELECT ha.id, ha.play_count AS cnt, \
+                    (SELECT COUNT(*) FROM history_tracks ht WHERE ht.history_artist_id = ha.id) AS track_count, \
+                    ha.display_name, ha.canonical_name, ha.last_played_at AS last_played, \
+                    RANK() OVER (ORDER BY ha.play_count DESC) AS rank \
+               FROM history_artists ha \
+              WHERE ha.play_count > 0 AND ha.canonical_name != ''"
+                .to_string()
+        };
+        let mut params_vec = if windowed {
+            history_params(patterns, q)
+        } else {
+            patterns.into_iter().map(rusqlite::types::Value::Text).collect()
+        };
+        let filtered = format!("FROM ({ranked}) WHERE 1 = 1{search}");
+        let total: i64 = conn.query_row(
+            &format!("SELECT COUNT(*) {filtered}"),
+            rusqlite::params_from_iter(params_vec.iter()),
+            |r| r.get(0),
+        )?;
+        if q.limit <= 0 {
+            return Ok(HistoryPage { rows: Vec::new(), total });
+        }
+        let order = history_order_by(q.sort, ARTIST_SORT_FIELDS, "cnt DESC, id ASC");
+        let n = params_vec.len();
+        let sql = format!(
+            "SELECT id, cnt, track_count, display_name, rank, last_played {filtered} \
+             ORDER BY {order} LIMIT ?{} OFFSET ?{}",
+            n + 1,
+            n + 2,
+        );
+        params_vec.push(rusqlite::types::Value::Integer(q.limit));
+        params_vec.push(rusqlite::types::Value::Integer(q.offset.max(0)));
+        let mut stmt = conn.prepare(&sql)?;
+        let rows: Vec<HistoryArtistStats> = stmt
+            .query_map(rusqlite::params_from_iter(params_vec.iter()), artist_stats_row)?
+            .collect::<SqlResult<Vec<_>>>()?;
+        Ok(HistoryPage { rows, total })
     }
 
     /// Total number of recorded plays. Cheap (`COUNT(*)` over an indexed table);
@@ -1153,28 +1473,17 @@ impl Database {
     pub fn get_history_most_played(&self, limit: i64) -> SqlResult<Vec<HistoryMostPlayed>> {
         let conn = self.reader();
         let mut stmt = conn.prepare(
-            "SELECT id, play_count, display_title, display_name, rank FROM ( \
-               SELECT ht.id, ht.play_count, ht.display_title, ha.display_name, \
+            "SELECT id, play_count, display_title, display_name, rank, last_played_at FROM ( \
+               SELECT ht.id, ht.play_count, ht.display_title, ha.display_name, ht.last_played_at, \
                       RANK() OVER (ORDER BY ht.play_count DESC) as rank \
                FROM history_tracks ht \
                JOIN history_artists ha ON ha.id = ht.history_artist_id \
                WHERE ht.play_count > 0 \
              ) ORDER BY play_count DESC LIMIT ?1"
         )?;
-        let rows = stmt.query_map(params![limit], |row| {
-            Ok(HistoryMostPlayed {
-                history_track_id: row.get(0)?,
-                play_count: row.get(1)?,
-                display_title: row.get(2)?,
-                display_artist: row.get(3)?,
-                rank: row.get(4)?,
-                display_album: None,
-                display_album_artist: None,
-                display_path: None,
-            })
-        })?;
+        let rows = stmt.query_map(params![limit], most_played_row)?;
         let mut tracks: Vec<HistoryMostPlayed> = rows.collect::<SqlResult<Vec<_>>>()?;
-        stamp_history_albums(&conn, &mut tracks)?;
+        stamp_history_library(&conn, &mut tracks)?;
         Ok(tracks)
     }
 
@@ -1185,8 +1494,9 @@ impl Database {
     pub fn get_history_most_played_since(&self, since_ts: i64, limit: i64, min_plays: i64) -> SqlResult<Vec<HistoryMostPlayed>> {
         let conn = self.reader();
         let mut stmt = conn.prepare(
-            "SELECT id, cnt, display_title, display_name, rank FROM ( \
+            "SELECT id, cnt, display_title, display_name, rank, last_played FROM ( \
                SELECT ht.id, COUNT(*) as cnt, ht.display_title, ha.display_name, \
+                      MAX(hp.played_at) as last_played, \
                       RANK() OVER (ORDER BY COUNT(*) DESC) as rank \
                FROM history_plays hp \
                JOIN history_tracks ht ON ht.id = hp.history_track_id \
@@ -1196,61 +1506,19 @@ impl Database {
                HAVING COUNT(*) >= ?3 \
              ) ORDER BY cnt DESC LIMIT ?2"
         )?;
-        let rows = stmt.query_map(params![since_ts, limit, min_plays.max(1)], |row| {
-            Ok(HistoryMostPlayed {
-                history_track_id: row.get(0)?,
-                play_count: row.get(1)?,
-                display_title: row.get(2)?,
-                display_artist: row.get(3)?,
-                rank: row.get(4)?,
-                display_album: None,
-                display_album_artist: None,
-                display_path: None,
-            })
-        })?;
+        let rows = stmt.query_map(params![since_ts, limit, min_plays.max(1)], most_played_row)?;
         let mut tracks: Vec<HistoryMostPlayed> = rows.collect::<SqlResult<Vec<_>>>()?;
-        stamp_history_albums(&conn, &mut tracks)?;
-        Ok(tracks)
-    }
-
-    pub fn search_history_tracks(&self, query: &str, limit: i64) -> SqlResult<Vec<HistoryMostPlayed>> {
-        let conn = self.reader();
-        let canonical_query = strip_diacritics(&query.to_lowercase());
-        let pattern = format!("%{}%", canonical_query);
-        let mut stmt = conn.prepare(
-            "SELECT id, play_count, display_title, display_name, rank FROM ( \
-               SELECT ht.id, ht.play_count, ht.display_title, ha.display_name, \
-                      RANK() OVER (ORDER BY ht.play_count DESC) as rank \
-               FROM history_tracks ht \
-               JOIN history_artists ha ON ha.id = ht.history_artist_id \
-               WHERE ht.play_count > 0 \
-                 AND (ht.canonical_title LIKE ?1 OR ha.canonical_name LIKE ?1) \
-             ) ORDER BY play_count DESC LIMIT ?2"
-        )?;
-        let rows = stmt.query_map(params![pattern, limit], |row| {
-            Ok(HistoryMostPlayed {
-                history_track_id: row.get(0)?,
-                play_count: row.get(1)?,
-                display_title: row.get(2)?,
-                display_artist: row.get(3)?,
-                rank: row.get(4)?,
-                display_album: None,
-                display_album_artist: None,
-                display_path: None,
-            })
-        })?;
-        let mut tracks: Vec<HistoryMostPlayed> = rows.collect::<SqlResult<Vec<_>>>()?;
-        stamp_history_albums(&conn, &mut tracks)?;
+        stamp_history_library(&conn, &mut tracks)?;
         Ok(tracks)
     }
 
     pub fn get_history_most_played_artists_since(&self, since_ts: i64, limit: i64) -> SqlResult<Vec<HistoryArtistStats>> {
         let conn = self.reader();
         let mut stmt = conn.prepare(
-            "SELECT id, cnt, track_count, display_name, rank FROM ( \
+            "SELECT id, cnt, track_count, display_name, rank, last_played FROM ( \
                SELECT ha.id, COUNT(*) as cnt, \
                       COUNT(DISTINCT ht.id) as track_count, \
-                      ha.display_name, \
+                      ha.display_name, MAX(hp.played_at) as last_played, \
                       RANK() OVER (ORDER BY COUNT(*) DESC) as rank \
                FROM history_plays hp \
                JOIN history_tracks ht ON ht.id = hp.history_track_id \
@@ -1259,65 +1527,23 @@ impl Database {
                GROUP BY ha.id \
              ) ORDER BY cnt DESC LIMIT ?2"
         )?;
-        let rows = stmt.query_map(params![since_ts, limit], |row| {
-            Ok(HistoryArtistStats {
-                history_artist_id: row.get(0)?,
-                play_count: row.get(1)?,
-                track_count: row.get(2)?,
-                display_name: row.get(3)?,
-                rank: row.get(4)?,
-            })
-        })?;
+        let rows = stmt.query_map(params![since_ts, limit], artist_stats_row)?;
         rows.collect()
     }
 
     pub fn get_history_most_played_artists(&self, limit: i64) -> SqlResult<Vec<HistoryArtistStats>> {
         let conn = self.reader();
         let mut stmt = conn.prepare(
-            "SELECT id, play_count, track_count, display_name, rank FROM ( \
+            "SELECT id, play_count, track_count, display_name, rank, last_played_at FROM ( \
                SELECT ha.id, ha.play_count, \
                       (SELECT COUNT(*) FROM history_tracks ht WHERE ht.history_artist_id = ha.id) as track_count, \
-                      ha.display_name, \
+                      ha.display_name, ha.last_played_at, \
                       RANK() OVER (ORDER BY ha.play_count DESC) as rank \
                FROM history_artists ha \
                WHERE ha.play_count > 0 AND ha.canonical_name != '' \
              ) ORDER BY play_count DESC LIMIT ?1"
         )?;
-        let rows = stmt.query_map(params![limit], |row| {
-            Ok(HistoryArtistStats {
-                history_artist_id: row.get(0)?,
-                play_count: row.get(1)?,
-                track_count: row.get(2)?,
-                display_name: row.get(3)?,
-                rank: row.get(4)?,
-            })
-        })?;
-        rows.collect()
-    }
-
-    pub fn search_history_artists(&self, query: &str, limit: i64) -> SqlResult<Vec<HistoryArtistStats>> {
-        let conn = self.reader();
-        let canonical_query = strip_diacritics(&query.to_lowercase());
-        let pattern = format!("%{}%", canonical_query);
-        let mut stmt = conn.prepare(
-            "SELECT id, play_count, track_count, display_name, rank FROM ( \
-               SELECT ha.id, ha.play_count, \
-                      (SELECT COUNT(*) FROM history_tracks ht WHERE ht.history_artist_id = ha.id) as track_count, \
-                      ha.display_name, \
-                      RANK() OVER (ORDER BY ha.play_count DESC) as rank \
-               FROM history_artists ha \
-               WHERE ha.play_count > 0 AND ha.canonical_name LIKE ?1 \
-             ) ORDER BY play_count DESC LIMIT ?2"
-        )?;
-        let rows = stmt.query_map(params![pattern, limit], |row| {
-            Ok(HistoryArtistStats {
-                history_artist_id: row.get(0)?,
-                play_count: row.get(1)?,
-                track_count: row.get(2)?,
-                display_name: row.get(3)?,
-                rank: row.get(4)?,
-            })
-        })?;
+        let rows = stmt.query_map(params![limit], artist_stats_row)?;
         rows.collect()
     }
 
@@ -1704,6 +1930,142 @@ mod tests {
             }
         }
         out
+    }
+
+    fn key(field: &str, dir: &str) -> SortKey {
+        SortKey { field: field.to_string(), dir: dir.to_string() }
+    }
+
+    fn pq<'a>(query: Option<&'a str>, since_ts: Option<i64>, sort: &'a [SortKey], offset: i64, limit: i64) -> HistoryPageQuery<'a> {
+        HistoryPageQuery { query, since_ts, as_of: None, sort, offset, limit }
+    }
+
+    /// A play recorded after the first page was read stays out of every later
+    /// page asked with the same cutoff, so offset paging can't repeat a row —
+    /// on Recent and on a windowed ranking. `limit: 0` answers the total alone.
+    #[test]
+    fn test_history_pages_hold_their_cutoff_and_count_only() {
+        let db = test_db();
+        seed_plays(&db, &[("A", "One", 100), ("A", "Two", 200), ("B", "Three", 300)]);
+        let as_of = Some(300);
+        let first = db.history_recent_page(&HistoryPageQuery { as_of, limit: 2, ..Default::default() }).unwrap();
+        assert_eq!(first.rows.iter().map(|r| r.played_at).collect::<Vec<_>>(), vec![300, 200]);
+
+        seed_plays(&db, &[("C", "New", 400)]);
+        let second = db.history_recent_page(&HistoryPageQuery { as_of, offset: 2, limit: 2, ..Default::default() }).unwrap();
+        assert_eq!(second.rows.iter().map(|r| r.played_at).collect::<Vec<_>>(), vec![100]);
+        assert_eq!(second.total, 3, "the new play is outside the cutoff");
+
+        let windowed = db.history_tracks_page(&HistoryPageQuery { since_ts: Some(0), as_of, limit: 10, ..Default::default() }).unwrap();
+        assert_eq!(windowed.total, 3);
+        let artists = db.history_artists_page(&HistoryPageQuery { since_ts: Some(0), as_of, limit: 10, ..Default::default() }).unwrap();
+        assert_eq!(artists.total, 2);
+
+        let count = db.history_tracks_page(&HistoryPageQuery { limit: 0, ..Default::default() }).unwrap();
+        assert_eq!((count.total, count.rows.len()), (4, 0));
+    }
+
+    /// Recent: newest first, paged by offset with a stable total, narrowed by
+    /// every search term (title OR artist, accent-folded) and by the window.
+    #[test]
+    fn test_history_recent_page_pages_filters_and_counts() {
+        let db = test_db();
+        seed_plays(&db, &[
+            ("Björk", "Jóga", 100),
+            ("Björk", "Hyperballad", 200),
+            ("Massive Attack", "Teardrop", 300),
+            ("Björk", "Jóga", 400),
+        ]);
+
+        let p1 = db.history_recent_page(&pq(None, None, &[], 0, 2)).unwrap();
+        assert_eq!(p1.total, 4);
+        assert_eq!(p1.rows.iter().map(|r| r.played_at).collect::<Vec<_>>(), vec![400, 300]);
+        let p2 = db.history_recent_page(&pq(None, None, &[], 2, 2)).unwrap();
+        assert_eq!(p2.rows.iter().map(|r| r.played_at).collect::<Vec<_>>(), vec![200, 100]);
+
+        // "bjork joga": both terms must match, across title and artist, unaccented.
+        let q = db.history_recent_page(&pq(Some("bjork joga"), None, &[], 0, 10)).unwrap();
+        assert_eq!(q.total, 2);
+        assert!(q.rows.iter().all(|r| r.display_title == "Jóga"));
+
+        let since = db.history_recent_page(&pq(None, Some(250), &[], 0, 10)).unwrap();
+        assert_eq!(since.total, 2);
+
+        let by_title = db.history_recent_page(&pq(None, None, &[key("title", "asc")], 0, 10)).unwrap();
+        assert_eq!(by_title.rows[0].display_title, "Hyperballad");
+    }
+
+    /// Tracks: ranked over the whole window, then searched — a searched row
+    /// keeps the rank it has unfiltered. Sorting reorders without re-ranking.
+    #[test]
+    fn test_history_tracks_page_keeps_rank_through_search_and_sort() {
+        let db = test_db();
+        seed_plays(&db, &[
+            ("A", "Top", 10), ("A", "Top", 20), ("A", "Top", 30),
+            ("B", "Middle", 40), ("B", "Middle", 50),
+            ("C", "Bottom", 60),
+        ]);
+
+        let all = db.history_tracks_page(&pq(None, None, &[], 0, 10)).unwrap();
+        assert_eq!(all.total, 3);
+        assert_eq!(all.rows.iter().map(|r| (r.display_title.as_str(), r.rank)).collect::<Vec<_>>(),
+            vec![("Top", 1), ("Middle", 2), ("Bottom", 3)]);
+        assert_eq!(all.rows[0].last_played_at, Some(30));
+
+        let q = db.history_tracks_page(&pq(Some("bottom"), None, &[], 0, 10)).unwrap();
+        assert_eq!(q.total, 1);
+        assert_eq!(q.rows[0].rank, 3, "rank is taken before the search filter");
+
+        let by_title = db.history_tracks_page(&pq(None, None, &[key("title", "asc")], 0, 10)).unwrap();
+        assert_eq!(by_title.rows.iter().map(|r| r.display_title.as_str()).collect::<Vec<_>>(),
+            vec!["Bottom", "Middle", "Top"]);
+        assert_eq!(by_title.rows[0].rank, 3);
+
+        // A window counts only its plays and re-ranks inside it.
+        let recent = db.history_tracks_page(&pq(None, Some(35), &[], 0, 10)).unwrap();
+        assert_eq!(recent.total, 2);
+        assert_eq!((recent.rows[0].display_title.as_str(), recent.rows[0].play_count, recent.rows[0].rank), ("Middle", 2, 1));
+        assert_eq!(recent.rows[0].last_played_at, Some(50));
+
+        let page2 = db.history_tracks_page(&pq(None, None, &[], 1, 1)).unwrap();
+        assert_eq!(page2.rows[0].display_title, "Middle");
+        assert_eq!(page2.total, 3);
+    }
+
+    #[test]
+    fn test_history_artists_page_searches_names_and_windows() {
+        let db = test_db();
+        seed_plays(&db, &[
+            ("Radiohead", "Creep", 10), ("Radiohead", "Airbag", 20),
+            ("Portishead", "Roads", 30),
+            ("Muse", "Uprising", 40),
+        ]);
+        let all = db.history_artists_page(&pq(None, None, &[], 0, 10)).unwrap();
+        assert_eq!(all.total, 3);
+        assert_eq!((all.rows[0].display_name.as_str(), all.rows[0].track_count, all.rows[0].last_played_at),
+            ("Radiohead", 2, Some(20)));
+
+        let q = db.history_artists_page(&pq(Some("head"), None, &[], 0, 10)).unwrap();
+        assert_eq!(q.total, 2);
+
+        let w = db.history_artists_page(&pq(None, Some(25), &[key("name", "asc")], 0, 10)).unwrap();
+        assert_eq!(w.rows.iter().map(|r| r.display_name.as_str()).collect::<Vec<_>>(), vec!["Muse", "Portishead"]);
+    }
+
+    /// LIKE wildcards in the query are literal, and a sort field outside the
+    /// tab's whitelist is ignored rather than spliced into the SQL.
+    #[test]
+    fn test_history_page_search_escapes_wildcards_and_ignores_unknown_sorts() {
+        let db = test_db();
+        seed_plays(&db, &[("A", "snake_case", 10), ("A", "snakeXcase", 20), ("A", "100%", 30)]);
+        let q = db.history_tracks_page(&pq(Some("snake_case"), None, &[], 0, 10)).unwrap();
+        assert_eq!(q.rows.iter().map(|r| r.display_title.as_str()).collect::<Vec<_>>(), vec!["snake_case"]);
+        let pct = db.history_recent_page(&pq(Some("100%"), None, &[], 0, 10)).unwrap();
+        assert_eq!(pct.total, 1);
+
+        let bogus = [key("display_title; DROP TABLE history_plays; --", "asc")];
+        let r = db.history_recent_page(&pq(None, None, &bogus, 0, 10)).unwrap();
+        assert_eq!(r.total, 3);
     }
 
     #[test]
