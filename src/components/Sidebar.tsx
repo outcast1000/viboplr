@@ -131,7 +131,7 @@ export function Sidebar({
             aria-label={item.label}
             aria-current={item.active ? "page" : undefined}
           >
-            <span className="nav-btn-label">{item.icon} {!collapsed && item.label}</span>
+            <span className="nav-btn-label">{item.icon} {!collapsed && <span className="nav-btn-text">{item.label}</span>}</span>
           </button>
         ))}
         {pluginNavItems && pluginNavItems.length > 0 && (
@@ -149,7 +149,7 @@ export function Sidebar({
                   aria-current={noDetail && view === viewKey ? "page" : undefined}
                 >
                   <span className="nav-btn-label">
-                    <PluginIcon name={item.icon} /> {!collapsed && item.label}
+                    <PluginIcon name={item.icon} /> {!collapsed && <span className="nav-btn-text">{item.label}</span>}
                   </span>
                   {(() => {
                     const badge = badgeMap?.get(`${item.pluginId}:${item.id}`);
@@ -181,7 +181,7 @@ export function Sidebar({
           aria-label="Collections"
           aria-current={noDetail && view === "collections" ? "page" : undefined}
         >
-          <span className="nav-btn-label">{icons.collections} {!collapsed && "Collections"}</span>
+          <span className="nav-btn-label">{icons.collections} {!collapsed && <span className="nav-btn-text">Collections</span>}</span>
           {collectionAlertLabel && (
             <span
               className="update-badge update-badge--error"
@@ -194,12 +194,12 @@ export function Sidebar({
         <button className={`nav-btn sidebar-bottom-btn${noDetail && view === "extensions" ? " active" : ""}`} onClick={() => navClick("extensions", () => onShowExtensions?.())} title="Extensions" aria-label="Extensions" aria-current={noDetail && view === "extensions" ? "page" : undefined}>
           <span className="nav-btn-label">
             <svg {...iconProps}><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><path d="M14 17h7M17.5 14v7"/></svg>
-            {!collapsed && "Extensions"}
+            {!collapsed && <span className="nav-btn-text">Extensions</span>}
           </span>
           {!!extensionUpdateCount && extensionUpdateCount > 0 && <span className="ext-nav-badge">{extensionUpdateCount}</span>}
         </button>
         <button className={`nav-btn sidebar-bottom-btn${view === "settings" ? " active" : ""}`} onClick={() => navClick("settings", onShowSettings)} title="Settings" aria-label="Settings" aria-current={view === "settings" ? "page" : undefined}>
-          <span className="nav-btn-label">{icons.settings} {!collapsed && "Settings"}</span>
+          <span className="nav-btn-label">{icons.settings} {!collapsed && <span className="nav-btn-text">Settings</span>}</span>
           {updateBadge && (
             <span
               className={`update-badge update-badge--${updateBadge}`}

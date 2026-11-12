@@ -1,6 +1,17 @@
 .app {
+  /* Side-column widths come from the panes' splitters (PaneSplitter.tsx): the
+     stored open width (--sidebar-width / --queue-width, inline from App.tsx),
+     overridden by --*-drag-width while a splitter is dragged; a collapsed pane
+     is its rail (below). The queue gives way first on a narrow window, so the
+     main column keeps --main-min-width. */
+  --main-min-width: 360px;
+  --sidebar-col: var(--sidebar-drag-width, var(--sidebar-width, 220px));
+  --queue-col: min(
+    var(--queue-drag-width, var(--queue-width, 300px)),
+    max(200px, 100vw - var(--sidebar-col) - var(--main-min-width))
+  );
   display: grid;
-  grid-template-columns: 220px 1fr;
+  grid-template-columns: var(--sidebar-col) 1fr;
   grid-template-rows: auto 1fr auto;
   height: 100vh;
   user-select: none;
@@ -20,29 +31,21 @@
   display: none;
 }
 
-.app.queue-open {
-  grid-template-columns: 220px 1fr var(--queue-width, 300px);
+.app.sidebar-collapsed {
+  --sidebar-col: 56px;
 }
 
-.app.sidebar-collapsed {
-  grid-template-columns: 56px 1fr;
+.app.queue-collapsed {
+  --queue-col: 40px;
+}
+
+.app.queue-open {
+  grid-template-columns: var(--sidebar-col) 1fr var(--queue-col);
 }
 
 .app.app-restoring .sidebar,
 .app.app-restoring {
   transition: none !important;
-}
-
-.app.sidebar-collapsed.queue-open {
-  grid-template-columns: 56px 1fr var(--queue-width, 300px);
-}
-
-.app.queue-open.queue-collapsed {
-  grid-template-columns: 220px 1fr 40px;
-}
-
-.app.sidebar-collapsed.queue-open.queue-collapsed {
-  grid-template-columns: 56px 1fr 40px;
 }
 
 

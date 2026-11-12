@@ -6,7 +6,7 @@ vi.mock("../store", () => ({ store: { set: (...a: unknown[]) => storeSet(...(a a
 
 import { usePersistedSetting, hydratePersistedSettings, sameShape } from "../hooks/usePersistedSetting";
 import {
-  restoreQueueWidth, restoreSearchViewModes, restoreOneOf, restoreNonEmptyString, restoreStringList,
+  restoreQueueWidth, restoreSidebarWidth, restoreSearchViewModes, restoreOneOf, restoreNonEmptyString, restoreStringList,
 } from "../startup/settingRestorers";
 
 beforeEach(() => storeSet.mockClear());
@@ -86,6 +86,13 @@ describe("restore rules", () => {
     expect(restoreQueueWidth(600)).toBe(600);
     expect(restoreQueueWidth(601)).toBeUndefined();
     expect(restoreQueueWidth("300")).toBeUndefined();
+  });
+
+  it("sidebar width stays inside the resizable range", () => {
+    expect(restoreSidebarWidth(159)).toBeUndefined();
+    expect(restoreSidebarWidth(160)).toBe(160);
+    expect(restoreSidebarWidth(320)).toBe(320);
+    expect(restoreSidebarWidth(321)).toBeUndefined();
   });
 
   it("search view modes need tracks/albums/artists; tags falls back to tiles", () => {

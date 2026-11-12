@@ -83,7 +83,7 @@ Every tile card follows a common pattern with three interactive zones:
 
 The app uses CSS Grid (`.app` in App.css):
 ```
-grid-template-columns: 220px 1fr [queue-width]
+grid-template-columns: [sidebar-width] 1fr [queue-width]
 grid-template-rows:    auto  1fr  auto
 
 ┌─────────────────────────────────────────────┐
@@ -91,7 +91,7 @@ grid-template-rows:    auto  1fr  auto
 ├──────────┬──────────────────────┬───────────┤
 │ Sidebar  │ Main Content         │ Queue     │
 │ (col 1)  │ (col 2)              │ (col 3)  │
-│ 220px    │ 1fr                  │ 300px    │
+│ 160–320  │ 1fr                  │ 200–600  │
 │ or 56px  │                      │ or 40px  │
 ├──────────┴──────────────────────┴───────────┤
 │ Now Playing Bar (row 3, all columns)        │
@@ -99,6 +99,8 @@ grid-template-rows:    auto  1fr  auto
 ```
 
 Dynamic states: `.sidebar-collapsed` (56px), `.queue-open` (adds col 3), `.queue-collapsed` (40px strip).
+
+**Splitters, no collapse arrows (owner decision, 2026-11-12).** Both side panes are sized and collapsed by the splitter on their inner edge (`PaneSplitter.tsx`, rules in the pure `utils/paneResize.ts`, pinned by `__tests__/paneResize.test.ts` + e2e `pane-splitters.test.js`). Drag to resize between the pane's min and max (persisted: `sidebarWidth` 160–320, default 220; `queueWidth` 200–600, default 300). Past the minimum the pane holds still and the splitter turns `--warning`, with a pill by the pointer ("Keep dragging to collapse" + a meter) and a dashed line where it folds; crossing the line arms a collapse, the pill says "Release to collapse" and the pane is **previewed** collapsed (dimmed and hatched, its rail outlined); from the rail, dragging outward past the open line shows a ghost at the width it will open at. **Preview, then release** (owner decision, 2026-11-12, over a live snap): nothing is committed or persisted until the pointer is released, and Escape cancels the drag. The open width follows the pointer through a CSS variable on the grid (`--sidebar-drag-width` / `--queue-drag-width`) rather than React state, so a drag doesn't re-render App per move; the width is persisted once, on release. The open line sits further out than the collapse line (hysteresis), so hovering at the edge doesn't flicker. A pane's max shrinks so the main column keeps `MAIN_MIN_WIDTH` (360px, `effectivePaneLimits`), and on a narrow window the queue column gives way first (`--queue-col` in App.css). The hit area leans off whichever side scrolls at that edge (over the main column for the sidebar, over the queue for the queue), so it never covers a scrollbar. Double-click or Enter on a splitter toggles; arrow keys resize, and shrinking past the minimum collapses. Cmd+B / Cmd+P and clicking the queue rail still toggle; the queue splitter toggles through `handleToggleQueueCollapsed`, the same route as Cmd+P. The queue splitter is hidden in audio fullscreen (the queue is a drawer there, at its stored width) and both are hidden in mini mode. Don't bring the arrow buttons back.
 
 ## Caption Bar
 
@@ -281,7 +283,7 @@ Two states:
 
 Queue items show: thumbnail, a like/dislike indicator before the title (read from the track-like store by song, using `var(--error)` to match the other like buttons), title + duration, artist + album (each a link to its page — subtle underline on hover, plain click only; see queue.md "Navigation from QueueTracks"), and an inline play/locate icon. The hover-action tray's primary button is a **Play** button on non-current rows, but a **play/pause toggle** on the currently-playing row (wired to `onTogglePlayPause` → `playback.handlePause`), so the current track can be paused/resumed directly from the queue.
 
-Features: drag-and-drop reorder, multi-select (Shift/Cmd+Click), right-click context menu, resizable width via drag handle.
+Features: drag-and-drop reorder, multi-select (Shift/Cmd+Click), right-click context menu, resizable and collapsible by its splitter (see Layout).
 
 **Fallback plays say so too** — for plays that may fall back at all: a row's own play button plays that row's file only and fails visibly instead (queue.md → "Interaction with Stream Resolvers"). While an entry resolves, the row carries a **"Trying X… · why the last one didn't answer"** line in the failure note's slot (`useStreamResolution` → `resolvingByKey`). It is **per entry and owned by the walk that wrote it** — a play and the next row's preload walk at the same time, and one shared status let the preload's clear wipe the playing row's line. Once an entry plays from something other than its own source, a **"via X" chip** takes the row's file-size slot; `EntrySourceNote.reason` says why: **`fallback`** (amber — it has a source of its own that couldn't be used: a moved file, a dead Subsonic id, a source the engine gave up on), **`no-source`** (neutral — a metadata-only entry) or **`prefer-video`** (neutral — the Prefer video pass found a video; that entry *does* have a source of its own, so it must not be explained as having none). Clicking it opens `PlaybackSourceModal`, whose body is `ResolverWalkDetails`, shared with `PlaybackFailureModal`. The note (`playback/trackFailures.ts`) is written on each successful resolve (none when the entry's own source won), carried by the 12s resolve cache, dropped when a later walk finds nothing, session-only and pruned with the entry, and **not** cleared when a re-resolve starts. When a walk skips sources after the engine gave up on one, only that one is listed `unplayable` ("Found, but wouldn't play"); the entries before it keep the outcome they had on the previous walk (`skippedAttempt`), since the skip count is the winner's index + 1. A failure note outranks the chip.
 

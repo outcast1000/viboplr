@@ -347,7 +347,6 @@ interface QueuePanelProps {
    *  open on wherever the user last browsed rather than on what's playing. */
   fsRevealed?: boolean;
   onToggleCollapsed: () => void;
-  onResizeWidth: (width: number) => void;
   isPlaying?: boolean;
   debugMode?: boolean;
   mainPlaylistDir: string | null;
@@ -496,7 +495,7 @@ export function QueuePanel({
 
   onPlay, onTogglePlayPause, onRemove: _onRemove, onLocateTrack, onStartRadio, onNavigateToArtist, onNavigateToAlbum, onMoveMultiple, historyBack, historyForward, onHistoryBack, onHistoryForward, onSaveAsM3U, onSaveToPlaylists, onExportAsMixtape, onLoadPlaylist, onPublishQueue, preferVideoResolution, onPreferVideoResolutionChange, onRandomize, queueMode, onToggleQueueMode, autoContinueEnabled, onToggleAutoContinue, onOpenAutoContinueSettings, onContextMenu, onToggleLike, onToggleDislike,
   externalDropTarget,
-  collapsed, fsRevealed, onToggleCollapsed, onResizeWidth, isPlaying, debugMode,
+  collapsed, fsRevealed, onToggleCollapsed, isPlaying, debugMode,
   mainPlaylistDir, thumbInfo, resolvingByKey, trackFailures, onShowFailure, sourceNotes, onShowSource,
   loadingPlay = null, playbackWaiting = false, loadFailure = null, onCancelLoadingPlay,
 }: QueuePanelProps) {
@@ -869,24 +868,6 @@ export function QueuePanel({
     }
   }
 
-  const [resizing, setResizing] = useState(false);
-
-  function handleResizeMouseDown(e: React.MouseEvent) {
-    e.preventDefault();
-    setResizing(true);
-    const onMouseMove = (ev: MouseEvent) => {
-      const newWidth = Math.max(200, Math.min(600, window.innerWidth - ev.clientX));
-      onResizeWidth(newWidth);
-    };
-    const onMouseUp = () => {
-      window.removeEventListener("mousemove", onMouseMove);
-      window.removeEventListener("mouseup", onMouseUp);
-      setResizing(false);
-    };
-    window.addEventListener("mousemove", onMouseMove);
-    window.addEventListener("mouseup", onMouseUp);
-  }
-
   // Derived values for banner rendering
   const eyebrow = formatPlaylistSource(playlistContext?.source);
   const gradientStop = coverColor
@@ -914,7 +895,6 @@ export function QueuePanel({
 
   return (
     <aside className={`queue-panel${collapsed ? " collapsed" : ""}`} ref={queuePanelRef} tabIndex={-1} onKeyDown={handleKeyDown}>
-      {!collapsed && <div className={`queue-resize-handle${resizing ? " active" : ""}`} onMouseDown={handleResizeMouseDown} />}
       {collapsed ? (
         <div className="queue-collapsed-strip" onClick={onToggleCollapsed}>
           {/* The queue's behaviour stays visible while collapsed — a hidden

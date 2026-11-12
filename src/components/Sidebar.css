@@ -11,7 +11,9 @@
   overflow-y: auto;
   padding: 12px 12px 16px;
   transition: width var(--dur-base) ease, padding var(--dur-base) ease;
-  width: 220px;
+  /* The grid column's width (App.css): the stored width, or the live one
+     while the splitter is being dragged. */
+  width: var(--sidebar-col);
 }
 
 .sidebar.collapsed {
@@ -82,6 +84,16 @@
   display: flex;
   align-items: center;
   gap: 10px;
+  /* A narrow sidebar shortens a long label with an ellipsis instead of
+     widening the button; the button's title carries the full name. */
+  min-width: 0;
+}
+
+.nav-btn-text {
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
 }
 
 .nav-btn-label svg {

@@ -47,7 +47,9 @@ import { type StreamResolver, createLibraryStreamResolver } from "./streamResolv
 import { BUILTIN_PRESETS, presetForGains } from "./eqPresets";
 import { getTimingEntries, type TimingEntry } from "./startupTiming";
 import { useRestoreSession } from "./startup/useRestoreSession";
-import { restoreNonEmptyString, restoreOneOf, restoreQueueWidth, restoreSearchViewModes, restoreStringList, type SearchViewModes } from "./startup/settingRestorers";
+import { restoreNonEmptyString, restoreOneOf, restoreQueueWidth, restoreSearchViewModes, restoreSidebarWidth, restoreStringList, type SearchViewModes } from "./startup/settingRestorers";
+import PaneSplitter from "./components/PaneSplitter";
+import { QUEUE_LIMITS, QUEUE_WIDTH_DEFAULT, SIDEBAR_LIMITS, SIDEBAR_WIDTH_DEFAULT } from "./utils/paneResize";
 
 import { usePlayback, type PlaybackOutcomeHandlers } from "./hooks/usePlayback";
 import { nativeEngine, type EngineCapabilities } from "./playback/nativeEngine";
@@ -1702,7 +1704,8 @@ function App() {
 
   const [sidebarCollapsed, setSidebarCollapsed] = usePersistedSetting("sidebarCollapsed", false, restoredRef);
   const [queueCollapsed, setQueueCollapsed] = usePersistedSetting("queueCollapsed", false, restoredRef);
-  const [queueWidth, setQueueWidth] = usePersistedSetting("queueWidth", 300, restoredRef, { restore: restoreQueueWidth });
+  const [sidebarWidth, setSidebarWidth] = usePersistedSetting("sidebarWidth", SIDEBAR_WIDTH_DEFAULT, restoredRef, { restore: restoreSidebarWidth });
+  const [queueWidth, setQueueWidth] = usePersistedSetting("queueWidth", QUEUE_WIDTH_DEFAULT, restoredRef, { restore: restoreQueueWidth });
 
   // Queue drawer, fullscreen only — summoned by the bar's Queue button or Cmd+P,
   // and open until toggled again.
@@ -4541,10 +4544,6 @@ function App() {
     setQueueCollapsed(prev => !prev); // persistence: usePersistedSetting
   }
 
-  function handleResizeQueueWidth(width: number) {
-    setQueueWidth(width); // persistence: usePersistedSetting
-  }
-
   function handleSearchViewModesChange(modes: { tracks: ViewMode; albums: ViewMode; artists: ViewMode; tags: ViewMode }) {
     setSearchViewModes(modes); // persistence: usePersistedSetting
   }
@@ -5409,7 +5408,7 @@ function App() {
     <TagOpsProvider value={tagOpsDeps}>
     <VideoFrameQueueProvider>
     <VideoFrameQueueRefBridge refOut={videoFrameQueueRef} />
-    <div className={`app ${appRestoring ? "app-restoring" : ""} ${playback.currentTrack && isVideoTrack(playback.currentTrack) ? "video-mode" : ""} ${playback.nativeVideoActive ? "mpv-video-hole" : ""} ${playback.nativeVideoActive && videoTheater ? "mpv-hole-theater" : ""} ${playback.nativeVideoActive && videoReady && playback.nativeVideoPresenting ? "mpv-video-ready" : ""} ${playback.nativeFullscreen ? "mpv-native-fs" : ""} queue-open ${queueCollapsed ? "queue-collapsed" : ""} ${mini.miniMode ? "mini-mode" : ""} ${sidebarCollapsed ? "sidebar-collapsed" : ""} ${videoInQueue ? "video-in-queue" : ""} ${audioFullscreen ? "audio-fs-open" : ""} ${audioFullscreen && fsQueueOpen ? "fs-queue-revealed" : ""}`} style={{ "--queue-width": `${queueWidth}px`, "--video-queue-size": `${videoLayout.sizes.queue}px` } as React.CSSProperties}>
+    <div className={`app ${appRestoring ? "app-restoring" : ""} ${playback.currentTrack && isVideoTrack(playback.currentTrack) ? "video-mode" : ""} ${playback.nativeVideoActive ? "mpv-video-hole" : ""} ${playback.nativeVideoActive && videoTheater ? "mpv-hole-theater" : ""} ${playback.nativeVideoActive && videoReady && playback.nativeVideoPresenting ? "mpv-video-ready" : ""} ${playback.nativeFullscreen ? "mpv-native-fs" : ""} queue-open ${queueCollapsed ? "queue-collapsed" : ""} ${mini.miniMode ? "mini-mode" : ""} ${sidebarCollapsed ? "sidebar-collapsed" : ""} ${videoInQueue ? "video-in-queue" : ""} ${audioFullscreen ? "audio-fs-open" : ""} ${audioFullscreen && fsQueueOpen ? "fs-queue-revealed" : ""}`} style={{ "--sidebar-width": `${sidebarWidth}px`, "--queue-width": `${queueWidth}px`, "--video-queue-size": `${videoLayout.sizes.queue}px` } as React.CSSProperties}>
       <Sidebar
         view={view}
         selectedTrack={library.selectedTrack}
@@ -5459,18 +5458,16 @@ function App() {
         badgeMap={mergedBadgeMap}
         onPluginView={handleOpenPluginView}
       />
-      <button
-        className="g-btn g-btn-xs sidebar-collapse-btn"
-        onClick={handleToggleSidebar}
-        title={sidebarCollapsed ? "Expand sidebar" : "Collapse sidebar"}
-      >
-        <svg width={14} height={14} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
-          {sidebarCollapsed
-            ? <polyline points="9 6 15 12 9 18" />
-            : <polyline points="15 18 9 12 15 6" />
-          }
-        </svg>
-      </button>
+      <PaneSplitter
+        side="start"
+        label="Sidebar width"
+        limits={SIDEBAR_LIMITS}
+        width={sidebarWidth}
+        collapsed={sidebarCollapsed}
+        otherWidth={queueCollapsed ? QUEUE_LIMITS.rail : queueWidth}
+        onResize={setSidebarWidth /* persistence: usePersistedSetting */}
+        onCollapsedChange={setSidebarCollapsed /* persistence: usePersistedSetting */}
+      />
 
       {showAddServer && (
         <AddServerModal
@@ -6454,7 +6451,6 @@ function App() {
           }
           fsRevealed={audioFullscreen ? fsQueueOpen : undefined}
           onToggleCollapsed={handleToggleQueueCollapsed}
-          onResizeWidth={handleResizeQueueWidth}
           isPlaying={playback.playing}
           debugMode={debugMode}
           mainPlaylistDir={mainPlaylistDir}
@@ -6473,17 +6469,17 @@ function App() {
           sourceNotes={sourceNotes}
           onShowSource={(track) => setSourceDetailsKey(track.key)}
         />
-      {!queueCollapsed && (
-        <button
-          className="g-btn g-btn-xs queue-collapse-btn"
-          onClick={handleToggleQueueCollapsed}
-          title="Collapse playlist"
-        >
-          <svg width={14} height={14} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
-            <polyline points="9 6 15 12 9 18" />
-          </svg>
-        </button>
-      )}
+      <PaneSplitter
+        side="end"
+        label="Queue width"
+        limits={QUEUE_LIMITS}
+        width={queueWidth}
+        collapsed={queueCollapsed}
+        otherWidth={sidebarCollapsed ? SIDEBAR_LIMITS.rail : sidebarWidth}
+        onResize={setQueueWidth /* persistence: usePersistedSetting */}
+        // Through the one queue toggle, so its audio-fullscreen routing holds here too.
+        onCollapsedChange={(next) => { if (next !== queueCollapsed) handleToggleQueueCollapsed(); }}
+      />
 
 
 

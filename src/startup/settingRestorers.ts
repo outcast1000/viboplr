@@ -3,18 +3,15 @@
 // the raw stored value and returns the setting's value, or undefined to keep
 // the default. Pinned by `__tests__/persistedSettingHydration.test.ts`.
 import type { ViewMode } from "../types";
+import { QUEUE_LIMITS, SIDEBAR_LIMITS, restorePaneWidth } from "../utils/paneResize";
 
 export type SearchViewModes = { tracks: ViewMode; albums: ViewMode; artists: ViewMode; tags: ViewMode };
 
 const VIEW_MODES: readonly unknown[] = ["basic", "list", "tiles"];
 const isViewMode = (v: unknown): v is ViewMode => VIEW_MODES.includes(v);
 
-export const QUEUE_WIDTH_MIN = 200;
-export const QUEUE_WIDTH_MAX = 600;
-
-export function restoreQueueWidth(raw: unknown): number | undefined {
-  return typeof raw === "number" && raw >= QUEUE_WIDTH_MIN && raw <= QUEUE_WIDTH_MAX ? raw : undefined;
-}
+export const restoreQueueWidth = restorePaneWidth(QUEUE_LIMITS);
+export const restoreSidebarWidth = restorePaneWidth(SIDEBAR_LIMITS);
 
 /** All of tracks/albums/artists must be valid; `tags` was added later and
  *  falls back to tiles. */

@@ -669,10 +669,7 @@
 /* Help / Shortcuts */
 /* Mini player mode */
 .app.mini-mode,
-.app.mini-mode.queue-open,
-.app.mini-mode.queue-open.queue-collapsed,
-.app.mini-mode.sidebar-collapsed.queue-open,
-.app.mini-mode.sidebar-collapsed.queue-open.queue-collapsed {
+.app.mini-mode.queue-open {
   grid-template-columns: 1fr;
   grid-template-rows: 1fr;
   border-radius: 14px;
@@ -683,9 +680,7 @@
 .app.mini-mode .sidebar,
 .app.mini-mode .main,
 .app.mini-mode .queue-panel,
-.app.mini-mode .search-bar,
-.app.mini-mode .sidebar-collapse-btn,
-.app.mini-mode .queue-collapse-btn {
+.app.mini-mode .search-bar {
   display: none;
 }
 

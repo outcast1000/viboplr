@@ -192,7 +192,7 @@ test('a collapsed queue still renders the track list in the fullscreen drawer', 
   // list) used to render into it, so the drawer slid in looking empty
   // (issue #123). In fullscreen the panel must render expanded regardless of
   // the persisted collapsed state.
-  await page.locator('.queue-collapse-btn').click();
+  await page.locator('.pane-splitter--end').dblclick();
   await expect(page.locator('.queue-panel.collapsed .queue-collapsed-strip')).toBeVisible();
 
   await enterFullscreen(page);

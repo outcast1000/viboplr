@@ -1,0 +1,198 @@
+/* Splitter on a side pane's inner edge (PaneSplitter.tsx). A grid item in the
+   pane's own column, so it follows the column as it resizes and collapses
+   without measuring anything.
+ *
+ * The hit area leans off whichever side scrolls at that edge, so it never
+ * covers a scrollbar: the sidebar scrolls at its right edge, so its splitter
+ * lies over the main column; main scrolls at its right edge, so the queue's
+ * splitter lies over the queue. On the collapsed queue rail it shrinks to fit
+ * the rail's margin beside the queue-mode buttons. `--edge` is where the pane's
+ * edge falls inside the hit area; everything drawn is positioned from it. */
+.pane-splitter {
+  grid-row: 2;
+  align-self: stretch;
+  position: relative;
+  z-index: 10;
+  cursor: col-resize;
+  touch-action: none;
+  outline: none;
+  --edge: 0px;
+}
+.pane-splitter--start {
+  grid-column: 1;
+  justify-self: end;
+  width: 10px;
+  margin-right: -10px;
+}
+.pane-splitter--end {
+  grid-column: 3;
+  justify-self: start;
+  width: 8px;
+}
+.pane-splitter--end.is-collapsed {
+  width: 6px;
+  margin-left: -2px;
+  --edge: 2px;
+}
+/* Above any sticky header or card while a drag draws over the panes. */
+.pane-splitter.active {
+  z-index: 50;
+}
+
+.pane-splitter-edge {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: var(--edge);
+  width: 0;
+  pointer-events: none;
+}
+
+/* The visible line on the edge: nothing at rest, accent on hover / focus /
+   drag, warning in the collapse zone, thicker once letting go changes the pane. */
+.pane-splitter-edge::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: -1px;
+  width: 2px;
+  background: transparent;
+  transition-property: background-color;
+  transition-duration: var(--dur-fast);
+}
+.pane-splitter:hover .pane-splitter-edge::after,
+.pane-splitter:focus-visible .pane-splitter-edge::after,
+.pane-splitter.active .pane-splitter-edge::after {
+  background: rgba(var(--accent-rgb), 0.55);
+}
+.pane-splitter.zone .pane-splitter-edge::after {
+  background: var(--warning);
+}
+.pane-splitter.armed .pane-splitter-edge::after {
+  left: -2px;
+  width: 4px;
+  background: var(--warning);
+}
+
+/* Where the pane folds (zone) or opens — drawn while the drag is near it. */
+.pane-splitter-line {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  width: 0;
+  border-left: 1px dashed var(--warning);
+}
+
+/* Collapse preview: the pane dims and is hatched, its rail outlined. */
+.pane-splitter-preview {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  background:
+    repeating-linear-gradient(135deg, rgba(var(--accent-rgb), 0.08) 0 8px, transparent 8px 16px),
+    rgba(var(--bg-primary-rgb), 0.7);
+}
+.pane-splitter--start .pane-splitter-preview { right: 0; }
+.pane-splitter--end .pane-splitter-preview { left: 0; }
+.pane-splitter-rail {
+  position: absolute;
+  top: 6px;
+  bottom: 6px;
+  border: 2px dashed var(--warning);
+  border-radius: var(--ds-radius);
+  background: rgba(var(--bg-primary-rgb), 0.6);
+}
+.pane-splitter--start .pane-splitter-rail { left: 4px; }
+.pane-splitter--end .pane-splitter-rail { right: 4px; }
+
+/* Open preview: a ghost of the pane at the width it will open at. */
+.pane-splitter-ghost {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 2px dashed rgba(var(--accent-rgb), 0.7);
+  border-radius: var(--ds-radius);
+  background: rgba(var(--accent-rgb), 0.08);
+  overflow: hidden;
+}
+.pane-splitter--start .pane-splitter-ghost { left: 0; }
+.pane-splitter--end .pane-splitter-ghost { right: 0; }
+.pane-splitter-ghost.armed {
+  border-style: solid;
+  border-color: var(--accent);
+  background: rgba(var(--accent-rgb), 0.16);
+}
+.pane-splitter-ghost > span {
+  padding: 4px 10px;
+  border-radius: 999px;
+  background: var(--bg-tertiary);
+  color: var(--accent);
+  font-size: var(--fs-xs);
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+/* What letting go will do, beside the pointer. */
+.pane-splitter-pill {
+  position: absolute;
+  z-index: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 4px 10px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: var(--bg-tertiary);
+  color: var(--text-primary);
+  font-size: var(--fs-xs);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  box-shadow: 0 4px 14px rgba(var(--scrim-rgb), 0.35);
+}
+.pane-splitter--start .pane-splitter-pill { left: 16px; }
+.pane-splitter--end .pane-splitter-pill { right: 16px; }
+.pane-splitter-pill.zone {
+  border-radius: 10px;
+  border-color: var(--warning);
+  color: var(--warning);
+}
+.pane-splitter-pill.armed {
+  background: var(--warning);
+  border-color: var(--warning);
+  color: var(--bg-primary);
+}
+.pane-splitter-meter {
+  height: 3px;
+  border-radius: 2px;
+  background: var(--border);
+  overflow: hidden;
+}
+.pane-splitter-meter i {
+  display: block;
+  height: 100%;
+  background: var(--warning);
+  transform-origin: left;
+}
+
+/* While dragging: the resize cursor everywhere (the pointer outruns the hit
+   area), no text selection, and the sidebar follows without easing. */
+body.pane-resizing,
+body.pane-resizing * {
+  cursor: col-resize !important;
+  user-select: none;
+}
+body.pane-resizing .sidebar {
+  transition: none;
+}
+
+/* The queue is a drawer in audio fullscreen, and mini mode has no panes. */
+.app.audio-fs-open .pane-splitter--end,
+.app.mini-mode .pane-splitter {
+  display: none;
+}
