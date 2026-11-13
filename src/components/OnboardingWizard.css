@@ -338,7 +338,6 @@
 .onboarding-dep-command code {
   flex: 1;
   font-size: var(--fs-xs);
-  user-select: all;
   overflow-wrap: anywhere;
 }
 .onboarding-dep-actions {

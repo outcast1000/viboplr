@@ -54,7 +54,6 @@
 .playback-failure-code {
   font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   font-size: var(--fs-xs);
-  user-select: text;
 }
 
 .playback-failure-subtitle {

@@ -1347,9 +1347,6 @@
   overflow-wrap: anywhere;
   line-height: 1.45;
   text-wrap: pretty;
-  user-select: text;
-  -webkit-user-select: text;
-  cursor: text;
 }
 /* Without a source line, a one-line message sits on the icon's centre. */
 .toast-message--solo { padding-top: 5px; }

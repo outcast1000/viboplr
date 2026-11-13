@@ -148,8 +148,6 @@
   line-height: 1.45;
   text-wrap: pretty;
   color: var(--text-secondary);
-  user-select: text;
-  -webkit-user-select: text;
 }
 .notifications-row.is-fresh .notifications-message {
   color: var(--text-primary);

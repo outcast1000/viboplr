@@ -23,7 +23,7 @@ const CloseIcon = () => (
  * assistant segment. It shows the **whole** message — a card that wraps, the
  * action and the "+N more" link on their own line under the text — because a
  * truncated message was the complaint. The kind is an icon (`NoticeIcon`), so
- * info and success differ by shape as well as colour. The text is selectable and clicking it does nothing; only ×
+ * info and success differ by shape as well as colour. Clicking the text does nothing; only ×
  * dismisses.
  */
 export function Toasts({ current, onDismiss, onAction, onHold, onOpenList }: Props) {

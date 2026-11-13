@@ -147,7 +147,7 @@ export function DependencyModal({ dep, feature, required = true, installProgress
               borderRadius: "var(--ds-radius)",
               padding: "8px 12px",
             }}>
-              <code style={{ flex: 1, fontSize: "var(--fs-sm)", userSelect: "all" }}>{command}</code>
+              <code style={{ flex: 1, fontSize: "var(--fs-sm)" }}>{command}</code>
               <button
                 className="ds-btn ds-btn--ghost ds-btn--sm"
                 onClick={handleCopy}

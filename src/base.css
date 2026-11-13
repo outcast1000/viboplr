@@ -148,15 +148,11 @@
   user-select: none;
 }
 
-/* Re-enable text selection on real content — titles, metadata, lyrics,
-   tooltips, inputs — while chrome/controls stay non-selectable via the * rule.
-   (Track rows are intentionally excluded: they are drag sources.) */
-input, textarea, [contenteditable],
-.now-title, .now-artist, .now-artist-album,
-.detail-hero-title-text, .detail-hero-titleline, .home-hero-title,
-.np-lyric-line, .mixtape-track-title,
-.ds-tooltip-body, .ds-tooltip-val, .ds-tooltip-key,
-.selectable, .selectable * {
+/* Nothing in the app is selectable (owner decision, 2026-11-13): titles,
+   lyrics, toasts and the like stay as inert as the controls around them.
+   Only real text-entry fields opt back in. Don't re-add a content allow-list
+   or per-component `user-select: text`. */
+input, textarea, [contenteditable] {
   -webkit-user-select: text;
   user-select: text;
 }

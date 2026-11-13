@@ -60,7 +60,6 @@
   line-height: 1.5;
   white-space: pre-wrap;
   overflow-wrap: anywhere;
-  user-select: text;
 }
 
 .plugin-chat-msg--assistant {
@@ -78,7 +77,6 @@
   color: var(--error);
   font-size: var(--fs-sm);
   overflow-wrap: anywhere;
-  user-select: text;
 }
 
 .plugin-chat-msg--note {
@@ -94,7 +92,6 @@
   font-size: var(--fs-base);
   line-height: 1.62;
   overflow-wrap: anywhere;
-  user-select: text;
 }
 
 .plugin-chat-md > * { margin: 0; }
