@@ -182,7 +182,7 @@ macro_rules! invoke_handler {
             commands::get_history_most_played_since,
             commands::get_history_most_played_artists,
             commands::get_history_most_played_artists_since,
-            commands::reconnect_history_artist,
+            commands::history_artist_tracks,
             commands::get_track_rank,
             commands::get_artist_rank,
             commands::get_track_play_history,

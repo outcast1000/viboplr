@@ -1638,26 +1638,28 @@ impl Database {
         ).optional()
     }
 
-    /// Attempt to reconnect a ghost history artist to a library artist by canonical name match.
-    /// Returns the library artist_id if found, or None.
-    pub fn reconnect_history_artist(&self, history_artist_id: i64) -> SqlResult<Option<i64>> {
+    /// Every song of one history artist, most played first (ties: most
+    /// recently played), each stamped with its library copy like any history
+    /// row. What an artist row's Play / Enqueue queues when the library has no
+    /// tracks by that artist — an artist you only streamed or watched, or one
+    /// that exists only as an album artist — so the click is never a dead end:
+    /// each song plays its library copy when it has one, else by name.
+    pub fn history_artist_tracks(&self, history_artist_id: i64, limit: i64) -> SqlResult<Vec<HistoryMostPlayed>> {
         let conn = self.reader();
-
-        let canonical_name: String = conn.query_row(
-            "SELECT canonical_name FROM history_artists WHERE id = ?1",
-            params![history_artist_id],
-            |row| row.get(0),
+        let mut stmt = conn.prepare(
+            "SELECT ht.id, ht.play_count, ht.display_title, ha.display_name, \
+                    RANK() OVER (ORDER BY ht.play_count DESC), ht.last_played_at \
+               FROM history_tracks ht \
+               JOIN history_artists ha ON ha.id = ht.history_artist_id \
+              WHERE ht.history_artist_id = ?1 AND ht.play_count > 0 \
+              ORDER BY ht.play_count DESC, ht.last_played_at DESC \
+              LIMIT ?2",
         )?;
-
-        let maybe_artist_id: Option<i64> = conn.query_row(
-            "SELECT id FROM artists
-             WHERE strip_diacritics(unicode_lower(name)) = ?1
-             LIMIT 1",
-            params![canonical_name],
-            |row| row.get(0),
-        ).optional()?;
-
-        Ok(maybe_artist_id)
+        let mut rows: Vec<HistoryMostPlayed> = stmt
+            .query_map(params![history_artist_id, limit], most_played_row)?
+            .collect::<SqlResult<Vec<_>>>()?;
+        stamp_history_library(&conn, &mut rows)?;
+        Ok(rows)
     }
 
     /// Rename or merge history records — the one write history has besides

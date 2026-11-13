@@ -8,12 +8,13 @@
 // outlive its file (a "ghost"). The backend matches each row to a library copy
 // (`display_track_id` / `display_path` / album / length), so a row plays,
 // highlights, drags and opens its links without a reconnect round-trip; a ghost
-// plays through the stream resolvers by name (`historyQueueTrack`). Only the
-// track page and the artist play/enqueue still reconnect, because those need a
-// library row the name alone doesn't give.
+// plays through the stream resolvers by name (`historyQueueTrack`). An artist
+// row plays the library artist when the library has tracks by them, and
+// otherwise their songs from history (`history_artist_tracks`), so no row is a
+// dead end.
 import { useEffect, useState, useRef, useCallback, useMemo } from "react";
 import { invoke } from "@tauri-apps/api/core";
-import type { QueueTrack, HistoryEntry, HistoryMostPlayed, HistoryArtistStats, HistoryPage, ViewMode } from "../types";
+import type { Artist, QueueTrack, HistoryEntry, HistoryMostPlayed, HistoryArtistStats, HistoryPage, ViewMode } from "../types";
 import type { ContextMenuTarget } from "../types/contextMenu";
 import type { Notify } from "../hooks/useToasts";
 import { isLocalTrack } from "../queueEntry";
@@ -66,6 +67,9 @@ interface HistoryViewProps {
 }
 
 type TrackLikeRow = HistoryEntry | HistoryMostPlayed;
+
+/** How many of an artist's history songs their row's Play queues. */
+const HISTORY_ARTIST_TRACKS_LIMIT = 200;
 type AnyRow = TrackLikeRow | HistoryArtistStats;
 
 interface TabData<T> {
@@ -354,20 +358,35 @@ export function HistoryView({
     else onLocateTrackByName(t.display_title, t.display_artist ?? undefined, t.display_album ?? undefined);
   }
 
-  const reconnectArtist = useCallback(async (historyArtistId: number): Promise<number | null> => {
-    try { return await invoke<number | null>("reconnect_history_artist", { historyArtistId }); }
-    catch (e) { console.error("Failed to reconnect artist:", e); return null; }
+  // The library artist a history artist row names, if any — the same lookup
+  // as the artist page (`navigateToArtistByName`).
+  const findArtistId = useCallback(async (name: string): Promise<number | null> => {
+    try { return (await invoke<Artist | null>("find_artist_by_name", { name }))?.id ?? null; }
+    catch (e) { console.error("Failed to look up a history artist in the library:", e); return null; }
   }, []);
-  // Playing an artist needs their library tracks. When there are none — the
-  // artist isn't in the library, or is only an album artist — say so instead
-  // of doing nothing. Their page still opens (by name).
-  const withArtistId = (a: HistoryArtistStats, act: (id: number) => Promise<boolean>) => {
-    reconnectArtist(a.history_artist_id)
-      .then(id => (id ? act(id) : false))
-      .then(queued => {
-        if (!queued) onNotify(`No tracks by ${a.display_name} in your library`, { kind: "warning" });
-      })
-      .catch(e => console.error("Failed to play a history artist:", e));
+
+  // An artist row's Play / Enqueue: the library artist's tracks when the
+  // library has any; otherwise that artist's songs from history, most played
+  // first, each through its library copy or by name — an artist you only
+  // streamed or watched (or one that is only an album artist) still plays.
+  const playArtistRow = (a: HistoryArtistStats, enqueue: boolean) => {
+    (async () => {
+      const id = await findArtistId(a.display_name);
+      if (id != null && await (enqueue ? onEnqueueArtist(id) : onPlayArtist(id))) return;
+      const rows = await invoke<HistoryMostPlayed[]>("history_artist_tracks", {
+        historyArtistId: a.history_artist_id, limit: HISTORY_ARTIST_TRACKS_LIMIT,
+      });
+      if (rows.length === 0) {
+        onNotify(`Nothing to play by ${a.display_name}`, { kind: "warning" });
+        return;
+      }
+      const tracks = rows.map(historyQueueTrack);
+      if (enqueue) onEnqueueTracks(tracks);
+      else onPlayTracks(tracks, 0);
+    })().catch(e => {
+      console.error("Failed to play a history artist:", e);
+      onNotify(`Couldn't play ${a.display_name}`, { kind: "error" });
+    });
   };
   const openArtist = (a: HistoryArtistStats) => onArtistClick(0, a.display_name);
   const openArtistByName = (name: string | null) => { if (name) onArtistClick(0, name); };
@@ -391,14 +410,14 @@ export function HistoryView({
       const rows = (current.rows as HistoryArtistStats[]).filter(r => sel.has(rowKey("artists", r)));
       if (rows.length <= 1) {
         const a = current.rows[index] as HistoryArtistStats;
-        reconnectArtist(a.history_artist_id).then(id =>
+        findArtistId(a.display_name).then(id =>
           onShowContextMenu(x, y, { kind: "artist", artistId: id ?? undefined, name: a.display_name }));
         return;
       }
       // The multi menu is id-based; with none of these artists in the library,
       // the clicked row's own menu opens instead of nothing.
       const a = current.rows[index] as HistoryArtistStats;
-      Promise.all(rows.map(r => reconnectArtist(r.history_artist_id))).then(ids => {
+      Promise.all(rows.map(r => findArtistId(r.display_name))).then(ids => {
         const artistIds = ids.filter((id): id is number => id != null);
         if (artistIds.length) onShowContextMenu(x, y, { kind: "multi-artist", artistIds });
         else onShowContextMenu(x, y, { kind: "artist", name: a.display_name });
@@ -468,7 +487,7 @@ export function HistoryView({
       const row = current.rows[cursor];
       if (activeTab === "artists") {
         const a = row as HistoryArtistStats;
-        if (e.shiftKey) withArtistId(a, onEnqueueArtist); else openArtist(a);
+        if (e.shiftKey) playArtistRow(a, true); else openArtist(a);
       } else if (e.shiftKey) {
         enqueueOne(row as TrackLikeRow);
       } else {
@@ -599,7 +618,7 @@ export function HistoryView({
               <span className="col-num">{a.rank}</span>
               <span className="col-title">
                 <span className="col-title-main"><span className="col-title-text" title={a.display_name}>{a.display_name}</span></span>
-                <RowHoverActions onPlay={() => withArtistId(a, onPlayArtist)} onEnqueue={() => withArtistId(a, onEnqueueArtist)} onDetails={() => openArtist(a)} />
+                <RowHoverActions onPlay={() => playArtistRow(a, false)} onEnqueue={() => playArtistRow(a, true)} onDetails={() => openArtist(a)} />
               </span>
               <span className="col-plays">{a.play_count}</span>
               <span className="col-plays">{a.track_count}</span>
@@ -667,7 +686,7 @@ export function HistoryView({
               onClick={(e) => handleRowClick(e, i)}
               onDoubleClick={() => openArtist(a)}
               onContextMenu={(e) => handleContextMenu(e, i)}
-              actions={{ onPlay: () => withArtistId(a, onPlayArtist), onEnqueue: () => withArtistId(a, onEnqueueArtist), onDetails: () => openArtist(a) }}
+              actions={{ onPlay: () => playArtistRow(a, false), onEnqueue: () => playArtistRow(a, true), onDetails: () => openArtist(a) }}
             />
           );
         })}
@@ -731,7 +750,7 @@ export function HistoryView({
                     {img ? <img className="artist-card-art-img" src={img} alt={a.display_name} /> : <EntityArtFallback kind="artist" />}
                   </div>
                   <button className="album-card-menu-btn" onClick={(e) => { e.stopPropagation(); handleContextMenu(e, i); }} title="More options">&#x22EF;</button>
-                  <button className="ds-card-play" onClick={(e) => { e.stopPropagation(); withArtistId(a, onPlayArtist); }} title="Play">
+                  <button className="ds-card-play" onClick={(e) => { e.stopPropagation(); playArtistRow(a, false); }} title="Play">
                     <svg viewBox="0 0 24 24" fill="currentColor"><path d="M8 6.82v10.36c0 .79.87 1.27 1.54.84l8.14-5.18a1 1 0 0 0 0-1.69L9.54 5.98A.998.998 0 0 0 8 6.82z"/></svg>
                   </button>
                 </div>

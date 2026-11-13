@@ -1126,45 +1126,29 @@ fn test_history_reconnect() {
     assert_eq!(recent[0].play_count, 1); // deduped within 30s, count unchanged
 }
 
+/// An artist row's fallback play list: that artist's history songs, most
+/// played first, each carrying its library copy when there is one.
 #[test]
-fn test_reconnect_history_artist() {
+fn test_history_artist_tracks() {
     let db = test_db();
-    let artist_id = db.get_or_create_artist("Portishead").unwrap();
-    let track_id = insert_track(&db, "music/glory.mp3", "Glory Box", Some(artist_id), None);
+    let artist = db.get_or_create_artist("Streamed Band").unwrap();
+    let owned = insert_track(&db, "owned.mp3", "Owned Song", Some(artist), None);
+    db.record_play(owned).unwrap();
+    db.record_history_plays_batch(&[
+        ("Streamed Band".into(), "Streamed Song".into(), 100),
+        ("Streamed Band".into(), "Streamed Song".into(), 200),
+    ]).unwrap();
+    db.record_play_by_metadata("Someone Else", Some("Other Band")).unwrap();
 
-    db.record_history_play(track_id).unwrap();
-
-    // Get history artist id
-    let artists = db.get_history_most_played_artists(10).unwrap();
-    let ha_id = artists[0].history_artist_id;
-
-    // Delete track (artist stays but history link breaks via ON DELETE SET NULL on track)
-    db.delete_tracks_by_ids(&[track_id]).unwrap();
-
-    // Reconnect artist — artist still exists in library
-    let result = db.reconnect_history_artist(ha_id).unwrap();
-    assert_eq!(result, Some(artist_id));
-}
-
-#[test]
-fn test_reconnect_history_artist_not_found() {
-    let db = test_db();
-    let artist_id = db.get_or_create_artist("Ephemeral Band").unwrap();
-    let track_id = insert_track(&db, "music/temp.mp3", "Temp Song", Some(artist_id), None);
-
-    db.record_history_play(track_id).unwrap();
-    let artists = db.get_history_most_played_artists(10).unwrap();
-    let ha_id = artists[0].history_artist_id;
-
-    // Delete track and artist
-    db.delete_tracks_by_ids(&[track_id]).unwrap();
-    {
-        let conn = db.conn.lock().unwrap();
-        conn.execute("DELETE FROM artists WHERE id = ?1", params![artist_id]).unwrap();
-    }
-
-    let result = db.reconnect_history_artist(ha_id).unwrap();
-    assert!(result.is_none());
+    let ha = db.get_history_most_played_artists(10).unwrap()
+        .into_iter().find(|a| a.display_name == "Streamed Band").expect("artist in history")
+        .history_artist_id;
+    let rows = db.history_artist_tracks(ha, 50).unwrap();
+    let titles: Vec<&str> = rows.iter().map(|r| r.display_title.as_str()).collect();
+    assert_eq!(titles, vec!["Streamed Song", "Owned Song"], "most played first, this artist only");
+    assert_eq!(rows[0].display_track_id, None, "a streamed song has no library copy");
+    assert_eq!(rows[1].display_track_id, Some(owned));
+    assert_eq!(db.history_artist_tracks(ha, 1).unwrap().len(), 1, "limit applies");
 }
 
 #[test]
@@ -4881,8 +4865,8 @@ fn test_history_reads_do_not_wait_for_an_open_write() {
             d.get_artist_rank("Artist").unwrap(),
             d.get_track_play_stats("Song", Some("Artist")).unwrap().map(|s| s.play_count),
         );
-        // No library rows, so the artist reconnect finds nothing — but it answers.
-        let reconnects = d.reconnect_history_artist(ha).unwrap().is_none();
+        // An artist's songs answer too.
+        let reconnects = d.history_artist_tracks(ha, 10).unwrap().len() == 1;
         tx.send((counts, ranks, reconnects)).unwrap();
     });
     let (counts, ranks, reconnects) = rx
