@@ -1,5 +1,5 @@
 // The scenes `scripts/capture-site-media.mjs` captures for the website's
-// persona pages (docs/for/*.html), and the pure decisions around them.
+// pages (docs/), and the pure decisions around them.
 //
 // Kept apart from the runner for the same reason `appSmoke.mjs` is: the parts
 // that decide whether a capture is right (did the page land? which pixels are

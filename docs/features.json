@@ -1,196 +1,92 @@
 [
   {
-    "group": "AI Control",
-    "groupDescription": "The headline feature: a built-in MCP server lets Claude or any AI assistant build playlists, fix tags, organise your library and download tracks &mdash; private, local, and off by default.",
-    "label": "AI Assistant",
-    "heading": "Just ask &mdash; it&rsquo;s done",
-    "description": "Turn on <strong>AI control</strong> and an assistant running on your computer &mdash; Claude Desktop, Claude Code, Cursor or any MCP client &mdash; can do anything a listener does, and much of what a librarian does. Ask it to <strong>build playlists</strong> from your likes and history, <strong>fix tags</strong> across hundreds of tracks (in the library or written into the files), <strong>organise folders</strong> into a clean Artist/Album layout, save lyrics and covers next to your music, <strong>download tracks</strong> from your server or through download plugins, and swap low-bitrate copies for better ones in place. It can answer questions about your listening history, run playback, queue and radio, and use your installed plugins as tools too. A private control server runs on your machine only (<code>127.0.0.1</code>, token-protected), and the bundled MCP server presents it to assistants as typed tools. Deliberately bounded: one AI access setting &mdash; Low, Full or Custom &mdash; decides what it may change, so anything that touches your files needs Full access or its own switch, moves, file swaps and deletions are planned and shown first, deleted tracks go to the trash only after you confirm, nothing is installed without your OK, and every change is logged.",
+    "id": "library",
+    "title": "Library and sources",
     "items": [
-      "Works with Claude Desktop, Claude Code, Cursor &amp; any MCP client &mdash; setup is two clicks",
-      "Playlists, tags, likes, radio, queue &amp; playback &mdash; just ask",
-      "Fix tags in bulk, file compilations, save lyrics &amp; covers, reorganise folders (plan first)",
-      "Download tracks and upgrade copies in place, with a side-by-side quality check",
-      "Plugin tools too: Spotify playlists, Soulseek search &amp; more<span class=\"feature-tag\">plugin</span>",
-      "Local-only, off by default &mdash; deletions go to the trash, only after you confirm"
-    ],
-    "screenshot": "",
-    "screenshotAlt": "An AI assistant controlling Vibo over MCP"
+      "Local folders, scanned in the background and watched for changes.",
+      "Subsonic and Navidrome servers, in the same library and queue as your folders.",
+      "Tags are read from the files. An album belongs to its album artist, so a compilation stays one album.",
+      "Full-text search over artists, albums, tracks and tags. Accents and case are ignored.",
+      "Tracks, albums, artists and tags views, each with its own detail page.",
+      "Play history you can search and sort.",
+      "Like or dislike tracks, artists, albums and tags. Export your likes to a file and import them on another computer.",
+      "Separate <a href=\"help.html#profiles\">profiles</a>, each with its own library and settings.",
+      "Spotify browsing and YouTube playback.<span class=\"feature-tag\">plugin</span>"
+    ]
   },
   {
-    "group": "Playback",
-    "groupDescription": "Audiophile-grade playback and lean-back views, for listening and watching.",
-    "label": "Engine",
-    "heading": "Hear it the way it was meant to be heard",
-    "description": "Gapless playback for seamless album listening. Crossfading from 0 to 10 seconds between tracks. Native codec support for audio and video files &mdash; no transcoding, no plugins.",
+    "id": "playback",
+    "title": "Playback",
     "items": [
-      "Gapless playback across albums",
-      "Adjustable crossfade (0&ndash;10s)",
-      "Audio &amp; video playback with native codecs",
-      "Sub-200ms playback latency"
-    ],
-    "screenshot": "playback.webp",
-    "screenshotAlt": "Vibo playback controls and now playing bar"
+      "Audio and video through libmpv, with the files played as they are.",
+      "Gapless playback, and <a href=\"help.html#crossfade\">crossfade</a> from 0 to 10 seconds.",
+      "<a href=\"help.html#bit-perfect-mode\">Bit-perfect mode</a> and <a href=\"help.html#exclusive-audio\">exclusive output</a> for external DACs.",
+      "<a href=\"help.html#replaygain\">ReplayGain</a>, a 10-band <a href=\"help.html#equalizer\">equalizer</a> and <a href=\"help.html#clip-protection\">clip protection</a>.",
+      "A queue you can reorder, trim and save as an <code>.m3u8</code> playlist.",
+      "Playlists, and mixtapes: a playlist exported together with its files.",
+      "A mini player in three layouts that can stay on top of other windows.",
+      "A full-window theater for video.",
+      "Keyboard shortcuts for playback, volume, navigation and search, with an overlay that lists them."
+    ]
   },
   {
-    "group": "Playback",
-    "label": "Now Playing",
-    "heading": "Lean back and watch the words",
-    "description": "A full-screen now-playing view with synced, karaoke-style lyrics that highlight line by line. Playing a video? It expands into a distraction-free theater mode &mdash; just the picture, with the controls fading out of the way.",
+    "id": "listening",
+    "title": "Listening",
     "items": [
-      "Synced (LRC) karaoke lyrics with tap-to-seek",
-      "Plain-lyrics fallback with auto-scroll",
-      "Video theater mode with auto-hiding overlays",
-      "Lyrics from multiple providers<span class=\"feature-tag\">plugin</span>"
-    ],
-    "screenshot": "now-playing.webp",
-    "screenshotAlt": "Vibo now playing view with synced karaoke lyrics"
+      "A home screen with radio stations from your library and shelves: your latest play, mixes made for you, lists of recent additions and most played, albums by decade and forgotten favorites.",
+      "Radio from any song, artist or tag, built from your library. You choose how much of the seed artist it plays, whether it leans to favorites or to songs you rarely play, and how many songs per artist.",
+      "<a href=\"help.html#auto-continue\">Auto-continue</a> adds more music when the queue ends.",
+      "Synced lyrics from <code>.lrc</code> files; click a line to jump to it.",
+      "Online lyrics, bios, similar artists and cover art.<span class=\"feature-tag\">plugin</span>",
+      "Cue sheets: notes and pictures timed to a song, shown on Now Playing.",
+      "<a href=\"help.html#scrobbling\">Scrobbling</a> to the local history and to plugins such as Last.fm, with an audio and a video switch for each.<span class=\"feature-tag\">plugin</span>"
+    ]
   },
   {
-    "group": "Playback",
-    "label": "Mini Player",
-    "heading": "Always within reach",
-    "description": "A compact, always-on-top mini player that stays visible while you work. Draggable, auto-resizing, and just the right amount of information at a glance.",
+    "id": "editing",
+    "title": "Editing and downloads",
     "items": [
-      "Always-on-top mode",
-      "Draggable &amp; compact",
-      "Normal, compact or full layout &mdash; full keeps every control on screen",
-      "Auto-resizing to fit content",
-      "Full playback controls"
-    ],
-    "screenshot": "mini-player.webp",
-    "screenshotAlt": "Vibo mini player with playback controls",
-    "screenshotWidth": 1100,
-    "screenshotHeight": 212
+      "Edit artist, album artist, album, year and tags for many tracks at once, written into the files.",
+      "Fix the title, artist or album of a queue entry without touching the file.",
+      "Download the playing track from where it is playing: your server, a web address, or the plugin that provides it.",
+      "Replace a local file with a better copy after comparing the two; likes, tags and playlists stay with it.<span class=\"feature-tag\">plugin</span>",
+      "Deleted tracks go to the trash."
+    ]
   },
   {
-    "group": "Library &amp; Sources",
-    "groupDescription": "Local folders and music servers, unified into one fast library.",
-    "label": "Library",
-    "heading": "Your collection, always in sync",
-    "description": "Point Vibo at your music folders and it handles the rest. Background scanning reads metadata intelligently, and real-time file watching catches every change the moment it happens.",
+    "id": "ai",
+    "title": "AI control and the control API",
     "items": [
-      "Background folder scanning",
-      "Smart metadata extraction with fallback parsing",
-      "Real-time file watching for instant updates",
-      "Genre tags from file metadata"
-    ],
-    "screenshot": "library.webp",
-    "screenshotAlt": "Vibo library albums in tiles view"
+      "One setting, <a href=\"help.html#control-api\">Settings → AI control</a>: Off (the default), Low, Full or Custom.",
+      "A server on 127.0.0.1 only, with an access token you can regenerate.",
+      "A bundled <a href=\"help.html#mcp-server\">MCP server</a> for Claude Desktop, Claude Code or any MCP client. Settings copies the config.",
+      "The same server is a plain HTTP API, with a <a href=\"https://github.com/outcast1000/vibo/tree/main/skills/viboplr-control\" target=\"_blank\" rel=\"noopener\">Claude Code skill</a> that documents it.",
+      "Separate <a href=\"help.html#assistant-permissions\">permission switches</a> for writing tags to files, managing files, downloading, plugin actions, deleting, and clicking in the window.",
+      "File moves and deletions are returned as a plan first and applied only when the plan is sent back.",
+      "Installed plugins can add their own tools for the assistant."
+    ]
   },
   {
-    "group": "Library &amp; Sources",
-    "label": "Search",
-    "heading": "Find anything in milliseconds",
-    "description": "FTS5-powered full-text search across artists, albums, tracks, and tags. Accent-insensitive and forgiving &mdash; find what you want even when you can't remember the exact spelling.",
+    "id": "extend",
+    "title": "Plugins and skins",
     "items": [
-      "Full-text search with FTS5",
-      "Accent &amp; case insensitive",
-      "Sub-100ms results across entire library",
-      "Search by artist, album, track, or tag"
-    ],
-    "screenshot": "search.webp",
-    "screenshotAlt": "Vibo full-text search with results"
+      "Plugins are a <code>manifest.json</code> and an <code>index.js</code> in plain JavaScript, with no build step. See <a href=\"plugin-dev.html\">writing a plugin</a>.",
+      "A plugin can add music sources, sections on detail pages, home shelves, sidebar views, context-menu items, scrobblers, download providers and AI tools.",
+      "Each plugin declares its permissions, and the app shows them before installing.",
+      "Install and update plugins from the in-app gallery. Updates come from each plugin's GitHub releases.",
+      "Eight built-in skins, light and dark, plus a <a href=\"skins.html\">skin gallery</a>. A skin is 19 colors and optional CSS, made in the in-app editor."
+    ]
   },
   {
-    "group": "Library &amp; Sources",
-    "label": "Servers",
-    "heading": "Local meets streaming, seamlessly",
-    "description": "Point Vibo at local folders and Subsonic or Navidrome servers for one unified library. Add streaming services through plugins &mdash; they slot straight into the same player, queue, and search.",
+    "id": "built",
+    "title": "How it is built",
     "items": [
-      "Subsonic &amp; Navidrome support",
-      "Unified library across all sources",
-      "Spotify &amp; YouTube browse and playback<span class=\"feature-tag\">plugin</span>"
-    ],
-    "screenshot": "servers.webp",
-    "screenshotAlt": "Vibo collections view with local and server sources"
-  },
-  {
-    "group": "Library &amp; Sources",
-    "label": "Likes",
-    "heading": "Your likes, on every device",
-    "description": "Like and dislike tracks, artists, albums and tags &mdash; then carry that taste to another PC or profile. Export it all to a file and import it anywhere; because likes are matched by name, they re-apply cleanly even to a differently-scanned library. The merge is safe to run both directions &mdash; it only ever overwrites an older like with a newer one, and never deletes. Signed in to Last.fm? Pull your loved tracks straight in &mdash; once, or automatically on a schedule.",
-    "items": [
-      "Like &amp; dislike tracks, artists, albums &amp; tags",
-      "Export &amp; import all likes as a portable file",
-      "Newer-wins merge &mdash; carry it both ways safely",
-      "Import &amp; auto-sync your Last.fm loved tracks<span class=\"feature-tag\">plugin</span>"
-    ],
-    "screenshot": "",
-    "screenshotAlt": "Exporting and importing likes in Vibo settings"
-  },
-  {
-    "group": "Discovery",
-    "groupDescription": "Your own collection, resurfaced &mdash; stations, shelves, and endless queues.",
-    "label": "Home",
-    "heading": "A home screen that knows your library",
-    "description": "Open Vibo to a curated landing page &mdash; an auto-rotating carousel of radio stations built from your own music, plus shelves that resurface recent plays, your most-played, and albums you'd forgotten you owned.",
-    "items": [
-      "Radio-station carousel seeded from your library",
-      "&ldquo;Latest play&rdquo; &amp; &ldquo;Most played&rdquo; shelves",
-      "&ldquo;Made for you&rdquo; mixes &amp; &ldquo;Recently added&rdquo;",
-      "Extra shelves contributed by plugins<span class=\"feature-tag\">plugin</span>"
-    ],
-    "screenshot": "home.webp",
-    "screenshotAlt": "Vibo home view with radio stations and shelves"
-  },
-  {
-    "group": "Discovery",
-    "label": "Radio",
-    "heading": "Rediscover your own music",
-    "description": "Start an endless station from any track, artist, or tag and Vibo builds the queue from what fits. When a queue runs dry, auto-continue keeps the music going using weighted strategies you control.",
-    "items": [
-      "One-click radio from any track, artist, or tag",
-      "Tune stations: seed-artist share, favorites / mixed / discovery taste, spread across artists",
-      "Auto-continue with weighted strategies",
-      "Mix by same artist, tag, most-played, or liked",
-      "Similar tracks, artists &amp; bios via Last.fm<span class=\"feature-tag\">plugin</span>"
-    ],
-    "screenshot": "discovery.webp",
-    "screenshotAlt": "Vibo track detail with a radio queue playing"
-  },
-  {
-    "group": "Make It Yours",
-    "groupDescription": "Shape the app around how you listen.",
-    "label": "Keyboard",
-    "heading": "Built for power users",
-    "description": "Over 35 keyboard shortcuts for everything from playback to navigation. Never leave the keyboard &mdash; control your music as fast as you can think.",
-    "items": [
-      "35+ keyboard shortcuts",
-      "Playback, volume, navigation, search",
-      "Discoverable via shortcut overlay",
-      "Vim-inspired navigation keys"
-    ],
-    "screenshot": "keyboard.webp",
-    "screenshotAlt": "Vibo keyboard shortcuts overlay"
-  },
-  {
-    "group": "Make It Yours",
-    "label": "Skins",
-    "heading": "Make it yours",
-    "description": "Choose from 8 built-in skins or install community skins from the gallery. Import your own JSON skin files with 13 customizable color tokens and optional custom CSS.",
-    "items": [
-      "8 built-in skins (dark &amp; light)",
-      "Community skin gallery",
-      "13 color tokens for full UI theming",
-      "Import custom JSON skins"
-    ],
-    "screenshot": "skins.webp",
-    "screenshotAlt": "Vibo installed skins gallery"
-  },
-  {
-    "group": "Powered by Plugins",
-    "groupDescription": "An orchestrator at heart &mdash; extend Vibo with streaming services, metadata, and entirely new views.",
-    "label": "Ecosystem",
-    "heading": "Extend it your way",
-    "description": "A JavaScript plugin system powers streaming, lyrics, artwork, scrobbling, and downloads. Built-in plugins ship with the app; install more from the in-app gallery, or build your own with custom views, home shelves, context-menu actions, and event hooks. You can even run Vibo with no local collection at all &mdash; the Spotify and YouTube plugins turn it into a pure streaming player.",
-    "items": [
-      "Streaming, lyrics, artwork &amp; scrobbling plugins",
-      "One-click install from the in-app gallery",
-      "Custom sidebar views, home shelves &amp; context actions",
-      "Per-plugin storage; structured views (no raw HTML)",
-      "No local files needed &mdash; stream via Spotify &amp; YouTube<span class=\"feature-tag\">plugin</span>"
-    ],
-    "screenshot": "plugins.webp",
-    "screenshotAlt": "Vibo installed plugins in the Extensions view"
+      "Rust and Tauri 2 for the backend, React and TypeScript for the interface, SQLite for the library, libmpv for playback.",
+      "The system's own webview (WebKit on macOS, WebView2 on Windows), so no browser engine is bundled. The download is about 30 MB.",
+      "Searching a 20,000-track test library takes under 40 ms (<code>cargo test bench_search_performance -- --ignored</code>).",
+      "The app checks for updates and installs one when you click.",
+      "No account. <a href=\"help.html#telemetry\">Anonymous usage stats</a>, with a switch to turn them off.",
+      "Open source under the GPL-3.0 license, on <a href=\"https://github.com/outcast1000/vibo\" target=\"_blank\" rel=\"noopener\">GitHub</a>."
+    ]
   }
 ]

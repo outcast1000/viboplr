@@ -5,173 +5,77 @@
 // features.json without cutting a release). Keeping the template here
 // means the two paths can never drift.
 //
-// Feature entry shape (see .claude/rules/site.md):
-//   { label, heading, description, items[], screenshot, screenshotAlt,
-//     screenshotWidth?, screenshotHeight?, group?, groupDescription? }
-//
-// `group` starts a new titled group section when it differs from the
-// previous entry's group (entries must be ordered so groups are
-// contiguous). `groupDescription` is only read on the entry that opens
-// the group. Entries without `group` continue the current group.
+// features.json is a list of groups (see .claude/rules/site.md):
+//   { id, title, items[] }
+// `items` are one plain sentence each, injected as raw HTML, so links,
+// <code> and the <span class="feature-tag">plugin</span> marker render.
 
 const REPO = "outcast1000/vibo";
 
-export function renderFeaturesHtml(features, version) {
-  const dmgUrl = `https://github.com/${REPO}/releases/download/v${version}/Viboplr_${version}_aarch64.dmg`;
-
-  let lastGroup = null;
-  const featureSections = features
+// The page carries no version number, so callers' `version` is not used.
+export function renderFeaturesHtml(features) {
+  const groups = features
     .map(
-      (f) => {
-        const w = f.screenshotWidth || 2560;
-        const h = f.screenshotHeight || 1600;
-        // Very wide screenshots (e.g. the mini player bar) would be cropped
-        // beyond recognition by the 4:3 object-fit:cover frame — render those
-        // at their natural ratio instead.
-        const wide = w / h > 2.5;
-        const imgTag = f.screenshot
-          ? `<img src="assets/screenshots/${f.screenshot}" alt="${f.screenshotAlt || ""}" loading="lazy" width="${w}" height="${h}">`
-          : `<span>${f.label} screenshot &mdash; coming soon</span>`;
-        const groupHeader = f.group && f.group !== lastGroup
-          ? `      <div class="feature-group-header reveal">
-        <h2>${f.group}</h2>${f.groupDescription ? `\n        <p>${f.groupDescription}</p>` : ""}
-      </div>
-`
-          : "";
-        lastGroup = f.group ?? lastGroup;
-        return `  <!-- Feature: ${f.label} -->
-  <section class="feature-section">
-    <div class="container">
-${groupHeader}      <div class="feature-row reveal">
-        <div class="feature-content">
-          <span class="feature-label">${f.label}</span>
-          <h2>${f.heading}</h2>
-          <p>${f.description}</p>
-          <div class="feature-list">
-${f.items.map((item) => `            <div class="feature-list-item">${item}</div>`).join("\n")}
-          </div>
-        </div>
-        <div class="feature-image${wide ? " feature-image--wide" : ""}">
-          ${imgTag}
-        </div>
-      </div>
-    </div>
-  </section>`;
-      }
+      (g) => `    <section id="${g.id}">
+      <h2>${g.title}</h2>
+      <ul>
+${g.items.map((item) => `        <li>${item}</li>`).join("\n")}
+      </ul>
+    </section>`,
     )
     .join("\n\n");
 
-  // Skin gallery section (inserted after the Skins feature)
-  const skinGallery = `
-  <!-- Skin Gallery -->
-  <section class="feature-section">
-    <div class="container">
-      <div class="skin-gallery reveal">
-        <div class="skin-gallery-item">
-          <img src="assets/screenshots/detail-artist-light.webp" alt="Artist detail view in Arctic Light skin" loading="lazy" width="2560" height="1600">
-          <div class="skin-gallery-caption"><strong>Arctic Light</strong> &mdash; Artist detail</div>
-        </div>
-        <div class="skin-gallery-item">
-          <img src="assets/screenshots/detail-album-viboplr.webp" alt="Album detail view in Viboplr skin" loading="lazy" width="2560" height="1600">
-          <div class="skin-gallery-caption"><strong>Viboplr</strong> &mdash; Album detail</div>
-        </div>
-        <div class="skin-gallery-item">
-          <img src="assets/screenshots/detail-track-sunset.webp" alt="Track detail view in Sunset skin" loading="lazy" width="2560" height="1600">
-          <div class="skin-gallery-caption"><strong>Sunset</strong> &mdash; Track detail</div>
-        </div>
-      </div>
-    </div>
-  </section>`;
-
-  // Insert skin gallery after the Skins feature section
-  const skinsIdx = featureSections.indexOf("<!-- Feature: Skins -->");
-  const afterSkins = featureSections.indexOf("<!-- Feature:", skinsIdx + 1);
-  const featureSectionsWithGallery = afterSkins !== -1
-    ? featureSections.slice(0, afterSkins) + skinGallery + "\n\n  " + featureSections.slice(afterSkins)
-    : featureSections + "\n" + skinGallery;
+  const contents = features.map((g) => `<a href="#${g.id}">${g.title}</a>`).join(" · ");
 
   return `<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Features — Viboplr</title>
-  <meta name="description" content="Gapless playback, full-text search, server integration, mini player, keyboard shortcuts, and more.">
+  <title>Features — Vibo</title>
+  <meta name="description" content="Everything Vibo does, as a plain list: library and sources, playback, listening, editing, AI control, plugins and how it is built.">
   <link rel="canonical" href="https://viboplr.com/features.html">
   <meta property="og:type" content="website">
   <meta property="og:url" content="https://viboplr.com/features.html">
-  <meta property="og:title" content="Features — Viboplr">
-  <meta property="og:description" content="Gapless playback, full-text search, server integration, mini player, keyboard shortcuts, and more.">
+  <meta property="og:title" content="Features — Vibo">
+  <meta property="og:description" content="Everything Vibo does, as a plain list.">
   <meta name="twitter:card" content="summary">
-  <meta name="twitter:title" content="Features — Viboplr">
-  <meta name="twitter:description" content="Gapless playback, full-text search, server integration, mini player, keyboard shortcuts, and more.">
   <link rel="icon" href="assets/icon.svg" type="image/svg+xml">
-  <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700;800&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="css/style.css">
+  <link rel="stylesheet" href="css/plain.css">
 </head>
 <body>
 
-  <!-- Navigation -->
-  <nav class="nav">
-    <div class="nav-inner">
-      <a href="index.html" class="nav-logo">
-        <img class="nav-logo-mark" src="assets/logo-mark.svg" alt="" width="34" height="34">
-        <span class="wordmark" data-text="Vibo">Vibo</span>
-      </a>
-      <div class="nav-links" id="navLinks">
-        <a href="index.html" class="nav-link">Home</a>
-        <a href="plugins.html" class="nav-link">Plugins</a>
-        <a href="skins.html" class="nav-link">Skins</a>
-        <a href="community.html" class="nav-link">Community</a>
-        <a href="download.html" class="nav-cta">Get Viboplr</a>
-      </div>
-      <button class="nav-hamburger" id="navHamburger" aria-label="Toggle menu">
-        <span></span>
-        <span></span>
-        <span></span>
-      </button>
-    </div>
-  </nav>
+  <header class="top">
+    <a href="index.html" class="name"><img src="assets/logo-mark.svg" alt="" width="22" height="22">Vibo</a>
+    <nav>
+      <a href="download.html">Download</a>
+      <a href="features.html" aria-current="page">Features</a>
+      <a href="plugins.html">Plugins</a>
+      <a href="help.html">Help</a>
+      <a href="history.html">Changes</a>
+      <a href="https://github.com/${REPO}" target="_blank" rel="noopener">GitHub</a>
+    </nav>
+  </header>
 
-  <!-- Page Header -->
-  <section class="page-header">
-    <div class="container">
-      <h1 class="animate-in">Everything you need.<br><span class="gradient-text">Nothing you don't.</span></h1>
-      <p class="animate-in animate-delay-1">Full-featured, meticulously optimized, and engineered to stay out of your way.</p>
-    </div>
-  </section>
+  <main>
+    <section>
+      <h1>Features</h1>
+      <p>Everything Vibo does, as a list. Items marked <span class="feature-tag">plugin</span> need a plugin from the <a href="plugins.html">gallery</a>.</p>
+      <p>${contents}</p>
+    </section>
 
-${featureSectionsWithGallery}
+${groups}
+  </main>
 
-  <!-- Bottom CTA -->
-  <section class="bottom-cta">
-    <div class="container reveal">
-      <h2>Ready to try <span class="gradient-text">Viboplr</span>?</h2>
-      <p>Free, full-featured, and built for music lovers.</p>
-      <div class="hero-buttons">
-        <a href="${dmgUrl}" class="btn btn-primary btn-lg">Download Now</a>
-      </div>
-    </div>
-  </section>
-
-  <!-- Footer -->
-  <footer class="footer">
-    <div class="container">
-      <div class="footer-inner">
-        <div class="footer-left">&copy; 2026 Viboplr. All rights reserved.</div>
-        <div class="footer-right">
-          <a href="https://github.com/${REPO}" class="footer-link" target="_blank" rel="noopener">GitHub</a>
-          <span class="footer-link">Built with Tauri + React</span>
-        </div>
-      </div>
-    </div>
+  <footer>
+    <a href="download.html">Download</a>
+    <a href="help.html">Help</a>
+    <a href="community.html">Community</a>
+    <a href="support.html">Support the project</a>
+    <a href="https://github.com/${REPO}" target="_blank" rel="noopener">GitHub</a>
   </footer>
 
-  <script src="js/main.js"></script>
   <script defer src="js/analytics.js"></script>
-  <!-- Cloudflare Web Analytics -->
   <script defer src='https://static.cloudflareinsights.com/beacon.min.js' data-cf-beacon='{"token": "cbb978698d3744cca00a24f8cac8bc3c"}'></script>
 </body>
 </html>

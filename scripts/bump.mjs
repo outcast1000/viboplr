@@ -401,12 +401,12 @@ function updateDownloadUrls(html) {
   // Replace existing versioned GitHub release URLs
   const { dmg, exe } = urls();
   html = html.replace(
-    /https:\/\/github\.com\/outcast1000\/viboplr\/releases\/download\/v[^/]+\/Viboplr_[^"]*_aarch64\.dmg/g,
+    /https:\/\/github\.com\/outcast1000\/vibo(?:plr)?\/releases\/download\/v[^/]+\/Viboplr_[^"]*_aarch64\.dmg/g,
     dmg
   );
   // Matches both the current NSIS name and the legacy (broken) MSI links.
   html = html.replace(
-    /https:\/\/github\.com\/outcast1000\/viboplr\/releases\/download\/v[^/]+\/Viboplr_[^"]*_x64[^"]*\.(?:msi|exe)/g,
+    /https:\/\/github\.com\/outcast1000\/vibo(?:plr)?\/releases\/download\/v[^/]+\/Viboplr_[^"]*_x64[^"]*\.(?:msi|exe)/g,
     exe
   );
   // Replace placeholder anchor links (first-time setup)

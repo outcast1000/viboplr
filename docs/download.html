@@ -4,106 +4,89 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Download — Vibo</title>
-  <meta name="description" content="Download Vibo for macOS (Apple Silicon) or Windows. Free, open source, with one-click updates.">
+  <meta name="description" content="Download Vibo for macOS (Apple Silicon) or Windows (64-bit). Free and open source.">
   <link rel="canonical" href="https://viboplr.com/download.html">
   <meta property="og:type" content="website">
   <meta property="og:url" content="https://viboplr.com/download.html">
   <meta property="og:title" content="Download — Vibo">
-  <meta property="og:description" content="Download Vibo for macOS (Apple Silicon) or Windows. Free, open source, with one-click updates.">
+  <meta property="og:description" content="Download Vibo for macOS (Apple Silicon) or Windows (64-bit). Free and open source.">
   <meta name="twitter:card" content="summary">
-  <meta name="twitter:title" content="Download — Vibo">
-  <meta name="twitter:description" content="Download Vibo for macOS (Apple Silicon) or Windows. Free, open source, with one-click updates.">
   <link rel="icon" href="assets/icon.svg" type="image/svg+xml">
-  <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700;800&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="css/style.css">
+  <link rel="stylesheet" href="css/plain.css">
 </head>
 <body>
 
-  <!-- Navigation -->
-  <nav class="nav">
-    <div class="nav-inner">
-      <a href="index.html" class="nav-logo">
-        <img class="nav-logo-mark" src="assets/logo-mark.svg" alt="" width="34" height="34">
-        <span class="wordmark" data-text="Vibo">Vibo</span>
-      </a>
-      <div class="nav-links" id="navLinks">
-        <a href="index.html" class="nav-link">Home</a>
-        <a href="plugins.html" class="nav-link">Plugins</a>
-        <a href="skins.html" class="nav-link">Skins</a>
-        <a href="community.html" class="nav-link">Community</a>
-        <a href="support.html" class="nav-link nav-link--sponsor">
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z"/></svg>
-          Support
-        </a>
-        <a href="download.html" class="nav-cta">Get Vibo</a>
-      </div>
-      <button class="nav-hamburger" id="navHamburger" aria-label="Toggle menu">
-        <span></span>
-        <span></span>
-        <span></span>
-      </button>
-    </div>
-  </nav>
+  <header class="top">
+    <a href="index.html" class="name"><img src="assets/logo-mark.svg" alt="" width="22" height="22">Vibo</a>
+    <nav>
+      <a href="download.html" aria-current="page">Download</a>
+      <a href="features.html">Features</a>
+      <a href="plugins.html">Plugins</a>
+      <a href="help.html">Help</a>
+      <a href="history.html">Changes</a>
+      <a href="https://github.com/outcast1000/vibo" target="_blank" rel="noopener">GitHub</a>
+    </nav>
+  </header>
 
-  <!-- Download Hero -->
-  <section class="download-hero">
-    <div class="container">
-      <h1 class="animate-in">Download <span class="gradient-text">Vibo</span></h1>
-      <p class="animate-in animate-delay-1">Free, lightweight, and ready in seconds. <span id="version-badge">v1.0.121</span></p>
-    </div>
-  </section>
+  <main>
 
-  <!-- Platform Cards -->
-  <section class="section">
-    <div class="container">
-      <div class="platform-cards">
-        <div class="platform-card reveal" id="download-macos">
-          <div class="platform-icon">
-            <svg viewBox="0 0 24 24" fill="currentColor"><path d="M18.71 19.5c-.83 1.24-1.71 2.45-3.05 2.47-1.34.03-1.77-.79-3.29-.79-1.53 0-2 .77-3.27.82-1.31.05-2.3-1.32-3.14-2.53C4.25 17 2.94 12.45 4.7 9.39c.87-1.52 2.43-2.48 4.12-2.51 1.28-.02 2.5.87 3.29.87.78 0 2.26-1.07 3.8-.91.65.03 2.47.26 3.64 1.98-.09.06-2.17 1.28-2.15 3.81.03 3.02 2.65 4.03 2.68 4.04-.03.07-.42 1.44-1.38 2.83M13 3.5c.73-.83 1.94-1.46 2.94-1.5.13 1.17-.34 2.35-1.04 3.19-.69.85-1.83 1.51-2.95 1.42-.15-1.15.41-2.35 1.05-3.11z"/></svg>
-          </div>
-          <h3>macOS</h3>
-          <p class="platform-note">macOS 11 (Big Sur) or later &middot; Apple Silicon</p>
-          <a href="install-mac.html" class="btn btn-primary">Download .dmg</a>
-        </div>
-        <div class="platform-card reveal" id="download-windows">
-          <div class="platform-icon">
-            <svg viewBox="0 0 24 24" fill="currentColor"><path d="M3 12V6.75l8-1.25V12H3zm0 .5h8v6.5l-8-1.25V12.5zM11.5 5.35l9.5-1.6V12h-9.5V5.35zM11.5 12.5H21v7.75l-9.5-1.6V12.5z"/></svg>
-          </div>
-          <h3>Windows</h3>
-          <p class="platform-note">Windows 10 or 11 &middot; 64-bit</p>
-          <a href="install-windows.html" class="btn btn-primary">Download .exe</a>
-        </div>
-      </div>
-    </div>
-  </section>
+    <section>
+      <h1>Download</h1>
+      <p>Current version: <span id="version-badge">v1.0.121</span> · <a href="history.html">what changed</a></p>
+      <ul class="platforms">
+        <li id="download-macos">
+          <h2>macOS</h2>
+          <p>macOS 11 or later, Apple Silicon (M1 or newer). A <code>.dmg</code> disk image.</p>
+          <a href="install-mac.html" class="button">Download for macOS</a>
+        </li>
+        <li id="download-windows">
+          <h2>Windows</h2>
+          <p>Windows 10 or 11, 64-bit. An <code>.exe</code> installer.</p>
+          <a href="install-windows.html" class="button">Download for Windows</a>
+        </li>
+      </ul>
+      <p>The app checks for new versions and tells you when one is ready. It installs only when you click.</p>
+    </section>
 
-  <!-- Beta builds — populated at page load from the GitHub releases API when a
-       prerelease newer than the current stable exists; hidden otherwise. Beta
-       releases intentionally never rewrite this page (see scripts/bump.mjs),
-       so this section must stay dynamic. -->
-  <section class="section" id="beta-section" hidden>
-    <div class="container">
-      <div class="requirements reveal">
-        <h2>Beta builds</h2>
-        <p class="platform-note" style="margin-bottom: 12px;">
-          Early-access builds published between stable releases — less tested, updated often.
-          Installed betas keep themselves updated when <em>Settings&nbsp;&rarr;&nbsp;Beta updates</em>
-          is enabled, and move back to stable automatically when a newer stable ships.
-          Current beta: <span id="beta-version" class="gradient-text"></span>
-        </p>
-        <div id="beta-assets" class="hero-buttons" style="justify-content: flex-start; flex-wrap: wrap;"></div>
-      </div>
-    </div>
-  </section>
+    <!-- Beta builds — filled in at page load from the GitHub releases API when
+         the newest release is a prerelease; hidden otherwise. Beta releases never
+         rewrite this page (see scripts/bump.mjs), so this must stay dynamic. -->
+    <section id="beta-section" hidden>
+      <h2>Beta: <span id="beta-version"></span></h2>
+      <p>Built between stable releases and less tested. With <em>Settings → Beta updates</em> on, a beta keeps itself updated and moves back to stable when a newer stable ships.</p>
+      <div id="beta-assets" class="get"></div>
+    </section>
+
+    <section>
+      <h2>Requirements</h2>
+      <table>
+        <tr><td>macOS</td><td>11 (Big Sur) or later, Apple Silicon. Intel Macs are not supported.</td></tr>
+        <tr><td>Windows</td><td>10 or 11, 64-bit. Uses Microsoft Edge WebView2, which Windows 11 already has; on Windows 10 the installer adds it if missing.</td></tr>
+        <tr><td>Download</td><td>About 30 MB</td></tr>
+        <tr><td>Disk</td><td>200 MB, plus room for the artwork cache</td></tr>
+        <tr><td>Memory</td><td>About 200–300 MB while running</td></tr>
+        <tr><td>Internet</td><td>Not needed to play your own files. Updates, plugins and artwork use it.</td></tr>
+      </table>
+      <p>Older versions are on the <a href="history.html">changes page</a> and on <a href="https://github.com/outcast1000/vibo/releases" target="_blank" rel="noopener">GitHub Releases</a>. The source is at <a href="https://github.com/outcast1000/vibo" target="_blank" rel="noopener">github.com/outcast1000/vibo</a>.</p>
+    </section>
+
+  </main>
+
+  <footer>
+    <a href="download.html">Download</a>
+    <a href="help.html">Help</a>
+    <a href="community.html">Community</a>
+    <a href="support.html">Support the project</a>
+    <a href="https://github.com/outcast1000/vibo" target="_blank" rel="noopener">GitHub</a>
+  </footer>
+
   <script>
     (function () {
-      fetch("https://api.github.com/repos/outcast1000/viboplr/releases?per_page=10")
+      fetch("https://api.github.com/repos/outcast1000/vibo/releases?per_page=10")
         .then(function (r) { return r.ok ? r.json() : Promise.reject(new Error("HTTP " + r.status)); })
         .then(function (releases) {
           var newest = (releases || []).filter(function (r) { return !r.draft; })[0];
-          // An "active beta" = the newest release overall is a prerelease.
+          // An active beta = the newest release overall is a prerelease.
           if (!newest || !newest.prerelease) return;
           var installers = (newest.assets || []).filter(function (a) {
             return /\.dmg$/.test(a.name) || /-setup\.exe$/.test(a.name);
@@ -112,7 +95,7 @@
           var list = document.getElementById("beta-assets");
           installers.forEach(function (a) {
             var link = document.createElement("a");
-            link.className = "btn btn-outline";
+            link.className = "button secondary";
             link.href = a.browser_download_url;
             link.textContent = a.name;
             list.appendChild(link);
@@ -123,91 +106,7 @@
         .catch(function (e) { console.warn("Beta lookup failed:", e); });
     })();
   </script>
-
-  <!-- System Requirements -->
-  <section class="section section-alt">
-    <div class="container">
-      <div class="requirements reveal">
-        <h2>System Requirements</h2>
-        <table class="req-table">
-          <tr>
-            <td>macOS</td>
-            <td>11 (Big Sur) or later, on Apple Silicon (M1 or newer). Intel Macs are not supported.</td>
-          </tr>
-          <tr>
-            <td>Windows</td>
-            <td>10 or 11, 64-bit (x64). Uses Microsoft Edge WebView2, which Windows 11 already has; on Windows 10 the installer adds it if it's missing.</td>
-          </tr>
-          <tr>
-            <td>Download</td>
-            <td>About 50 MB</td>
-          </tr>
-          <tr>
-            <td>Disk Space</td>
-            <td>200 MB free, plus room for the artwork cache</td>
-          </tr>
-          <tr>
-            <td>Memory</td>
-            <td>About 200&ndash;300 MB while running</td>
-          </tr>
-          <tr>
-            <td>Internet</td>
-            <td>Optional. Your local library plays offline; updates, plugins and artwork need a connection.</td>
-          </tr>
-        </table>
-      </div>
-    </div>
-  </section>
-
-  <!-- Auto-update Note -->
-  <section class="section section-alt">
-    <div class="container">
-      <div class="auto-update reveal">
-        <div class="auto-update-badge">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>
-          <span>One-Click Updates</span>
-        </div>
-        <p>Vibo checks for new versions on its own and tells you when one is ready. Installing it takes one click, and nothing installs without you.</p>
-        <p class="auto-update-history"><a href="history.html">View full release history &rarr;</a></p>
-      </div>
-    </div>
-  </section>
-
-  <!-- Bottom CTA -->
-  <section class="bottom-cta">
-    <div class="container reveal">
-      <h2>Ready to try <span class="gradient-text">Vibo</span>?</h2>
-      <p>Your music deserves a better player.</p>
-      <div class="hero-buttons">
-        <a href="install-mac.html" class="btn btn-primary">
-          <svg class="btn-icon" viewBox="0 0 24 24" fill="currentColor"><path d="M18.71 19.5c-.83 1.24-1.71 2.45-3.05 2.47-1.34.03-1.77-.79-3.29-.79-1.53 0-2 .77-3.27.82-1.31.05-2.3-1.32-3.14-2.53C4.25 17 2.94 12.45 4.7 9.39c.87-1.52 2.43-2.48 4.12-2.51 1.28-.02 2.5.87 3.29.87.78 0 2.26-1.07 3.8-.91.65.03 2.47.26 3.64 1.98-.09.06-2.17 1.28-2.15 3.81.03 3.02 2.65 4.03 2.68 4.04-.03.07-.42 1.44-1.38 2.83M13 3.5c.73-.83 1.94-1.46 2.94-1.5.13 1.17-.34 2.35-1.04 3.19-.69.85-1.83 1.51-2.95 1.42-.15-1.15.41-2.35 1.05-3.11z"/></svg>
-          macOS
-        </a>
-        <a href="install-windows.html" class="btn btn-outline">
-          <svg class="btn-icon" viewBox="0 0 24 24" fill="currentColor"><path d="M3 12V6.75l8-1.25V12H3zm0 .5h8v6.5l-8-1.25V12.5zM11.5 5.35l9.5-1.6V12h-9.5V5.35zM11.5 12.5H21v7.75l-9.5-1.6V12.5z"/></svg>
-          Windows
-        </a>
-      </div>
-    </div>
-  </section>
-
-  <!-- Footer -->
-  <footer class="footer">
-    <div class="container">
-      <div class="footer-inner">
-        <div class="footer-left">&copy; 2026 Vibo. All rights reserved.</div>
-        <div class="footer-right">
-          <a href="support.html" class="footer-link">Support</a>
-          <a href="https://github.com/outcast1000/viboplr" class="footer-link" target="_blank" rel="noopener">GitHub</a>
-          <span class="footer-link">Built with Tauri + React</span>
-        </div>
-      </div>
-    </div>
-  </footer>
-
-  <script src="js/main.js"></script>
   <script defer src="js/analytics.js"></script>
-  <!-- Cloudflare Web Analytics -->
   <script defer src='https://static.cloudflareinsights.com/beacon.min.js' data-cf-beacon='{"token": "cbb978698d3744cca00a24f8cac8bc3c"}'></script>
 </body>
 </html>

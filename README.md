@@ -1,35 +1,35 @@
 # Vibo
 
-**Your music. Your AI.**
+A music player for macOS and Windows. It plays the music you already have: folders on your disk and Subsonic or Navidrome servers, in one library and one queue. Free and open source (GPL-3.0).
 
-Vibo is a free, open-source desktop music player for macOS and Windows, made for people who keep their own collection: folders of files, a Subsonic or Navidrome server, or both, in one library and one queue.
+Website: [viboplr.com](https://viboplr.com) · [Download](https://viboplr.com/download.html) · [Features](https://viboplr.com/features.html) · [Help](https://viboplr.com/help.html)
 
-- **One library for everything you own.** Local folders and your music server side by side, with accent- and case-insensitive search that stays instant on big collections.
-- **Rediscover it.** Radio from any song, artist or tag, drawn from your own library, and a Home screen that brings back forgotten favorites and the albums you haven't played in years.
-- **Keep it in shape.** Bulk tag edits written into the files, compilations filed under their album artist, likes and history that survive a rescan.
-- **Hear the file.** A native mpv engine with sample-accurate gapless playback, exclusive bit-perfect output and ReplayGain.
-- **And it talks.** A built-in [MCP](https://modelcontextprotocol.io) server lets Claude, or any AI assistant, run your library: build playlists, fix tags, organise folders, or tell you what you played most last March. It's optional and off by default ([below](#ai-control-mcp)).
+- **Fast and light.** Rust backend, SQLite library with full-text search, and the system's own webview instead of a bundled browser engine. The download is about 30 MB, playback engine included. Searching a 20,000-track test library takes under 40 ms (`cd src-tauri && cargo test bench_search_performance -- --ignored --nocapture`).
+- **Plugins.** Anything that talks to an outside service is a plugin: Last.fm, online lyrics, cover art, YouTube through yt-dlp, Spotify browsing, Soulseek and others. A plugin is a `manifest.json` and an `index.js` in plain JavaScript, with no build step. See [writing a plugin](https://viboplr.com/plugin-dev.html).
+- **AI control and an API.** An optional local server lets an AI assistant (over MCP) or your own scripts (over HTTP) run the player. It is off by default. See [below](#ai-control-and-the-control-api).
 
-Plugins add the rest: streaming services, lyrics, artwork, scrobbling and downloads. Under the hood it's a Tauri 2 app with a Rust backend, a React frontend and a SQLite library. Every line of it was written by an AI coding assistant ([how that works](#built-with-ai)).
+## What it does
 
-## AI Control (MCP)
+- **Library:** local folders, scanned in the background and watched for changes; Subsonic and Navidrome servers in the same library. Tags are read from the files, and an album belongs to its album artist, so compilations stay one album. Search ignores accents and case.
+- **Playback:** audio and video through a bundled libmpv. Gapless playback, crossfade up to 10 seconds, bit-perfect and exclusive output, ReplayGain, a 10-band equalizer, playback speed.
+- **Listening:** radio from any song, artist or tag, built from your library; auto-continue when the queue ends; a home screen with recent plays, mixes and albums you haven't played in a while; synced lyrics; a mini player.
+- **Editing:** bulk tag edits written into the files; likes and play history that survive a rescan; likes export to a file.
+- **Playlists:** saved playlists, M3U8 import and export, and `.mixtape` files that carry the music with them.
+- **Skins:** 8 built-in, more in the [skin gallery](https://viboplr.com/skins.html). A skin is 19 colors and optional CSS.
+- **Other:** separate profiles, native context menus, a "Report a problem" bundle you review before sending, and update checks with an opt-in beta channel. Nothing installs without your click.
 
-Vibo ships its own MCP server, so an AI assistant gets real, typed tools for your music library instead of screen-scraping. Turn on **Settings → AI control**, press **Copy config** (Claude Desktop) or **Copy command** (Claude Code), and paste it into your client.
+The full list is on the [features page](https://viboplr.com/features.html).
 
-> *"Tag everything by Boards of Canada as ambient, and file the compilations under Various Artists."*
-> *"Sort the loose files in my Music folder into Artist/Album."*
-> *"Make me a playlist of songs I loved and haven't played this year."*
+## AI control and the control API
 
-- **Listen**: search, play, queue, skip, start radio, like, and drive the window and views
-- **Curate**: create and edit playlists, edit tags in bulk, rename listening history
-- **Ask**: read-only SQL over the library and play history ("what did I play most last March?"), lyrics, bios, and reviews
-- **Care for the collection**: write tags into the files, file compilations under an album artist, save lyrics and cover files, move and rename files into a clean layout
-- **Get music**: download a track from its own source (Subsonic or a direct URL) or through a download plugin, and upgrade a file in place (MP3 → FLAC) after a side-by-side quality check
-- **Use plugins**: every installed plugin can expose its own tools (read a Spotify playlist, search Soulseek, …), surfaced as `<pluginId>__<tool>`
+Turn on **Settings → AI control**. Vibo starts a server on `127.0.0.1` only; every request needs an access token.
 
-**Bounded by design.** It's off by default, binds to `127.0.0.1` only, and every request needs a bearer token that never reaches the model. Reading and playback need nothing more than the toggle. Anything that touches files (tag writes, file management, downloads, plugin actions) has its own permission switch, and all of them start off. Moves, file swaps and track deletions are planned first and applied only on a second, confirming call; deleted tracks go to the trash, and network-share files with no trash are refused. Every applied write is logged. The API can never delete playlists, and installs extensions only through the app's own install dialog, where you decide.
+- **MCP.** A bundled MCP server presents the app to Claude Desktop, Claude Code or any MCP client as typed tools. Settings has **Copy config** (Claude Desktop) and **Copy command** (Claude Code). The assistant can search the library, play and queue music, edit playlists and tags, start radio, run read-only SQL over the library and play history, and call installed plugins' own tools (`<pluginId>__<tool>`).
+- **HTTP.** The same server is a plain JSON API for your own scripts. [`skills/viboplr-control/SKILL.md`](skills/viboplr-control/SKILL.md) documents every endpoint.
 
-The tool catalog lives in [`mcp/tools.mjs`](mcp/tools.mjs). Setup details are in [`mcp/README.md`](mcp/README.md), and the HTTP surface is documented in [`skills/viboplr-control/SKILL.md`](skills/viboplr-control/SKILL.md).
+Reading and playback need only the main switch. Writing tags into files, managing files, downloading, plugin actions, deleting and clicking in the window each have their own switch, all off at first. File moves, file swaps and deletions return a plan first and are applied only by a second call that sends the plan back; deleted tracks go to the trash. The token never reaches the model. The API cannot delete playlists, and extensions are installed only through the app's own dialog.
+
+The tool catalog is [`mcp/tools.mjs`](mcp/tools.mjs); setup details are in [`mcp/README.md`](mcp/README.md).
 
 ## Architecture
 
@@ -79,99 +79,32 @@ flowchart TB
 
 ## Built with AI
 
-Vibo is also an experiment in how software gets made. It's a full-featured player (bit-perfect gapless playback, synced lyrics, radio, mixtapes, skins, a sandboxed plugin runtime, its own MCP server) built by one person directing an AI coding assistant, with every line of code written by the AI.
+The code was written by an AI coding assistant, directed and reviewed by one person. The repository is set up for that, and a contributor's assistant picks up the same setup:
 
-The repository is set up for that way of working, and it is the same setup a contributor's assistant picks up:
+- [`CLAUDE.md`](CLAUDE.md): build commands, architecture, and features that were removed on purpose.
+- [`.claude/rules/`](.claude/rules): detailed rules, loaded when matching files are touched. `conventions.md` holds the one implementation of each repeated user action.
+- [`.claude/skills/`](.claude/skills): repeatable workflows (releasing, code-health and CSS audits, DB benchmarks).
+- ESLint enforces the conventions that matter, and `npm run test:all` runs lint, Rust, TypeScript and Playwright tests.
 
-- **[`CLAUDE.md`](CLAUDE.md)** is the project brief: build commands, architecture, and the features that were removed on purpose and must not come back.
-- **[`.claude/rules/`](.claude/rules)** holds the detailed rules, loaded only when matching files are touched: `conventions.md` (the canonical implementation of every repeated user action, plus cross-cutting rules), and `backend`, `frontend`, `queue`, `plugins`, `ui`, `testing` and `site`.
-- **[`.claude/skills/`](.claude/skills)** contains repeatable workflows such as releasing, code-health and CSS audits, DB benchmarks, and the drag-and-drop pattern for WKWebView.
-- **Guardrails are machine-checked.** ESLint enforces the conventions that matter (no silent `catch`, no ref writes during render), and `npm run test:all` runs lint, Rust, TypeScript and Playwright E2E tests before anything ships.
+## Tech stack
 
-The two halves meet in the product: an app written by an AI, designed from day one to be operated by one.
+| Layer | Technology |
+|-------|-----------|
+| App shell | Tauri 2 |
+| Backend | Rust |
+| Frontend | TypeScript, React, Vite |
+| Playback | libmpv (bundled) |
+| Database | SQLite via `rusqlite`, FTS5 full-text search |
+| Tag reading | `lofty` |
+| File watching | `notify` |
+| Control API | `axum` on 127.0.0.1, plus a Node MCP server |
+| Plugins | JavaScript, with declared permissions |
 
-## Features
+## Supported formats
 
-### Library Management
-- **Local Folders**: Scan folders with background progress reporting and real-time file watching
-- **Music Servers**: Subsonic / Navidrome collections synced into the same library
-- **Remote Collections**: Connect to streaming services via plugins (streaming, sync, browse)
-- **Publish & Subscribe**: Export local tracks as a self-contained, hostable music source (manifest + files), and subscribe to published manifests as collections
-- **Smart Metadata**: Reads tags via `lofty`, with intelligent filename parsing fallback
-- **Full-Text Search**: SQLite FTS5-powered search across titles, artists, albums, genres, and filenames — accent- and case-insensitive
-- **Tags**: Genre metadata from files stored as tags with many-to-many track relationships
+**Audio:** MP3, FLAC, AAC/M4A, ALAC, WAV, Opus, WMA, OGG/OGA, SPX, AIFF, APE, WavPack, TTA, DSF/DFF (DSD), Musepack, MKA, CAF.
 
-### Playback
-- **Native mpv Engine**: Everything plays through bundled libmpv — native decode of every supported format, sample-accurate gapless playback, and exclusive (bit-perfect) audio output; native video rendering on macOS and Windows
-- **10-Band Equalizer & ReplayGain**: Simple bass/treble or advanced parametric EQ, plus tag-based volume normalization
-- **Crossfade & Gapless**: Configurable crossfade up to 10s; at 0, tracks transition gapless
-- **Playback Speed**: Turntable-style speed control (pitch follows tempo)
-- **Queue Management**: Drag-and-drop reorder, play next, shuffle, duplicate detection
-- **Auto-Continue**: Automatic playback continuation when the queue ends (by artist, tag, most played, liked, or random — user-weighted)
-- **Radio**: Start an endless station from any track, artist, or tag
-- **Likes**: Tri-state like/dislike for tracks (plus likes for artists, albums, and tags), durable across library, queue, and now playing; export/import as a portable file
-- **Mini Player**: Compact always-on-top mode with essential controls
-- **Waveform Seek Bar**: Visual waveform display for seeking; video tracks get storyboard seek previews
-
-### Views
-- **Home**: Default landing page — radio-station carousel plus shelves (recently played, most played, jump back in, recently added, liked; plugins can add more)
-- **Now Playing**: Lean-back full-screen view with synced karaoke lyrics and plugin visualizers; video tracks expand into a theater mode
-- **Artists / Albums / Tags / Tracks**: Detail pages with hero headers, breadcrumb navigation, and plugin information sections
-- **History**: Tabbed view — All Time, Last 30 Days, Recent, Artists — with arrow key navigation
-- **Playlists**: Save, load, and manage playlists with cover art and thumbnail tracking; export/import as M3U8 or `.mixtape` bundles
-- **Collections**: Manage local folders, music servers, and subscribed sources
-
-### Service Orchestration
-- **Streaming**: Plugins provide stream resolution from various services — the core app chains them with configurable priority and fallback
-- **Scrobbling & Metadata**: Plugin-driven scrobble reporting, listening history import, similar artists/tracks, bios, and community tags with TTL-based caching
-- **Downloads**: Download tracks with embedded tags and cover art — the downloader always follows the track's source (Subsonic, direct URL, or the owning plugin)
-- **Lyrics**: Synced and plain lyrics from multiple plugin providers with timed highlighting, auto-scroll, and per-track timing offset
-- **Image Providers**: Plugin-based artist/album art resolution with configurable fallback chains
-
-### Skins
-- **8 Built-in Skins**: Default, OLED Black, Arctic Light, Forest, Silver, Ocean Blue, Vibo, Sunset
-- **Custom Skins**: Import JSON skin files or install from the community gallery
-- **19 Color Tokens**: Full UI theming via CSS custom properties
-- **Custom CSS**: Optional per-skin CSS overrides (sanitized)
-
-### Plugins
-- **Plugin System**: The primary extension mechanism — JavaScript plugins provide streaming, metadata, lyrics, image resolution, downloads, context menu items, sidebar views, home shelves, now-playing info items, visualizers, event hooks, settings panels, and scheduler tasks
-- **Built-in Plugins**: Last.fm (scrobbling, history import, similar artists/tracks, bios, community tags), lyrics (LRCLIB, Lyrics.ovh), and artwork (TheAudioDB, Deezer, iTunes, MusicBrainz)
-- **Gallery Plugins**: Installed from the in-app gallery — Spotify, YouTube via yt-dlp (search, play, download), Genius (song explanations), qBittorrent, visualizers, and more
-- **Structured Views**: Plugins render via a data model (track lists, card grids, stats, text) — no raw HTML injection
-- **Plugin Management**: Enable/disable plugins, toggle individual contributions, reorder providers, auto-update, and configure settings via the Extensions view
-
-### Other
-- **Profiles**: Chrome-like isolated profiles (library, settings, plugins per profile)
-- **Onboarding Wizard**: First-run setup — usage profile, skin, sources, recommended plugins, companion tools
-- **Managed Dependencies**: External tools plugins rely on (ffmpeg, yt-dlp) are detected, installed, and auto-updated by the app
-- **Entity Images**: Automatic artist/album art via plugin-based provider chain with configurable priority
-- **Tag Composite Images**: Auto-generated from top artist images
-- **Context Menus**: Native OS right-click menus everywhere, with plugin-registered actions on every track surface
-- **Report a Problem**: One-click diagnostic bundle (reviewed and submitted by the user — nothing is auto-sent)
-- **Auto Updates**: Built-in update checking and installation (stable and opt-in beta channels)
-- **Cross-Platform**: macOS and Windows
-
-## Tech Stack
-
-| Layer | Technology | Purpose |
-|-------|-----------|---------|
-| App shell | Tauri 2 | Native window, small binary |
-| Backend | Rust | Scanning, DB, sync, playback engine, API clients |
-| Frontend | TypeScript + React + Vite | UI, playback control, state management |
-| Playback | libmpv (bundled) + HTML5 fallback | Native decode, gapless, exclusive output; webview codecs as fallback |
-| Database | SQLite via `rusqlite` + FTS5 | Embedded media library with full-text search |
-| Tag reading | `lofty` | ID3v1/v2, Vorbis, FLAC, MP4, Opus tags |
-| File watching | `notify` | Cross-platform filesystem events |
-| Integrations | Plugin system | Streaming, scrobbling, metadata, lyrics, images |
-| AI control | `axum` control API + Node MCP server | Localhost, token-protected API presented to assistants as MCP tools |
-| State persistence | `tauri-plugin-store` v2 | Save/restore UI state across restarts |
-
-## Supported Formats
-
-**Audio** (all decoded natively by the bundled mpv engine): MP3, FLAC, AAC/M4A, ALAC, WAV, OPUS, WMA, OGG/OGA, SPX, AIFF, APE, WavPack, TTA, DSF/DFF (DSD), Musepack, MKA, CAF.
-
-**Video**: MP4/M4V/MOV, WebM, MKV, AVI and WMV, rendered natively by the mpv engine on macOS and Windows.
+**Video:** MP4/M4V/MOV, WebM, MKV, AVI, WMV.
 
 ## Development
 
@@ -218,7 +151,7 @@ npm run test:all
 
 ## Deploy the Static Website to a VPS
 
-The marketing/docs website is the `docs/` folder. You can deploy it to your own VPS using the included script.
+The website is the `docs/` folder. You can deploy it to your own VPS using the included script.
 
 ### 1) One-time VPS setup
 

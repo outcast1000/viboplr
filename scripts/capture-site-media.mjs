@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// Capture the website's persona-page media (docs/for/*.html) from the real,
+// Capture the website's media (docs/assets/media/) from the real,
 // running app — `npm run capture:media`.
 //
 // Drives the app through the control API's UI verbs (navigate / ui action /

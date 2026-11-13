@@ -3,56 +3,41 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Build a Plugin — Vibo</title>
+  <title>Writing a plugin — Vibo</title>
   <meta name="description" content="Plugin developer documentation for Vibo — quickstart, the full plugin API reference, sandbox rules, and how to package and publish to the gallery.">
   <link rel="canonical" href="https://viboplr.com/plugin-dev.html">
   <meta property="og:type" content="website">
   <meta property="og:url" content="https://viboplr.com/plugin-dev.html">
-  <meta property="og:title" content="Build a Plugin — Vibo">
+  <meta property="og:title" content="Writing a plugin — Vibo">
   <meta property="og:description" content="Plugin developer documentation for Vibo — quickstart, API reference, and publishing guide.">
   <meta name="twitter:card" content="summary">
-  <meta name="twitter:title" content="Build a Plugin — Vibo">
+  <meta name="twitter:title" content="Writing a plugin — Vibo">
   <meta name="twitter:description" content="Plugin developer documentation for Vibo — quickstart, API reference, and publishing guide.">
   <link rel="icon" href="assets/icon.svg" type="image/svg+xml">
-  <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700;800&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="css/style.css">
+  <link rel="stylesheet" href="css/plain.css">
 </head>
-<body>
+<body class="wide">
 
-  <!-- Navigation -->
-  <nav class="nav">
-    <div class="nav-inner">
-      <a href="index.html" class="nav-logo">
-        <img class="nav-logo-mark" src="assets/logo-mark.svg" alt="" width="34" height="34">
-        <span class="wordmark" data-text="Vibo">Vibo</span>
-      </a>
-      <div class="nav-links" id="navLinks">
-        <a href="index.html" class="nav-link">Home</a>
-        <a href="plugins.html" class="nav-link active">Plugins</a>
-        <a href="skins.html" class="nav-link">Skins</a>
-        <a href="community.html" class="nav-link">Community</a>
-        <a href="support.html" class="nav-link nav-link--sponsor">
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z"/></svg>
-          Support
-        </a>
-        <a href="download.html" class="nav-cta">Get Vibo</a>
-      </div>
-      <button class="nav-hamburger" id="navHamburger" aria-label="Toggle menu">
-        <span></span>
-        <span></span>
-        <span></span>
-      </button>
-    </div>
-  </nav>
+  <header class="top">
+    <a href="index.html" class="name"><img src="assets/logo-mark.svg" alt="" width="22" height="22">Vibo</a>
+    <nav>
+      <a href="download.html">Download</a>
+      <a href="features.html">Features</a>
+      <a href="plugins.html">Plugins</a>
+      <a href="help.html">Help</a>
+      <a href="history.html">Changes</a>
+      <a href="https://github.com/outcast1000/vibo" target="_blank" rel="noopener">GitHub</a>
+    </nav>
+  </header>
+
+  <main>
 
   <!-- Hero -->
   <section class="download-hero">
     <div class="container">
-      <h1 class="animate-in">Build a <span class="gradient-text">plugin</span></h1>
-      <p class="animate-in animate-delay-1">A Vibo plugin is two files of plain JavaScript — no build step, no framework. If you can write a fetch call, you can put lyrics, artwork, streaming sources, or whole views inside the app.</p>
-      <div class="hero-buttons animate-in animate-delay-2">
+      <h1>Writing a plugin</h1>
+      <p>A Vibo plugin is two files of plain JavaScript — no build step, no framework. If you can write a fetch call, you can put lyrics, artwork, streaming sources, or whole views inside the app.</p>
+      <div class="hero-buttons">
         <a href="#quickstart" class="btn btn-primary">Quickstart</a>
         <a href="#api" class="btn btn-outline">API reference</a>
       </div>
@@ -62,7 +47,7 @@
   <!-- Quickstart -->
   <section class="section" id="quickstart">
     <div class="container">
-      <div class="docs-body reveal">
+      <div class="docs-body">
         <h2>Quickstart</h2>
         <p class="docs-lead">A plugin is a folder with a manifest and a script. That's the whole toolchain.</p>
         <div class="docs-code">
@@ -119,7 +104,7 @@ return { activate: activate, deactivate: deactivate };</pre>
         <p>Fetch handlers resolve to <code>{ status: "ok", value }</code>, <code>{ status: "not_found" }</code>, or <code>{ status: "error", message? }</code> — the app takes care of caching (per-type <code>ttl</code>, in seconds), retries, and rendering. That's a complete, publishable plugin.</p>
         <div class="docs-note">
           The best documentation is working code: every built-in plugin lives in
-          <a href="https://github.com/outcast1000/viboplr/tree/main/src-tauri/plugins" target="_blank" rel="noopener"><code>src-tauri/plugins</code></a>
+          <a href="https://github.com/outcast1000/vibo/tree/main/src-tauri/plugins" target="_blank" rel="noopener"><code>src-tauri/plugins</code></a>
           in the app repo — lyrics providers, artwork sources, Last.fm scrobbling, and more, all in the same two-file format.
         </div>
       </div>
@@ -129,7 +114,7 @@ return { activate: activate, deactivate: deactivate };</pre>
   <!-- Run it locally -->
   <section class="section section-alt" id="develop">
     <div class="container">
-      <div class="docs-body reveal">
+      <div class="docs-body">
         <h2>Run it in the app</h2>
         <p class="docs-lead">Point the app at your working folder — no packaging needed while you develop.</p>
         <ol class="docs-list">
@@ -145,7 +130,7 @@ return { activate: activate, deactivate: deactivate };</pre>
   <!-- What plugins can contribute -->
   <section class="section" id="contributes">
     <div class="container">
-      <div class="docs-body reveal">
+      <div class="docs-body">
         <h2>What a plugin can add</h2>
         <p class="docs-lead">Everything a plugin contributes is declared under <code>contributes</code> in the manifest, then wired up with a matching <code>api</code> handler in <code>activate</code>.</p>
         <div class="api-table-wrap">
@@ -174,7 +159,7 @@ return { activate: activate, deactivate: deactivate };</pre>
   <!-- Designing your view -->
   <section class="section section-alt" id="design">
     <div class="container">
-      <div class="docs-body reveal">
+      <div class="docs-body">
         <h2>Designing your view</h2>
         <p class="docs-lead">The app draws a header at the top of every plugin view: your plugin's icon and name, taken from the manifest. You can add to it, but the look always comes from the user's skin, so your view looks right on all of them.</p>
 
@@ -232,7 +217,7 @@ return { activate: activate, deactivate: deactivate };</pre>
     <div class="container">
       <div class="docs-body">
         <h2>API reference</h2>
-        <p class="docs-lead">The <code>api</code> object passed to <code>activate</code> is the plugin's entire world — every capability below is available to any plugin, and nothing else is. The canonical TypeScript definitions live in <a href="https://github.com/outcast1000/viboplr/blob/main/src/types/plugin.ts" target="_blank" rel="noopener"><code>src/types/plugin.ts</code></a>.</p>
+        <p class="docs-lead">The <code>api</code> object passed to <code>activate</code> is the plugin's entire world — every capability below is available to any plugin, and nothing else is. The canonical TypeScript definitions live in <a href="https://github.com/outcast1000/vibo/blob/main/src/types/plugin.ts" target="_blank" rel="noopener"><code>src/types/plugin.ts</code></a>.</p>
 
         <div class="api-toc">
           <a href="#api-top">top-level</a>
@@ -256,7 +241,7 @@ return { activate: activate, deactivate: deactivate };</pre>
           <a href="#api-env">env</a>
         </div>
 
-        <div class="api-group reveal" id="api-top">
+        <div class="api-group" id="api-top">
           <h3><span class="api-ns">api</span> — top level</h3>
           <p class="api-group-desc">Host information and logging.</p>
           <div class="api-table-wrap">
@@ -269,7 +254,7 @@ return { activate: activate, deactivate: deactivate };</pre>
           </div>
         </div>
 
-        <div class="api-group reveal" id="api-library">
+        <div class="api-group" id="api-library">
           <h3><span class="api-ns">api.library</span></h3>
           <p class="api-group-desc">Read the user's library, search it, and react to library events.</p>
           <div class="api-table-wrap">
@@ -296,7 +281,7 @@ return { activate: activate, deactivate: deactivate };</pre>
           </div>
         </div>
 
-        <div class="api-group reveal" id="api-playback">
+        <div class="api-group" id="api-playback">
           <h3><span class="api-ns">api.playback</span></h3>
           <p class="api-group-desc">Control playback, feed the queue, and resolve streams. Event handlers receive metadata-only tracks (title, artist, album, duration) — no database ids.</p>
           <div class="api-table-wrap">
@@ -319,7 +304,7 @@ return { activate: activate, deactivate: deactivate };</pre>
           </div>
         </div>
 
-        <div class="api-group reveal" id="api-contextmenu">
+        <div class="api-group" id="api-contextmenu">
           <h3><span class="api-ns">api.contextMenu</span></h3>
           <p class="api-group-desc">Right-click actions on every track, album, artist, and playlist surface.</p>
           <div class="api-table-wrap">
@@ -333,7 +318,7 @@ return { activate: activate, deactivate: deactivate };</pre>
           </div>
         </div>
 
-        <div class="api-group reveal" id="api-home">
+        <div class="api-group" id="api-home">
           <h3><span class="api-ns">api.home</span></h3>
           <p class="api-group-desc">Shelves on the Home page. Fetch handlers have a 5-second budget — serve from cached state, not live network calls.</p>
           <div class="api-table-wrap">
@@ -349,7 +334,7 @@ return { activate: activate, deactivate: deactivate };</pre>
           </div>
         </div>
 
-        <div class="api-group reveal" id="api-nowplayinginfo">
+        <div class="api-group" id="api-nowplayinginfo">
           <h3><span class="api-ns">api.nowPlayingInfo</span></h3>
           <p class="api-group-desc">Items for the cycling info line in the mini player (the line under the track title).</p>
           <div class="api-table-wrap">
@@ -363,7 +348,7 @@ return { activate: activate, deactivate: deactivate };</pre>
           </div>
         </div>
 
-        <div class="api-group reveal" id="api-ui">
+        <div class="api-group" id="api-ui">
           <h3><span class="api-ns">api.ui</span></h3>
           <p class="api-group-desc">Render sidebar views and talk to the host UI. Views are declarative — you send data (lists, cards, charts, inputs, settings rows), the app renders native, skin-aware components.</p>
           <div class="api-table-wrap">
@@ -382,7 +367,7 @@ return { activate: activate, deactivate: deactivate };</pre>
           </div>
         </div>
 
-        <div class="api-group reveal" id="api-storage">
+        <div class="api-group" id="api-storage">
           <h3><span class="api-ns">api.storage</span></h3>
           <p class="api-group-desc">Persistent state, scoped to your plugin. Key-value pairs live in the app database; files live in the plugin's own data directory.</p>
           <div class="api-table-wrap">
@@ -399,7 +384,7 @@ return { activate: activate, deactivate: deactivate };</pre>
           </div>
         </div>
 
-        <div class="api-group reveal" id="api-network">
+        <div class="api-group" id="api-network">
           <h3><span class="api-ns">api.network</span></h3>
           <p class="api-group-desc">All network access goes through the host — no CORS restrictions, no direct <code>fetch</code>.</p>
           <div class="api-table-wrap">
@@ -414,7 +399,7 @@ return { activate: activate, deactivate: deactivate };</pre>
           </div>
         </div>
 
-        <div class="api-group reveal" id="api-collections">
+        <div class="api-group" id="api-collections">
           <h3><span class="api-ns">api.collections</span></h3>
           <div class="api-table-wrap">
             <table class="api-table">
@@ -426,7 +411,7 @@ return { activate: activate, deactivate: deactivate };</pre>
           </div>
         </div>
 
-        <div class="api-group reveal" id="api-cues">
+        <div class="api-group" id="api-cues">
           <h3><span class="api-ns">api.cues</span></h3>
           <div class="api-table-wrap">
             <table class="api-table">
@@ -439,7 +424,7 @@ return { activate: activate, deactivate: deactivate };</pre>
           </div>
         </div>
 
-        <div class="api-group reveal" id="api-playlists">
+        <div class="api-group" id="api-playlists">
           <h3><span class="api-ns">api.playlists</span></h3>
           <div class="api-table-wrap">
             <table class="api-table">
@@ -450,7 +435,7 @@ return { activate: activate, deactivate: deactivate };</pre>
           </div>
         </div>
 
-        <div class="api-group reveal" id="api-informationtypes">
+        <div class="api-group" id="api-informationtypes">
           <h3><span class="api-ns">api.informationTypes</span></h3>
           <p class="api-group-desc">Provide values for the information sections you declare in the manifest, and read the shared cache. Values are keyed by entity name, so metadata is shared across libraries. Display kinds include <code>rich_text</code>, <code>lyrics</code>, <code>entity_list</code>, <code>stat_grid</code>, <code>tag_list</code>, <code>ranked_list</code>, <code>image_gallery</code>, and more. <code>plugin_view</code> is an <strong>interactive tab</strong>: its value is a view tree (the same nodes <code>setViewData</code> takes), and its buttons and inputs reach your <code>api.ui.onAction</code> handlers with the page's <code>entity</code> added to the payload.</p>
           <div class="api-table-wrap">
@@ -466,7 +451,7 @@ return { activate: activate, deactivate: deactivate };</pre>
           </div>
         </div>
 
-        <div class="api-group reveal" id="api-imageproviders">
+        <div class="api-group" id="api-imageproviders">
           <h3><span class="api-ns">api.imageProviders</span></h3>
           <div class="api-table-wrap">
             <table class="api-table">
@@ -477,7 +462,7 @@ return { activate: activate, deactivate: deactivate };</pre>
           </div>
         </div>
 
-        <div class="api-group reveal" id="api-downloads">
+        <div class="api-group" id="api-downloads">
           <h3><span class="api-ns">api.downloads</span></h3>
           <p class="api-group-desc">Plug into the unified downloader — queueing, progress, tagging, and cover embedding are handled by the host.</p>
           <div class="api-table-wrap">
@@ -495,7 +480,7 @@ return { activate: activate, deactivate: deactivate };</pre>
           <p class="api-group-desc">Your resolve handlers return <code>{ url, headers?, metadata?, ext? }</code>. <strong>Always return a concrete <code>ext</code> when you know the container</strong> (<code>"mp3"</code>, <code>"flac"</code>, <code>"m4a"</code>, …) — naming the file is the provider's job. <code>ext: "auto"</code> asks the host to detect the format from the downloaded bytes, but that only happens on the background queue (batch) path; the single-track download window resolves the extension before the bytes arrive and never sniffs, so there <code>"auto"</code> falls back to a default (and to a neutral <code>.bin</code> if you also declared no <code>onGetQualities</code>). Don't rely on <code>"auto"</code> for single-track downloads.</p>
         </div>
 
-        <div class="api-group reveal" id="api-websearch">
+        <div class="api-group" id="api-websearch">
           <h3><span class="api-ns">api.webSearch</span></h3>
           <p class="api-group-desc">Web search as a shared service: provide one, or run the user's. Results are <code>{ status: "ok", results: [{ title, url, snippet?, site? }] }</code>, <code>{ status: "empty" }</code> or <code>{ status: "error", message? }</code>. The user orders and switches providers in Settings → Providers → Web search; a switched-off one is never asked. Running a search needs the <code>plugins:call</code> permission. Guard for older apps: <code>typeof api.webSearch?.query === "function"</code>.</p>
           <div class="api-table-wrap">
@@ -510,7 +495,7 @@ return { activate: activate, deactivate: deactivate };</pre>
           </div>
         </div>
 
-        <div class="api-group reveal" id="api-scheduler">
+        <div class="api-group" id="api-scheduler">
           <h3><span class="api-ns">api.scheduler</span></h3>
           <p class="api-group-desc">Periodic background tasks, persisted across restarts.</p>
           <div class="api-table-wrap">
@@ -524,7 +509,7 @@ return { activate: activate, deactivate: deactivate };</pre>
           </div>
         </div>
 
-        <div class="api-group reveal" id="api-system">
+        <div class="api-group" id="api-system">
           <h3><span class="api-ns">api.system</span></h3>
           <p class="api-group-desc">Subprocesses are allow-listed: Vibo's own <code>ffmpeg</code>, plus the tools plugins define. List every tool you use in <code>binaryDependencies</code> (<code>{ name, required, reason }</code>). To have Vibo install and update a tool for you, add a <code>definition</code> to its entry: how to read its version (<code>versionArgs</code>, <code>versionPattern</code> with one capture group), install hints, and a GitHub release to fetch it from (<code>managed: { repo, assets, checksum }</code>, where <code>checksum</code> is <code>{ "file": "SHA2-256SUMS" }</code>, <code>{ "github": true }</code> for the sha256 GitHub records when upstream publishes no checksums file, or an explicit <code>{ "none": true }</code>). Asset names may use <code>{version}</code> (<code>"slskd-{version}-osx-arm64.zip"</code>), and <code>macos-arm64</code> / <code>macos-x64</code> / <code>windows-x64</code> / <code>windows-arm64</code> keys pick a build per CPU. A tool shipped as a folder takes <code>"layout": "folder", "entry": "&lt;program&gt;"</code>, and <code>probeEnv</code> sets a few allow-listed variables for its version check. You never pin a version: Vibo follows the repo's latest release, announces updates in its update bar, and installs them only when the user clicks. A definition from a plugin Vibo signed is used at once; an unsigned plugin's is used only after the user agrees. A tool without a checksum is confirmed by the user on every install and update. Unknown fields are refused, so a definition never half-works on an older Vibo. When a tool you list is missing, give the user a button that calls <code>api.ui.requestAction("require-dependency", { name, feature? })</code>: it opens Vibo's install dialog for that tool (only for tools your manifest lists), says "required" or "needed" from your entry's <code>required</code> flag, and asks for consent first when the tool is one of your unsigned definitions. It returns nothing, so re-read <code>getDependency(name)</code> afterwards.</p>
           <div class="api-table-wrap">
@@ -537,7 +522,7 @@ return { activate: activate, deactivate: deactivate };</pre>
           </div>
         </div>
 
-        <div class="api-group reveal" id="api-env">
+        <div class="api-group" id="api-env">
           <h3><span class="api-ns">api.env</span></h3>
           <div class="api-table-wrap">
             <table class="api-table">
@@ -555,7 +540,7 @@ return { activate: activate, deactivate: deactivate };</pre>
   <!-- Sandbox & permissions -->
   <section class="section section-alt" id="sandbox">
     <div class="container">
-      <div class="docs-body reveal">
+      <div class="docs-body">
         <h2>The sandbox</h2>
         <p class="docs-lead">Plugins run inside the app with a deliberately small surface — everything flows through <code>api</code>.</p>
         <ul class="docs-list">
@@ -574,7 +559,7 @@ return { activate: activate, deactivate: deactivate };</pre>
   <!-- Package & publish -->
   <section class="section" id="publish">
     <div class="container">
-      <div class="docs-body reveal">
+      <div class="docs-body">
         <h2>Package &amp; publish</h2>
         <p class="docs-lead">Plugins live in their own GitHub repos. The gallery is just an index that points at your releases — you ship updates by publishing a release, and installed copies auto-update within a day.</p>
         <ol class="docs-list">
@@ -601,30 +586,14 @@ return { activate: activate, deactivate: deactivate };</pre>
     </div>
   </section>
 
-  <!-- Bottom CTA -->
-  <section class="bottom-cta">
-    <div class="container reveal">
-      <h2>Ship your first <span class="gradient-text">plugin</span></h2>
-      <p>Two files, an idea, and the gallery does the rest.</p>
-      <div class="hero-buttons">
-        <a href="https://github.com/outcast1000/viboplr/tree/main/src-tauri/plugins" class="btn btn-primary" target="_blank" rel="noopener">Read example plugins</a>
-        <a href="plugins.html" class="btn btn-outline">Browse the gallery</a>
-      </div>
-    </div>
-  </section>
+  </main>
 
-  <!-- Footer -->
-  <footer class="footer">
-    <div class="container">
-      <div class="footer-inner">
-        <div class="footer-left">&copy; 2026 Vibo. All rights reserved.</div>
-        <div class="footer-right">
-          <a href="support.html" class="footer-link">Support</a>
-          <a href="https://github.com/outcast1000/viboplr" class="footer-link" target="_blank" rel="noopener">GitHub</a>
-          <span class="footer-link">Built with Tauri + React</span>
-        </div>
-      </div>
-    </div>
+  <footer>
+    <a href="download.html">Download</a>
+    <a href="help.html">Help</a>
+    <a href="community.html">Community</a>
+    <a href="support.html">Support the project</a>
+    <a href="https://github.com/outcast1000/vibo" target="_blank" rel="noopener">GitHub</a>
   </footer>
 
   <script src="js/main.js"></script>

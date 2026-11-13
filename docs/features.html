@@ -3,416 +3,138 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Features — Viboplr</title>
-  <meta name="description" content="Gapless playback, full-text search, server integration, mini player, keyboard shortcuts, and more.">
+  <title>Features — Vibo</title>
+  <meta name="description" content="Everything Vibo does, as a plain list: library and sources, playback, listening, editing, AI control, plugins and how it is built.">
   <link rel="canonical" href="https://viboplr.com/features.html">
   <meta property="og:type" content="website">
   <meta property="og:url" content="https://viboplr.com/features.html">
-  <meta property="og:title" content="Features — Viboplr">
-  <meta property="og:description" content="Gapless playback, full-text search, server integration, mini player, keyboard shortcuts, and more.">
+  <meta property="og:title" content="Features — Vibo">
+  <meta property="og:description" content="Everything Vibo does, as a plain list.">
   <meta name="twitter:card" content="summary">
-  <meta name="twitter:title" content="Features — Viboplr">
-  <meta name="twitter:description" content="Gapless playback, full-text search, server integration, mini player, keyboard shortcuts, and more.">
   <link rel="icon" href="assets/icon.svg" type="image/svg+xml">
-  <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700;800&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="css/style.css">
+  <link rel="stylesheet" href="css/plain.css">
 </head>
 <body>
 
-  <!-- Navigation -->
-  <nav class="nav">
-    <div class="nav-inner">
-      <a href="index.html" class="nav-logo">
-        <img class="nav-logo-mark" src="assets/logo-mark.svg" alt="" width="34" height="34">
-        <span class="wordmark" data-text="Vibo">Vibo</span>
-      </a>
-      <div class="nav-links" id="navLinks">
-        <a href="index.html" class="nav-link">Home</a>
-        <a href="plugins.html" class="nav-link">Plugins</a>
-        <a href="skins.html" class="nav-link">Skins</a>
-        <a href="community.html" class="nav-link">Community</a>
-        <a href="download.html" class="nav-cta">Get Viboplr</a>
-      </div>
-      <button class="nav-hamburger" id="navHamburger" aria-label="Toggle menu">
-        <span></span>
-        <span></span>
-        <span></span>
-      </button>
-    </div>
-  </nav>
+  <header class="top">
+    <a href="index.html" class="name"><img src="assets/logo-mark.svg" alt="" width="22" height="22">Vibo</a>
+    <nav>
+      <a href="download.html">Download</a>
+      <a href="features.html" aria-current="page">Features</a>
+      <a href="plugins.html">Plugins</a>
+      <a href="help.html">Help</a>
+      <a href="history.html">Changes</a>
+      <a href="https://github.com/outcast1000/vibo" target="_blank" rel="noopener">GitHub</a>
+    </nav>
+  </header>
 
-  <!-- Page Header -->
-  <section class="page-header">
-    <div class="container">
-      <h1 class="animate-in">Everything you need.<br><span class="gradient-text">Nothing you don't.</span></h1>
-      <p class="animate-in animate-delay-1">Full-featured, meticulously optimized, and engineered to stay out of your way.</p>
-    </div>
-  </section>
+  <main>
+    <section>
+      <h1>Features</h1>
+      <p>Everything Vibo does, as a list. Items marked <span class="feature-tag">plugin</span> need a plugin from the <a href="plugins.html">gallery</a>.</p>
+      <p><a href="#library">Library and sources</a> · <a href="#playback">Playback</a> · <a href="#listening">Listening</a> · <a href="#editing">Editing and downloads</a> · <a href="#ai">AI control and the control API</a> · <a href="#extend">Plugins and skins</a> · <a href="#built">How it is built</a></p>
+    </section>
 
-  <!-- Feature: AI Assistant -->
-  <section class="feature-section">
-    <div class="container">
-      <div class="feature-group-header reveal">
-        <h2>AI Control</h2>
-        <p>The headline feature: a built-in MCP server lets Claude or any AI assistant build playlists, fix tags, organise your library and download tracks &mdash; private, local, and off by default.</p>
-      </div>
-      <div class="feature-row reveal">
-        <div class="feature-content">
-          <span class="feature-label">AI Assistant</span>
-          <h2>Just ask &mdash; it&rsquo;s done</h2>
-          <p>Turn on <strong>AI control</strong> and an assistant running on your computer &mdash; Claude Desktop, Claude Code, Cursor or any MCP client &mdash; can do anything a listener does, and much of what a librarian does. Ask it to <strong>build playlists</strong> from your likes and history, <strong>fix tags</strong> across hundreds of tracks (in the library or written into the files), <strong>organise folders</strong> into a clean Artist/Album layout, save lyrics and covers next to your music, <strong>download tracks</strong> from your server or through download plugins, and swap low-bitrate copies for better ones in place. It can answer questions about your listening history, run playback, queue and radio, and use your installed plugins as tools too. A private control server runs on your machine only (<code>127.0.0.1</code>, token-protected), and the bundled MCP server presents it to assistants as typed tools. Deliberately bounded: one AI access setting &mdash; Low, Full or Custom &mdash; decides what it may change, so anything that touches your files needs Full access or its own switch, moves, file swaps and deletions are planned and shown first, deleted tracks go to the trash only after you confirm, nothing is installed without your OK, and every change is logged.</p>
-          <div class="feature-list">
-            <div class="feature-list-item">Works with Claude Desktop, Claude Code, Cursor &amp; any MCP client &mdash; setup is two clicks</div>
-            <div class="feature-list-item">Playlists, tags, likes, radio, queue &amp; playback &mdash; just ask</div>
-            <div class="feature-list-item">Fix tags in bulk, file compilations, save lyrics &amp; covers, reorganise folders (plan first)</div>
-            <div class="feature-list-item">Download tracks and upgrade copies in place, with a side-by-side quality check</div>
-            <div class="feature-list-item">Plugin tools too: Spotify playlists, Soulseek search &amp; more<span class="feature-tag">plugin</span></div>
-            <div class="feature-list-item">Local-only, off by default &mdash; deletions go to the trash, only after you confirm</div>
-          </div>
-        </div>
-        <div class="feature-image">
-          <span>AI Assistant screenshot &mdash; coming soon</span>
-        </div>
-      </div>
-    </div>
-  </section>
+    <section id="library">
+      <h2>Library and sources</h2>
+      <ul>
+        <li>Local folders, scanned in the background and watched for changes.</li>
+        <li>Subsonic and Navidrome servers, in the same library and queue as your folders.</li>
+        <li>Tags are read from the files. An album belongs to its album artist, so a compilation stays one album.</li>
+        <li>Full-text search over artists, albums, tracks and tags. Accents and case are ignored.</li>
+        <li>Tracks, albums, artists and tags views, each with its own detail page.</li>
+        <li>Play history you can search and sort.</li>
+        <li>Like or dislike tracks, artists, albums and tags. Export your likes to a file and import them on another computer.</li>
+        <li>Separate <a href="help.html#profiles">profiles</a>, each with its own library and settings.</li>
+        <li>Spotify browsing and YouTube playback.<span class="feature-tag">plugin</span></li>
+      </ul>
+    </section>
 
-  <!-- Feature: Engine -->
-  <section class="feature-section">
-    <div class="container">
-      <div class="feature-group-header reveal">
-        <h2>Playback</h2>
-        <p>Audiophile-grade playback and lean-back views, for listening and watching.</p>
-      </div>
-      <div class="feature-row reveal">
-        <div class="feature-content">
-          <span class="feature-label">Engine</span>
-          <h2>Hear it the way it was meant to be heard</h2>
-          <p>Gapless playback for seamless album listening. Crossfading from 0 to 10 seconds between tracks. Native codec support for audio and video files &mdash; no transcoding, no plugins.</p>
-          <div class="feature-list">
-            <div class="feature-list-item">Gapless playback across albums</div>
-            <div class="feature-list-item">Adjustable crossfade (0&ndash;10s)</div>
-            <div class="feature-list-item">Audio &amp; video playback with native codecs</div>
-            <div class="feature-list-item">Sub-200ms playback latency</div>
-          </div>
-        </div>
-        <div class="feature-image">
-          <img src="assets/screenshots/playback.webp" alt="Vibo playback controls and now playing bar" loading="lazy" width="2560" height="1600">
-        </div>
-      </div>
-    </div>
-  </section>
+    <section id="playback">
+      <h2>Playback</h2>
+      <ul>
+        <li>Audio and video through libmpv, with the files played as they are.</li>
+        <li>Gapless playback, and <a href="help.html#crossfade">crossfade</a> from 0 to 10 seconds.</li>
+        <li><a href="help.html#bit-perfect-mode">Bit-perfect mode</a> and <a href="help.html#exclusive-audio">exclusive output</a> for external DACs.</li>
+        <li><a href="help.html#replaygain">ReplayGain</a>, a 10-band <a href="help.html#equalizer">equalizer</a> and <a href="help.html#clip-protection">clip protection</a>.</li>
+        <li>A queue you can reorder, trim and save as an <code>.m3u8</code> playlist.</li>
+        <li>Playlists, and mixtapes: a playlist exported together with its files.</li>
+        <li>A mini player in three layouts that can stay on top of other windows.</li>
+        <li>A full-window theater for video.</li>
+        <li>Keyboard shortcuts for playback, volume, navigation and search, with an overlay that lists them.</li>
+      </ul>
+    </section>
 
-  <!-- Feature: Now Playing -->
-  <section class="feature-section">
-    <div class="container">
-      <div class="feature-row reveal">
-        <div class="feature-content">
-          <span class="feature-label">Now Playing</span>
-          <h2>Lean back and watch the words</h2>
-          <p>A full-screen now-playing view with synced, karaoke-style lyrics that highlight line by line. Playing a video? It expands into a distraction-free theater mode &mdash; just the picture, with the controls fading out of the way.</p>
-          <div class="feature-list">
-            <div class="feature-list-item">Synced (LRC) karaoke lyrics with tap-to-seek</div>
-            <div class="feature-list-item">Plain-lyrics fallback with auto-scroll</div>
-            <div class="feature-list-item">Video theater mode with auto-hiding overlays</div>
-            <div class="feature-list-item">Lyrics from multiple providers<span class="feature-tag">plugin</span></div>
-          </div>
-        </div>
-        <div class="feature-image">
-          <img src="assets/screenshots/now-playing.webp" alt="Vibo now playing view with synced karaoke lyrics" loading="lazy" width="2560" height="1600">
-        </div>
-      </div>
-    </div>
-  </section>
+    <section id="listening">
+      <h2>Listening</h2>
+      <ul>
+        <li>A home screen with radio stations from your library and shelves: your latest play, mixes made for you, lists of recent additions and most played, albums by decade and forgotten favorites.</li>
+        <li>Radio from any song, artist or tag, built from your library. You choose how much of the seed artist it plays, whether it leans to favorites or to songs you rarely play, and how many songs per artist.</li>
+        <li><a href="help.html#auto-continue">Auto-continue</a> adds more music when the queue ends.</li>
+        <li>Synced lyrics from <code>.lrc</code> files; click a line to jump to it.</li>
+        <li>Online lyrics, bios, similar artists and cover art.<span class="feature-tag">plugin</span></li>
+        <li>Cue sheets: notes and pictures timed to a song, shown on Now Playing.</li>
+        <li><a href="help.html#scrobbling">Scrobbling</a> to the local history and to plugins such as Last.fm, with an audio and a video switch for each.<span class="feature-tag">plugin</span></li>
+      </ul>
+    </section>
 
-  <!-- Feature: Mini Player -->
-  <section class="feature-section">
-    <div class="container">
-      <div class="feature-row reveal">
-        <div class="feature-content">
-          <span class="feature-label">Mini Player</span>
-          <h2>Always within reach</h2>
-          <p>A compact, always-on-top mini player that stays visible while you work. Draggable, auto-resizing, and just the right amount of information at a glance.</p>
-          <div class="feature-list">
-            <div class="feature-list-item">Always-on-top mode</div>
-            <div class="feature-list-item">Draggable &amp; compact</div>
-            <div class="feature-list-item">Normal, compact or full layout &mdash; full keeps every control on screen</div>
-            <div class="feature-list-item">Auto-resizing to fit content</div>
-            <div class="feature-list-item">Full playback controls</div>
-          </div>
-        </div>
-        <div class="feature-image feature-image--wide">
-          <img src="assets/screenshots/mini-player.webp" alt="Vibo mini player with playback controls" loading="lazy" width="1100" height="212">
-        </div>
-      </div>
-    </div>
-  </section>
+    <section id="editing">
+      <h2>Editing and downloads</h2>
+      <ul>
+        <li>Edit artist, album artist, album, year and tags for many tracks at once, written into the files.</li>
+        <li>Fix the title, artist or album of a queue entry without touching the file.</li>
+        <li>Download the playing track from where it is playing: your server, a web address, or the plugin that provides it.</li>
+        <li>Replace a local file with a better copy after comparing the two; likes, tags and playlists stay with it.<span class="feature-tag">plugin</span></li>
+        <li>Deleted tracks go to the trash.</li>
+      </ul>
+    </section>
 
-  <!-- Feature: Library -->
-  <section class="feature-section">
-    <div class="container">
-      <div class="feature-group-header reveal">
-        <h2>Library &amp; Sources</h2>
-        <p>Local folders and music servers, unified into one fast library.</p>
-      </div>
-      <div class="feature-row reveal">
-        <div class="feature-content">
-          <span class="feature-label">Library</span>
-          <h2>Your collection, always in sync</h2>
-          <p>Point Vibo at your music folders and it handles the rest. Background scanning reads metadata intelligently, and real-time file watching catches every change the moment it happens.</p>
-          <div class="feature-list">
-            <div class="feature-list-item">Background folder scanning</div>
-            <div class="feature-list-item">Smart metadata extraction with fallback parsing</div>
-            <div class="feature-list-item">Real-time file watching for instant updates</div>
-            <div class="feature-list-item">Genre tags from file metadata</div>
-          </div>
-        </div>
-        <div class="feature-image">
-          <img src="assets/screenshots/library.webp" alt="Vibo library albums in tiles view" loading="lazy" width="2560" height="1600">
-        </div>
-      </div>
-    </div>
-  </section>
+    <section id="ai">
+      <h2>AI control and the control API</h2>
+      <ul>
+        <li>One setting, <a href="help.html#control-api">Settings → AI control</a>: Off (the default), Low, Full or Custom.</li>
+        <li>A server on 127.0.0.1 only, with an access token you can regenerate.</li>
+        <li>A bundled <a href="help.html#mcp-server">MCP server</a> for Claude Desktop, Claude Code or any MCP client. Settings copies the config.</li>
+        <li>The same server is a plain HTTP API, with a <a href="https://github.com/outcast1000/vibo/tree/main/skills/viboplr-control" target="_blank" rel="noopener">Claude Code skill</a> that documents it.</li>
+        <li>Separate <a href="help.html#assistant-permissions">permission switches</a> for writing tags to files, managing files, downloading, plugin actions, deleting, and clicking in the window.</li>
+        <li>File moves and deletions are returned as a plan first and applied only when the plan is sent back.</li>
+        <li>Installed plugins can add their own tools for the assistant.</li>
+      </ul>
+    </section>
 
-  <!-- Feature: Search -->
-  <section class="feature-section">
-    <div class="container">
-      <div class="feature-row reveal">
-        <div class="feature-content">
-          <span class="feature-label">Search</span>
-          <h2>Find anything in milliseconds</h2>
-          <p>FTS5-powered full-text search across artists, albums, tracks, and tags. Accent-insensitive and forgiving &mdash; find what you want even when you can't remember the exact spelling.</p>
-          <div class="feature-list">
-            <div class="feature-list-item">Full-text search with FTS5</div>
-            <div class="feature-list-item">Accent &amp; case insensitive</div>
-            <div class="feature-list-item">Sub-100ms results across entire library</div>
-            <div class="feature-list-item">Search by artist, album, track, or tag</div>
-          </div>
-        </div>
-        <div class="feature-image">
-          <img src="assets/screenshots/search.webp" alt="Vibo full-text search with results" loading="lazy" width="2560" height="1600">
-        </div>
-      </div>
-    </div>
-  </section>
+    <section id="extend">
+      <h2>Plugins and skins</h2>
+      <ul>
+        <li>Plugins are a <code>manifest.json</code> and an <code>index.js</code> in plain JavaScript, with no build step. See <a href="plugin-dev.html">writing a plugin</a>.</li>
+        <li>A plugin can add music sources, sections on detail pages, home shelves, sidebar views, context-menu items, scrobblers, download providers and AI tools.</li>
+        <li>Each plugin declares its permissions, and the app shows them before installing.</li>
+        <li>Install and update plugins from the in-app gallery. Updates come from each plugin's GitHub releases.</li>
+        <li>Eight built-in skins, light and dark, plus a <a href="skins.html">skin gallery</a>. A skin is 19 colors and optional CSS, made in the in-app editor.</li>
+      </ul>
+    </section>
 
-  <!-- Feature: Servers -->
-  <section class="feature-section">
-    <div class="container">
-      <div class="feature-row reveal">
-        <div class="feature-content">
-          <span class="feature-label">Servers</span>
-          <h2>Local meets streaming, seamlessly</h2>
-          <p>Point Vibo at local folders and Subsonic or Navidrome servers for one unified library. Add streaming services through plugins &mdash; they slot straight into the same player, queue, and search.</p>
-          <div class="feature-list">
-            <div class="feature-list-item">Subsonic &amp; Navidrome support</div>
-            <div class="feature-list-item">Unified library across all sources</div>
-            <div class="feature-list-item">Spotify &amp; YouTube browse and playback<span class="feature-tag">plugin</span></div>
-          </div>
-        </div>
-        <div class="feature-image">
-          <img src="assets/screenshots/servers.webp" alt="Vibo collections view with local and server sources" loading="lazy" width="2560" height="1600">
-        </div>
-      </div>
-    </div>
-  </section>
+    <section id="built">
+      <h2>How it is built</h2>
+      <ul>
+        <li>Rust and Tauri 2 for the backend, React and TypeScript for the interface, SQLite for the library, libmpv for playback.</li>
+        <li>The system's own webview (WebKit on macOS, WebView2 on Windows), so no browser engine is bundled. The download is about 30 MB.</li>
+        <li>Searching a 20,000-track test library takes under 40 ms (<code>cargo test bench_search_performance -- --ignored</code>).</li>
+        <li>The app checks for updates and installs one when you click.</li>
+        <li>No account. <a href="help.html#telemetry">Anonymous usage stats</a>, with a switch to turn them off.</li>
+        <li>Open source under the GPL-3.0 license, on <a href="https://github.com/outcast1000/vibo" target="_blank" rel="noopener">GitHub</a>.</li>
+      </ul>
+    </section>
+  </main>
 
-  <!-- Feature: Likes -->
-  <section class="feature-section">
-    <div class="container">
-      <div class="feature-row reveal">
-        <div class="feature-content">
-          <span class="feature-label">Likes</span>
-          <h2>Your likes, on every device</h2>
-          <p>Like and dislike tracks, artists, albums and tags &mdash; then carry that taste to another PC or profile. Export it all to a file and import it anywhere; because likes are matched by name, they re-apply cleanly even to a differently-scanned library. The merge is safe to run both directions &mdash; it only ever overwrites an older like with a newer one, and never deletes. Signed in to Last.fm? Pull your loved tracks straight in &mdash; once, or automatically on a schedule.</p>
-          <div class="feature-list">
-            <div class="feature-list-item">Like &amp; dislike tracks, artists, albums &amp; tags</div>
-            <div class="feature-list-item">Export &amp; import all likes as a portable file</div>
-            <div class="feature-list-item">Newer-wins merge &mdash; carry it both ways safely</div>
-            <div class="feature-list-item">Import &amp; auto-sync your Last.fm loved tracks<span class="feature-tag">plugin</span></div>
-          </div>
-        </div>
-        <div class="feature-image">
-          <span>Likes screenshot &mdash; coming soon</span>
-        </div>
-      </div>
-    </div>
-  </section>
-
-  <!-- Feature: Home -->
-  <section class="feature-section">
-    <div class="container">
-      <div class="feature-group-header reveal">
-        <h2>Discovery</h2>
-        <p>Your own collection, resurfaced &mdash; stations, shelves, and endless queues.</p>
-      </div>
-      <div class="feature-row reveal">
-        <div class="feature-content">
-          <span class="feature-label">Home</span>
-          <h2>A home screen that knows your library</h2>
-          <p>Open Vibo to a curated landing page &mdash; an auto-rotating carousel of radio stations built from your own music, plus shelves that resurface recent plays, your most-played, and albums you'd forgotten you owned.</p>
-          <div class="feature-list">
-            <div class="feature-list-item">Radio-station carousel seeded from your library</div>
-            <div class="feature-list-item">&ldquo;Latest play&rdquo; &amp; &ldquo;Most played&rdquo; shelves</div>
-            <div class="feature-list-item">&ldquo;Made for you&rdquo; mixes &amp; &ldquo;Recently added&rdquo;</div>
-            <div class="feature-list-item">Extra shelves contributed by plugins<span class="feature-tag">plugin</span></div>
-          </div>
-        </div>
-        <div class="feature-image">
-          <img src="assets/screenshots/home.webp" alt="Vibo home view with radio stations and shelves" loading="lazy" width="2560" height="1600">
-        </div>
-      </div>
-    </div>
-  </section>
-
-  <!-- Feature: Radio -->
-  <section class="feature-section">
-    <div class="container">
-      <div class="feature-row reveal">
-        <div class="feature-content">
-          <span class="feature-label">Radio</span>
-          <h2>Rediscover your own music</h2>
-          <p>Start an endless station from any track, artist, or tag and Vibo builds the queue from what fits. When a queue runs dry, auto-continue keeps the music going using weighted strategies you control.</p>
-          <div class="feature-list">
-            <div class="feature-list-item">One-click radio from any track, artist, or tag</div>
-            <div class="feature-list-item">Tune stations: seed-artist share, favorites / mixed / discovery taste, spread across artists</div>
-            <div class="feature-list-item">Auto-continue with weighted strategies</div>
-            <div class="feature-list-item">Mix by same artist, tag, most-played, or liked</div>
-            <div class="feature-list-item">Similar tracks, artists &amp; bios via Last.fm<span class="feature-tag">plugin</span></div>
-          </div>
-        </div>
-        <div class="feature-image">
-          <img src="assets/screenshots/discovery.webp" alt="Vibo track detail with a radio queue playing" loading="lazy" width="2560" height="1600">
-        </div>
-      </div>
-    </div>
-  </section>
-
-  <!-- Feature: Keyboard -->
-  <section class="feature-section">
-    <div class="container">
-      <div class="feature-group-header reveal">
-        <h2>Make It Yours</h2>
-        <p>Shape the app around how you listen.</p>
-      </div>
-      <div class="feature-row reveal">
-        <div class="feature-content">
-          <span class="feature-label">Keyboard</span>
-          <h2>Built for power users</h2>
-          <p>Over 35 keyboard shortcuts for everything from playback to navigation. Never leave the keyboard &mdash; control your music as fast as you can think.</p>
-          <div class="feature-list">
-            <div class="feature-list-item">35+ keyboard shortcuts</div>
-            <div class="feature-list-item">Playback, volume, navigation, search</div>
-            <div class="feature-list-item">Discoverable via shortcut overlay</div>
-            <div class="feature-list-item">Vim-inspired navigation keys</div>
-          </div>
-        </div>
-        <div class="feature-image">
-          <img src="assets/screenshots/keyboard.webp" alt="Vibo keyboard shortcuts overlay" loading="lazy" width="2560" height="1600">
-        </div>
-      </div>
-    </div>
-  </section>
-
-  <!-- Feature: Skins -->
-  <section class="feature-section">
-    <div class="container">
-      <div class="feature-row reveal">
-        <div class="feature-content">
-          <span class="feature-label">Skins</span>
-          <h2>Make it yours</h2>
-          <p>Choose from 8 built-in skins or install community skins from the gallery. Import your own JSON skin files with 13 customizable color tokens and optional custom CSS.</p>
-          <div class="feature-list">
-            <div class="feature-list-item">8 built-in skins (dark &amp; light)</div>
-            <div class="feature-list-item">Community skin gallery</div>
-            <div class="feature-list-item">13 color tokens for full UI theming</div>
-            <div class="feature-list-item">Import custom JSON skins</div>
-          </div>
-        </div>
-        <div class="feature-image">
-          <img src="assets/screenshots/skins.webp" alt="Vibo installed skins gallery" loading="lazy" width="2560" height="1600">
-        </div>
-      </div>
-    </div>
-  </section>
-
-  
-  <!-- Skin Gallery -->
-  <section class="feature-section">
-    <div class="container">
-      <div class="skin-gallery reveal">
-        <div class="skin-gallery-item">
-          <img src="assets/screenshots/detail-artist-light.webp" alt="Artist detail view in Arctic Light skin" loading="lazy" width="2560" height="1600">
-          <div class="skin-gallery-caption"><strong>Arctic Light</strong> &mdash; Artist detail</div>
-        </div>
-        <div class="skin-gallery-item">
-          <img src="assets/screenshots/detail-album-viboplr.webp" alt="Album detail view in Viboplr skin" loading="lazy" width="2560" height="1600">
-          <div class="skin-gallery-caption"><strong>Viboplr</strong> &mdash; Album detail</div>
-        </div>
-        <div class="skin-gallery-item">
-          <img src="assets/screenshots/detail-track-sunset.webp" alt="Track detail view in Sunset skin" loading="lazy" width="2560" height="1600">
-          <div class="skin-gallery-caption"><strong>Sunset</strong> &mdash; Track detail</div>
-        </div>
-      </div>
-    </div>
-  </section>
-
-  <!-- Feature: Ecosystem -->
-  <section class="feature-section">
-    <div class="container">
-      <div class="feature-group-header reveal">
-        <h2>Powered by Plugins</h2>
-        <p>An orchestrator at heart &mdash; extend Vibo with streaming services, metadata, and entirely new views.</p>
-      </div>
-      <div class="feature-row reveal">
-        <div class="feature-content">
-          <span class="feature-label">Ecosystem</span>
-          <h2>Extend it your way</h2>
-          <p>A JavaScript plugin system powers streaming, lyrics, artwork, scrobbling, and downloads. Built-in plugins ship with the app; install more from the in-app gallery, or build your own with custom views, home shelves, context-menu actions, and event hooks. You can even run Vibo with no local collection at all &mdash; the Spotify and YouTube plugins turn it into a pure streaming player.</p>
-          <div class="feature-list">
-            <div class="feature-list-item">Streaming, lyrics, artwork &amp; scrobbling plugins</div>
-            <div class="feature-list-item">One-click install from the in-app gallery</div>
-            <div class="feature-list-item">Custom sidebar views, home shelves &amp; context actions</div>
-            <div class="feature-list-item">Per-plugin storage; structured views (no raw HTML)</div>
-            <div class="feature-list-item">No local files needed &mdash; stream via Spotify &amp; YouTube<span class="feature-tag">plugin</span></div>
-          </div>
-        </div>
-        <div class="feature-image">
-          <img src="assets/screenshots/plugins.webp" alt="Vibo installed plugins in the Extensions view" loading="lazy" width="2560" height="1600">
-        </div>
-      </div>
-    </div>
-  </section>
-
-  <!-- Bottom CTA -->
-  <section class="bottom-cta">
-    <div class="container reveal">
-      <h2>Ready to try <span class="gradient-text">Viboplr</span>?</h2>
-      <p>Free, full-featured, and built for music lovers.</p>
-      <div class="hero-buttons">
-        <a href="https://github.com/outcast1000/vibo/releases/download/v1.0.121/Viboplr_1.0.121_aarch64.dmg" class="btn btn-primary btn-lg">Download Now</a>
-      </div>
-    </div>
-  </section>
-
-  <!-- Footer -->
-  <footer class="footer">
-    <div class="container">
-      <div class="footer-inner">
-        <div class="footer-left">&copy; 2026 Viboplr. All rights reserved.</div>
-        <div class="footer-right">
-          <a href="https://github.com/outcast1000/vibo" class="footer-link" target="_blank" rel="noopener">GitHub</a>
-          <span class="footer-link">Built with Tauri + React</span>
-        </div>
-      </div>
-    </div>
+  <footer>
+    <a href="download.html">Download</a>
+    <a href="help.html">Help</a>
+    <a href="community.html">Community</a>
+    <a href="support.html">Support the project</a>
+    <a href="https://github.com/outcast1000/vibo" target="_blank" rel="noopener">GitHub</a>
   </footer>
 
-  <script src="js/main.js"></script>
   <script defer src="js/analytics.js"></script>
-  <!-- Cloudflare Web Analytics -->
   <script defer src='https://static.cloudflareinsights.com/beacon.min.js' data-cf-beacon='{"token": "cbb978698d3744cca00a24f8cac8bc3c"}'></script>
 </body>
 </html>

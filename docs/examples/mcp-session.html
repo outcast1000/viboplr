@@ -3,58 +3,41 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>A real Vibo MCP session</title>
+  <title>Example MCP session — Vibo</title>
   <meta name="description" content="One conversation with Claude and the Vibo MCP server: finding gaps against Last.fm, downloading the missing albums, fixing tags and repairing listening history.">
   <link rel="canonical" href="https://viboplr.com/examples/mcp-session.html">
   <meta property="og:type" content="article">
   <meta property="og:url" content="https://viboplr.com/examples/mcp-session.html">
-  <meta property="og:title" content="A real Vibo MCP session">
+  <meta property="og:title" content="Example MCP session — Vibo">
   <meta property="og:description" content="One conversation with Claude and the Vibo MCP server: finding gaps against Last.fm, downloading the missing albums, fixing tags and repairing listening history.">
   <meta name="twitter:card" content="summary">
-  <meta name="twitter:title" content="A real Vibo MCP session">
+  <meta name="twitter:title" content="Example MCP session — Vibo">
   <meta name="twitter:description" content="One conversation with Claude and the Vibo MCP server: finding gaps against Last.fm, downloading the missing albums, fixing tags and repairing listening history.">
   <link rel="icon" href="../assets/icon.svg" type="image/svg+xml">
-  <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700;800&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="../css/style.css">
+  <link rel="stylesheet" href="../css/plain.css">
 </head>
 <body>
 
-  <!-- Navigation -->
-  <nav class="nav">
-    <div class="nav-inner">
-      <a href="../index.html" class="nav-logo">
-        <img class="nav-logo-mark" src="../assets/logo-mark.svg" alt="" width="34" height="34">
-        <span class="wordmark" data-text="Vibo">Vibo</span>
-      </a>
-      <div class="nav-links" id="navLinks">
-        <a href="../index.html" class="nav-link">Home</a>
-        <a href="../plugins.html" class="nav-link">Plugins</a>
-        <a href="../skins.html" class="nav-link">Skins</a>
-        <a href="../community.html" class="nav-link">Community</a>
-        <a href="../help.html" class="nav-link">Help</a>
-        <a href="../support.html" class="nav-link nav-link--sponsor">
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z"/></svg>
-          Support
-        </a>
-        <a href="../download.html" class="nav-cta">Get Vibo</a>
-      </div>
-      <button class="nav-hamburger" id="navHamburger" aria-label="Toggle menu">
-        <span></span>
-        <span></span>
-        <span></span>
-      </button>
-    </div>
-  </nav>
+  <header class="top">
+    <a href="../index.html" class="name"><img src="../assets/logo-mark.svg" alt="" width="22" height="22">Vibo</a>
+    <nav>
+      <a href="../download.html">Download</a>
+      <a href="../features.html">Features</a>
+      <a href="../plugins.html">Plugins</a>
+      <a href="../help.html">Help</a>
+      <a href="../history.html">Changes</a>
+      <a href="https://github.com/outcast1000/vibo" target="_blank" rel="noopener">GitHub</a>
+    </nav>
+  </header>
+
+  <main>
 
   <!-- Hero -->
   <section class="persona-hero">
     <div class="container">
-      <span class="feature-label animate-in">Example session</span>
-      <h1 class="animate-in animate-delay-1">One conversation,<br><span class="gradient-text">a tidier library</span></h1>
-      <p class="hero-subtitle animate-in animate-delay-2">A real session with Claude Code and Vibo&rsquo;s MCP server. Claude compared a listener&rsquo;s most-played artists with Last.fm&rsquo;s top songs, downloaded the albums they were missing, filed them into the library, fixed broken tags and merged play history that was split across misspelled names. The listener only said what they wanted, and approved each change.</p>
-      <div class="session-stats animate-in animate-delay-3">
+            <h1>Example: one session with Claude</h1>
+      <p class="hero-subtitle">A real session with Claude Code and Vibo&rsquo;s MCP server. Claude compared a listener&rsquo;s most-played artists with Last.fm&rsquo;s top songs, downloaded the albums they were missing, filed them into the library, fixed broken tags and merged play history that was split across misspelled names. The listener only said what they wanted, and approved each change.</p>
+      <div class="session-stats">
         <div class="session-stat"><b>40</b><span>top artists checked against Last.fm</span></div>
         <div class="session-stat"><b>73</b><span>tracks downloaded and filed</span></div>
         <div class="session-stat"><b>6</b><span>misspelled names repaired</span></div>
@@ -66,14 +49,13 @@
   <!-- Steps -->
   <section class="section">
     <div class="container">
-      <div class="section-header reveal">
-        <span class="feature-label">Step by step</span>
-        <h2>What was asked, <span class="gradient-text">what Claude did</span></h2>
+      <div class="section-header">
+                <h2>What was asked, what Claude did</h2>
         <p>The listener&rsquo;s own words, then what happened and which MCP tools did it. Plays, paths and account names are left out.</p>
       </div>
 
       <ol class="session-steps">
-        <li class="session-step reveal">
+        <li class="session-step">
           <div class="session-num">01</div>
           <div class="session-body">
             <div class="session-ask">Lets work with vibo mcp</div>
@@ -83,7 +65,7 @@
           </div>
         </li>
 
-        <li class="session-step reveal">
+        <li class="session-step">
           <div class="session-num">02</div>
           <div class="session-body">
             <div class="session-ask">Lets get a list of my most played artists. For each one of them lets get the list of their most popular songs based on last.fm. Do I miss any of them?</div>
@@ -94,7 +76,7 @@
           </div>
         </li>
 
-        <li class="session-step reveal">
+        <li class="session-step">
           <div class="session-num">03</div>
           <div class="session-body">
             <div class="session-ask">Lets go to the next batch of artists. I am looking for tracks in the top 10.</div>
@@ -104,7 +86,7 @@
           </div>
         </li>
 
-        <li class="session-step reveal">
+        <li class="session-step">
           <div class="session-num">04</div>
           <div class="session-body">
             <div class="session-ask">Lets download turnstile tracks. I love them. What is available? &hellip; queue glow on but at mp3 320kbps</div>
@@ -114,7 +96,7 @@
           </div>
         </li>
 
-        <li class="session-step reveal">
+        <li class="session-step">
           <div class="session-num">05</div>
           <div class="session-body">
             <div class="session-ask">add them and then play it</div>
@@ -124,7 +106,7 @@
           </div>
         </li>
 
-        <li class="session-step reveal">
+        <li class="session-step">
           <div class="session-num">06</div>
           <div class="session-body">
             <div class="session-ask">set it &middot; rescan it &middot; Remove the duplicate track from &ldquo;Glow on&rdquo;</div>
@@ -134,7 +116,7 @@
           </div>
         </li>
 
-        <li class="session-step reveal">
+        <li class="session-step">
           <div class="session-num">07</div>
           <div class="session-body">
             <div class="session-ask">Lets fix the following library and tags issues &hellip;</div>
@@ -144,7 +126,7 @@
           </div>
         </li>
 
-        <li class="session-step reveal">
+        <li class="session-step">
           <div class="session-num">08</div>
           <div class="session-body">
             <div class="session-ask">Lets get some Bob marley tracks now &middot; I also want the &ldquo;Iron Lion Zion&rdquo;</div>
@@ -154,7 +136,7 @@
           </div>
         </li>
 
-        <li class="session-step reveal">
+        <li class="session-step">
           <div class="session-num">09</div>
           <div class="session-body">
             <div class="session-ask">Fill &ldquo;Pixies&rdquo; &amp; &ldquo;queens of the stone age&rdquo; &amp; &ldquo;Fontains D.C.&rdquo; with the missing top 15 songs. Make sure that there are no duplicates</div>
@@ -165,7 +147,7 @@
           </div>
         </li>
 
-        <li class="session-step reveal">
+        <li class="session-step">
           <div class="session-num">10</div>
           <div class="session-body">
             <div class="session-ask">retag them &middot; yes merge it</div>
@@ -181,66 +163,43 @@
   <!-- Safety -->
   <section class="section section-alt">
     <div class="container">
-      <div class="section-header reveal">
-        <span class="feature-label">On a leash</span>
-        <h2>What kept it <span class="gradient-text">safe</span></h2>
+      <div class="section-header">
+                <h2>What kept it safe</h2>
         <p>AI control is off until you switch it on, and each kind of change has its own permission.</p>
       </div>
       <div class="cards-grid">
-        <div class="card reveal">
+        <div class="card">
           <h3>Asks before downloading</h3>
           <p>Every download started from a shortlist of copies and an explicit go-ahead. Nothing was fetched because a web page or a result suggested it.</p>
         </div>
-        <div class="card reveal">
+        <div class="card">
           <h3>Removals in two steps</h3>
           <p>A removal first returns a plan. Nothing moves until the plan is confirmed, and files go to the trash, so they can be restored.</p>
         </div>
-        <div class="card reveal">
+        <div class="card">
           <h3>Merges are previewed</h3>
           <p>A history merge can&rsquo;t be undone, so each one ran as a dry run first, with the counts shown before it was applied.</p>
         </div>
-        <div class="card reveal">
+        <div class="card">
           <h3>Checks its own work</h3>
           <p>After each change Claude read the library back: track counts, artists, albums. That is how both duplicates were caught.</p>
         </div>
       </div>
-      <div class="section-cta hero-buttons reveal">
-        <a href="../for/ai.html" class="btn btn-primary btn-lg">Vibo for AI-assistant users</a>
-        <a href="../help.html#mcp-server" class="btn btn-outline btn-lg">Connect an assistant</a>
+      <div class="section-cta hero-buttons">
+        <a href="../help.html#mcp-server" class="btn btn-outline">Connect an assistant</a>
+        <a href="../help.html#assistant-permissions" class="btn btn-outline">What each permission allows</a>
       </div>
     </div>
   </section>
 
-  <!-- Bottom CTA -->
-  <section class="bottom-cta">
-    <div class="container reveal">
-      <h2>Ready to try <span class="gradient-text">Vibo</span>?</h2>
-      <p>Free, open source, and <a href="../story.html" class="cta-story-link">built end-to-end with an AI assistant</a> &mdash; every feature, every detail.</p>
-      <div class="hero-buttons">
-        <a href="../install-mac.html" class="btn btn-primary">
-          <svg class="btn-icon" viewBox="0 0 24 24" fill="currentColor"><path d="M18.71 19.5c-.83 1.24-1.71 2.45-3.05 2.47-1.34.03-1.77-.79-3.29-.79-1.53 0-2 .77-3.27.82-1.31.05-2.3-1.32-3.14-2.53C4.25 17 2.94 12.45 4.7 9.39c.87-1.52 2.43-2.48 4.12-2.51 1.28-.02 2.5.87 3.29.87.78 0 2.26-1.07 3.8-.91.65.03 2.47.26 3.64 1.98-.09.06-2.17 1.28-2.15 3.81.03 3.02 2.65 4.03 2.68 4.04-.03.07-.42 1.44-1.38 2.83M13 3.5c.73-.83 1.94-1.46 2.94-1.5.13 1.17-.34 2.35-1.04 3.19-.69.85-1.83 1.51-2.95 1.42-.15-1.15.41-2.35 1.05-3.11z"/></svg>
-          Download for macOS
-        </a>
-        <a href="../install-windows.html" class="btn btn-outline">
-          <svg class="btn-icon" viewBox="0 0 24 24" fill="currentColor"><path d="M3 12V6.75l8-1.25V12H3zm0 .5h8v6.5l-8-1.25V12.5zM11.5 5.35l9.5-1.6V12h-9.5V5.35zM11.5 12.5H21v7.75l-9.5-1.6V12.5z"/></svg>
-          Download for Windows
-        </a>
-      </div>
-    </div>
-  </section>
+  </main>
 
-  <!-- Footer -->
-  <footer class="footer">
-    <div class="container">
-      <div class="footer-inner">
-        <div class="footer-left">&copy; 2026 Vibo. All rights reserved.</div>
-        <div class="footer-right">
-          <a href="../support.html" class="footer-link">Support</a>
-          <a href="https://github.com/outcast1000/viboplr" class="footer-link" target="_blank" rel="noopener">GitHub</a>
-          <a href="../story.html" class="footer-link">Built with Tauri + React &mdash; and an AI assistant</a>
-        </div>
-      </div>
-    </div>
+  <footer>
+    <a href="../download.html">Download</a>
+    <a href="../help.html">Help</a>
+    <a href="../community.html">Community</a>
+    <a href="../support.html">Support the project</a>
+    <a href="https://github.com/outcast1000/vibo" target="_blank" rel="noopener">GitHub</a>
   </footer>
 
   <script src="../js/main.js"></script>

@@ -1,0 +1,106 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Jaangle — Vibo</title>
+  <meta name="description" content="Jaangle (first called TeenSpirit) is the C++ music player for Windows, written 2003–2010, that many of Vibo's ideas come from.">
+  <link rel="canonical" href="https://viboplr.com/jaangle.html">
+  <meta property="og:type" content="website">
+  <meta property="og:url" content="https://viboplr.com/jaangle.html">
+  <meta property="og:title" content="Jaangle — Vibo">
+  <meta property="og:description" content="The C++ music player for Windows, written 2003–2010, that many of Vibo's ideas come from.">
+  <meta name="twitter:card" content="summary">
+  <link rel="icon" href="assets/icon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="css/plain.css">
+</head>
+<body>
+
+  <header class="top">
+    <a href="index.html" class="name"><img src="assets/logo-mark.svg" alt="" width="22" height="22">Vibo</a>
+    <nav>
+      <a href="download.html">Download</a>
+      <a href="features.html">Features</a>
+      <a href="plugins.html">Plugins</a>
+      <a href="help.html">Help</a>
+      <a href="history.html">Changes</a>
+      <a href="https://github.com/outcast1000/vibo" target="_blank" rel="noopener">GitHub</a>
+    </nav>
+  </header>
+
+  <main>
+
+    <section>
+      <h1>Jaangle</h1>
+      <p>Before Vibo there was <strong>TeenSpirit</strong>, later renamed <strong>Jaangle</strong>: a music player and library organizer for Windows, written by hand in C++ between 2003 and 2010. Many of Vibo's ideas come from it.</p>
+      <p>It still runs, and it is still fast. In 2026 its last version (0.98f-rc1) was updated so it builds with current tools, in 32-bit and 64-bit.</p>
+      <p class="get"><a href="https://github.com/outcast1000/TeenSpirit" class="button" target="_blank" rel="noopener">Source on GitHub</a></p>
+    </section>
+
+    <section id="features">
+      <h2>What it did</h2>
+      <ul>
+        <li>A music library organized by artist, album, genre, year and date added, with fast search, including accented and non-Latin names.</li>
+        <li>Playback through BASS (MP3, OGG, FLAC, WMA, AAC/M4A, APE, WavPack, MPC, AC3, MIDI, audio CD) with crossfading and an equalizer. Video through DirectShow.</li>
+        <li>Tag reading and editing with TagLib, ratings, play history and statistics.</li>
+        <li>Album covers, artist pictures, lyrics and biographies downloaded automatically, plus pictures found in the music folders, and comments and notes per track.</li>
+        <li>Last.fm scrobbling, a mini player, skins, global hotkeys, a music quiz and 17 translations.</li>
+      </ul>
+    </section>
+
+    <section id="built">
+      <h2>How it was built</h2>
+      <ul>
+        <li>C++ with MFC on the Win32 API, about 600 source files.</li>
+        <li>The library lived in a Microsoft Jet database (<code>music.mdb</code>). The 2026 update moved it to SQLite.</li>
+        <li>Online information came through one provider interface, with providers for the cache, for pictures in the music folder and for online services, and a composite provider that tried them in order.</li>
+        <li>The development notes from 2005–2006, written in Greek, are in the repository's <code>Documents</code> folder.</li>
+      </ul>
+    </section>
+
+    <section id="carried-over">
+      <h2>What Vibo took from it</h2>
+      <table class="compare">
+        <tr><th>Jaangle</th><th>Vibo</th></tr>
+        <tr><td>Providers tried in order: cache, music-folder pictures, online</td><td>The provider chain behind images, lyrics and the sections on detail pages: local first, then plugins, in an order you set</td></tr>
+        <tr><td>Fast search that handles accented names</td><td>Full-text search that ignores accents and case</td></tr>
+        <tr><td>History window with track and artist rankings</td><td>History view with Plays, Tracks and Artists</td></tr>
+        <tr><td>Music quiz</td><td>Song Quiz</td></tr>
+        <tr><td>Collections, and a to-do item to switch one off without deleting it</td><td>Collections that can be switched off</td></tr>
+        <tr><td>Auto-continue mode</td><td><a href="help.html#auto-continue">Auto-continue</a></td></tr>
+        <tr><td>Latest additions</td><td>The Latest additions list on Home</td></tr>
+        <tr><td>Album artist, on the to-do list</td><td>Albums filed under their album artist</td></tr>
+        <tr><td>YouTube playback, planned for 0.99</td><td>YouTube through the yt-dlp plugin<span class="feature-tag">plugin</span></td></tr>
+        <tr><td>Mini player, skins, global hotkeys, Last.fm</td><td>The same, with Last.fm as a plugin</td></tr>
+      </table>
+    </section>
+
+    <section id="differences">
+      <h2>What is different</h2>
+      <ul>
+        <li>Jaangle runs on Windows only. Vibo runs on macOS and Windows.</li>
+        <li>Jaangle had its online services built in, and most of them have since shut down. In Vibo they are plugins, so one can be replaced without a new release of the app.</li>
+        <li>Jaangle was written by hand. Vibo was written by an AI coding assistant. See <a href="story.html">how it was made</a>.</li>
+      </ul>
+    </section>
+
+    <section id="build">
+      <h2>Running it today</h2>
+      <p>There is no download; it is built from source. You need Visual Studio 2026 with C++, ATL/MFC, the Windows SDK and vcpkg. Run <code>tools\fetch-bass.ps1</code> once, then build <code>Jaangle.sln</code>. The steps are in <a href="https://github.com/outcast1000/TeenSpirit/blob/HEAD/BUILDING.md" target="_blank" rel="noopener">BUILDING.md</a>, and an x64 MSI installer can be built from the same source.</p>
+      <p>Jaangle is licensed under the GPL, version 2 or later. The BASS audio library it uses is free for non-commercial use and is not included in the repository.</p>
+    </section>
+
+  </main>
+
+  <footer>
+    <a href="download.html">Download</a>
+    <a href="help.html">Help</a>
+    <a href="community.html">Community</a>
+    <a href="support.html">Support the project</a>
+    <a href="https://github.com/outcast1000/vibo" target="_blank" rel="noopener">GitHub</a>
+  </footer>
+
+  <script defer src="js/analytics.js"></script>
+  <script defer src='https://static.cloudflareinsights.com/beacon.min.js' data-cf-beacon='{"token": "cbb978698d3744cca00a24f8cac8bc3c"}'></script>
+</body>
+</html>

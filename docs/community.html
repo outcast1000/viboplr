@@ -4,118 +4,60 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Community — Vibo</title>
-  <meta name="description" content="Vibo Community is where Vibo listeners share cue sheets, synced lyrics, mixtapes and comments. Find it at community.viboplr.com.">
+  <meta name="description" content="Vibo Community is a separate site where listeners share cue sheets, synced lyrics and mixtapes.">
   <link rel="canonical" href="https://viboplr.com/community.html">
   <meta property="og:type" content="website">
   <meta property="og:url" content="https://viboplr.com/community.html">
   <meta property="og:title" content="Community — Vibo">
-  <meta property="og:description" content="Cue sheets, synced lyrics, mixtapes and Subsonic servers, shared by Vibo listeners at community.viboplr.com.">
+  <meta property="og:description" content="Vibo Community is a separate site where listeners share cue sheets, synced lyrics and mixtapes.">
   <meta name="twitter:card" content="summary">
-  <meta name="twitter:title" content="Community — Vibo">
-  <meta name="twitter:description" content="Cue sheets, synced lyrics, mixtapes and Subsonic servers, shared by Vibo listeners at community.viboplr.com.">
   <link rel="icon" href="assets/icon.svg" type="image/svg+xml">
-  <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700;800&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="css/style.css">
+  <link rel="stylesheet" href="css/plain.css">
 </head>
 <body>
 
-  <!-- Navigation -->
-  <nav class="nav">
-    <div class="nav-inner">
-      <a href="index.html" class="nav-logo">
-        <img class="nav-logo-mark" src="assets/logo-mark.svg" alt="" width="34" height="34">
-        <span class="wordmark" data-text="Vibo">Vibo</span>
-      </a>
-      <div class="nav-links" id="navLinks">
-        <a href="index.html" class="nav-link">Home</a>
-        <a href="plugins.html" class="nav-link">Plugins</a>
-        <a href="skins.html" class="nav-link">Skins</a>
-        <a href="community.html" class="nav-link active">Community</a>
-        <a href="help.html" class="nav-link">Help</a>
-        <a href="support.html" class="nav-link nav-link--sponsor">
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z"/></svg>
-          Support
-        </a>
-        <a href="download.html" class="nav-cta">Get Vibo</a>
-      </div>
-      <button class="nav-hamburger" id="navHamburger" aria-label="Toggle menu">
-        <span></span>
-        <span></span>
-        <span></span>
-      </button>
-    </div>
-  </nav>
+  <header class="top">
+    <a href="index.html" class="name"><img src="assets/logo-mark.svg" alt="" width="22" height="22">Vibo</a>
+    <nav>
+      <a href="download.html">Download</a>
+      <a href="features.html">Features</a>
+      <a href="plugins.html">Plugins</a>
+      <a href="help.html">Help</a>
+      <a href="history.html">Changes</a>
+      <a href="https://github.com/outcast1000/vibo" target="_blank" rel="noopener">GitHub</a>
+    </nav>
+  </header>
 
-  <!-- Hero. This page only explains Vibo Community and sends people there;
-       everything shared lives on community.viboplr.com. -->
-  <section class="download-hero">
-    <div class="container">
-      <h1 class="animate-in"><span class="gradient-text">Community</span></h1>
-      <p class="animate-in animate-delay-1">Vibo Community is where Vibo listeners share what makes their music better: cue sheets, synced lyrics, mixtapes and comments. It lives on its own site.</p>
-      <div class="hero-buttons animate-in animate-delay-2" style="margin-top: 1.5rem;">
-        <a href="https://community.viboplr.com" class="btn btn-primary" target="_blank" rel="noopener">Go to community.viboplr.com</a>
-      </div>
-    </div>
-  </section>
+  <main>
 
-  <!-- What's there. The ids are kept (music, mixtapes, servers) because
-       links like community.html#servers are out there (servers.html,
-       for/self-hosters.html). -->
-  <section class="section">
-    <div class="container">
-      <div class="gallery-steps reveal">
-        <h2>What you'll find there</h2>
-        <div class="gallery-steps-grid">
-          <div class="gallery-step" id="music">
-            <h3>Music</h3>
-            <p>Look up any song, album or artist to see what listeners shared about it: cue sheets for long mixes, synced lyrics, likes and comments.</p>
-          </div>
-          <div class="gallery-step" id="mixtapes">
-            <h3>Mixtapes</h3>
-            <p>Playlists people put together, ready to open in Vibo and play from your own library.</p>
-          </div>
-          <div class="gallery-step" id="servers">
-            <h3>Subsonic servers</h3>
-            <p>Subsonic / Navidrome servers that members open to others. Only signed-in members can see them.</p>
-          </div>
-        </div>
-      </div>
-    </div>
-  </section>
+    <section>
+      <h1>Community</h1>
+      <p>Vibo Community is a separate site, <a href="https://community.viboplr.com" target="_blank" rel="noopener">community.viboplr.com</a>, where listeners share cue sheets, synced lyrics, mixtapes and comments.</p>
+      <h3 id="music">Music</h3>
+      <p>Look up a song, album or artist to see what people shared about it.</p>
+      <h3 id="mixtapes">Mixtapes</h3>
+      <p>Playlists other listeners made, which open in Vibo and play from your own library.</p>
+      <h3 id="servers">Subsonic servers</h3>
+      <p>Subsonic and Navidrome servers that members share with each other. Only signed-in members can see them.</p>
+    </section>
 
-  <!-- How to take part -->
-  <section class="section">
-    <div class="container">
-      <div class="gallery-steps reveal">
-        <h2>Taking part</h2>
-        <p class="gallery-steps-intro">Browsing needs no account. To share, sign in with GitHub on community.viboplr.com; there's no password to create. Inside Vibo, Community comes through the free <strong>Vibo Community</strong> plugin <span class="feature-tag">plugin</span>, which opens what you find there in the app and shares what you make. Find it in Vibo under <strong>Extensions → Plugins</strong>.</p>
-      </div>
-      <div class="hero-buttons" style="margin-top: 1.5rem; justify-content: center;">
-        <a href="https://community.viboplr.com" class="btn btn-primary" target="_blank" rel="noopener">Open Vibo Community</a>
-        <a href="download.html" class="btn btn-outline">Don't have Vibo yet?</a>
-      </div>
-    </div>
-  </section>
+    <section>
+      <h2>Taking part</h2>
+      <p>Browsing needs no account. To share, sign in with GitHub on the community site. Inside Vibo, the free <strong>Vibo Community</strong> plugin<span class="feature-tag">plugin</span> opens what you find there and shares what you make; it is under <strong>Extensions → Plugins</strong>.</p>
+      <p class="get"><a href="https://community.viboplr.com" class="button" target="_blank" rel="noopener">Open community.viboplr.com</a></p>
+    </section>
 
-  <!-- Footer -->
-  <footer class="footer">
-    <div class="container">
-      <div class="footer-inner">
-        <div class="footer-left">&copy; 2026 Vibo. All rights reserved.</div>
-        <div class="footer-right">
-          <a href="support.html" class="footer-link">Support</a>
-          <a href="https://github.com/outcast1000/viboplr" class="footer-link" target="_blank" rel="noopener">GitHub</a>
-          <span class="footer-link">Built with Tauri + React</span>
-        </div>
-      </div>
-    </div>
+  </main>
+
+  <footer>
+    <a href="download.html">Download</a>
+    <a href="help.html">Help</a>
+    <a href="community.html">Community</a>
+    <a href="support.html">Support the project</a>
+    <a href="https://github.com/outcast1000/vibo" target="_blank" rel="noopener">GitHub</a>
   </footer>
 
-  <script src="js/main.js"></script>
   <script defer src="js/analytics.js"></script>
-  <!-- Cloudflare Web Analytics -->
   <script defer src='https://static.cloudflareinsights.com/beacon.min.js' data-cf-beacon='{"token": "cbb978698d3744cca00a24f8cac8bc3c"}'></script>
 </body>
 </html>

@@ -3,284 +3,179 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Vibo — Your music. Your AI.</title>
-  <meta name="description" content="A free, open-source music player for macOS and Windows, made for music you own: your folders and your Subsonic or Navidrome server in one library, radio from your own collection, gapless bit-perfect playback, and an AI assistant that can run it all. Plugins for everything else.">
+  <title>Vibo — a music player for your own music</title>
+  <meta name="description" content="Vibo is a free, open-source music player for macOS and Windows. It plays your local folders and your Subsonic or Navidrome server from one library. Written in Rust, extended with plugins, and controllable by an AI assistant over MCP.">
   <link rel="canonical" href="https://viboplr.com/">
   <meta property="og:type" content="website">
   <meta property="og:url" content="https://viboplr.com/">
-  <meta property="og:title" content="Vibo — Your music. Your AI.">
-  <meta property="og:description" content="A free, open-source music player for macOS and Windows, made for music you own: your folders and your Subsonic or Navidrome server in one library, radio from your own collection, gapless bit-perfect playback, and an AI assistant that can run it all. Plugins for everything else.">
+  <meta property="og:title" content="Vibo — a music player for your own music">
+  <meta property="og:description" content="Vibo is a free, open-source music player for macOS and Windows. It plays your local folders and your Subsonic or Navidrome server from one library.">
   <meta name="twitter:card" content="summary">
-  <meta name="twitter:title" content="Vibo — Your music. Your AI.">
-  <meta name="twitter:description" content="A free, open-source music player for macOS and Windows, made for music you own: your folders and your Subsonic or Navidrome server in one library, radio from your own collection, gapless bit-perfect playback, and an AI assistant that can run it all. Plugins for everything else.">
   <link rel="icon" href="assets/icon.svg" type="image/svg+xml">
-  <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700;800&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="css/style.css">
+  <link rel="stylesheet" href="css/plain.css">
 </head>
 <body>
 
-  <!-- Navigation -->
-  <nav class="nav">
-    <div class="nav-inner">
-      <a href="index.html" class="nav-logo">
-        <img class="nav-logo-mark" src="assets/logo-mark.svg" alt="" width="34" height="34">
-        <span class="wordmark" data-text="Vibo">Vibo</span>
-      </a>
-      <div class="nav-links" id="navLinks">
-        <a href="index.html" class="nav-link active">Home</a>
-        <a href="plugins.html" class="nav-link">Plugins</a>
-        <a href="skins.html" class="nav-link">Skins</a>
-        <a href="community.html" class="nav-link">Community</a>
-        <a href="help.html" class="nav-link">Help</a>
-        <a href="support.html" class="nav-link nav-link--sponsor">
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z"/></svg>
-          Support
-        </a>
-        <a href="download.html" class="nav-cta">Get Vibo</a>
-      </div>
-      <button class="nav-hamburger" id="navHamburger" aria-label="Toggle menu">
-        <span></span>
-        <span></span>
-        <span></span>
-      </button>
-    </div>
-  </nav>
+  <header class="top">
+    <a href="index.html" class="name"><img src="assets/logo-mark.svg" alt="" width="22" height="22">Vibo</a>
+    <nav>
+      <a href="download.html">Download</a>
+      <a href="features.html">Features</a>
+      <a href="plugins.html">Plugins</a>
+      <a href="help.html">Help</a>
+      <a href="history.html">Changes</a>
+      <a href="https://github.com/outcast1000/vibo" target="_blank" rel="noopener">GitHub</a>
+    </nav>
+  </header>
 
-  <!-- Hero -->
-  <section class="hero">
-    <div class="container">
-      <div class="hero-badge animate-in">
-        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>
-        <span id="version-badge">v1.0.121</span> Free &amp; open source &middot; macOS &amp; Windows
-      </div>
-      <h1 class="animate-in animate-delay-1">Your music.<br><span class="gradient-text">Your AI.</span></h1>
-      <p class="hero-subtitle animate-in animate-delay-2">Your folders and your Subsonic or Navidrome server, in one fast library and one queue. Radio from any song you own, a home screen that brings back the albums you forgot, synced lyrics, and gapless, bit-perfect playback. Turn on AI control and Claude, or any assistant you use, can build your queue, fix your tags and find what's missing. Off until you say so. Free and open source, for macOS and Windows.</p>
-      <div class="hero-buttons animate-in animate-delay-3">
-        <a href="install-mac.html" class="btn btn-primary btn-lg">
-          <svg class="btn-icon" viewBox="0 0 24 24" fill="currentColor"><path d="M18.71 19.5c-.83 1.24-1.71 2.45-3.05 2.47-1.34.03-1.77-.79-3.29-.79-1.53 0-2 .77-3.27.82-1.31.05-2.3-1.32-3.14-2.53C4.25 17 2.94 12.45 4.7 9.39c.87-1.52 2.43-2.48 4.12-2.51 1.28-.02 2.5.87 3.29.87.78 0 2.26-1.07 3.8-.91.65.03 2.47.26 3.64 1.98-.09.06-2.17 1.28-2.15 3.81.03 3.02 2.65 4.03 2.68 4.04-.03.07-.42 1.44-1.38 2.83M13 3.5c.73-.83 1.94-1.46 2.94-1.5.13 1.17-.34 2.35-1.04 3.19-.69.85-1.83 1.51-2.95 1.42-.15-1.15.41-2.35 1.05-3.11z"/></svg>
-          Download for macOS
-        </a>
-        <a href="install-windows.html" class="btn btn-outline btn-lg">
-          <svg class="btn-icon" viewBox="0 0 24 24" fill="currentColor"><path d="M3 12V6.75l8-1.25V12H3zm0 .5h8v6.5l-8-1.25V12.5zM11.5 5.35l9.5-1.6V12h-9.5V5.35zM11.5 12.5H21v7.75l-9.5-1.6V12.5z"/></svg>
-          Download for Windows
-        </a>
-        <a href="https://github.com/outcast1000/viboplr" class="btn btn-outline btn-lg" target="_blank" rel="noopener">
-          <svg class="btn-icon" viewBox="0 0 24 24" fill="currentColor"><path d="M12 0c-6.626 0-12 5.373-12 12 0 5.302 3.438 9.8 8.207 11.387.599.111.793-.261.793-.577v-2.234c-3.338.726-4.033-1.416-4.033-1.416-.546-1.387-1.333-1.756-1.333-1.756-1.089-.745.083-.729.083-.729 1.205.084 1.839 1.237 1.839 1.237 1.07 1.834 2.807 1.304 3.492.997.107-.775.418-1.305.762-1.604-2.665-.305-5.467-1.334-5.467-5.931 0-1.311.469-2.381 1.236-3.221-.124-.303-.535-1.524.117-3.176 0 0 1.008-.322 3.301 1.23.957-.266 1.983-.399 3.003-.404 1.02.005 2.047.138 3.006.404 2.291-1.552 3.297-1.23 3.297-1.23.653 1.653.242 2.874.118 3.176.77.84 1.235 1.911 1.235 3.221 0 4.609-2.807 5.624-5.479 5.921.43.372.823 1.102.823 2.222v3.293c0 .319.192.694.801.576 4.765-1.589 8.199-6.086 8.199-11.386 0-6.627-5.373-12-12-12z"/></svg>
-          View on GitHub
-        </a>
-      </div>
-      <a href="#own" class="hero-ai-link animate-in animate-delay-3">See what it does for your library &darr;</a>
-      <div class="hero-screenshot animate-in animate-delay-4">
-        <div class="hero-screenshot-inner">
-          <img src="assets/screenshots/hero.webp" alt="Vibo home view with radio stations, shelves, and a playing queue" loading="eager" width="2560" height="1600">
-        </div>
-      </div>
-    </div>
-  </section>
+  <main>
 
-  <!-- Made for music you own -->
-  <section class="section" id="own">
-    <svg width="0" height="0" style="position:absolute" aria-hidden="true"><defs><linearGradient id="personaGrad" x1="0" y1="0" x2="1" y2="1"><stop offset="0%" stop-color="#FF6B6B"/><stop offset="100%" stop-color="#E91E8A"/></linearGradient></defs></svg>
-    <div class="container">
-      <div class="section-header reveal">
-        <h2>Made for the music <span class="gradient-text">you own</span></h2>
-        <p>A big folder of files, a home server, a shelf of FLACs. Vibo is built around them, not around a catalog you rent.</p>
-      </div>
-      <div class="persona-grid persona-grid--primary">
-        <a href="for/collectors.html" class="persona-card reveal">
-          <svg class="persona-card-icon" viewBox="0 0 24 24" fill="none" stroke="url(#personaGrad)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="4" height="16" rx="1"/><rect x="9" y="4" width="4" height="16" rx="1"/><path d="M15.5 5.5l3.8-1 3.2 14.5-3.8 1z"/></svg>
-          <h3>Collectors &amp; curators</h3>
-          <p>Keep a big library in shape: bulk tag edits, album artists and compilations done right, and better copies swapped in place.</p>
-          <span class="persona-card-more">See what&rsquo;s in it for you &rarr;</span>
-        </a>
-        <a href="for/self-hosters.html" class="persona-card reveal">
-          <svg class="persona-card-icon" viewBox="0 0 24 24" fill="none" stroke="url(#personaGrad)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="3" width="18" height="7" rx="2"/><rect x="3" y="14" width="18" height="7" rx="2"/><line x1="7" y1="6.5" x2="7.01" y2="6.5"/><line x1="7" y1="17.5" x2="7.01" y2="17.5"/></svg>
-          <h3>Subsonic &amp; Navidrome users</h3>
-          <p>Your server, built in &mdash; side by side with your local folders, in one library and one queue.</p>
-          <span class="persona-card-more">See what&rsquo;s in it for you &rarr;</span>
-        </a>
-        <a href="for/audiophiles.html" class="persona-card reveal">
-          <svg class="persona-card-icon" viewBox="0 0 24 24" fill="none" stroke="url(#personaGrad)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 18v-6a9 9 0 0 1 18 0v6"/><path d="M21 19a2 2 0 0 1-2 2h-1a2 2 0 0 1-2-2v-3a2 2 0 0 1 2-2h3zM3 19a2 2 0 0 0 2 2h1a2 2 0 0 0 2-2v-3a2 2 0 0 0-2-2H3z"/></svg>
-          <h3>Audiophiles</h3>
-          <p>Bit-perfect output, exclusive device access and sample-accurate gapless playback &mdash; verified, not assumed.</p>
-          <span class="persona-card-more">See what&rsquo;s in it for you &rarr;</span>
-        </a>
-      </div>
-    </div>
-  </section>
+    <section class="intro">
+      <h1>Vibo</h1>
+      <p>A music player for macOS and Windows. It plays the music you already have: folders on your disk and Subsonic or Navidrome servers, in one library. Free and open source.</p>
+      <p class="get">
+        <a href="install-mac.html" class="button">Download for macOS</a>
+        <a href="install-windows.html" class="button">Download for Windows</a>
+        <span class="version"><span id="version-badge">v1.0.121</span> · <a href="history.html">what changed</a></span>
+      </p>
+      <figure>
+        <img src="assets/screenshots/hero.webp" alt="Vibo's home screen with a radio station playing and the queue on the right" width="2560" height="1600" loading="eager">
+      </figure>
+    </section>
 
-  <!-- AI control -->
-  <section class="section section-alt" id="ai">
-    <div class="container">
-      <div class="section-header reveal">
-        <span class="feature-label">And it talks</span>
-        <h2>Ask for it. <span class="gradient-text">It&rsquo;s done.</span></h2>
-        <p>Vibo ships its own MCP server, so Claude or any AI assistant can run your library for you. It&rsquo;s optional and off until you turn it on. When you do, your assistant gets real tools, not screen-scraping, for everything from playlists to the files on your disk.</p>
-      </div>
+    <section>
+      <ul class="points">
+        <li>
+          <h2><a href="#fast">Fast and light</a></h2>
+          <p>Rust backend, SQLite search, the system's own webview. About a 30 MB download.</p>
+        </li>
+        <li>
+          <h2><a href="#plugins">Plugins</a></h2>
+          <p>Two files of plain JavaScript. Streaming, lyrics, artwork, scrobbling and downloads are all plugins.</p>
+        </li>
+        <li>
+          <h2><a href="#ai">AI control and an API</a></h2>
+          <p>A local MCP server and HTTP API, so an assistant or a script can run the player. Off by default.</p>
+        </li>
+      </ul>
+    </section>
 
-      <div class="ai-showcase reveal">
-        <div class="ai-showcase-chat" aria-hidden="true">
-          <div class="ai-chat">
-            <div class="ai-chat-msg ai-chat-msg--user">Tag everything by Boards of Canada as ambient, and file the compilations under Various Artists</div>
-            <div class="ai-chat-msg ai-chat-msg--assistant">Done &mdash; 74 tracks tagged <em>ambient</em>, and 3 compilations now sit under Various Artists, written into the files.</div>
-            <div class="ai-chat-msg ai-chat-msg--user">Now sort the loose files in my Music folder into Artist/Album</div>
-            <div class="ai-chat-msg ai-chat-msg--assistant">Here&rsquo;s the plan: 212 files into 38 folders. Nothing moves until you say go.</div>
-            <div class="ai-chat-msg ai-chat-msg--user">Go. Then make me a playlist of songs I loved and haven&rsquo;t played this year</div>
-            <div class="ai-chat-msg ai-chat-msg--assistant">Moved. Saved &ldquo;Lost loves&rdquo; &mdash; 40 tracks, playing now.<span class="ai-chat-note">via the Vibo MCP server</span></div>
-          </div>
-        </div>
-        <div class="ai-showcase-side">
-          <h3>Powerful, and on a leash</h3>
-          <p>Works with Claude Desktop, Claude Code, Cursor or any MCP client. Setup is two clicks in the app.</p>
-          <div class="feature-list">
-            <div class="feature-list-item">Runs on your computer only, off until you turn it on</div>
-            <div class="feature-list-item">Anything that touches your files sits behind its own switch</div>
-            <div class="feature-list-item">Moves, file swaps and deletions are planned and shown before anything changes</div>
-            <div class="feature-list-item">Deleted tracks go to the trash, and nothing is installed without your OK</div>
-          </div>
-        </div>
-      </div>
+    <section id="fast">
+      <h2>Fast and light</h2>
+      <ul>
+        <li>The backend is written in Rust. The library is a local SQLite database with full-text search.</li>
+        <li>Searching a 20,000-track test library takes under 40 ms. The benchmark is in the repository (<code>cargo test bench_search_performance -- --ignored</code>).</li>
+        <li>The interface runs in the system's own webview (WebKit on macOS, WebView2 on Windows). No browser engine is bundled, so the download is about 30 MB, playback engine included.</li>
+        <li>Playback uses libmpv. Files play as they are, with no transcoding step.</li>
+        <li>Folders are scanned in the background and watched for changes, so the app stays usable while a large library is read.</li>
+      </ul>
+    </section>
 
-      <div class="cards-grid ai-cap-grid">
-        <div class="card reveal">
-          <h3>Build playlists</h3>
-          <p>From your likes, your history, a mood or a decade &mdash; created, filled and reordered for you.</p>
-          <span class="ai-cap-quote">&ldquo;Thirty upbeat songs from the 90s I haven&rsquo;t heard in a while&rdquo;</span>
-        </div>
-        <div class="card reveal">
-          <h3>Fix tags</h3>
-          <p>Clean up genres, artists, album artists and years across hundreds of tracks, in the library or right in the files.</p>
-          <span class="ai-cap-quote">&ldquo;Merge &lsquo;Hip-Hop&rsquo;, &lsquo;hiphop&rsquo; and &lsquo;Hip Hop&rsquo; into one tag&rdquo;</span>
-        </div>
-        <div class="card reveal">
-          <h3>Organise the library</h3>
-          <p>Rename and move files into a tidy folder layout, and save lyrics and covers next to your music.</p>
-          <span class="ai-cap-quote">&ldquo;Add a cover.jpg to every album that&rsquo;s missing one&rdquo;</span>
-        </div>
-        <div class="card reveal">
-          <h3>Download tracks</h3>
-          <p>Pull tracks from your own server into a local folder, or through download plugins &mdash; indexed the moment they land.</p>
-          <span class="ai-cap-quote">&ldquo;Download this album from my server into my Music folder&rdquo;</span>
-        </div>
-        <div class="card reveal">
-          <h3>Upgrade copies <span class="feature-tag">plugin</span></h3>
-          <p>Swap an MP3 for a FLAC in place. You see the quality side by side first; likes, tags and playlists stay put.</p>
-          <span class="ai-cap-quote">&ldquo;Replace my low-bitrate copies of this album&rdquo;</span>
-        </div>
-        <div class="card reveal">
-          <h3>Know your listening</h3>
-          <p>Ask anything about your library, your likes and your play history, and get a real answer.</p>
-          <span class="ai-cap-quote">&ldquo;What did I play most last March?&rdquo;</span>
-        </div>
-        <div class="card reveal">
-          <h3>Run the player</h3>
-          <p>Play, queue, skip, start radio from any song, switch skins &mdash; hands-free while you work.</p>
-          <span class="ai-cap-quote">&ldquo;Play something mellow, then queue the new album&rdquo;</span>
-        </div>
-        <div class="card reveal">
-          <h3>Use your plugins <span class="feature-tag">plugin</span></h3>
-          <p>Installed plugins become tools too: read a Spotify playlist, search Soulseek, browse a streaming catalog.</p>
-          <span class="ai-cap-quote">&ldquo;Rebuild my Spotify &lsquo;Road trip&rsquo; playlist from my library&rdquo;</span>
-        </div>
-      </div>
+    <section id="plugins">
+      <h2>Plugins</h2>
+      <p>The core plays your files and your server. Everything that talks to an outside service is a plugin you choose to install from the in-app gallery: Last.fm, online lyrics, cover art, YouTube through yt-dlp, Spotify browsing, Soulseek, and others.</p>
+      <p>A plugin is a <code>manifest.json</code> and an <code>index.js</code>, with no build step. It can add:</p>
+      <ul>
+        <li>music sources and stream resolvers</li>
+        <li>sections on artist, album and track pages (bios, lyrics, similar artists)</li>
+        <li>shelves on the home screen, sidebar views and context-menu items</li>
+        <li>scrobblers and download providers</li>
+        <li>tools that an AI assistant can call</li>
+      </ul>
+      <p>Each plugin declares the permissions it needs, and the app shows them before it installs. Installed plugins update from their own GitHub releases.</p>
+      <p><a href="plugins.html">Plugin list</a> · <a href="plugin-dev.html">Write a plugin</a> · <a href="skins.html">Skins</a></p>
+    </section>
 
-      <div class="section-cta hero-buttons reveal">
-        <a href="for/ai.html" class="btn btn-primary btn-lg">Vibo for AI-assistant users</a>
-        <a href="examples/mcp-session.html" class="btn btn-outline btn-lg">See a real session</a>
-        <a href="help.html#mcp-server" class="btn btn-outline btn-lg">Connect an assistant</a>
-      </div>
-    </div>
-  </section>
+    <section id="ai">
+      <h2>AI control and the control API</h2>
+      <p>Turn on <strong>Settings → AI control</strong> and Vibo starts a small server on your computer (127.0.0.1 only, with an access token). Two ways to use it:</p>
+      <ul>
+        <li><strong>MCP.</strong> Vibo includes an <a href="help.html#mcp-server">MCP server</a> for Claude Desktop, Claude Code or any MCP client. The settings page copies the config for you. The assistant can search the library, play and queue music, edit playlists and tags, start radio, and call your plugins' tools.</li>
+        <li><strong>HTTP API.</strong> The same server is a plain JSON API, so your own scripts can drive the player. A ready-made <a href="https://github.com/outcast1000/vibo/tree/main/skills/viboplr-control" target="_blank" rel="noopener">Claude Code skill</a> documents every endpoint.</li>
+      </ul>
+      <p>It is off until you turn it on. Writing to files, managing files, downloading, plugin actions and deleting each have their own switch. File moves and deletions are shown as a plan first, and deleted files go to the trash. <a href="help.html#assistant-permissions">What each switch allows</a> · <a href="examples/mcp-session.html">An example session</a></p>
+      <figure>
+        <img src="assets/media/ai-control.webp" alt="The AI control settings, with a switch for each permission" width="2880" height="846" loading="lazy">
+      </figure>
+    </section>
 
-  <!-- More ways to use Vibo -->
-  <section class="section" id="for-you">
-    <div class="container">
-      <div class="section-header reveal">
-        <h2>More ways to <span class="gradient-text">use Vibo</span></h2>
-        <p>The same player, seen from a different chair.</p>
-      </div>
-      <nav class="persona-links reveal" aria-label="Vibo for other listeners">
-        <a href="for/rediscoverers.html">Rediscoverers</a>
-        <a href="for/info-lovers.html">Music lovers who love info</a>
-        <a href="for/ai.html">AI-assistant users</a>
-        <a href="for/spotify.html">Spotify users</a>
-        <a href="for/coders.html">Coders</a>
-        <a href="for/tinkerers.html">Tinkerers &amp; plugin builders</a>
-        <a href="for/downloaders.html">Downloaders</a>
-      </nav>
-    </div>
-  </section>
+    <section id="library">
+      <h2>Your files and your server, together</h2>
+      <p>Add folders and Subsonic or Navidrome servers. Vibo reads the tags and keeps everything in one library and one queue. Search covers artists, albums, tracks and tags and ignores accents.</p>
+      <figure>
+        <img src="assets/screenshots/library.webp" alt="The library's album grid" width="2880" height="1800" loading="lazy">
+      </figure>
+    </section>
 
-  <!-- Basics -->
-  <section class="section section-alt">
-    <div class="container">
-      <div class="section-header reveal">
-        <h2>Whoever you are, <span class="gradient-text">the basics</span></h2>
-      </div>
-      <div class="cards-grid">
-        <div class="card reveal">
-          <h3>Free, for real</h3>
-          <p>No subscription, no ads, no premium tier. The whole app is <a href="https://github.com/outcast1000/viboplr" target="_blank" rel="noopener">open source</a>.</p>
-        </div>
-        <div class="card reveal">
-          <h3>Yours, on your machine</h3>
-          <p>No account to create. Your library, likes and history live on your computer. The app reports nothing about you &mdash; only <a href="help.html#telemetry">anonymous usage stats</a>, and one switch turns those off.</p>
-        </div>
-        <div class="card reveal">
-          <h3>Light and fast</h3>
-          <p>Built with Rust and Tauri on the system&rsquo;s own webview &mdash; no bundled Chromium. It starts fast and searches big libraries instantly.</p>
-        </div>
-        <div class="card reveal">
-          <h3>Extend it your way</h3>
-          <p>Streaming, lyrics, artwork, scrobbling and downloads come as plugins you install with one click from the <a href="plugins.html">gallery</a>.</p>
-        </div>
-      </div>
-      <div class="section-cta reveal">
-        <a href="features.html" class="btn btn-outline btn-lg">
-          See every feature
-          <svg class="btn-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/></svg>
-        </a>
-      </div>
-    </div>
-  </section>
+    <section id="playback">
+      <h2>Playback</h2>
+      <ul>
+        <li>Gapless playback and crossfade from 0 to 10 seconds.</li>
+        <li><a href="help.html#bit-perfect-mode">Bit-perfect</a> and <a href="help.html#exclusive-audio">exclusive</a> output for external DACs.</li>
+        <li><a href="help.html#replaygain">ReplayGain</a> and a 10-band <a href="help.html#equalizer">equalizer</a>.</li>
+        <li>Video files play too, in the same queue.</li>
+      </ul>
+    </section>
 
-  <!-- Bottom CTA -->
-  <section class="bottom-cta">
-    <div class="container reveal">
-      <h2>Ready to try <span class="gradient-text">Vibo</span>?</h2>
-      <p>Free, open source, and <a href="story.html" class="cta-story-link">built end-to-end with an AI assistant</a> &mdash; every feature, every detail.</p>
-      <div class="hero-buttons">
-        <a href="install-mac.html" class="btn btn-primary">
-          <svg class="btn-icon" viewBox="0 0 24 24" fill="currentColor"><path d="M18.71 19.5c-.83 1.24-1.71 2.45-3.05 2.47-1.34.03-1.77-.79-3.29-.79-1.53 0-2 .77-3.27.82-1.31.05-2.3-1.32-3.14-2.53C4.25 17 2.94 12.45 4.7 9.39c.87-1.52 2.43-2.48 4.12-2.51 1.28-.02 2.5.87 3.29.87.78 0 2.26-1.07 3.8-.91.65.03 2.47.26 3.64 1.98-.09.06-2.17 1.28-2.15 3.81.03 3.02 2.65 4.03 2.68 4.04-.03.07-.42 1.44-1.38 2.83M13 3.5c.73-.83 1.94-1.46 2.94-1.5.13 1.17-.34 2.35-1.04 3.19-.69.85-1.83 1.51-2.95 1.42-.15-1.15.41-2.35 1.05-3.11z"/></svg>
-          Download for macOS
-        </a>
-        <a href="install-windows.html" class="btn btn-outline">
-          <svg class="btn-icon" viewBox="0 0 24 24" fill="currentColor"><path d="M3 12V6.75l8-1.25V12H3zm0 .5h8v6.5l-8-1.25V12.5zM11.5 5.35l9.5-1.6V12h-9.5V5.35zM11.5 12.5H21v7.75l-9.5-1.6V12.5z"/></svg>
-          Download for Windows
-        </a>
-      </div>
-    </div>
-  </section>
+    <section id="radio">
+      <h2>Radio and the home screen</h2>
+      <p>Start a station from any song, artist or tag. It is built from your own library, and you can tune how much of the same artist it plays. When the queue ends, <a href="help.html#auto-continue">auto-continue</a> can keep going. The home screen shows what you played last, a few mixes, and albums you have not played in a while.</p>
+      <figure>
+        <video autoplay muted loop playsinline poster="assets/media/home-poster.webp" width="1280" height="800">
+          <source src="assets/media/home.webm" type="video/webm">
+          <source src="assets/media/home.mp4" type="video/mp4">
+        </video>
+      </figure>
+    </section>
 
-  <!-- Footer -->
-  <footer class="footer">
-    <div class="container">
-      <div class="footer-inner">
-        <div class="footer-left">&copy; 2026 Vibo. All rights reserved. &middot; Vibo is said like <em>vibe</em> + &ldquo;o&rdquo;: VYE-boh.</div>
-        <div class="footer-right">
-          <a href="support.html" class="footer-link">Support</a>
-          <a href="https://github.com/outcast1000/viboplr" class="footer-link" target="_blank" rel="noopener">GitHub</a>
-          <a href="story.html" class="footer-link">Built with Tauri + React &mdash; and an AI assistant</a>
-        </div>
-      </div>
-    </div>
+    <section id="lyrics">
+      <h2>Lyrics</h2>
+      <p>Synced lyrics scroll with the song; click a line to jump to it. Vibo reads <code>.lrc</code> files next to your music. A lyrics plugin can fetch the rest.</p>
+      <figure>
+        <img src="assets/screenshots/now-playing.webp" alt="Now Playing with synced lyrics" width="2880" height="1800" loading="lazy">
+      </figure>
+    </section>
+
+    <section id="tags">
+      <h2>Tag editing</h2>
+      <p>Edit artist, album artist, album, year and tags for many tracks at once. Changes are written into the files. Compilations stay one album when the album artist is set.</p>
+      <figure>
+        <img src="assets/media/bulk-edit.webp" alt="Editing 12 tracks at once" width="2880" height="1800" loading="lazy">
+      </figure>
+    </section>
+
+    <section id="mini-player">
+      <h2>Mini player</h2>
+      <p>A small window that can stay on top of everything else, in three layouts.</p>
+      <figure class="plain">
+        <img src="assets/media/mini-player-sizes.webp" alt="The mini player in its three layouts" width="2640" height="544" loading="lazy">
+      </figure>
+    </section>
+
+    <section>
+      <h2>Good to know</h2>
+      <ul class="facts">
+        <li>No account and no ads. Your library, likes and history stay on your computer.</li>
+        <li>Vibo sends <a href="help.html#telemetry">anonymous usage stats</a>; one switch turns them off.</li>
+        <li>It does not come with music. Without plugins it plays only what you add.</li>
+        <li>macOS 11 or later on Apple Silicon, or Windows 10/11 (64-bit).</li>
+        <li>The code was written by an AI coding assistant, directed and reviewed by the author. <a href="story.html">How it was made</a>, and <a href="jaangle.html">Jaangle</a>, the C++ player that came before it.</li>
+      </ul>
+      <p><a href="features.html">Full feature list</a></p>
+    </section>
+
+  </main>
+
+  <footer>
+    <a href="download.html">Download</a>
+    <a href="help.html">Help</a>
+    <a href="community.html">Community</a>
+    <a href="support.html">Support the project</a>
+    <a href="https://github.com/outcast1000/vibo" target="_blank" rel="noopener">GitHub</a>
+    <span>Vibo is said like “vibe” + “o”.</span>
   </footer>
 
-  <script src="js/main.js"></script>
   <script defer src="js/analytics.js"></script>
-  <!-- Cloudflare Web Analytics -->
   <script defer src='https://static.cloudflareinsights.com/beacon.min.js' data-cf-beacon='{"token": "cbb978698d3744cca00a24f8cac8bc3c"}'></script>
 </body>
 </html>

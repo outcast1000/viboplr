@@ -4,62 +4,37 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Plugins — Vibo</title>
-  <meta name="description" content="Browse plugins for Vibo — streaming services, lyrics, downloads, auto-tagging, and more. Install them right inside the app.">
+  <meta name="description" content="Plugins for Vibo: streaming sources, lyrics, artwork, scrobbling and downloads. Install them from inside the app.">
   <link rel="canonical" href="https://viboplr.com/plugins.html">
   <meta property="og:type" content="website">
   <meta property="og:url" content="https://viboplr.com/plugins.html">
   <meta property="og:title" content="Plugins — Vibo">
-  <meta property="og:description" content="Browse plugins for Vibo — streaming services, lyrics, downloads, auto-tagging, and more.">
+  <meta property="og:description" content="Plugins for Vibo: streaming sources, lyrics, artwork, scrobbling and downloads. Install them from inside the app.">
   <meta name="twitter:card" content="summary">
-  <meta name="twitter:title" content="Plugins — Vibo">
-  <meta name="twitter:description" content="Browse plugins for Vibo — streaming services, lyrics, downloads, auto-tagging, and more.">
   <link rel="icon" href="assets/icon.svg" type="image/svg+xml">
-  <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700;800&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="css/style.css">
+  <link rel="stylesheet" href="css/plain.css">
 </head>
-<body>
+<body class="wide">
 
-  <!-- Navigation -->
-  <nav class="nav">
-    <div class="nav-inner">
-      <a href="index.html" class="nav-logo">
-        <img class="nav-logo-mark" src="assets/logo-mark.svg" alt="" width="34" height="34">
-        <span class="wordmark" data-text="Vibo">Vibo</span>
-      </a>
-      <div class="nav-links" id="navLinks">
-        <a href="index.html" class="nav-link">Home</a>
-        <a href="plugins.html" class="nav-link active">Plugins</a>
-        <a href="skins.html" class="nav-link">Skins</a>
-        <a href="community.html" class="nav-link">Community</a>
-        <a href="support.html" class="nav-link nav-link--sponsor">
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z"/></svg>
-          Support
-        </a>
-        <a href="download.html" class="nav-cta">Get Vibo</a>
-      </div>
-      <button class="nav-hamburger" id="navHamburger" aria-label="Toggle menu">
-        <span></span>
-        <span></span>
-        <span></span>
-      </button>
-    </div>
-  </nav>
+  <header class="top">
+    <a href="index.html" class="name"><img src="assets/logo-mark.svg" alt="" width="22" height="22">Vibo</a>
+    <nav>
+      <a href="download.html">Download</a>
+      <a href="features.html">Features</a>
+      <a href="plugins.html" aria-current="page">Plugins</a>
+      <a href="help.html">Help</a>
+      <a href="history.html">Changes</a>
+      <a href="https://github.com/outcast1000/vibo" target="_blank" rel="noopener">GitHub</a>
+    </nav>
+  </header>
 
-  <!-- Hero -->
-  <section class="download-hero">
-    <div class="container">
-      <h1 class="animate-in"><span class="gradient-text">Plugins</span></h1>
-      <p class="animate-in animate-delay-1">Extend Vibo with streaming services, lyrics, downloads, and more. Install any of these from inside the app — <strong>Extensions</strong> in the sidebar.</p>
-    </div>
-  </section>
+  <main>
 
-  <!-- Gallery -->
-  <section class="section">
-    <div class="container">
+    <section>
+      <h1>Plugins</h1>
+      <p>Anything in Vibo that talks to an outside service is a plugin. Install them inside the app from <strong>Extensions</strong> in the sidebar; this is the same list. Each plugin shows the permissions it asks for before it installs.</p>
       <div class="gallery-toolbar">
-        <input type="search" id="gallerySearch" class="gallery-search" placeholder="Search plugins…" aria-label="Search plugins">
+        <input type="search" id="gallerySearch" class="gallery-search" placeholder="Search plugins" aria-label="Search plugins">
         <span class="gallery-count" id="galleryCount"></span>
       </div>
       <div class="gallery-status" id="galleryStatus"></div>
@@ -71,104 +46,44 @@
       <div class="gallery-grid" id="galleryGrid"></div>
       <div class="gallery-section" id="galleryExperimental" hidden>
         <h2 class="gallery-section-title">Experimental</h2>
-        <p class="gallery-section-note">Experimental plugins may break, change, or be removed without notice.</p>
+        <p class="gallery-section-note">These may break, change or be removed without notice.</p>
         <div class="gallery-grid" id="galleryExperimentalGrid"></div>
       </div>
-    </div>
-  </section>
+    </section>
 
-  <!-- Build your own -->
-  <section class="section section-alt">
-    <div class="container">
-      <div class="gallery-steps reveal">
-        <h2>Build your own plugin</h2>
-        <p class="gallery-steps-intro">A plugin is two files of plain JavaScript — no build step, no framework.</p>
-        <div class="gallery-steps-grid">
-          <div class="gallery-step">
-            <span class="gallery-step-num">1</span>
-            <h3>Write two files</h3>
-            <p>A <code>manifest.json</code> declares what your plugin adds — lyrics, artwork, streaming, views. An <code>index.js</code> implements it against the <a href="plugin-dev.html#api">plugin API</a>.</p>
-          </div>
-          <div class="gallery-step">
-            <span class="gallery-step-num">2</span>
-            <h3>Develop it live in the app</h3>
-            <p>Point <strong>Settings &rarr; Developer &rarr; Dev plugin folder</strong> at your working folder. Edit, hit Reload, see it running — <a href="plugin-dev.html#develop">no packaging needed</a>.</p>
-          </div>
-          <div class="gallery-step">
-            <span class="gallery-step-num">3</span>
-            <h3>Publish to the gallery</h3>
-            <p>Zip it, publish a GitHub release with an <code>update.json</code>, and submit it below. Installed copies <a href="plugin-dev.html#publish">auto-update</a> from your releases.</p>
-          </div>
-        </div>
-        <p class="gallery-steps-note">Quickstart, sandbox rules, and the full API reference live in the <a href="plugin-dev.html">plugin developer docs</a>.</p>
-      </div>
-    </div>
-  </section>
+    <section>
+      <h2>Write a plugin</h2>
+      <ol>
+        <li>Write a <code>manifest.json</code> (what the plugin adds) and an <code>index.js</code> (plain JavaScript, using the <a href="plugin-dev.html#api">plugin API</a>). There is no build step.</li>
+        <li>Point <strong>Settings → Developer → Dev plugin folder</strong> at your folder, then edit and press Reload. See <a href="plugin-dev.html#develop">developing locally</a>.</li>
+        <li>Publish a GitHub release with a zip and an <code>update.json</code>. Installed copies <a href="plugin-dev.html#publish">update from your releases</a>.</li>
+      </ol>
+      <p>Details: <a href="plugin-dev.html">plugin developer docs</a>.</p>
+    </section>
 
-  <!-- How submission works -->
-  <section class="section">
-    <div class="container">
-      <div class="gallery-steps reveal">
-        <h2>How to add a plugin</h2>
-        <p class="gallery-steps-intro">No pull request, no JSON editing — a bot does the work and opens it for review.</p>
-        <div class="gallery-steps-grid">
-          <div class="gallery-step">
-            <span class="gallery-step-num">1</span>
-            <h3>Publish a release</h3>
-            <p>In your plugin's own GitHub repo, ship a release with a <code>&lt;name&gt;.zip</code> (with <code>manifest.json</code> at the zip root) and an <code>update.json</code>.</p>
-          </div>
-          <div class="gallery-step">
-            <span class="gallery-step-num">2</span>
-            <h3>Paste your update.json URL</h3>
-            <p>Open the submission form and paste the link to your release's <code>update.json</code>. That's the only field you need.</p>
-          </div>
-          <div class="gallery-step">
-            <span class="gallery-step-num">3</span>
-            <h3>A bot validates &amp; opens a PR</h3>
-            <p>It downloads your zip, reads the manifest, and either comments what to fix or opens a PR. A maintainer merges it to publish.</p>
-          </div>
-        </div>
-        <p class="gallery-steps-note">Full details in the <a href="https://github.com/outcast1000/viboplr-plugins#submitting-a-plugin" target="_blank" rel="noopener">submission guide</a>.</p>
-      </div>
-    </div>
-  </section>
+    <section>
+      <h2>Add it to the gallery</h2>
+      <ol>
+        <li>Open the <a href="https://github.com/outcast1000/viboplr-plugins/issues/new?template=submit-plugin.yml" target="_blank" rel="noopener">submission form</a> and paste your release's <code>update.json</code> URL.</li>
+        <li>A bot downloads the zip, checks the manifest, and either comments what to fix or opens a pull request.</li>
+        <li>A maintainer reviews and merges it.</li>
+      </ol>
+      <p>More in the <a href="https://github.com/outcast1000/viboplr-plugins#submitting-a-plugin" target="_blank" rel="noopener">submission guide</a>.</p>
+    </section>
 
-  <!-- Submit CTA -->
-  <section class="section section-alt">
-    <div class="container">
-      <div class="auto-update reveal">
-        <div class="auto-update-badge">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
-          <span>Built a plugin?</span>
-        </div>
-        <p>Submit it to the gallery with a single form — no pull request needed. A bot validates your release and opens it for review.</p>
-        <div class="hero-buttons" style="margin-top: 1.5rem;">
-          <a href="https://github.com/outcast1000/viboplr-plugins/issues/new?template=submit-plugin.yml" class="btn btn-primary" target="_blank" rel="noopener">Submit a plugin</a>
-          <a href="plugin-dev.html" class="btn btn-outline">Plugin docs</a>
-        </div>
-      </div>
-    </div>
-  </section>
+  </main>
 
-  <!-- Footer -->
-  <footer class="footer">
-    <div class="container">
-      <div class="footer-inner">
-        <div class="footer-left">&copy; 2026 Vibo. All rights reserved.</div>
-        <div class="footer-right">
-          <a href="support.html" class="footer-link">Support</a>
-          <a href="https://github.com/outcast1000/viboplr" class="footer-link" target="_blank" rel="noopener">GitHub</a>
-          <span class="footer-link">Built with Tauri + React</span>
-        </div>
-      </div>
-    </div>
+  <footer>
+    <a href="download.html">Download</a>
+    <a href="help.html">Help</a>
+    <a href="community.html">Community</a>
+    <a href="support.html">Support the project</a>
+    <a href="https://github.com/outcast1000/vibo" target="_blank" rel="noopener">GitHub</a>
   </footer>
 
   <script>window.VBPL_GALLERY = "plugins";</script>
-  <script src="js/main.js"></script>
   <script src="js/gallery.js"></script>
   <script defer src="js/analytics.js"></script>
-  <!-- Cloudflare Web Analytics -->
   <script defer src='https://static.cloudflareinsights.com/beacon.min.js' data-cf-beacon='{"token": "cbb978698d3744cca00a24f8cac8bc3c"}'></script>
 </body>
 </html>
