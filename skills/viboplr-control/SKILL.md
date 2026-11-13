@@ -298,7 +298,7 @@ Consent rule for logs: show the user before posting log contents anywhere public
 
 **"What version is Vibo, and is it current?"**
 1. `GET /health` → `version` (the running app)
-2. Latest stable release: `GET https://api.github.com/repos/outcast1000/viboplr/releases/latest` → `tag_name` (strip the leading `v`; `releases/latest` already excludes betas/prereleases). Report-only — updates are installed from inside the app (Settings → General), never from here.
+2. Latest stable release: `GET https://api.github.com/repos/outcast1000/vibo/releases/latest` → `tag_name` (strip the leading `v`; `releases/latest` already excludes betas/prereleases). Report-only — updates are installed from inside the app (Settings → General), never from here.
 
 **"Tell me about this artist"**
 1. `GET /info/entity?kind=artist&name=<artist>` → see what's cached

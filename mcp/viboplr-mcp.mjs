@@ -237,7 +237,7 @@ async function apiRequest(method, path, body, { timeoutMs = DEFAULT_MS, raw = fa
 
 // Latest *stable* release of the app on GitHub — `releases/latest` excludes
 // prereleases (betas, the engine-components channel) by GitHub's own contract.
-const GITHUB_REPO = "outcast1000/viboplr";
+const GITHUB_REPO = "outcast1000/vibo";
 
 async function fetchLatestRelease() {
   const base = process.env.VIBOPLR_MCP_GITHUB_API ?? "https://api.github.com";

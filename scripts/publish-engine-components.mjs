@@ -24,7 +24,7 @@ import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
-const REPO = "outcast1000/viboplr";
+const REPO = "outcast1000/vibo";
 const TAG = "engine-components";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");

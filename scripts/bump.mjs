@@ -268,7 +268,7 @@ console.log("\n✓ All checks passed\n");
 // Constants
 // ---------------------------------------------------------------------------
 
-const REPO = "outcast1000/viboplr";
+const REPO = "outcast1000/vibo";
 // NOTE: computed lazily (see urls()) — `version` may still be undefined here
 // when the patch-number default in Step 2 hasn't run yet. Building these
 // eagerly is what once wrote "vundefined" URLs into the site.

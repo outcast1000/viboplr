@@ -3,13 +3,13 @@
   "platforms": {
     "macos-aarch64": {
       "version": "vibo-git-8bc468896e-6f700a80",
-      "url": "https://github.com/outcast1000/viboplr/releases/download/engine-components/engine-libmpv-macos-aarch64-vibo-git-8bc468896e-6f700a80.zip",
+      "url": "https://github.com/outcast1000/vibo/releases/download/engine-components/engine-libmpv-macos-aarch64-vibo-git-8bc468896e-6f700a80.zip",
       "sha256": "6160288395969c702821c0d9181457eaf2d61435f283b660fa158e301ad54868",
       "size_mb": 15.7
     },
     "windows-x86_64": {
       "version": "vibo-git-8bc468896e-6f700a80",
-      "url": "https://github.com/outcast1000/viboplr/releases/download/engine-components/engine-libmpv-windows-x86_64-vibo-git-8bc468896e-6f700a80.zip",
+      "url": "https://github.com/outcast1000/vibo/releases/download/engine-components/engine-libmpv-windows-x86_64-vibo-git-8bc468896e-6f700a80.zip",
       "sha256": "8fbeb9ab5c8f12136c7b9ea905f411c76e372b5ccd2a75dbf25cd50f017862f5",
       "size_mb": 25.1
     }

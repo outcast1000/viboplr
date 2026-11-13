@@ -67,7 +67,7 @@
     "updater": {
       "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IENENzU1MThDQUM1RURDNEYKUldSUDNGNnNqRkYxemV6SnJNeHJBcldOTVpxcjdkRTFYNDFmVFdralhvUWNSNTArenBwNXV1aFcK",
       "endpoints": [
-        "https://github.com/outcast1000/viboplr/releases/latest/download/latest.json"
+        "https://github.com/outcast1000/vibo/releases/latest/download/latest.json"
       ]
     }
   }

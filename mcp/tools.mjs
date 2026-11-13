@@ -746,7 +746,7 @@ export const TOOLS = [
     readOnly: true,
     categories: ["app"],
     description:
-      "The running Vibo's version and profile, the AI access level the user chose (accessLevel: low / full / custom) and which permissions it allows (writeScopes), and (over MCP) the server's own version. With checkLatest=true, also looks up the newest stable release of outcast1000/viboplr on GitHub (releases/latest — betas excluded) and reports whether the app is up to date. Report-only: updates are installed from inside the app (Settings → General), never from here.",
+      "The running Vibo's version and profile, the AI access level the user chose (accessLevel: low / full / custom) and which permissions it allows (writeScopes), and (over MCP) the server's own version. With checkLatest=true, also looks up the newest stable release of outcast1000/vibo on GitHub (releases/latest — betas excluded) and reports whether the app is up to date. Report-only: updates are installed from inside the app (Settings → General), never from here.",
     inputSchema: obj({
       checkLatest: bool("Also fetch the latest GitHub release and compare"),
     }),

@@ -12,7 +12,7 @@
 export const LIBMPV_BUILD_REPO = "outcast1000/viboplr-libmpv";
 
 /** Where the downloadable engine component zips live (publish-engine-components.mjs). */
-export const ENGINE_COMPONENTS_REPO = "outcast1000/viboplr";
+export const ENGINE_COMPONENTS_REPO = "outcast1000/vibo";
 export const ENGINE_COMPONENTS_TAG = "engine-components";
 
 /** The two assets a build release carries per platform: the archive

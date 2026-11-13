@@ -252,12 +252,12 @@ interface Rpc {
 
 function startFakeGithub(tag: string): Promise<{ port: number; close: () => void }> {
   const server = http.createServer((req, res) => {
-    if (req.url === "/repos/outcast1000/viboplr/releases/latest") {
+    if (req.url === "/repos/outcast1000/vibo/releases/latest") {
       res.writeHead(200, { "Content-Type": "application/json" });
       res.end(
         JSON.stringify({
           tag_name: tag,
-          html_url: `https://github.com/outcast1000/viboplr/releases/tag/${tag}`,
+          html_url: `https://github.com/outcast1000/vibo/releases/tag/${tag}`,
           published_at: "2026-09-01T00:00:00Z",
           prerelease: false,
         }),

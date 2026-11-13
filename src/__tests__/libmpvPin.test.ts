@@ -81,7 +81,7 @@ describe("isMissingRefError", () => {
 });
 
 describe("unpublishedComponents", () => {
-  const entry = (name: string) => ({ version: "v", url: `https://github.com/outcast1000/viboplr/releases/download/engine-components/${name}`, sha256: "abc" });
+  const entry = (name: string) => ({ version: "v", url: `https://github.com/outcast1000/vibo/releases/download/engine-components/${name}`, sha256: "abc" });
 
   it("names a zip the lock points at that the release doesn't have (a failed or skipped publish)", () => {
     const lock = { platforms: { "macos-aarch64": entry("engine-libmpv-macos-aarch64-new.zip"), "windows-x86_64": entry("engine-libmpv-windows-x86_64-new.zip") } };

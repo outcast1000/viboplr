@@ -22,7 +22,7 @@ use std::time::Duration;
 use tauri::{AppHandle, Emitter, State};
 use tauri_plugin_updater::UpdaterExt;
 
-const REPO: &str = "outcast1000/viboplr";
+const REPO: &str = "outcast1000/vibo";
 
 /// Ceiling on the manifest fetch. Only the *check* honours it — the plugin
 /// hardcodes `timeout: None` onto the `Update` it hands back, so a 50 MB
@@ -303,7 +303,7 @@ mod tests {
         ];
         assert_eq!(
             pick_beta_manifest_url(&releases, "latest.json").as_deref(),
-            Some("https://github.com/outcast1000/viboplr/releases/download/v0.9.152-beta.1/latest.json")
+            Some("https://github.com/outcast1000/vibo/releases/download/v0.9.152-beta.1/latest.json")
         );
     }
 
@@ -317,7 +317,7 @@ mod tests {
         ];
         assert_eq!(
             pick_beta_manifest_url(&releases, "latest.json").as_deref(),
-            Some("https://github.com/outcast1000/viboplr/releases/download/v0.9.152/latest.json")
+            Some("https://github.com/outcast1000/vibo/releases/download/v0.9.152/latest.json")
         );
     }
 
@@ -330,7 +330,7 @@ mod tests {
         ];
         assert_eq!(
             pick_beta_manifest_url(&releases, "latest-mpv.json").as_deref(),
-            Some("https://github.com/outcast1000/viboplr/releases/download/v0.9.151/latest-mpv.json")
+            Some("https://github.com/outcast1000/vibo/releases/download/v0.9.151/latest-mpv.json")
         );
     }
 

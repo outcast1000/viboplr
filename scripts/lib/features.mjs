@@ -14,7 +14,7 @@
 // contiguous). `groupDescription` is only read on the entry that opens
 // the group. Entries without `group` continue the current group.
 
-const REPO = "outcast1000/viboplr";
+const REPO = "outcast1000/vibo";
 
 export function renderFeaturesHtml(features, version) {
   const dmgUrl = `https://github.com/${REPO}/releases/download/v${version}/Viboplr_${version}_aarch64.dmg`;

@@ -3,7 +3,7 @@ export const LINKS = {
   homepage: "https://viboplr.com",
   pluginsPage: "https://viboplr.com/plugins.html",
   skinsPage: "https://viboplr.com/skins.html",
-  issues: "https://github.com/outcast1000/viboplr/issues",
+  issues: "https://github.com/outcast1000/vibo/issues",
   supportPage: "https://viboplr.com/support.html",
   // Manual-download fallback, offered when the in-app updater fails.
   downloadPage: "https://viboplr.com/download.html",

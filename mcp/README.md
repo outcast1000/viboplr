@@ -96,7 +96,7 @@ plugin shelves load and play), collections (list + rescan — never add/remove),
 SQL over the library database (`query_library` — writes and the credential
 tables are refused server-side), the app version (`app_version` — with
 `checkLatest` it also reads the newest stable release from GitHub's
-`releases/latest` for `outcast1000/viboplr` and says whether the app is
+`releases/latest` for `outcast1000/vibo` and says whether the app is
 current; report-only, updates install from inside the app), extension/skin
 management (per-plugin capability summaries, one plugin's full detail, and
 gallery browsing, and installing a gallery entry — which Vibo asks the user

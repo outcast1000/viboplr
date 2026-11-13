@@ -92,7 +92,7 @@ for (const [platform, entry] of Object.entries(mpvLock.platforms)) {
   const lockEntry = componentLock.platforms[platform];
   if (lockEntry) {
     lockEntry.version = version;
-    lockEntry.url = `https://github.com/outcast1000/viboplr/releases/download/${RELEASE_TAG}/${zipName}`;
+    lockEntry.url = `https://github.com/outcast1000/vibo/releases/download/${RELEASE_TAG}/${zipName}`;
     lockEntry.sha256 = hash;
     lockEntry.size_mb = sizeMb;
     wroteLock = true;
