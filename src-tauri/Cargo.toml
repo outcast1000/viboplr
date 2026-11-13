@@ -75,8 +75,8 @@ libc = "0.2"
 # (browse_window.rs). Already in the build through tao/wry — declared, not
 # added. Replaced cocoa + objc 0.2, whose whole API was deprecated.
 objc2 = "0.6"
-objc2-foundation = { version = "0.3", default-features = false, features = ["std", "NSGeometry", "objc2-core-foundation"] }
-objc2-app-kit = { version = "0.3", default-features = false, features = ["std", "NSResponder", "NSView", "NSWindow", "NSEvent", "NSGraphics", "NSOpenGL", "NSOpenGLView"] }
+objc2-foundation = { version = "0.3", default-features = false, features = ["std", "NSGeometry", "NSDate", "NSProcessInfo", "objc2-core-foundation"] }
+objc2-app-kit = { version = "0.3", default-features = false, features = ["std", "NSResponder", "NSView", "NSWindow", "NSEvent", "NSGraphics", "NSGraphicsContext", "NSApplication", "NSOpenGL", "NSOpenGLView"] }
 # Trust-settings walk for trust_store.rs. Already in the build through
 # native-tls / rustls-platform-verifier — declared, not added.
 security-framework = { version = "3.7", default-features = false }

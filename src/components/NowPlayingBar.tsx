@@ -2,6 +2,7 @@ import type { LoadingPlay } from "../hooks/useQueue";
 import { LoadingElapsed } from "./LoadingPlay";
 import { memo, useCallback, useRef, useState, useEffect, type ReactNode } from "react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
+import { invoke } from "@tauri-apps/api/core";
 import { resolveImageUrl } from "../utils/resolveImageUrl";
 import { usePlaybackPosition } from "../playback/positionStore";
 import type { QueueTrack, SearchAllResults, SearchResultItem, ResolvedSource } from "../types";
@@ -320,9 +321,15 @@ export const NowPlayingBar = memo(function NowPlayingBar({
   if (miniMode) {
     const handleDrag = isMac
       ? (e: React.MouseEvent) => {
-          // macOS: startDragging doesn't enter a modal loop, so dblclick fires normally
+          // macOS: the drag doesn't enter a modal loop, so dblclick fires normally.
+          // Our own command, not startDragging: tao can hand AppKit an event whose
+          // grab point isn't under the cursor, and the window jumped to put its
+          // corner there (backend window_drag.rs).
           if ((e.target as HTMLElement).closest(MINI_NO_DRAG)) return;
-          if (e.buttons === 1) { onBeginMiniDrag?.(); getCurrentWindow().startDragging(); }
+          if (e.buttons === 1) {
+            onBeginMiniDrag?.();
+            invoke("start_window_drag").catch((err) => console.error("Failed to start the mini player drag:", err));
+          }
         }
       : (e: React.MouseEvent) => {
           // Windows: delay startDragging so the OS modal drag loop doesn't swallow the second click

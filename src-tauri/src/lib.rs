@@ -55,6 +55,8 @@ mod user_url;
 mod cursor_tracker;
 #[cfg(target_os = "macos")]
 mod display_watch;
+#[cfg(target_os = "macos")]
+mod window_drag;
 #[cfg(target_os = "windows")]
 mod cursor_tracker_win;
 #[cfg(target_os = "windows")]
@@ -355,6 +357,7 @@ macro_rules! invoke_handler {
             commands::download_and_install_skin_update,
             commands::install_plugin_from_url,
             commands::set_cursor_tracker,
+            commands::start_window_drag,
             commands::set_window_behavior,
             browse_window::open_browse_window,
             browse_window::browse_window_eval,

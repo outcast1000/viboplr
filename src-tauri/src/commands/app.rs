@@ -716,6 +716,30 @@ pub fn set_cursor_tracker(state: State<'_, AppState>, active: bool) {
     state.cursor_tracker_active.store(active, Ordering::Relaxed);
 }
 
+/// Start dragging the window from a webview mouse-down (the mini player). On
+/// macOS this replaces `startDragging`, which can hand AppKit the wrong event
+/// and make the window jump under the cursor — see `window_drag`.
+#[tauri::command]
+pub fn start_window_drag(window: tauri::WebviewWindow) -> Result<(), String> {
+    #[cfg(target_os = "macos")]
+    {
+        let ns = window.ns_window().map_err(|e| e.to_string())? as *const objc2_app_kit::NSWindow;
+        if ns.is_null() {
+            return Err("No native window".into());
+        }
+        // A sync command runs on the main thread, the only place an NSWindow
+        // may be touched, and tao keeps the window alive.
+        let mtm = objc2_foundation::MainThreadMarker::new()
+            .ok_or_else(|| "Window drag must run on the main thread".to_string())?;
+        // SAFETY: non-null, owned by tao for the window's lifetime, main thread.
+        crate::window_drag::start(unsafe { &*ns }, mtm)
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        window.start_dragging().map_err(|e| e.to_string())
+    }
+}
+
 /// Mirror the frontend's mini-mode + "minimize to mini player" state into the
 /// native layer. Windows decides the taskbar-button gesture inside the window
 /// proc, synchronously, so it cannot ask the webview at the time of the click —
