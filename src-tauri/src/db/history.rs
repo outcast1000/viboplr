@@ -99,15 +99,17 @@ fn is_video_format(format: Option<&str>) -> bool {
 fn history_album_sql(title_count: usize) -> String {
     let placeholders = std::iter::repeat("?").take(title_count).collect::<Vec<_>>().join(",");
     // Albums are LEFT-joined: a track with no album (most videos) still names
-    // its library copy, which is what a video frame is looked up by.
+    // its library copy, which is what a video frame is looked up by. Artists
+    // are LEFT-joined too: an artist-less library row (an untagged video) is
+    // the exact match for an artist-less play.
     format!(
         "SELECT strip_diacritics(unicode_lower(t.title)), \
-                strip_diacritics(unicode_lower(ar.name)), \
+                strip_diacritics(unicode_lower(COALESCE(ar.name, ''))), \
                 al.title, alar.name, \
                 CASE WHEN co.kind = 'local' THEN 0 WHEN co.kind = 'subsonic' THEN 1 ELSE 2 END, \
                 al.id, {PATH_EXPR}, t.id, t.duration_secs, t.format \
            FROM tracks t \
-           JOIN artists ar ON t.artist_id = ar.id \
+           LEFT JOIN artists ar ON t.artist_id = ar.id \
            LEFT JOIN albums al ON t.album_id = al.id \
            LEFT JOIN artists alar ON al.artist_id = alar.id \
            LEFT JOIN collections co ON t.collection_id = co.id \
@@ -129,6 +131,10 @@ struct HistoryLibraryMatch {
     duration_secs: Option<f64>,
     format: Option<String>,
 }
+
+/// Rank offset for a title-only match, so any copy matching title AND artist
+/// beats it regardless of source.
+const TITLE_ONLY_TIER: i64 = 10;
 
 /// A history row that carries the library-match fields. Implemented by both
 /// track-shaped history rows so `stamp_history_library` fills them one way.
@@ -195,6 +201,13 @@ impl HistoryLibraryRow for HistoryMostPlayed {
 /// entire library once per call, which was cheap enough for one Home shelf but
 /// not for a per-keystroke search.
 ///
+/// A play recorded with **no artist** (common for videos) also matches a
+/// library **video** by title alone — the artist-less play of a clip that was
+/// tagged later still finds it. Audio never matches on title alone: "Intro"
+/// with no artist must not become some other artist's "Intro". A copy that
+/// matches title and artist (artist-less included) always beats a title-only
+/// one.
+///
 /// Preference on multiple matches: local > subsonic > other. The album comes
 /// from album-bearing copies only, newest album (highest id) breaking ties — the
 /// same order as `find_tracks_by_metadata`; the copy is picked independently
@@ -240,12 +253,19 @@ fn resolve_history_library(
         })?;
         for row in rows {
             let (norm_title, norm_artist, album, album_artist, prio, album_id, path, track_id, duration, format) = row?;
-            let key = (norm_title, norm_artist);
             // The IN list matches on title alone, so most rows here belong to a
-            // different artist's same-titled track.
-            if !wanted.contains(&key) {
-                continue;
-            }
+            // different artist's same-titled track: those count only for an
+            // artist-less play, and only when they are a video.
+            let exact = (norm_title.clone(), norm_artist);
+            let (key, prio) = if wanted.contains(&exact) {
+                (exact, prio)
+            } else {
+                let title_only = (norm_title, String::new());
+                if !is_video_format(format.as_deref()) || !wanted.contains(&title_only) {
+                    continue;
+                }
+                (title_only, prio + TITLE_ONLY_TIER)
+            };
             if better(best_copy.get(&key), prio, track_id) {
                 best_copy.insert(key.clone(), (prio, track_id));
                 let m = out.entry(key.clone()).or_default();
@@ -1616,45 +1636,6 @@ impl Database {
                 last_played_at: row.get(2)?,
             }),
         ).optional()
-    }
-
-    /// Attempt to reconnect a ghost history track to a library track by canonical title+artist match.
-    /// Returns the matched Track if found, or None if no match exists.
-    pub fn reconnect_history_track(&self, history_track_id: i64) -> SqlResult<Option<Track>> {
-        let conn = self.reader();
-
-        // Look up the history track's canonical info
-        let (canonical_title, history_artist_id): (String, i64) = conn.query_row(
-            "SELECT canonical_title, history_artist_id FROM history_tracks WHERE id = ?1",
-            params![history_track_id],
-            |row| Ok((row.get(0)?, row.get(1)?)),
-        )?;
-        let canonical_name: String = conn.query_row(
-            "SELECT canonical_name FROM history_artists WHERE id = ?1",
-            params![history_artist_id],
-            |row| row.get(0),
-        )?;
-
-        // Search for a matching library track
-        let maybe_track_id: Option<i64> = conn.query_row(
-            "SELECT t.id FROM tracks t
-             LEFT JOIN artists ar ON t.artist_id = ar.id
-             WHERE strip_diacritics(unicode_lower(t.title)) = ?1
-             AND strip_diacritics(unicode_lower(COALESCE(ar.name, ''))) = ?2
-             LIMIT 1",
-            params![canonical_title, canonical_name],
-            |row| row.get(0),
-        ).optional()?;
-
-        let track_id = match maybe_track_id {
-            Some(id) => id,
-            None => return Ok(None),
-        };
-
-        // Return the full track
-        let sql = format!("{} WHERE t.id = ?1", TRACK_SELECT);
-        let track = conn.query_row(&sql, params![track_id], |row| track_from_row(row))?;
-        Ok(Some(track))
     }
 
     /// Attempt to reconnect a ghost history artist to a library artist by canonical name match.

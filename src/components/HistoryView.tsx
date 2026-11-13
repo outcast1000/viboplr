@@ -54,8 +54,9 @@ interface HistoryViewProps {
   onLocateTrackByName: (title: string, artistName?: string, albumTitle?: string) => void;
   onArtistClick: (artistId: number, name?: string) => void;
   onAlbumClick: (albumId: number, artistId?: number | null, name?: string, artistName?: string) => void;
-  onPlayArtist: (artistId: number) => void;
-  onEnqueueArtist: (artistId: number) => void;
+  /** Resolve with whether anything was queued (an artist may have no tracks). */
+  onPlayArtist: (artistId: number) => Promise<boolean>;
+  onEnqueueArtist: (artistId: number) => Promise<boolean>;
   onStartRadio?: (seed: { title: string; artistName: string | null; coverPath: string | null }) => void;
   onShowContextMenu?: (x: number, y: number, target: ContextMenuTarget) => void;
   onToggleLike: (track: QueueTrack) => void;
@@ -357,8 +358,16 @@ export function HistoryView({
     try { return await invoke<number | null>("reconnect_history_artist", { historyArtistId }); }
     catch (e) { console.error("Failed to reconnect artist:", e); return null; }
   }, []);
-  const withArtistId = (a: HistoryArtistStats, act: (id: number) => void) => {
-    reconnectArtist(a.history_artist_id).then(id => { if (id) act(id); });
+  // Playing an artist needs their library tracks. When there are none — the
+  // artist isn't in the library, or is only an album artist — say so instead
+  // of doing nothing. Their page still opens (by name).
+  const withArtistId = (a: HistoryArtistStats, act: (id: number) => Promise<boolean>) => {
+    reconnectArtist(a.history_artist_id)
+      .then(id => (id ? act(id) : false))
+      .then(queued => {
+        if (!queued) onNotify(`No tracks by ${a.display_name} in your library`, { kind: "warning" });
+      })
+      .catch(e => console.error("Failed to play a history artist:", e));
   };
   const openArtist = (a: HistoryArtistStats) => onArtistClick(0, a.display_name);
   const openArtistByName = (name: string | null) => { if (name) onArtistClick(0, name); };
@@ -386,30 +395,34 @@ export function HistoryView({
           onShowContextMenu(x, y, { kind: "artist", artistId: id ?? undefined, name: a.display_name }));
         return;
       }
+      // The multi menu is id-based; with none of these artists in the library,
+      // the clicked row's own menu opens instead of nothing.
+      const a = current.rows[index] as HistoryArtistStats;
       Promise.all(rows.map(r => reconnectArtist(r.history_artist_id))).then(ids => {
         const artistIds = ids.filter((id): id is number => id != null);
         if (artistIds.length) onShowContextMenu(x, y, { kind: "multi-artist", artistIds });
+        else onShowContextMenu(x, y, { kind: "artist", name: a.display_name });
       });
       return;
     }
     const rows = (current.rows as TrackLikeRow[]).filter(r => sel.has(rowKey(activeTab, r)));
-    if (rows.length <= 1) {
-      const t = current.rows[index] as TrackLikeRow;
-      onShowContextMenu(x, y, {
-        kind: "track",
-        trackId: t.display_track_id ?? undefined,
-        isLocal: isLocalTrack({ path: t.display_path }),
-        title: t.display_title,
-        artistName: t.display_artist,
-        albumTitle: t.display_album,
-      });
-      return;
-    }
+    const t = current.rows[index] as TrackLikeRow;
+    const showSingle = () => onShowContextMenu(x, y, {
+      kind: "track",
+      trackId: t.display_track_id ?? undefined,
+      isLocal: isLocalTrack({ path: t.display_path }),
+      title: t.display_title,
+      artistName: t.display_artist,
+      albumTitle: t.display_album,
+    });
+    if (rows.length <= 1) { showSingle(); return; }
     // A multi-track menu acts on library rows; ghost plays have none to name.
-    // Each track once — the play log can hold several plays of one song.
+    // Each track once — the play log can hold several plays of one song. With
+    // none in the library, the clicked row's own menu opens instead of nothing.
     const byId = new Map<number, string | null>();
     for (const r of rows) if (r.display_track_id != null && !byId.has(r.display_track_id)) byId.set(r.display_track_id, r.display_path ?? null);
-    if (byId.size) onShowContextMenu(x, y, {
+    if (!byId.size) { showSingle(); return; }
+    onShowContextMenu(x, y, {
       kind: "multi-track",
       trackIds: [...byId.keys()],
       tracks: [...byId].map(([id, path]) => ({ id, path })),

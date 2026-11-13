@@ -206,15 +206,19 @@ export function usePlayActions({
     }
   }, [playTracks, setPlaylistContext, albums, getAlbumImage]);
 
-  const playArtist = useCallback(async (artistId: number, opts?: { tracks?: Track[]; startIndex?: number }) => {
+  // Both resolve with whether anything was queued — an artist with no tracks of
+  // their own (only an album artist) queues nothing, and a caller that must
+  // say so (History) needs to know.
+  const playArtist = useCallback(async (artistId: number, opts?: { tracks?: Track[]; startIndex?: number }): Promise<boolean> => {
     const tracks = opts?.tracks ?? await invoke<Track[]>("get_tracks_by_artist", { artistId });
-    if (tracks.length === 0) return;
+    if (tracks.length === 0) return false;
     const artist = artists.find(a => a.id === artistId);
     const artistImg = artist ? getArtistImage(artist.name) : null;
     playTracks(tracks, opts?.startIndex ?? 0, buildArtistContext(artist, artistImg));
     if (artist) {
       enrichDescription(`artist:${artist.name}`, "artist_bio", setPlaylistContext);
     }
+    return true;
   }, [playTracks, setPlaylistContext, artists, getArtistImage]);
 
   const playTag = useCallback(async (tagId: number, opts?: { tracks?: Track[]; startIndex?: number }) => {
@@ -235,13 +239,15 @@ export function usePlayActions({
     }
   }, [enqueueTracks]);
 
-  const enqueueArtist = useCallback(async (artistId: number) => {
+  const enqueueArtist = useCallback(async (artistId: number): Promise<boolean> => {
     try {
       const tracks = await invoke<Track[]>("get_tracks_by_artist", { artistId });
       const queueable = tracks.filter(t => t.liked !== -1);
       if (queueable.length > 0) enqueueTracks(queueable);
+      return queueable.length > 0;
     } catch (e) {
       console.error("Failed to enqueue artist:", e);
+      return false;
     }
   }, [enqueueTracks]);
 

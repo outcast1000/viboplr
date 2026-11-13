@@ -59,7 +59,7 @@ import { saveCueSheet, type CueOpsDeps } from "../utils/cueOps";
 import { track } from "../telemetry";
 import { contextImageTypeIds, gatherCueContext } from "../utils/cueContext";
 import { typesSpokenForByProviders, type OrderedContextImageProvider } from "../utils/contextImages";
-import { buildExternalQueueTrack } from "../utils/externalTrack";
+import { playableByName } from "../utils/externalTrack";
 import { errorText } from "../utils/errorKind";
 import { stabilityTier } from "../utils/pluginStability";
 import {
@@ -143,7 +143,7 @@ export interface ControlApiDeps {
   /** usePlayActions.playAlbum / playArtist — the Home page's play for a
    *  library album / artist card, so `home.play` queues it the same way. */
   playAlbum: (albumId: number, opts?: { tracks?: Track[] }) => Promise<void>;
-  playArtist: (artistId: number, opts?: { tracks?: Track[] }) => Promise<void>;
+  playArtist: (artistId: number, opts?: { tracks?: Track[] }) => Promise<unknown>;
   /** App's shared queue-entry deps (utils/queueOps.ts) — every verb that puts
    *  tracks into the queue goes through them, so like reconcile and the
    *  duplicate check are the same as for a plugin or the Cmd+K dropdown. */
@@ -353,7 +353,7 @@ async function resolveTracks(payload: Record<string, unknown>): Promise<Track[]>
 /** Resolve a queue play/add request to queue entries, in request order.
  *  Library ids batch through `get_tracks_by_ids` (missing ids are dropped,
  *  as before); a song named by metadata takes its library copy when there is
- *  one (`find_track_by_metadata`, the same lookup a `viboplr://play` link
+ *  one (`playableByName`, the same lookup a `viboplr://play` link
  *  makes) and otherwise goes in metadata-only, for the stream resolvers to
  *  find at play time. `external` counts those — they take a lookup to start. */
 async function resolveQueueItems(
@@ -372,12 +372,7 @@ async function resolveQueueItems(
   const byId = new Map(rows.map((t) => [t.id, t]));
   // All lookups at once: a long list asked one by one could outlast the bridge.
   const matches = await Promise.all(items.map((it) => it.kind === "metadata"
-    ? invoke<Track | null>("find_track_by_metadata", {
-      title: it.title, artistName: it.artistName, albumName: it.albumTitle,
-    }).catch((e) => {
-      console.error("Control API: failed to look up a named track in the library:", e);
-      return null;
-    })
+    ? playableByName(it.title, it.artistName, it)
     : null));
   let external = 0;
   const tracks: QueueTrack[] = [];
@@ -387,13 +382,10 @@ async function resolveQueueItems(
       if (row) tracks.push(trackToQueueTrack(row));
       continue;
     }
-    const row = matches[i];
-    if (row) {
-      tracks.push(trackToQueueTrack(row));
-    } else {
-      external++;
-      tracks.push(buildExternalQueueTrack(it.title, it.artistName, it));
-    }
+    const match = matches[i];
+    if (!match) continue;
+    if (!match.inLibrary) external++;
+    tracks.push(match.track);
   }
   // Only an id can fail to resolve, so an empty result means every entry was one.
   if (tracks.length === 0) bad("none of the given tracks resolved — no library track has any of those trackIds");
@@ -969,10 +961,7 @@ export function useControlApi(deps: ControlApiDeps) {
         if (isPlaying && current) {
           track = current;
         } else {
-          const row = await invoke<Track | null>("find_track_by_metadata", {
-            title: song.title, artistName: song.artistName, albumName: optionalString(payload.albumTitle) ?? null,
-          });
-          track = row ? trackToQueueTrack(row) : buildExternalQueueTrack(song.title, song.artistName);
+          track = (await playableByName(song.title, song.artistName, { albumTitle: optionalString(payload.albumTitle) ?? null })).track;
         }
         const activePlugins = d.plugins.pluginStates.filter((p) => p.status === "active");
         return await gatherCueContext({

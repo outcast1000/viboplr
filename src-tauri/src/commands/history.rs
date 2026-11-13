@@ -119,11 +119,6 @@ pub async fn get_history_most_played_artists_since(state: State<'_, AppState>, s
 
 
 #[tauri::command]
-pub async fn reconnect_history_track(state: State<'_, AppState>, history_track_id: i64) -> Result<Option<Track>, String> {
-    with_db(&state, move |db| db.reconnect_history_track(history_track_id)).await
-}
-
-#[tauri::command]
 pub async fn reconnect_history_artist(state: State<'_, AppState>, history_artist_id: i64) -> Result<Option<i64>, String> {
     with_db(&state, move |db| db.reconnect_history_artist(history_artist_id)).await
 }
