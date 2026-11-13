@@ -991,6 +991,35 @@ fn test_history_rows_carry_the_library_copys_path() {
     assert_eq!(g.display_path, None);
 }
 
+/// A play recorded with no artist (common for videos) matches a library
+/// VIDEO by title alone — the clip tagged after it was watched still finds it
+/// — but never an audio track: "Intro" with no artist must not become some
+/// other artist's "Intro". An artist-less library copy still matches exactly
+/// and beats a title-only one.
+#[test]
+fn test_history_artistless_play_matches_videos_by_title_only() {
+    let db = test_db();
+    let cid = test_collection(&db);
+    let artist = db.get_or_create_artist("Tagged Later").unwrap();
+    let video = db.upsert_track("clip.mp4", "Some Clip", Some(artist), None, None, Some(200.0), Some("mp4"), None, None, Some(cid), None).unwrap();
+    insert_track(&db, "intro.mp3", "Intro", Some(artist), None);
+    db.record_play_by_metadata("Some Clip", None).unwrap();
+    db.record_play_by_metadata("Intro", None).unwrap();
+
+    let recent = db.get_history_recent(10).unwrap();
+    let clip = recent.iter().find(|e| e.display_title == "Some Clip").expect("clip in history");
+    assert_eq!(clip.display_track_id, Some(video));
+    assert_eq!(clip.display_path.as_deref(), Some("file:///test/clip.mp4"));
+    let intro = recent.iter().find(|e| e.display_title == "Intro").expect("intro in history");
+    assert_eq!(intro.display_track_id, None, "audio never matches on title alone");
+
+    // An artist-less library copy is the exact match and wins over the tagged one.
+    let untagged = db.upsert_track("raw.webm", "Some Clip", None, None, None, Some(200.0), Some("webm"), None, None, Some(cid), None).unwrap();
+    let most = db.get_history_most_played_since(0, 10, 1).unwrap();
+    let r = most.iter().find(|r| r.display_title == "Some Clip").expect("in most played");
+    assert_eq!(r.display_track_id, Some(untagged));
+}
+
 #[test]
 fn test_collection_crud() {
     let db = test_db();
@@ -1097,85 +1126,29 @@ fn test_history_reconnect() {
     assert_eq!(recent[0].play_count, 1); // deduped within 30s, count unchanged
 }
 
+/// An artist row's fallback play list: that artist's history songs, most
+/// played first, each carrying its library copy when there is one.
 #[test]
-fn test_reconnect_history_track() {
+fn test_history_artist_tracks() {
     let db = test_db();
-    let artist_id = db.get_or_create_artist("Radiohead").unwrap();
-    let track_id = insert_track(&db, "music/creep.mp3", "Creep", Some(artist_id), None);
+    let artist = db.get_or_create_artist("Streamed Band").unwrap();
+    let owned = insert_track(&db, "owned.mp3", "Owned Song", Some(artist), None);
+    db.record_play(owned).unwrap();
+    db.record_history_plays_batch(&[
+        ("Streamed Band".into(), "Streamed Song".into(), 100),
+        ("Streamed Band".into(), "Streamed Song".into(), 200),
+    ]).unwrap();
+    db.record_play_by_metadata("Someone Else", Some("Other Band")).unwrap();
 
-    db.record_history_play(track_id).unwrap();
-    let recent = db.get_history_recent(10).unwrap();
-    let ht_id = recent[0].history_track_id;
-
-    // Delete track — becomes ghost
-    db.delete_tracks_by_ids(&[track_id]).unwrap();
-
-    // Re-add same song with different path
-    let artist_id2 = db.get_or_create_artist("Radiohead").unwrap();
-    let track_id2 = insert_track(&db, "new/creep.flac", "Creep", Some(artist_id2), None);
-
-    // Dynamic reconnection
-    let result = db.reconnect_history_track(ht_id).unwrap();
-    assert!(result.is_some());
-    assert_eq!(result.unwrap().id, track_id2);
-}
-
-#[test]
-fn test_reconnect_history_track_not_found() {
-    let db = test_db();
-    let artist_id = db.get_or_create_artist("Missing Artist").unwrap();
-    let track_id = insert_track(&db, "music/gone.mp3", "Gone Song", Some(artist_id), None);
-
-    db.record_history_play(track_id).unwrap();
-    let recent = db.get_history_recent(10).unwrap();
-    let ht_id = recent[0].history_track_id;
-
-    db.delete_tracks_by_ids(&[track_id]).unwrap();
-
-    // No matching track in library — should return None
-    let result = db.reconnect_history_track(ht_id).unwrap();
-    assert!(result.is_none());
-}
-
-#[test]
-fn test_reconnect_history_artist() {
-    let db = test_db();
-    let artist_id = db.get_or_create_artist("Portishead").unwrap();
-    let track_id = insert_track(&db, "music/glory.mp3", "Glory Box", Some(artist_id), None);
-
-    db.record_history_play(track_id).unwrap();
-
-    // Get history artist id
-    let artists = db.get_history_most_played_artists(10).unwrap();
-    let ha_id = artists[0].history_artist_id;
-
-    // Delete track (artist stays but history link breaks via ON DELETE SET NULL on track)
-    db.delete_tracks_by_ids(&[track_id]).unwrap();
-
-    // Reconnect artist — artist still exists in library
-    let result = db.reconnect_history_artist(ha_id).unwrap();
-    assert_eq!(result, Some(artist_id));
-}
-
-#[test]
-fn test_reconnect_history_artist_not_found() {
-    let db = test_db();
-    let artist_id = db.get_or_create_artist("Ephemeral Band").unwrap();
-    let track_id = insert_track(&db, "music/temp.mp3", "Temp Song", Some(artist_id), None);
-
-    db.record_history_play(track_id).unwrap();
-    let artists = db.get_history_most_played_artists(10).unwrap();
-    let ha_id = artists[0].history_artist_id;
-
-    // Delete track and artist
-    db.delete_tracks_by_ids(&[track_id]).unwrap();
-    {
-        let conn = db.conn.lock().unwrap();
-        conn.execute("DELETE FROM artists WHERE id = ?1", params![artist_id]).unwrap();
-    }
-
-    let result = db.reconnect_history_artist(ha_id).unwrap();
-    assert!(result.is_none());
+    let ha = db.get_history_most_played_artists(10).unwrap()
+        .into_iter().find(|a| a.display_name == "Streamed Band").expect("artist in history")
+        .history_artist_id;
+    let rows = db.history_artist_tracks(ha, 50).unwrap();
+    let titles: Vec<&str> = rows.iter().map(|r| r.display_title.as_str()).collect();
+    assert_eq!(titles, vec!["Streamed Song", "Owned Song"], "most played first, this artist only");
+    assert_eq!(rows[0].display_track_id, None, "a streamed song has no library copy");
+    assert_eq!(rows[1].display_track_id, Some(owned));
+    assert_eq!(db.history_artist_tracks(ha, 1).unwrap().len(), 1, "limit applies");
 }
 
 #[test]
@@ -4875,7 +4848,6 @@ fn test_history_reads_do_not_wait_for_an_open_write() {
     let reader_db = db.clone();
     std::thread::spawn(move || {
         let d = &reader_db;
-        let ht = d.get_history_most_played(10).unwrap()[0].history_track_id;
         let ha = d.get_history_most_played_artists(10).unwrap()[0].history_artist_id;
         let counts = vec![
             d.get_history_recent(10).unwrap().len() as i64,
@@ -4893,11 +4865,8 @@ fn test_history_reads_do_not_wait_for_an_open_write() {
             d.get_artist_rank("Artist").unwrap(),
             d.get_track_play_stats("Song", Some("Artist")).unwrap().map(|s| s.play_count),
         );
-        // No library rows, so both reconnects find nothing — but they answer.
-        let reconnects = (
-            d.reconnect_history_track(ht).unwrap().is_none(),
-            d.reconnect_history_artist(ha).unwrap().is_none(),
-        );
+        // An artist's songs answer too.
+        let reconnects = d.history_artist_tracks(ha, 10).unwrap().len() == 1;
         tx.send((counts, ranks, reconnects)).unwrap();
     });
     let (counts, ranks, reconnects) = rx
@@ -4905,7 +4874,7 @@ fn test_history_reads_do_not_wait_for_an_open_write() {
         .expect("a history read waited on the writer");
     assert_eq!(counts, vec![1; 9]);
     assert_eq!(ranks, (Some(1), Some(1), Some(1)));
-    assert_eq!(reconnects, (true, true));
+    assert!(reconnects);
 
     writer.execute_batch("COMMIT").unwrap();
 }

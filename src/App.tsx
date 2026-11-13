@@ -37,7 +37,7 @@ import { buildPluginOverflowItems } from "./utils/heroOverflow";
 import { applyReduceMotionAttr } from "./utils/reducedMotion";
 import { parseProbeCommand, isProbeProfile, buildProbeDump, type ProbeCommand } from "./utils/probeControl";
 import { parseAppLink, type AppLink } from "./utils/appLinks";
-import { buildExternalQueueTrack } from "./utils/externalTrack";
+import { playableByName } from "./utils/externalTrack";
 import type { NavigateTarget, UiAction, UiStateInput } from "./utils/uiControl";
 import type { UiContext, UiContextEntity } from "./utils/uiContext";
 import { useUiContext } from "./hooks/useUiContext";
@@ -3048,15 +3048,7 @@ function App() {
       await opened;
       return;
     }
-    const row = await invoke<Track | null>("find_track_by_metadata", {
-      title: link.title, artistName: link.artistName, albumName: link.albumTitle,
-    }).catch((e) => {
-      console.error("Failed to look up a played link's track in the library:", e);
-      return null;
-    });
-    const track = row
-      ? trackToQueueTrack(row)
-      : buildExternalQueueTrack(link.title, link.artistName, { albumTitle: link.albumTitle });
+    const { track } = await playableByName(link.title, link.artistName, { albumTitle: link.albumTitle });
     queueHook.insertNextAndPlay(track);
   });
 
