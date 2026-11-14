@@ -945,6 +945,85 @@ fn wait_polling(
     }
 }
 
+/// How one per-tile ffmpeg run ended (`extract_one_tile`).
+enum TileRun {
+    /// `file` holds the frame.
+    Written,
+    /// ffmpeg failed or wrote nothing — this spot is unreadable; the text is its stderr.
+    Unreadable(String),
+    /// Every caller walked away (the child, if one ran, was killed).
+    Abandoned,
+    /// `abort_for_path` stopped the pass.
+    Aborted,
+    /// Couldn't run ffmpeg at all.
+    Failed(String),
+}
+
+/// One short `-noaccurate_seek` ffmpeg for the frame at `at` seconds, written to
+/// `file`. Shared by the per-tile pass and the seek pass's repair of the tiles it
+/// left empty.
+fn extract_one_tile(
+    video_path: &Path,
+    at: f64,
+    scale: &str,
+    threads: &str,
+    file: &Path,
+    track_path: &str,
+    cancellable: bool,
+) -> TileRun {
+    if take_aborted(track_path) {
+        return TileRun::Aborted;
+    }
+    if cancellable && abandoned(track_path) {
+        return TileRun::Abandoned;
+    }
+    let at = format!("{:.4}", at);
+    let mut cmd = ffmpeg_command();
+    cmd.args([
+        "-hide_banner", "-loglevel", "error", "-y",
+        "-threads", threads,
+        // Land on the keyframe at or before `at` and take it as decoded —
+        // without this ffmpeg decodes on up to `at`, up to a whole GOP.
+        // The keyframe is also what the seek pass shows for this slot.
+        "-noaccurate_seek",
+        "-ss", &at,
+        "-i", &video_path.to_string_lossy(),
+        "-an",
+        "-frames:v", "1",
+        "-vf", scale,
+        "-c:v", "mjpeg", "-q:v", "5", "-pix_fmt", "yuvj420p",
+    ]);
+    cmd.arg(file);
+    let (child, stderr_handle) = match spawn_published(cmd, track_path) {
+        Ok(c) => c,
+        Err(e) => return TileRun::Failed(e),
+    };
+    let status = match wait_polling(&child, track_path, cancellable, || {}) {
+        Waited::Exited(status) => status,
+        Waited::Abandoned => {
+            // Killed mid-write: this tile's file can't be trusted.
+            let _ = std::fs::remove_file(file);
+            return TileRun::Abandoned;
+        }
+        Waited::Failed(e) => return TileRun::Failed(e),
+    };
+    let stderr_text = stderr_handle.join().unwrap_or_default();
+    if take_aborted(track_path) {
+        return TileRun::Aborted;
+    }
+    if !status.success() || !file.exists() {
+        return TileRun::Unreadable(stderr_text);
+    }
+    TileRun::Written
+}
+
+/// Slots in `1..=expected` with no frame file — the holes a seek pass left.
+fn missing_slots(dir: &Path, expected: usize) -> Vec<usize> {
+    (1..=expected)
+        .filter(|n| !dir.join(format!("{:03}.jpg", n)).exists())
+        .collect()
+}
+
 /// Generate the sheet for `video_path` and cache it. `duration_secs` comes from the
 /// caller (see `video_frames::get_video_duration`) so we don't probe twice.
 ///
@@ -1157,6 +1236,48 @@ fn generate(
                 discard_failed();
                 return Err(format!("ffmpeg storyboard generation failed: {}", stderr_text));
             }
+            // Re-seek every slot the pass left empty, one ffmpeg each. A hole is not
+            // always a spot with no frame: an H.264 stream whose keyframes are all
+            // recovery-point I-frames (no IDR — some re-encodes) never resets the
+            // decoder between the list's seeks, its picture order goes wrong after a
+            // few of them, and every later frame is dropped (33 of 36 on a 2 h file,
+            // which `fill_gaps` then painted as one frame repeated). A fresh process
+            // per seek starts a fresh decoder. Costs nothing when the pass was whole.
+            let holes = missing_slots(&fdir, remaining);
+            if !holes.is_empty() {
+                let mut recovered = 0usize;
+                for &n in &holes {
+                    let tile = start_tile + n - 1;
+                    let file = fdir.join(format!("{:03}.jpg", n));
+                    match extract_one_tile(
+                        video_path, tile_time(&g, duration_secs, tile), &scale, &threads,
+                        &file, track_path, cancellable,
+                    ) {
+                        TileRun::Written => {
+                            recovered += 1;
+                            on_partial(start_tile, &completed_frames(&fdir, true));
+                        }
+                        // Left a hole: `fill_gaps` repeats a neighbour into it.
+                        TileRun::Unreadable(err) => log::debug!(
+                            "Storyboard for {}: tile {} unreadable on re-seek: {}",
+                            video_path.display(), tile, err.trim()
+                        ),
+                        TileRun::Abandoned => return cancelled(tile_frames(&fdir, true, start_tile)),
+                        TileRun::Aborted => {
+                            discard_failed();
+                            return Err(ABORTED.to_string());
+                        }
+                        TileRun::Failed(e) => {
+                            discard_failed();
+                            return Err(e);
+                        }
+                    }
+                }
+                log::info!(
+                    "Storyboard for {}: seek pass left {} of {} tile(s) empty, re-seeked {} one at a time",
+                    video_path.display(), holes.len(), remaining, recovered
+                );
+            }
             match fill_gaps(&fdir, remaining) {
                 Ok(true) => log::debug!(
                     "Storyboard for {}: some spots yielded no frame, repeating neighbours",
@@ -1171,74 +1292,41 @@ fn generate(
         }
         PassMode::SeekPerTile => {
             for (n, tile) in (start_tile..g.count).enumerate() {
-                if take_aborted(track_path) {
-                    discard_failed();
-                    return Err(ABORTED.to_string());
-                }
-                if cancellable && abandoned(track_path) {
-                    return cancelled(tile_frames(&fdir, true, start_tile));
-                }
                 // Same %03d numbering the seek pass's image2 muxer uses, so
                 // `tile_frames` and the progress events read both alike.
                 let file = fdir.join(format!("{:03}.jpg", n + 1));
-                let at = format!("{:.4}", tile_time(&g, duration_secs, tile));
-                let mut cmd = ffmpeg_command();
-                cmd.args([
-                    "-hide_banner", "-loglevel", "error", "-y",
-                    "-threads", &threads,
-                    // Land on the keyframe at or before `at` and take it as decoded —
-                    // without this ffmpeg decodes on up to `at`, up to a whole GOP.
-                    // The keyframe is also what the seek pass shows for this slot.
-                    "-noaccurate_seek",
-                    "-ss", &at,
-                    "-i", &video_path.to_string_lossy(),
-                    "-an",
-                    "-frames:v", "1",
-                    "-vf", &scale,
-                    "-c:v", "mjpeg", "-q:v", "5", "-pix_fmt", "yuvj420p",
-                ]);
-                cmd.arg(&file);
-                let (child, stderr_handle) = match spawn_published(cmd, track_path) {
-                    Ok(c) => c,
-                    Err(e) => {
+                match extract_one_tile(
+                    video_path, tile_time(&g, duration_secs, tile), &scale, &threads,
+                    &file, track_path, cancellable,
+                ) {
+                    TileRun::Written => {}
+                    TileRun::Unreadable(stderr_text) => {
+                        // One unreadable spot (a damaged GOP, a seek past the last
+                        // keyframe) repeats the previous tile, as a slot between keyframes
+                        // does in the seek pass. With nothing before it in this run,
+                        // the failure is the source's, not the spot's.
+                        let prev = (n > 0).then(|| fdir.join(format!("{:03}.jpg", n)));
+                        match prev {
+                            Some(prev) if std::fs::copy(&prev, &file).is_ok() => {
+                                log::debug!(
+                                    "Storyboard for {}: tile {} unreadable, repeating tile {}: {}",
+                                    video_path.display(), tile, tile - 1, stderr_text.trim()
+                                );
+                            }
+                            _ => {
+                                discard_failed();
+                                return Err(format!("ffmpeg storyboard generation failed: {}", stderr_text));
+                            }
+                        }
+                    }
+                    TileRun::Abandoned => return cancelled(tile_frames(&fdir, true, start_tile)),
+                    TileRun::Aborted => {
+                        discard_failed();
+                        return Err(ABORTED.to_string());
+                    }
+                    TileRun::Failed(e) => {
                         discard_failed();
                         return Err(e);
-                    }
-                };
-                let status = match wait_polling(&child, track_path, cancellable, || {}) {
-                    Waited::Exited(status) => status,
-                    Waited::Abandoned => {
-                        // Killed mid-write: this tile's file can't be trusted.
-                        let _ = std::fs::remove_file(&file);
-                        return cancelled(tile_frames(&fdir, true, start_tile));
-                    }
-                    Waited::Failed(e) => {
-                        discard_failed();
-                        return Err(e);
-                    }
-                };
-                let stderr_text = stderr_handle.join().unwrap_or_default();
-                if take_aborted(track_path) {
-                    discard_failed();
-                    return Err(ABORTED.to_string());
-                }
-                if !status.success() || !file.exists() {
-                    // One unreadable spot (a damaged GOP, a seek past the last
-                    // keyframe) repeats the previous tile, as a slot between keyframes
-                    // does in the seek pass. With nothing before it in this run,
-                    // the failure is the source's, not the spot's.
-                    let prev = (n > 0).then(|| fdir.join(format!("{:03}.jpg", n)));
-                    match prev {
-                        Some(prev) if std::fs::copy(&prev, &file).is_ok() => {
-                            log::debug!(
-                                "Storyboard for {}: tile {} unreadable, repeating tile {}: {}",
-                                video_path.display(), tile, tile - 1, stderr_text.trim()
-                            );
-                        }
-                        _ => {
-                            discard_failed();
-                            return Err(format!("ffmpeg storyboard generation failed: {}", stderr_text));
-                        }
                     }
                 }
                 // Every file on disk is complete between children.
@@ -1515,6 +1603,16 @@ mod tests {
     fn test_fill_gaps_with_no_frames_is_an_error() {
         let dir = tempfile::tempdir().unwrap();
         assert!(fill_gaps(dir.path(), 3).is_err());
+    }
+
+    #[test]
+    fn test_missing_slots_lists_every_hole_not_just_the_first() {
+        let dir = tempfile::tempdir().unwrap();
+        for n in [1, 2, 5] {
+            std::fs::write(dir.path().join(format!("{:03}.jpg", n)), b"x").unwrap();
+        }
+        assert_eq!(missing_slots(dir.path(), 6), vec![3, 4, 6]);
+        assert!(missing_slots(dir.path(), 2).is_empty());
     }
 
     #[test]
@@ -2552,7 +2650,11 @@ mod tests {
     }
 
     /// Times a real pass, mode chosen as the app chooses it, on
-    /// `VIBOPLR_STORYBOARD=<video file>`. `#[ignore]`d; reports, asserts only success.
+    /// `VIBOPLR_STORYBOARD=<video file>`, and counts the distinct tiles. `#[ignore]`d;
+    /// asserts success and that most tiles differ — the check for an H.264 file with
+    /// no IDR frames (every keyframe a recovery-point I-frame), on which the one-run
+    /// seek pass decoded 3 of 36 tiles and the sheet showed the third 34 times.
+    /// Synthetic x264 open-GOP clips don't reproduce that, so it needs the real file.
     #[test]
     #[ignore]
     fn probe_storyboard_real_file() {
@@ -2567,10 +2669,17 @@ mod tests {
         let mode = probe_pass_mode(&f);
         let started = std::time::Instant::now();
         let b = generate_with_progress(dir.path(), &track_path, &f, dur, None, |_, _| {}).expect("generate");
+        let sheet = image::open(&b.sheets[0]).expect("sheet").to_rgb8();
+        let mut seen = std::collections::HashSet::new();
+        for i in 0..b.count {
+            let (x, y) = ((i % b.cols) as u32 * b.tile_w, (i / b.cols) as u32 * b.tile_h);
+            seen.insert(image::imageops::crop_imm(&sheet, x, y, b.tile_w, b.tile_h).to_image().into_raw());
+        }
         eprintln!(
-            "[storyboard-probe] {:?}: {} tiles in {:?} ({:.0}s of video)",
-            mode, b.count, started.elapsed(), dur
+            "[storyboard-probe] {:?}: {} tiles ({} distinct) in {:?} ({:.0}s of video)",
+            mode, b.count, seen.len(), started.elapsed(), dur
         );
+        assert!(seen.len() * 2 > b.count, "most tiles are copies of each other");
     }
 
     /// A per-tile pass runs many children, and one killed by `abort_for_path` looks
